@@ -41,6 +41,7 @@ async def async_setup_entry(
     )
     for asset in cfg["assets"]:
         entities.append(_LogicalEvidenceSensor("asset", asset, runtime, "soc"))
+        entities.append(_LogicalEvidenceSensor("asset", asset, runtime, "power"))
         entities.append(_AssetIntentSensor(asset, runtime))
     for charger in cfg["chargers"]:
         entities.append(_LogicalEvidenceSensor("charger", charger, runtime, "power"))
@@ -244,8 +245,15 @@ class _LogicalEvidenceSensor(_NativeMultiChargeSensor):
         if self.kind == "asset":
             observation = self.runtime.observations.get("assets", {}).get(
                 self.data["id"], {}
-            ).get("soc")
-            source_name = self.data.get("soc_entity")
+            ).get("effective_power_kw" if self.property_name == "power" else "soc")
+            if self.property_name == "power":
+                charger = next(
+                    (c for c in self.runtime.configuration["chargers"]
+                     if c.get("asset") == self.data["id"]), None
+                )
+                source_name = charger.get("power_entity") if charger else None
+            else:
+                source_name = self.data.get("soc_entity")
         elif self.kind == "charger":
             readings = self.runtime.observations.get("chargers", {}).get(
                 self.data["id"], {}
@@ -274,6 +282,15 @@ class _LogicalEvidenceSensor(_NativeMultiChargeSensor):
                 if observation is not None and observation.observed_at else None
             ),
             "source_entity_id": source_name,
+            **({
+                "measurement_point": "charger_input",
+                "attribution": (
+                    "confirmed_active_session" if self.kind == "asset"
+                    and observation is not None and observation.quality == "ok"
+                    else "unconfirmed" if self.kind == "asset"
+                    else "physical_charger_source"
+                ),
+            } if self.property_name == "power" else {}),
         }
 
 

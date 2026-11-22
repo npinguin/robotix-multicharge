@@ -15,7 +15,7 @@ from .contracts import ChargeDemand, PowerEnvelope
 from .configuration import configuration_revision, PLAN_COLORS
 from .domain import ChargeController, Charger
 from .planner import compile_plan, resolve_recurring_ready_by
-from .source_evidence import binding, connection, intervals, number
+from .source_evidence import Evidence, binding, connection, intervals, number
 from .execution import NativeSwitchExecutor
 
 _LOGGER = logging.getLogger(__name__)
@@ -243,6 +243,36 @@ class MultiChargeRuntime:
                 }
             else:
                 demands.append(request)
+        # Asset power reuses the Charger observation. A selected Vehicle alone
+        # never proves the identity of an actively charging battery.
+        sessions = self.executor.session_snapshot()
+        for asset in cfg["assets"]:
+            uid = asset["id"]
+            assigned = next(
+                (c for c in cfg["chargers"] if c.get("asset") == uid), None
+            )
+            readings = self.observations["assets"][uid]
+            readings["power_charger_id"] = assigned["id"] if assigned else None
+            power = Evidence(None, "unknown", None, "CHARGER_NOT_ASSIGNED")
+            if assigned is not None:
+                observed = self.observations["chargers"].get(assigned["id"], {})
+                cable, source_power = observed.get("connected"), observed.get("power_kw")
+                session = sessions.get(assigned["id"])
+                if cable is None or cable.quality != "ok" or cable.value is not True:
+                    power = Evidence(None, "unknown",
+                                     cable.observed_at if cable else None,
+                                     "CONNECTION_UNCONFIRMED")
+                elif not session or session.get("asset_id") != uid:
+                    power = Evidence(None, "unknown", None,
+                                     "CHARGING_SESSION_UNCONFIRMED")
+                elif source_power is None or source_power.quality != "ok":
+                    power = Evidence(None, source_power.quality if source_power else "unknown",
+                                     source_power.observed_at if source_power else None,
+                                     source_power.reason if source_power else
+                                     "POWER_SOURCE_UNAVAILABLE")
+                else:
+                    power = source_power
+            readings["effective_power_kw"] = power
         tariff, tariff_quality = intervals(
             self.hass, setting.get("price_entity"), "price", at
         )
@@ -557,7 +587,11 @@ class MultiChargeRuntime:
             "configuration": self.configuration,
             "observations": {
                 "assets": {
-                    uid: {"soc": _evidence(readings.get("soc"))}
+                    uid: {
+                        "soc": _evidence(readings.get("soc")),
+                        "effective_power_kw": _evidence(readings.get("effective_power_kw")),
+                        "power_charger_id": readings.get("power_charger_id"),
+                    }
                     for uid, readings in self.observations.get("assets", {}).items()
                 },
                 "chargers": {

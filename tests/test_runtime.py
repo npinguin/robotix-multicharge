@@ -188,6 +188,53 @@ class RuntimeTests(unittest.TestCase):
         )
         self.assertFalse(rt.summary()["physical_actuation_authorized"])
 
+    def test_asset_charging_power_requires_live_confirmed_assignment(self):
+        cfg = sample()
+        data = {
+            "sensor.soc": state("50", "%"),
+            "sensor.power": state("2300", "W"),
+            "binary_sensor.cable": state("on"),
+        }
+        rt = MultiChargeRuntime(
+            SimpleNamespace(states=SimpleNamespace(get=data.get)), cfg
+        )
+        rt.refresh(NOW)
+        self.assertIsNone(
+            rt.observations["assets"]["car"]["effective_power_kw"].value
+        )
+        self.assertEqual(
+            rt.observations["chargers"]["drive"]["power_kw"].value, 2.3
+        )
+        rt.executor._sessions["drive"] = {
+            "asset_id": "car", "started_at": NOW
+        }
+        rt.refresh(NOW)
+        reading = rt.observations["assets"]["car"]["effective_power_kw"]
+        self.assertEqual(reading.value, 2.3)
+        self.assertIs(reading, rt.observations["chargers"]["drive"]["power_kw"])
+        view = rt.read_plan(NOW, NOW + timedelta(hours=1))
+        self.assertEqual(
+            view["observations"]["assets"]["car"]["effective_power_kw"]["value"],
+            2.3
+        )
+        data["binary_sensor.cable"].state = "off"
+        rt.refresh(NOW)
+        self.assertIsNone(
+            rt.observations["assets"]["car"]["effective_power_kw"].value
+        )
+        data["binary_sensor.cable"].state = "on"
+        data["sensor.power"].state = "unavailable"
+        rt.refresh(NOW)
+        self.assertIsNone(
+            rt.observations["assets"]["car"]["effective_power_kw"].value
+        )
+        data["sensor.power"].state = "0"
+        rt.executor._sessions["drive"]["asset_id"] = "other"
+        rt.refresh(NOW)
+        self.assertIsNone(
+            rt.observations["assets"]["car"]["effective_power_kw"].value
+        )
+
     def test_unassigned_asset_still_exposes_source_observation(self):
         cfg = sample()
         cfg["assets"].append({
