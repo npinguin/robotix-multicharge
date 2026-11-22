@@ -447,6 +447,7 @@ def is_plan_presentation_only_change(before, after):
     """Allow card display settings without unloading any active physical writer."""
     if before == after:
         return False
+
     def without_visual(cfg):
         rest = deepcopy(cfg)
         for row in (*rest["assets"], *rest["chargers"]):

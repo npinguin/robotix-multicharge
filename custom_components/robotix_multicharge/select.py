@@ -53,6 +53,8 @@ class _OwnedSelect(SelectEntity):
         self._attr_translation_key = (
             "selected_vehicle" if field == "asset" else field
         )
+        if field == "mode":
+            self._attr_entity_category = None
         self._attr_device_info = {
             "identifiers": {(DOMAIN, f"{kind}/{self.uid}")},
             "name": data["name"],
@@ -89,15 +91,15 @@ class _OwnedSelect(SelectEntity):
             return ["none", "daily", "weekly"]
         # The selected Charger owns the ONLY editable assignment relationship.
         # User-facing select options are names, not opaque vehicle IDs.
-        names = ["none"]
-        seen = set(names)
-        for asset in self.runtime.configuration["assets"]:
-            display = asset["name"]
-            if display in seen:
-                display = f"{display} ({asset['id']})"
-            names.append(display)
-            seen.add(display)
-        return names
+        assets = self.runtime.configuration["assets"]
+        duplicates = {
+            row["name"] for row in assets
+            if sum(other["name"] == row["name"] for other in assets) > 1
+        }
+        return ["none"] + [
+            f"{row['name']} ({row['id']})" if row["name"] in duplicates
+            else row["name"] for row in assets
+        ]
 
     def _refresh_value(self):
         self._attr_options = self._options()
@@ -105,13 +107,20 @@ class _OwnedSelect(SelectEntity):
         if current is None:
             self._attr_current_option = None
         elif self.field == "asset":
+            assets = self.runtime.configuration["assets"]
             selected = next((
-                row["name"] for row in self.runtime.configuration["assets"]
-                if row["id"] == current.get("asset")
-            ), "none")
-            self._attr_current_option = (
-                selected if selected in self._attr_options else "none"
-            )
+                row for row in assets if row["id"] == current.get("asset")
+            ), None)
+            if selected is None:
+                self._attr_current_option = "none"
+            else:
+                duplicates = sum(
+                    a["name"] == selected["name"] for a in assets
+                ) > 1
+                self._attr_current_option = (
+                    f"{selected['name']} ({selected['id']})" if duplicates
+                    else selected["name"]
+                )
         elif self.field == "mode":
             self._attr_current_option = next((
                 name for name, source in MODES.items()
@@ -145,10 +154,12 @@ class _OwnedSelect(SelectEntity):
         if option not in self._options():
             raise ValueError("unsupported_choice")
         if self.field == "asset":
+            assets = self.runtime.configuration["assets"]
             selected = None if option == "none" else next((
-                row["id"] for row in self.runtime.configuration["assets"]
-                if row["name"] == option
-                or f"{row['name']} ({row['id']})" == option
+                row["id"] for row in assets
+                if (f"{row['name']} ({row['id']})" if sum(
+                    a["name"] == row["name"] for a in assets
+                ) > 1 else row["name"]) == option
             ), None)
             if option != "none" and selected is None:
                 raise ValueError("unknown_vehicle")

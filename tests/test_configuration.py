@@ -90,6 +90,15 @@ class ConfigurationTests(unittest.TestCase):
             apply_settings_change(updated, "controller", "home",
                                   {"plan_color": "blue"})
 
+    def test_missing_energy_target_is_not_equivalent_to_zero(self):
+        cfg = default_configuration()
+        cfg["assets"] = [{"id": "car", "name": "Car", "kind": "car"}]
+        result = validate_configuration(cfg)
+        self.assertNotIn("requested_kwh", result["assets"][0])
+        self.assertNotIn("target_soc", result["assets"][0])
+        self.assertNotIn("requested_duration_minutes", result["assets"][0])
+        self.assertEqual(result["assets"][0]["plan_color"], "blue")
+
     def test_default_is_valid(self):
         self.assertEqual(validate_configuration(default_configuration())["controller"]["id"], "home")
 

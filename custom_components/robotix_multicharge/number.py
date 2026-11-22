@@ -61,8 +61,10 @@ class _AssetNumber(NumberEntity):
         asset = next((a for a in self.runtime.configuration["assets"]
                       if a["id"] == self.uid), None)
         self._attr_native_value = (
-            asset.get(self.field, 0) if asset is not None else None
+            asset.get(self.field) if asset is not None else None
         )
+        if self.field == "priority" and asset is not None:
+            self._attr_native_value = asset.get("priority", 0)
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
