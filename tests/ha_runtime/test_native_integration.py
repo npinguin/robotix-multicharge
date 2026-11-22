@@ -28,6 +28,33 @@ from custom_components.robotix_multicharge.diagnostics import async_get_config_e
 
 
 @pytest.mark.asyncio
+async def test_native_pause_resume_never_bypass_admin_authorization():
+    """Admin-only native buttons may not turn a resident into a charger owner."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from custom_components.robotix_multicharge.button import (
+        _AdminChargeActionButton,
+    )
+
+    fake = SimpleNamespace(
+        context=SimpleNamespace(user_id="resident"),
+        hass=SimpleNamespace(auth=SimpleNamespace(
+            async_get_user=AsyncMock(
+                return_value=SimpleNamespace(is_admin=False)
+            )
+        )),
+    )
+    with pytest.raises(RuntimeError, match="administrator"):
+        await _AdminChargeActionButton._require_admin_context(fake)
+    fake.context.user_id = None
+    with pytest.raises(RuntimeError, match="administrator"):
+        await _AdminChargeActionButton._require_admin_context(fake)
+    fake.context.user_id = "admin"
+    fake.hass.auth.async_get_user.return_value = SimpleNamespace(is_admin=True)
+    await _AdminChargeActionButton._require_admin_context(fake)
+
+
+@pytest.mark.asyncio
 async def test_native_setup_registry_diagnostics_and_unload(hass: HomeAssistant):
     # Real copied custom integration under a standard HA config path.
     source = (Path(__file__).resolve().parents[2] / "custom_components" /
