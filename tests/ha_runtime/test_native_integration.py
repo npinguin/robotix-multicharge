@@ -14,6 +14,7 @@ import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant import config_entries
+from homeassistant.components import frontend
 from homeassistant.helpers import device_registry as dr
 from homeassistant.setup import async_setup_component
 from homeassistant.util import yaml as yaml_util
@@ -62,6 +63,9 @@ async def test_native_setup_registry_diagnostics_and_unload(hass: HomeAssistant)
     assert await async_setup_component(hass, DOMAIN, {})
     await hass.async_block_till_done()
     assert entry.state.value == "loaded"
+    assert frontend.async_panel_exists(hass, "robotix-multicharge"), (
+        "Native MultiCharge sidebar missing from real Home Assistant panel registry"
+    )
     devices = dr.async_get(hass)
     for kind, uid in (("controller", "site"), ("charger", "charger"),
                       ("asset", "asset")):
@@ -77,6 +81,7 @@ async def test_native_setup_registry_diagnostics_and_unload(hass: HomeAssistant)
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
     assert entry.entry_id not in hass.data.get(DOMAIN, {})
+    assert not frontend.async_panel_exists(hass, "robotix-multicharge")
 
 
 @pytest.mark.asyncio
@@ -239,6 +244,9 @@ async def test_expert_json_include_skips_wizard_and_reuses_entry(hass: HomeAssis
     assert entry.state.value == "loaded"
     assert entry.data["source"] == "json"
     assert entry.data["configuration"] == normalize_expert_json(expert)
+    assert frontend.async_panel_exists(hass, "robotix-multicharge"), (
+        "Direct JSON expert import must also create resident sidebar dashboard"
+    )
     assert entry.data["configuration"]["controller"]["mode"] == "Off"
     assert entry.data["configuration"]["chargers"][0]["control_owner"] == "external"
     assert entry.data["configuration"]["assets"][0]["vehicle_current_entity"] == (
