@@ -242,6 +242,53 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertFalse(services.calls)
 
+    async def test_mode_off_physically_stops_a_qualified_active_switch(self):
+        rt, states, services = rig(mode="Off")
+        states["switch.evse_control"].state = "on"
+        states["sensor.actual_power"].state = "1600"
+        await rt.executor.supervise()
+        self.assertEqual([c[1] for c in services.calls], ["turn_off"])
+        self.assertEqual(rt.executor.snapshot()["evse"]["status"], "confirmed")
+        self.assertEqual(states["sensor.actual_power"].state, "0")
+
+    async def test_active_charger_with_healthy_limits_does_not_get_stopped(self):
+        rt, states, services = rig(mode="Force Charge")
+        states["switch.evse_control"].state = "on"
+        states["sensor.actual_power"].state = "1600"
+        await rt.executor.supervise()
+        self.assertEqual(services.calls, [])
+
+    async def test_missing_binding_forces_real_stop_not_unlimited_fallback(self):
+        rt, states, services = rig(mode="Force Charge")
+        rt.configuration["controller"]["binding_entity"] = "sensor.expired"
+        states["switch.evse_control"].state = "on"
+        states["sensor.actual_power"].state = "1600"
+        await rt.executor.supervise()
+        self.assertEqual([x[1] for x in services.calls], ["turn_off"])
+        self.assertEqual(rt.executor.snapshot()["evse"]["status"], "confirmed")
+
+    async def test_protective_site_limit_includes_external_charger(self):
+        rt, states, services = rig(mode="Force Charge", group_kw=3.0)
+        rt.configuration["chargers"].append({
+            "id": "other", "name": "External", "kind": "on_off",
+            "rated_power_kw": 2.0, "power_entity": "sensor.other",
+            "control_entity": "switch.other", "control_owner": "external",
+        })
+        states["switch.other"] = state("on")
+        states["sensor.other"] = state(1500, "W")
+        states["switch.evse_control"].state = "on"
+        states["sensor.actual_power"].state = "1600"
+        await rt.executor.supervise()
+        self.assertEqual([x[1] for x in services.calls], ["turn_off"])
+        self.assertEqual(rt.executor.snapshot()["evse"]["status"], "confirmed")
+
+    async def test_no_protective_action_for_externally_owned_charger(self):
+        rt, states, services = rig(owner="external", commissioned=False, mode="Off")
+        states["switch.evse_control"].state = "on"
+        states["sensor.actual_power"].state = "1600"
+        await rt.executor.supervise()
+        self.assertEqual(services.calls, [])
+
     async def test_unload_never_allows_new_commands(self):
         rt, _, services = rig()
         rt.stop()
