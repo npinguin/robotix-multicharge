@@ -411,7 +411,24 @@ class NativeSwitchExecutor:
         if status == "execution_unknown":
             self._quarantine.add(uid)
         if status == "confirmed" and action in ("stop", "pause"):
+            # A stopped, physically confirmed and attributable session is
+            # reconciled before a future planned session may resume. An
+            # unknown meter delta keeps the earlier in-flight safety hold.
+            session = self._sessions.get(uid)
             self._archive_session(uid, observed_at, reason)
+            if session is not None and session.get("asset_id") is not None:
+                receipt = self._session_history[-1] if self._session_history else None
+                asset = next((
+                    a for a in self.runtime.configuration["assets"]
+                    if a["id"] == session["asset_id"]
+                ), None)
+                if (receipt is not None and asset is not None
+                        and receipt["charger_id"] == uid
+                        and receipt.get("intent_key") == session.get("intent_key")
+                        and receipt.get("physical_stop_confirmed") is True
+                        and (asset.get("requested_kwh") is None
+                             or receipt.get("actual_energy_kwh") is not None)):
+                    self._inflight.pop(session["asset_id"], None)
             self._quarantine.discard(uid)
             self._sessions.pop(uid, None)
             self._accepted.pop(uid, None)
