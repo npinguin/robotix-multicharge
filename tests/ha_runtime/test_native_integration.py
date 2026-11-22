@@ -165,10 +165,14 @@ async def test_minimal_native_setup_then_yaml_takes_over_same_entry(hass: HomeAs
             "name": "Wessels Expert",
         },
     })
+    # Reproduce the next boot after Home Assistant has loaded the YAML
+    # package: the imported source must be present before an entry can run.
+    hass.data[f"{DOMAIN}_yaml_present"] = True
     hass.config_entries.async_update_entry(
         entry, options={"configuration": entry.data["configuration"],
                         "enable_ux": True}
     )
+    await hass.async_block_till_done()
     migrated = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_IMPORT},
         data=yaml_config,
@@ -182,3 +186,4 @@ async def test_minimal_native_setup_then_yaml_takes_over_same_entry(hass: HomeAs
     assert "configuration" not in entry.options
     assert entry.options["enable_ux"] is True
     assert len(hass.config_entries.async_entries(DOMAIN)) == 1
+    assert entry.state.value == "loaded"
