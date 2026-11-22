@@ -220,6 +220,18 @@ async function main(){
     assert.ok(content(card.shadowRoot).includes(name),name);
   }
   assert.ok(find(card.shadowRoot,"a"),"Settings open real HA integration configuration");
+  assert.ok(content(card.shadowRoot).includes("Expert YAML / JSON configuration"),
+    "Settings summary exposes real expert configuration instead of a fake editor");
+  card._settingsOpen="Advanced & YAML";card.render();
+  assert.ok(content(card.shadowRoot).includes("/config/packages/multicharge.yaml"),
+    "Advanced configuration explains a real HA package path");
+  assert.ok(content(card.shadowRoot).includes("!include_dir_named packages"),
+    "Advanced configuration shows exact HA include syntax");
+  card._settingsOpen="";card.render();
+  const settingsGrids=[];
+  visit(card.shadowRoot,x=>{if(x.className==="settings-grid")settingsGrids.push(x);});
+  assert.equal(settingsGrids.length,1,
+    "Settings use one compact responsive grid, not six full-width accordions");
   assert.ok(find(card.shadowRoot,"button","Details"),
             "Settings groups disclose details instead of an inert edit action");
   card.dispatchEvent=event=>{card._lastMoreInfo=event;return true;};
