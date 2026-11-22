@@ -9,6 +9,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from homeassistant.core import callback
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.event import (
     async_track_time_interval, async_track_state_change_event,
     async_track_time_change,
@@ -67,6 +68,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.error("MultiCharge configuration rejected: %s", exc)
         return False
     runtime = MultiChargeRuntime(hass, cfg)
+    store = Store(hass, 1, f"{DOMAIN}_{entry.entry_id}_control")
+    try:
+        saved = await store.async_load()
+    except (OSError, ValueError, RuntimeError):
+        _LOGGER.exception("Cannot read stored MultiCharge control state; START disabled")
+        saved = {"schema_major": -1}
+    runtime.attach_control_store(store, saved)
     runtime.refresh()
 
     pending = None

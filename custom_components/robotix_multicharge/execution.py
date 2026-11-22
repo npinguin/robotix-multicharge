@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from hashlib import sha256
+from json import dumps
 from math import isfinite
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
@@ -39,6 +41,78 @@ class NativeSwitchExecutor:
         self._grants = {}
         self._last_advance = None
         self._completed = {}
+        self._inflight = {}
+        self._persistence_verified = True
+
+
+    def _intent_key(self, asset, charger, occurrence):
+        """Stable one-intent fingerprint; mutable SoC readings are never identity."""
+        data = {
+            "asset": asset["id"], "charger": charger["id"],
+            "requested_kwh": asset.get("requested_kwh"),
+            "duration": asset.get("requested_duration_minutes"),
+            "target_soc": asset.get("target_soc"),
+            "soc_source": asset.get("soc_entity"),
+            "capacity": asset.get("capacity_kwh"),
+            "efficiency": asset.get("charge_efficiency"),
+            "ready_by": asset.get("ready_by"),
+            "repeat": asset.get("ready_by_repeat", "none"),
+            "occurrence": occurrence.isoformat() if isinstance(
+                occurrence, datetime
+            ) else occurrence,
+        }
+        return sha256(dumps(data, sort_keys=True).encode()).hexdigest()
+
+    def intent_completed(self, asset, charger, deadline):
+        key = self._intent_key(asset, charger, deadline)
+        return self._completed.get(asset["id"]) == key
+
+    def restore_state(self, snapshot):
+        """Restore decision evidence only; NEVER restore physical ownership."""
+        if snapshot is None:
+            return
+        try:
+            if not isinstance(snapshot, dict) or snapshot.get("schema_major") != 1:
+                raise ValueError("invalid persisted control schema")
+            completed = snapshot["completed"]
+            inflight = snapshot["inflight"]
+            rows = snapshot["accepted"]
+            if not isinstance(completed, dict) or not isinstance(inflight, dict):
+                raise ValueError("invalid persisted intents")
+            if not isinstance(rows, list) or len(rows) > 2000:
+                raise ValueError("invalid accepted history")
+            if not all(isinstance(k, str) and isinstance(x, str)
+                       for d in (completed, inflight) for k, x in d.items()):
+                raise ValueError("invalid intent fingerprints")
+            history = {}
+            for row in rows:
+                start = datetime.fromisoformat(row["start"])
+                end = datetime.fromisoformat(row["end"])
+                if start.tzinfo is None or end.tzinfo is None or end <= start:
+                    raise ValueError("invalid accepted slot")
+                if row["status"] != "accepted" or not isinstance(row["charger_id"], str):
+                    raise ValueError("invalid accepted outcome")
+                record = {**row, "start": start, "end": end}
+                history[(record["charger_id"], start)] = record
+            self._completed = dict(completed)
+            self._inflight = dict(inflight)
+            self._accepted_history = history
+        except (ValueError, KeyError, TypeError, OverflowError):
+            self._persistence_verified = False
+            _LOGGER.error("Invalid charging control state: physical START held")
+
+    def export_state(self):
+        """Small native HA control receipt; never a competing meter history."""
+        return {
+            "schema_major": 1,
+            "completed": dict(self._completed),
+            "inflight": dict(self._inflight),
+            "accepted": [
+                {**record, "start": record["start"].isoformat(),
+                 "end": record["end"].isoformat()}
+                for record in self.accepted_slots().values()
+            ],
+        }
 
     def detach(self):
         """Do not replay commands on unload or a restarted runtime."""
@@ -73,6 +147,8 @@ class NativeSwitchExecutor:
             uid = charger["id"]
             if self._stopped:
                 reason = "INTEGRATION_UNLOADED"
+            elif not self._persistence_verified:
+                reason = "CONTROL_STATE_UNVERIFIED"
             elif charger.get("kind") not in ("on_off", "variable_current"):
                 reason = "CHARGER_CONTROL_UNSUPPORTED"
             elif not str(charger.get("control_entity", "")).startswith("switch."):
@@ -144,6 +220,8 @@ class NativeSwitchExecutor:
     def _admit_start(self, charger, at, *, planned=False, target_current=None):
         cfg = self.runtime.configuration
         ctl = cfg["controller"]
+        if not self._persistence_verified:
+            return "CONTROL_STATE_UNVERIFIED"
         if not planned and ctl.get("mode") != "Force Charge":
             return "MANUAL_START_REQUIRES_FORCE_CHARGE"
         if planned and ctl.get("mode") not in (
@@ -486,7 +564,8 @@ class NativeSwitchExecutor:
         accepted command without an independent current-session authority.
         """
         mode = self.runtime.configuration["controller"]["mode"]
-        if self._stopped or mode not in ("Automatic", "Economy", "Solar", "Ready By"):
+        if (self._stopped or not self._persistence_verified
+                or mode not in ("Automatic", "Economy", "Solar", "Ready By")):
             return
         if self._last_advance == quarter_start:
             return
@@ -538,29 +617,40 @@ class NativeSwitchExecutor:
                               if a["id"] == slot.asset_uid), None)
                 if asset is None:
                     continue
-                # An explicit fixed demand completed in this runtime cannot be
-                # silently restarted next quarter. Repeated Ready By intentions
-                # are keyed by the resolved actual deadline occurrence.
-                resolved = None
-                if asset.get("ready_by"):
-                    resolved = asset["ready_by"]
-                    if asset.get("ready_by_repeat", "none") != "none":
-                        due, reason = resolve_recurring_ready_by(
-                            datetime.fromisoformat(resolved), quarter_start,
-                            asset["ready_by_repeat"],
-                            self.runtime.hass.config.time_zone,
-                        )
-                        if due is None:
-                            continue
-                        resolved = due.isoformat()
-                if (asset["id"] in self._completed
-                        and self._completed[asset["id"]] == resolved):
+                deadline = datetime.fromisoformat(asset["ready_by"]) if (
+                    asset.get("ready_by")
+                ) else None
+                if deadline is not None and asset.get("ready_by_repeat", "none") != "none":
+                    deadline, reason = resolve_recurring_ready_by(
+                        deadline, quarter_start, asset["ready_by_repeat"],
+                        self.runtime.hass.config.time_zone,
+                    )
+                    if deadline is None:
+                        continue
+                intent = self._intent_key(asset, charger, deadline)
+                if self._completed.get(asset["id"]) == intent:
+                    continue
+                # A crash, unknown physical outcome or earlier unsafe STOP
+                # leaves an unresolved intent. Never replay the requested kWh
+                # or duration without explicit reconciliation.
+                if asset["id"] in self._inflight:
+                    continue
+                self._inflight[asset["id"]] = intent
+                if not await self.runtime.persist_control_state():
+                    self._persistence_verified = False
+                    self._inflight.pop(asset["id"], None)
                     continue
                 result = await self.execute(
                     uid, "start", current_a=slot.current_a, plan_slot=slot,
                 )
                 if result["status"] == "confirmed":
                     self._accept_slot(charger, slot, assessment.plan.revision)
+                elif result["status"] == "rejected":
+                    self._inflight.pop(asset["id"], None)
+                if not await self.runtime.persist_control_state():
+                    self._persistence_verified = False
+                    if result["status"] == "confirmed":
+                        await self.execute(uid, "stop")
         finally:
             self._grants.clear()
 
@@ -667,6 +757,8 @@ class NativeSwitchExecutor:
                         if not await self._reduce_current(charger, at):
                             unsafe = True
                 if unsafe:
+                    completed_asset = None
+                    completed_intent = None
                     if session_reason in (
                         "REQUESTED_ENERGY_COMPLETE", "REQUESTED_DURATION_COMPLETE",
                         "SOC_TARGET_REACHED"
@@ -674,15 +766,28 @@ class NativeSwitchExecutor:
                         asset = next((a for a in cfg["assets"]
                                       if a["id"] == charger.get("asset")), None)
                         if asset is not None:
-                            occurrence = asset.get("ready_by")
+                            completed_asset = asset["id"]
+                            occurrence = datetime.fromisoformat(
+                                asset["ready_by"]
+                            ) if asset.get("ready_by") else None
                             if occurrence and asset.get("ready_by_repeat", "none") != "none":
-                                due, _ = resolve_recurring_ready_by(
-                                    datetime.fromisoformat(occurrence), at,
-                                    asset["ready_by_repeat"], self.runtime.hass.config.time_zone
+                                occurrence, _ = resolve_recurring_ready_by(
+                                    occurrence, at, asset["ready_by_repeat"],
+                                    self.runtime.hass.config.time_zone,
                                 )
-                                occurrence = due.isoformat() if due else None
-                            self._completed[asset["id"]] = occurrence
+                            if asset.get("requested_kwh") is not None or (
+                                asset.get("requested_duration_minutes") is not None
+                            ):
+                                completed_intent = self._intent_key(
+                                    asset, charger, occurrence
+                                )
                     outcome = await self.execute(uid, "stop")
+                    if outcome["status"] == "confirmed" and completed_asset is not None:
+                        if completed_intent is not None:
+                            self._completed[completed_asset] = completed_intent
+                        self._inflight.pop(completed_asset, None)
+                        if not await self.runtime.persist_control_state():
+                            self._persistence_verified = False
                     if outcome["status"] != "confirmed":
                         _LOGGER.error("Protective charger STOP not physically confirmed: %s %s",
                                       uid, outcome["reason"])
@@ -757,6 +862,8 @@ class NativeSwitchExecutor:
                 return result("rejected", "UNKNOWN_CHARGER")
             if self._stopped:
                 return result("rejected", "INTEGRATION_UNLOADED")
+            if action != "stop" and not self._persistence_verified:
+                return result("rejected", "CONTROL_STATE_UNVERIFIED")
             if charger.get("kind") not in ("on_off", "variable_current"):
                 return result("rejected", "CHARGER_CONTROL_UNSUPPORTED")
             entity = charger.get("control_entity")

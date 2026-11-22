@@ -6,6 +6,7 @@ use the native executor, with distinct source observations and command outcomes.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -37,9 +38,26 @@ class MultiChargeRuntime:
         self.excluded = {}
         self.price_slots = ()
         self.executor = NativeSwitchExecutor(self)
+        self._control_store = None
+        self._save_lock = asyncio.Lock()
         self._listeners = set()
         self._unsubscribers = []
         self.active = True
+
+    def attach_control_store(self, store, snapshot):
+        self._control_store = store
+        self.executor.restore_state(snapshot)
+
+    async def persist_control_state(self):
+        if self._control_store is None:
+            return True  # isolated developer tests, never a production HA fallback
+        try:
+            async with self._save_lock:
+                await self._control_store.async_save(self.executor.export_state())
+            return True
+        except (OSError, ValueError, RuntimeError):
+            _LOGGER.exception("Failed to persist charging control evidence")
+            return False
 
     def set_unsubscribe(self, unsubscribe):
         self._unsubscribers.append(unsubscribe)
@@ -137,6 +155,9 @@ class MultiChargeRuntime:
                 if deadline is None:
                     self.excluded[uid] = reason
                     continue
+            if (self.executor.intent_completed(asset, raw, deadline)
+                    and (amount is not None or minutes is not None)):
+                amount, minutes = 0.0, None
             demands.append(ChargeDemand(
                 asset_uid=asset["id"], charger_uid=uid,
                 remaining_grid_kwh=amount, ready_by=deadline,
