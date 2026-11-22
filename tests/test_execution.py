@@ -71,6 +71,7 @@ def rig(*, owner="multicharge", commissioned=True, group_kw=4.0,
                       "rated_power_kw": 2.0, "phase_count": 1, "asset": "car",
                       "control_entity": "switch.evse_control",
                       "power_entity": "sensor.actual_power",
+                      "energy_entity": "sensor.meter",
                       "connected_entity": "binary_sensor.cable",
                       "control_owner": owner,
                       "physical_commissioned": commissioned}],
@@ -79,6 +80,7 @@ def rig(*, owner="multicharge", commissioned=True, group_kw=4.0,
     sources = {
         "switch.evse_control": state("off"),
         "sensor.actual_power": state(0, "W"),
+        "sensor.meter": state(5, "kWh"),
         "binary_sensor.cable": state("on"),
     }
     services = NativeServices(sources)
@@ -251,12 +253,12 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rt.executor.snapshot()["evse"]["status"], "confirmed")
         self.assertEqual(states["sensor.actual_power"].state, "0")
 
-    async def test_active_charger_with_healthy_limits_does_not_get_stopped(self):
+    async def test_unowned_charger_is_stopped_after_restart_even_if_limits_good(self):
         rt, states, services = rig(mode="Force Charge")
         states["switch.evse_control"].state = "on"
         states["sensor.actual_power"].state = "1600"
         await rt.executor.supervise()
-        self.assertEqual(services.calls, [])
+        self.assertEqual([c[1] for c in services.calls], ["turn_off"])
 
     async def test_missing_binding_forces_real_stop_not_unlimited_fallback(self):
         rt, states, services = rig(mode="Force Charge")
@@ -288,6 +290,69 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         states["sensor.actual_power"].state = "1600"
         await rt.executor.supervise()
         self.assertEqual(services.calls, [])
+
+    async def test_measured_energy_target_stops_only_from_real_meter_delta(self):
+        rt, sources, services = rig()
+        started = await rt.executor.execute("evse", "start")
+        self.assertEqual(started["status"], "confirmed")
+        self.assertEqual(rt.executor.session_snapshot()["evse"]["starting_energy_kwh"], 5)
+        sources["sensor.meter"].state = "5.4"
+        sources["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        await rt.executor.supervise()
+        self.assertEqual(len(services.calls), 1)
+        self.assertEqual(rt.executor.session_snapshot()["evse"]["actual_energy_kwh"], 0.4)
+        sources["sensor.meter"].state = "6.02"
+        sources["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        await rt.executor.supervise()
+        self.assertEqual([c[1] for c in services.calls], ["turn_on", "turn_off"])
+        self.assertEqual(rt.executor.session_snapshot(), {})
+
+    async def test_session_energy_meter_lost_causes_real_stop(self):
+        rt, sources, services = rig()
+        await rt.executor.execute("evse", "start")
+        sources["sensor.meter"].state = "unavailable"
+        await rt.executor.supervise()
+        self.assertEqual([c[1] for c in services.calls], ["turn_on", "turn_off"])
+
+    async def test_missing_energy_meter_rejects_real_start(self):
+        rt, _, services = rig()
+        rt.configuration["chargers"][0].pop("energy_entity")
+        outcome = await rt.executor.execute("evse", "start")
+        self.assertEqual(outcome["status"], "rejected")
+        self.assertEqual(outcome["reason"], "MEASURED_ENERGY_METER_REQUIRED")
+        self.assertEqual(services.calls, [])
+
+    async def test_manual_duration_hard_stop_closes_real_session(self):
+        rt, sources, services = rig()
+        rt.configuration["assets"][0].pop("requested_kwh")
+        rt.configuration["assets"][0]["requested_duration_minutes"] = 1
+        first = await rt.executor.execute("evse", "start")
+        self.assertEqual(first["status"], "confirmed")
+        rt.executor._sessions["evse"]["started_at"] -= timedelta(minutes=2)
+        await rt.executor.supervise()
+        self.assertEqual([c[1] for c in services.calls], ["turn_on", "turn_off"])
+
+    async def test_manual_soc_target_stops_from_qualified_soc_source(self):
+        rt, sources, services = rig()
+        asset = rt.configuration["assets"][0]
+        asset.pop("requested_kwh")
+        asset.update({"soc_entity": "sensor.battery", "target_soc": 75,
+                      "capacity_kwh": 20, "charge_efficiency": 0.9})
+        sources["sensor.battery"] = state(50, "%")
+        started = await rt.executor.execute("evse", "start")
+        self.assertEqual(started["status"], "confirmed")
+        sources["sensor.battery"].state = "76"
+        sources["sensor.battery"].last_updated = datetime.now(timezone.utc)
+        await rt.executor.supervise()
+        self.assertEqual([c[1] for c in services.calls], ["turn_on", "turn_off"])
+
+    async def test_switching_from_manual_to_other_mode_physically_stops(self):
+        rt, _, services = rig()
+        first = await rt.executor.execute("evse", "start")
+        self.assertEqual(first["status"], "confirmed")
+        rt.configuration["controller"]["mode"] = "Economy"
+        await rt.executor.supervise()
+        self.assertEqual([c[1] for c in services.calls], ["turn_on", "turn_off"])
 
     async def test_unload_never_allows_new_commands(self):
         rt, _, services = rig()
