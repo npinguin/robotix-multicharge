@@ -1,7 +1,7 @@
 {
   "status": "AUTHORIZED_FOR_TEST",
   "distribution": "open_source_community",
-  "expected_tag": "v0.1.1",
+  "expected_tag": "v0.1.2",
   "precompile": false,
   "qualification_scope": "HACS source integrity, target Home Assistant import, native runtime and field closing iteration",
   "limitations": "Not a field-qualified STABLE release; 29 user journeys and representative mixed hardware/readback/restart/rollback require installed Home Assistant evidence."

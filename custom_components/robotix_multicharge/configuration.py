@@ -1,4 +1,4 @@
-"""One source-neutral configuration schema for both guided UI and expert YAML import.
+"""One source-neutral configuration schema for native UI and expert JSON/YAML.
 
 This module never reads Home Assistant state or sends physical commands.
 """
@@ -132,6 +132,7 @@ def validate_configuration(value):
         raise ValueError("assets: expected list")
     for source in value.get("assets", []):
         _allowed(source, ("id", "name", "kind", "soc_entity",
+                          "vehicle_control_entity", "vehicle_current_entity",
                           "capacity_kwh", "target_soc", "max_charge_kw",
                           "requested_kwh", "requested_duration_minutes", "ready_by",
                           "ready_by_repeat", "charge_efficiency", "priority",
@@ -149,6 +150,13 @@ def validate_configuration(value):
             asset["plan_color"] = source["plan_color"]
         if source.get("soc_entity"):
             asset["soc_entity"] = _entity(source["soc_entity"], "asset.soc_entity")
+        for key, domain in (("vehicle_control_entity", "switch"),
+                            ("vehicle_current_entity", "number")):
+            if source.get(key):
+                selected_entity = _entity(source[key], "asset." + key)
+                if selected_entity.split(".", 1)[0] != domain:
+                    raise ValueError(f"asset.{key}: expected {domain} entity")
+                asset[key] = selected_entity
         for key in ("capacity_kwh", "max_charge_kw"):
             if source.get(key) is not None:
                 asset[key] = _number(source[key], "asset." + key)
@@ -231,7 +239,7 @@ def validate_configuration(value):
     for source in value.get("chargers", []):
         _allowed(source, ("id", "name", "kind", "rated_power_kw", "asset",
                           "control_entity", "connected_entity", "power_entity",
-                          "energy_entity", "min_current_a", "max_current_a",
+                          "energy_entity", "session_entity", "min_current_a", "max_current_a",
                           "phase_count", "control_owner", "physical_commissioned",
                           "phase_ids", "voltage_v", "current_step_a", "fixed_current_a",
                           "circuit_id", "circuit_limit_a", "current_control_entity",
@@ -313,7 +321,7 @@ def validate_configuration(value):
                     < charger["rated_power_kw"] * 1000):
                 raise ValueError("charger: phase current understates nominal electrical load")
         for key in ("control_entity", "connected_entity", "power_entity", "energy_entity",
-                    "current_control_entity", "current_readback_entity"):
+                    "session_entity", "current_control_entity", "current_readback_entity"):
             if source.get(key):
                 charger[key] = _entity(source[key], "charger." + key)
         if source.get("asset"):
@@ -351,7 +359,7 @@ def validate_configuration(value):
     for charger in chargers:
         for role in (
             "control_entity", "connected_entity", "power_entity", "energy_entity",
-            "current_control_entity", "current_readback_entity"
+            "session_entity", "current_control_entity", "current_readback_entity"
         ):
             entity = charger.get(role)
             if not entity:
@@ -361,18 +369,31 @@ def validate_configuration(value):
                 raise ValueError(
                     f"charger.{role}: entity also bound as {previous[0]}.{previous[1]}"
                 )
+    # Each vehicle command endpoint names exactly one logical asset.
+    # These are source bindings only: the single EVSE executor still controls
+    # physical charging; no second vehicle command path is added here.
+    vehicle_controls = {}
+    for asset in assets:
+        for field in ("vehicle_control_entity", "vehicle_current_entity"):
+            entity = asset.get(field)
+            if entity:
+                previous = vehicle_controls.setdefault(entity, asset["id"])
+                if previous != asset["id"] or entity in physical_sources:
+                    raise ValueError(
+                        f"asset.{field}: source already bound to another physical role"
+                    )
     assign_default_plan_colors(assets)
     assign_default_plan_colors(chargers)
     return {"controller": controller, "assets": assets, "chargers": chargers}
 
 
 def effective_configuration(entry):
-    """One authority: imported YAML overrides any historic UI options.
+    """One authority: expert JSON/YAML overrides historic UI options.
 
     The native Config Entry, its ID and its HA device/recorder history remain
     in place when an installed UI configuration switches to expert YAML.
     """
-    if entry.data.get("source") == "yaml":
+    if entry.data.get("source") in ("yaml", "json"):
         return validate_configuration(deepcopy(entry.data["configuration"]))
     return validate_configuration(deepcopy(
         entry.options.get("configuration", entry.data["configuration"])
@@ -500,3 +521,121 @@ def is_in_place_runtime_preference_change(before, after):
         return result
 
     return structure(before) == structure(after)
+
+
+# User-facing expert JSON is a view onto the existing canonical validator.
+# It does not introduce a separate planner, state store or physical writer.
+def normalize_expert_json(value):
+    """Validate direct Charger/ChargingAsset JSON, without the setup wizard."""
+    if not isinstance(value, dict):
+        raise ValueError("expert JSON: expected object")
+    if "Charger" not in value and "ChargingAsset" not in value:
+        return validate_configuration(value)
+    _allowed(value, ("Controller", "Charger", "ChargingAsset"), "expert JSON")
+
+    def rows(key):
+        raw = value.get(key, [])
+        if isinstance(raw, dict):
+            raw = [raw]
+        if not isinstance(raw, list):
+            raise ValueError(f"{key}: expected object or array")
+        return raw
+
+    def entity(source, key, domains, required=False):
+        raw = source.get(key)
+        if raw is None or raw == "":
+            if required:
+                raise ValueError(f"{key}: required Home Assistant entity")
+            return None
+        selected = _entity(raw, key)
+        if selected.split(".", 1)[0] not in domains:
+            raise ValueError(f"{key}: expected {', '.join(domains)} entity")
+        return selected
+
+    controller = value.get("Controller") or {}
+    _allowed(controller, ("ID", "Name", "Max-parallel", "Max-power-kW",
+                          "Price-entity", "Solar-entity", "Power-envelope-entity"),
+             "Controller")
+    cfg = default_configuration(controller.get("Name") or "Home charging")
+    ctl = cfg["controller"]
+    if controller.get("ID"):
+        ctl["id"] = _text(controller["ID"], "Controller.ID")
+    if controller.get("Max-parallel") is not None:
+        ctl["max_parallel"] = controller["Max-parallel"]
+    if controller.get("Max-power-kW") is not None:
+        ctl["max_power_kw"] = controller["Max-power-kW"]
+    for key, target in (("Price-entity", "price_entity"),
+                        ("Solar-entity", "solar_entity"),
+                        ("Power-envelope-entity", "binding_entity")):
+        selected = entity(controller, key, ("sensor",))
+        if selected is not None:
+            ctl[target] = selected
+    # A JSON import never commands equipment or commissions a charger.
+    ctl["mode"] = "Off"
+
+    asset_ids = {}
+    for source in rows("ChargingAsset"):
+        _allowed(source, ("ID", "Name", "Asset type",
+                          "Vehicle-Charging-startstop-entity",
+                          "Vehicle-Charging-amp-entity", "Vehicle-soc-sensor"),
+                 "ChargingAsset")
+        name = _text(source.get("Name"), "ChargingAsset.Name")
+        uid = _text(source.get("ID") or _slug(name), "ChargingAsset.ID")
+        kind = source.get("Asset type", "Véhicule")
+        kinds = {"Véhicule": "car", "Vehicle": "car", "car": "car",
+                 "bicycle": "bicycle", "motorcycle": "motorcycle",
+                 "scooter": "scooter", "other": "other"}
+        if kind not in kinds:
+            raise ValueError("ChargingAsset.Asset type: unsupported kind")
+        asset = {"id": uid, "name": name, "kind": kinds[kind]}
+        for key, target, domains in (
+            ("Vehicle-Charging-startstop-entity", "vehicle_control_entity", ("switch",)),
+            ("Vehicle-Charging-amp-entity", "vehicle_current_entity", ("number",)),
+            ("Vehicle-soc-sensor", "soc_entity", ("sensor",)),
+        ):
+            selected = entity(source, key, domains)
+            if selected is not None:
+                asset[target] = selected
+        cfg["assets"].append(asset)
+        asset_ids[uid] = uid
+        asset_ids[name] = uid
+
+    for source in rows("Charger"):
+        _allowed(source, ("ID", "Name", "Charging-Session-sensor",
+                          "Charging-startstop-entity", "Charging-amp-entity",
+                          "Charging-power-sensor", "Charging-energy-sensor",
+                          "Charging-connected-sensor", "Rated-power-kW",
+                          "ChargingAsset"), "Charger")
+        name = _text(source.get("Name"), "Charger.Name")
+        uid = _text(source.get("ID") or _slug(name), "Charger.ID")
+        charger = {
+            "id": uid, "name": name, "kind": "on_off",
+            "rated_power_kw": source.get("Rated-power-kW", 3.6),
+            "control_owner": "external", "physical_commissioned": False,
+        }
+        for key, target, domains, required in (
+            ("Charging-startstop-entity", "control_entity", ("switch",), True),
+            ("Charging-amp-entity", "current_control_entity", ("number",), False),
+            ("Charging-Session-sensor", "session_entity",
+             ("sensor", "binary_sensor"), False),
+            ("Charging-power-sensor", "power_entity", ("sensor",), False),
+            ("Charging-energy-sensor", "energy_entity", ("sensor",), False),
+            ("Charging-connected-sensor", "connected_entity",
+             ("sensor", "binary_sensor"), False),
+        ):
+            selected = entity(source, key, domains, required)
+            if selected is not None:
+                charger[target] = selected
+        selected = source.get("ChargingAsset")
+        if selected:
+            if selected not in asset_ids:
+                raise ValueError("Charger.ChargingAsset: unknown ChargingAsset")
+            charger["asset"] = asset_ids[selected]
+        cfg["chargers"].append(charger)
+    return validate_configuration(cfg)
+
+
+def _slug(name):
+    """Use the same stable ID policy as the existing HA beginner wizard."""
+    from re import sub
+    return sub(r"[^a-z0-9]+", "_", name.strip().lower()).strip("_")

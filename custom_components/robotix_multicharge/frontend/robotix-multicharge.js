@@ -878,7 +878,12 @@ class RobotixMultiChargeCard extends HTMLElement {
   settings(container){
     const d=this._data,c=d.configuration||{},ctl=c.controller||{};
     this.title(container,"Settings");
-    if(d.configuration_managed_by_yaml)mcPair(container,"Configuration","YAML · read-only; edit Home Assistant YAML and restart");
+    if(d.configuration_managed_by_yaml)mcPair(
+      container,"Configuration",
+      d.configuration_managed_by_json?
+        "JSON · read-only; edit your MultiCharge JSON and restart":
+        "YAML · read-only; edit Home Assistant YAML and restart"
+    );
 
     this.configure(container);
     this.feedback(container);
@@ -929,6 +934,48 @@ class RobotixMultiChargeCard extends HTMLElement {
   }
 }
 if(!customElements.get("robotix-multicharge-card"))customElements.define("robotix-multicharge-card",RobotixMultiChargeCard);
+
+/* Native HA sidebar view: reuse the one source-backed card and its five tabs.
+ * No second state store, permissions model, or physical command channel.
+ */
+class RobotixMultiChargePanel extends HTMLElement {
+  constructor(){
+    super();
+    this.attachShadow({mode:"open"});
+    const style=document.createElement("style");
+    style.textContent=`
+      :host { display:block; min-height:100%; box-sizing:border-box; }
+      .panel { max-width:1440px; margin:0 auto; padding:16px;
+               box-sizing:border-box; }
+      robotix-multicharge-card { display:block; width:100%; }
+      @media (max-width:600px) { .panel { padding:8px; } }
+    `;
+    this._content=document.createElement("main");
+    this._content.className="panel";
+    this._card=document.createElement("robotix-multicharge-card");
+    this._card.setConfig({});
+    this._content.append(this._card);
+    this.shadowRoot.append(style,this._content);
+  }
+  set hass(value){
+    this._hass=value;
+    this._card.hass=value;
+  }
+  get hass(){return this._hass;}
+  set panel(value){this._panel=value;}
+  get panel(){return this._panel;}
+  set narrow(value){this._narrow=value;}
+  get narrow(){return this._narrow;}
+  disconnectedCallback(){
+    if(typeof this._card.disconnectedCallback==="function"){
+      this._card.disconnectedCallback();
+    }
+  }
+}
+if(!customElements.get("robotix-multicharge-panel")){
+  customElements.define("robotix-multicharge-panel",RobotixMultiChargePanel);
+}
+
 window.customCards=window.customCards||[];
 if(!window.customCards.some(c=>c.type==="robotix-multicharge-card")){
   window.customCards.push({type:"robotix-multicharge-card",name:"Robotix MultiCharge",description:"Charging plan"});
