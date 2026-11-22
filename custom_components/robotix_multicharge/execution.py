@@ -30,6 +30,8 @@ class NativeSwitchExecutor:
         self._quarantine = set()
         self._stopped = False
         self._supervising = False
+        self._sessions = {}
+        self._start_pending = set()
 
     def detach(self):
         """Do not replay commands on unload or a restarted runtime."""
@@ -37,6 +39,10 @@ class NativeSwitchExecutor:
 
     def snapshot(self):
         return {uid: dict(record) for uid, record in self._outcomes.items()}
+
+    def session_snapshot(self):
+        """Only physically observed active charging sessions, never proposals."""
+        return {uid: dict(record) for uid, record in self._sessions.items()}
 
     def capabilities(self):
         """Expose exact current action eligibility; no optimistic UI guessing."""
@@ -94,6 +100,7 @@ class NativeSwitchExecutor:
             self._quarantine.add(uid)
         if status == "confirmed" and action == "stop":
             self._quarantine.discard(uid)
+            self._sessions.pop(uid, None)
         if status == "confirmed":
             self.runtime.refresh()
         else:
@@ -126,6 +133,12 @@ class NativeSwitchExecutor:
             return "ASSET_POWER_CAP_REQUIRES_MODULATION"
         amount = asset.get("requested_kwh")
         duration = asset.get("requested_duration_minutes")
+        if amount is not None and amount > 0:
+            if not charger.get("energy_entity"):
+                return "MEASURED_ENERGY_METER_REQUIRED"
+            meter = number(self.runtime.hass, charger["energy_entity"], "energy", at)
+            if meter.quality != "ok":
+                return "MEASURED_ENERGY_UNAVAILABLE"
         if amount is not None and amount <= 0:
             return "TARGET_ALREADY_MET"
         if duration is None and amount is None:
@@ -138,6 +151,15 @@ class NativeSwitchExecutor:
                 return "ASSET_SOC_UNAVAILABLE"
             if soc.value >= asset["target_soc"]:
                 return "TARGET_ALREADY_MET"
+        if asset.get("ready_by"):
+            try:
+                due = datetime.fromisoformat(
+                    asset["ready_by"].replace("Z", "+00:00")
+                )
+                if due.tzinfo is None or due.utcoffset() is None or at >= due:
+                    return "READY_BY_EXPIRED"
+            except ValueError:
+                return "READY_BY_INVALID"
         cable = connection(self.runtime.hass, charger.get("connected_entity"), at)
         if cable.quality != "ok" or cable.value is not True:
             return "PHYSICAL_CONNECTION_UNVERIFIED"
@@ -195,6 +217,88 @@ class NativeSwitchExecutor:
                               charger["id"])
             return False
 
+    def _session_stop_reason(self, charger, now):
+        """Demand closure is based on observed energy, time or SoC, never a guess."""
+        session = self._sessions.get(charger["id"])
+        if session is None:
+            if charger["id"] in self._start_pending:
+                return None
+            return "ACTIVE_CHARGING_UNOWNED_AFTER_RESTART"
+        asset = next(
+            (a for a in self.runtime.configuration["assets"]
+             if a["id"] == session["asset_id"]), None
+        )
+        if asset is None or charger.get("asset") != session["asset_id"]:
+            return "ACTIVE_SESSION_ASSIGNMENT_CHANGED"
+        if now >= session["hard_stop_at"]:
+            return "SESSION_SAFETY_DEADLINE_REACHED"
+        if session["requested_duration_minutes"] is not None:
+            if (now - session["started_at"]).total_seconds() >= (
+                60 * session["requested_duration_minutes"]
+            ):
+                return "REQUESTED_DURATION_COMPLETE"
+        if session["requested_kwh"] is not None:
+            obs = number(self.runtime.hass, charger.get("energy_entity"), "energy", now)
+            if obs.quality != "ok":
+                return "SESSION_ENERGY_METER_UNAVAILABLE"
+            delivered = obs.value - session["starting_energy_kwh"]
+            if delivered < -0.00001:
+                return "SESSION_ENERGY_METER_RESET"
+            session["actual_energy_kwh"] = round(max(0, delivered), 6)
+            if delivered >= session["requested_kwh"]:
+                return "REQUESTED_ENERGY_COMPLETE"
+        if session["soc_target"] is not None:
+            soc = number(self.runtime.hass, asset.get("soc_entity"), "soc", now)
+            if soc.quality != "ok":
+                return "SESSION_SOC_UNAVAILABLE"
+            if soc.value >= session["soc_target"]:
+                return "SOC_TARGET_REACHED"
+        return None
+
+    def _start_session(self, charger, observed):
+        """Adopt only freshly confirmed START, never existing switch-on at boot."""
+        asset = next(
+            a for a in self.runtime.configuration["assets"]
+            if a["id"] == charger["asset"]
+        )
+        now = datetime.now(timezone.utc)
+        explicit_energy = asset.get("requested_kwh")
+        duration = asset.get("requested_duration_minutes")
+        soc_target = (
+            asset.get("target_soc")
+            if explicit_energy is None and duration is None else None
+        )
+        starting_energy = None
+        if explicit_energy is not None:
+            baseline = number(
+                self.runtime.hass, charger.get("energy_entity"), "energy", now
+            )
+            if baseline.quality != "ok":
+                return "SESSION_ENERGY_METER_UNAVAILABLE"
+            starting_energy = baseline.value
+        # Session cannot run longer than 24h on one manual authorization.
+        end = now + timedelta(hours=24)
+        if duration is not None:
+            end = min(end, now + timedelta(minutes=duration))
+        if asset.get("ready_by"):
+            end = min(
+                end, datetime.fromisoformat(
+                    asset["ready_by"].replace("Z", "+00:00")
+                ).astimezone(timezone.utc)
+            )
+        self._sessions[charger["id"]] = {
+            "asset_id": asset["id"],
+            "started_at": now,
+            "hard_stop_at": end,
+            "requested_kwh": explicit_energy,
+            "requested_duration_minutes": duration,
+            "soc_target": soc_target,
+            "starting_energy_kwh": starting_energy,
+            "actual_energy_kwh": 0.0 if starting_energy is not None else None,
+            "last_physical_readback": observed.observed_at,
+        }
+        return None
+
     async def supervise(self):
         """Protect commissioned on/off chargers against Off and lost safety input.
 
@@ -222,7 +326,9 @@ class NativeSwitchExecutor:
                     active.append(c)
             if not active:
                 return
-            hold = controller.get("mode") == "Off"
+            # Manual START belongs exclusively to Force Charge. Switching to
+            # any advisory mode must stop the formerly authorized session.
+            hold = controller.get("mode") != "Force Charge"
             cap = controller.get("max_power_kw")
             if cap is None:
                 hold = True
@@ -261,12 +367,18 @@ class NativeSwitchExecutor:
             for charger in active:
                 cable = connection(self.runtime.hass, charger.get("connected_entity"), at)
                 power = number(self.runtime.hass, charger.get("power_entity"), "power", at)
+                session_reason = self._session_stop_reason(charger, at)
                 unsafe = (
                     hold or cable.quality != "ok" or cable.value is not True
                     or power.quality != "ok"
                     or power.value > charger["rated_power_kw"] * 1.10
+                    or session_reason is not None
                 )
                 if unsafe:
+                    _LOGGER.warning(
+                        "Stopping %s: mode/capacity/source or %s",
+                        charger["id"], session_reason or "SAFETY_ADMISSION"
+                    )
                     outcome = await self.execute(charger["id"], "stop")
                     if outcome["status"] != "confirmed":
                         _LOGGER.error(
@@ -345,6 +457,8 @@ class NativeSwitchExecutor:
                     return result("confirmed", "ALREADY_PHYSICALLY_STOPPED",
                                   observed_at=power.observed_at,
                                   measured_kw=power.value)
+            if action == "start":
+                self._start_pending.add(charger_id)
             self._publish(charger_id, request_id, action, "requested",
                           "REQUESTED", at)
             try:
@@ -353,12 +467,14 @@ class NativeSwitchExecutor:
                     {"entity_id": entity}, blocking=True, context=context
                 )
             except asyncio.CancelledError:
+                self._start_pending.discard(charger_id)
                 if action == "start":
                     await self._protective_stop(charger, context)
                 result("execution_unknown", "COMMAND_CANCELLED_DURING_SERVICE",
                        service_sent=True)
                 raise
             except Exception as exc:
+                self._start_pending.discard(charger_id)
                 _LOGGER.exception("Native charge %s service failed for %s",
                                   action, charger_id)
                 protective = (await self._protective_stop(charger, context)
@@ -373,16 +489,28 @@ class NativeSwitchExecutor:
             deadline = asyncio.get_running_loop().time() + readback_seconds
             while True:
                 if self._stopped:
+                    self._start_pending.discard(charger_id)
                     return result("execution_unknown", "INTEGRATION_UNLOADED_PENDING",
                                   service_sent=True)
                 observed = self._readback(charger, action, at)
                 if observed is not None:
+                    if action == "start":
+                        reason = self._start_session(charger, observed)
+                        self._start_pending.discard(charger_id)
+                        if reason is not None:
+                            await self._protective_stop(charger, context)
+                            return result(
+                                "execution_unknown",
+                                reason + ";PROTECTIVE_STOP_SENT",
+                                service_sent=True
+                            )
                     return result("confirmed", "INDEPENDENT_POWER_READBACK",
                                   observed_at=observed.observed_at,
                                   measured_kw=observed.value,
                                   service_sent=True)
                 remaining = deadline - asyncio.get_running_loop().time()
                 if remaining <= 0:
+                    self._start_pending.discard(charger_id)
                     _LOGGER.error("Native charge %s not confirmed for %s",
                                   action, charger_id)
                     protective = (await self._protective_stop(charger, context)
@@ -395,6 +523,7 @@ class NativeSwitchExecutor:
                 try:
                     await asyncio.sleep(min(0.5, remaining))
                 except asyncio.CancelledError:
+                    self._start_pending.discard(charger_id)
                     if action == "start":
                         await self._protective_stop(charger, context)
                     result("execution_unknown", "COMMAND_CANCELLED_AWAITING_READBACK",
