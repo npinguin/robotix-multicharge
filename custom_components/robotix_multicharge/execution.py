@@ -550,15 +550,21 @@ class NativeSwitchExecutor:
             if power.quality != "ok":
                 return "OTHER_CHARGER_POWER_UNAVAILABLE"
             state = self._switch(self.runtime.hass, other.get("control_entity"))
-            # Native providers need not publish a switch if MultiCharge is not
-            # their writer. Verified zero physical power is sufficient to
-            # exclude an idle external Charger from the occupied budget.
-            # A measured external load is conservatively reserved at rated
-            # power even without access to the provider's native switch.
+            # A third-party Charger need not expose its writer switch.
+            # Both a fresh physical disconnect AND zero measured power prove
+            # this *present* plug cannot energize; do not reserve a phantom
+            # parallel slot. Connected, stale or unknown physical state still
+            # reserves full rated capacity, since another writer can start.
             unknown_external_state = (
                 state is None
                 and other.get("control_owner") != "multicharge"
             )
+            if unknown_external_state and power.value <= STOP_POWER_KW:
+                cable = connection(
+                    self.runtime.hass, other.get("connected_entity"), at
+                )
+                if cable.quality == "ok" and cable.value is False:
+                    continue
             if state is None and not unknown_external_state:
                 return "OTHER_CHARGER_OWNER_OR_STATE_UNKNOWN"
             # Another independently controlled charger may start at any time
