@@ -235,6 +235,14 @@ class ConfigurationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "phase_limits_a"):
             normalize_expert_json(unsafe)
 
+    def test_controller_only_expert_json_is_a_valid_empty_site(self):
+        configured = normalize_expert_json({
+            "Controller": {"ID": "home", "Name": "Home only", "Mode": "Off"},
+        })
+        self.assertEqual(configured["controller"]["name"], "Home only")
+        self.assertEqual(configured["assets"], [])
+        self.assertEqual(configured["chargers"], [])
+
     def test_expert_json_rejects_ambiguous_vehicle_names_and_non_numeric_limits(self):
         template = {
             "Charger": {
