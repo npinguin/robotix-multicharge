@@ -397,10 +397,13 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def _verification_summary(self):
         cfg = self._draft
+        ceiling = cfg["controller"].get("max_power_kw")
+        limit = (f"{ceiling} kW group ceiling (not field-verified)"
+                 if ceiling is not None else "Group power ceiling not yet configured")
         return {"summary": (
-            f"{len(cfg['chargers'])} charging points, {len(cfg['assets'])} assets, "
-            f"{cfg['controller'].get('max_power_kw', 'not set')} kW configured group ceiling. "
-            "Charging remains physically disabled until separately commissioned."
+            f"{len(cfg['chargers'])} charging points, {len(cfg['assets'])} assets. "
+            f"{limit}. Charging remains physically disabled until "
+            "separately commissioned."
         )}
 
     async def async_step_import(self, user_input):
