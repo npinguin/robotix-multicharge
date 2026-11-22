@@ -65,7 +65,7 @@ const MC_STYLE = [
   ".details{margin-top:10px;padding-top:9px;border-top:1px solid var(--divider-color,#ddd)}",
   ".pair{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:5px 0}",
   ".field{display:flex;flex-direction:column;gap:4px;margin:8px 0}.field label{font-size:13px;color:var(--secondary-text-color,#65717e)}",
-  ".field input,.field select{width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--divider-color,#cfd6de);background:var(--card-background-color,#fff);color:inherit;border-radius:8px}",
+  ".field input,.field select{width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--divider-color,#cfd6de);background:var(--card-background-color,#fff);color:inherit;border-radius:8px}.yaml-editor{margin:12px 0;padding:18px;border:1px solid var(--divider-color,#ccd4de);border-radius:10px;max-width:100%;box-sizing:border-box}.yaml-editor textarea{display:block;width:100%;box-sizing:border-box;min-height:340px;resize:vertical;font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--secondary-background-color,#f7f8fa);margin-top:8px}.yaml-editor select{width:100%;max-width:100%;box-sizing:border-box}.yaml-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.yaml-editor pre{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5}.yaml-error{border-left:3px solid var(--error-color,#bb3939);padding:8px 12px}.settings-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0;align-items:center}",
   ".message{font-size:13px;margin:9px 0}.pending{color:var(--warning-color,#b57418)}.confirmed{color:var(--success-color,#278355)}",
   ".notice{border:1px solid var(--divider-color,#e5e7eb);border-radius:8px;padding:11px 13px;background:var(--secondary-background-color,#f6f8fa);margin:12px 0;font-size:13px}",
   ".error{border-color:var(--error-color,#d43b38)}.chart{overflow-x:auto;width:100%}",
@@ -146,6 +146,11 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._refreshTimer=null;
     this._refreshPending=false;
     this._pendingNative=null;
+    this._yamlFlow=null;
+    this._yamlBusy=false;
+    this._yamlError="";
+    this._yamlText="";
+    this._yamlMode="replace";
   }
   canManage(){return this._hass?.user?.is_admin===true;}
   canEditSettings(){return this.canManage()&&!this._data?.configuration_managed_by_yaml;}
@@ -173,12 +178,14 @@ class RobotixMultiChargeCard extends HTMLElement {
   disconnectedCallback(){
     if(this._refreshTimer!==null)clearTimeout(this._refreshTimer);
     this._refreshTimer=null;
+    if(this._yamlFlow)void this.cancelYamlEditor();
   }
   setConfig(config){this._cardConfig=config||{};this.render();}
   getCardSize(){return 10;}
   set hass(value){
     const before=this._hass;
     this._hass=value;
+    if(this._yamlFlow&&!this.canEditSettings())void this.cancelYamlEditor();
     if(this._pendingNative&&value?.states?.[this._pendingNative.entity]?.state===
         this._pendingNative.expected){
       this._pendingNative=null;
@@ -267,6 +274,132 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(this._pendingSettings)await this.load();
       this.render();
     }
+  }
+  async openYamlEditor(){
+    if(this._yamlBusy||this._yamlFlow||!this.canEditSettings()||
+       typeof this._hass?.callApi!=="function")return;
+    this._yamlBusy=true;this._yamlError="";this.render();
+    let pending=null;
+    try{
+      const entries=await this._hass.callApi("GET","config/config_entries/entry");
+      const matches=(Array.isArray(entries)?entries:[]).filter(x=>
+        x.domain==="robotix_multicharge");
+      if(matches.length!==1)throw Error("Exactly one MultiCharge Config Entry required");
+      pending=await this._hass.callApi("POST","config/config_entries/options/flow",
+        {handler:matches[0].entry_id});
+      if(pending?.type!=="menu"||pending.step_id!=="init"||
+         typeof pending.flow_id!=="string")
+        throw Error("Unexpected Home Assistant Options Flow menu");
+      const flow=await this._hass.callApi("POST",
+        "config/config_entries/options/flow/"+encodeURIComponent(pending.flow_id),
+        {next_step_id:"yaml"});
+      if(flow?.type!=="form"||flow.step_id!=="yaml")
+        throw Error("Home Assistant rejected YAML edit");
+      this._yamlFlow=flow;
+      const input=(flow.data_schema||[]).find(x=>x.name==="yaml_text");
+      const mode=(flow.data_schema||[]).find(x=>x.name==="mode");
+      this._yamlText=String(input?.description?.suggested_value??input?.default??"");
+      this._yamlMode=String(mode?.default||"replace");
+      this._settingsOpen="Advanced & YAML";
+      pending=null;
+    }catch(error){
+      this._yamlError=String(error?.message||"Unable to open native configuration editor");
+      if(pending?.flow_id)try{await this._hass.callApi("DELETE",
+        "config/config_entries/options/flow/"+encodeURIComponent(pending.flow_id));}catch(_){}
+    }finally{this._yamlBusy=false;this.render();}
+  }
+  async cancelYamlEditor(){
+    const flow=this._yamlFlow;
+    this._yamlFlow=null;this._yamlError="";this._yamlText="";
+    if(flow?.flow_id&&typeof this._hass?.callApi==="function"){
+      try{await this._hass.callApi("DELETE",
+        "config/config_entries/options/flow/"+encodeURIComponent(flow.flow_id));}
+      catch(_){}
+    }
+    this.render();
+  }
+  async advanceYamlEditor(payload){
+    if(!this._yamlFlow||this._yamlBusy||!this.canEditSettings()||
+       typeof this._hass?.callApi!=="function")return;
+    const current=this._yamlFlow;
+    if(current.type!=="form")return;
+    this._yamlBusy=true;this._yamlError="";this.render();
+    try{
+      const next=await this._hass.callApi("POST",
+        "config/config_entries/options/flow/"+encodeURIComponent(current.flow_id),
+        payload);
+      if(next?.type==="create_entry"){
+        this._yamlFlow=null;this._yamlText="";
+        this._settingsFeedback={status:"accepted_unconfirmed",
+          message:"Home Assistant save accepted; verifying readback"};
+        this._last=0;
+        await this.load();
+      }else if(next?.type==="form"&&
+               ["yaml","yaml_review"].includes(next.step_id)){
+        this._yamlFlow=next;
+        if(next.step_id==="yaml"&&current.step_id==="yaml_review")
+          this._yamlError="";
+        if(Object.keys(next.errors||{}).length)
+          this._yamlError="YAML rejected: "+Object.values(next.errors).join(", ");
+      }else throw Error("Unexpected native configuration response");
+    }catch(error){
+      this._yamlError=String(error?.message||"Configuration not accepted");
+      // Preserve the user's YAML draft for retry; do not claim it was saved.
+    }finally{this._yamlBusy=false;this.render();}
+  }
+  yamlEditor(container){
+    if(!this._yamlFlow)return;
+    const flow=this._yamlFlow;
+    const area=mcEl("section","yaml-editor");
+    const heading=mcEl("h3","",flow.step_id==="yaml_review"?
+      "Review configuration changes":"YAML configuration (advanced)");
+    area.append(heading);
+    area.append(mcEl("p","muted small",flow.step_id==="yaml_review"?
+      "Nothing is saved until you confirm. No charging commands are sent.":
+      "Edit current Config Entry YAML. Keep existing IDs. Home Assistant validates the full draft."));
+    if(this._yamlError){
+      const msg=mcEl("p","yaml-error",this._yamlError);
+      msg.setAttribute("role","alert");area.append(msg);
+    }
+    if(flow.step_id==="yaml"){
+      const field=mcEl("div","field");
+      const label=mcEl("label","",mcTr("Update mode"));
+      const mode=mcEl("select");
+      mode.setAttribute("aria-label","Update mode");
+      for(const [value,description] of [
+        ["replace","Complete configuration (replace omitted entries)"],
+        ["merge","Scoped changes (preserve other entries)"]]){
+        const opt=mcEl("option","",description);
+        opt.value=value;mode.append(opt);
+      }
+      mode.value=this._yamlMode;
+      mode.addEventListener("change",()=>{this._yamlMode=mode.value;});
+      const edit=mcEl("textarea");
+      edit.setAttribute("aria-label","MultiCharge YAML configuration");
+      edit.value=this._yamlText;
+      edit.rows=18;
+      edit.spellcheck=false;
+      edit.addEventListener("input",()=>{this._yamlText=edit.value;});
+      field.append(label,mode,mcEl("label","",mcTr("Configuration YAML")),edit);
+      area.append(field);
+      const buttons=mcEl("div","yaml-actions");
+      const review=mcButton("Continue / review",()=>this.advanceYamlEditor({
+        mode:this._yamlMode,yaml_text:this._yamlText}));
+      review.disabled=this._yamlBusy;
+      buttons.append(review,mcButton("Cancel",()=>this.cancelYamlEditor()));
+      area.append(buttons);
+    }else if(flow.step_id==="yaml_review"){
+      const summary=flow.description_placeholders?.summary||"Review changes in Home Assistant";
+      area.append(mcEl("pre","config-code",summary));
+      const actions=mcEl("div","yaml-actions");
+      const confirm=mcButton("Apply reviewed changes",()=>this.advanceYamlEditor({confirm:true}));
+      confirm.disabled=this._yamlBusy;
+      const back=mcButton("Back to YAML",()=>this.advanceYamlEditor({edit_again:true}));
+      back.disabled=this._yamlBusy;
+      actions.append(confirm,back,mcButton("Cancel",()=>this.cancelYamlEditor()));
+      area.append(actions);
+    }
+    container.append(area);
   }
   ownerEntity(scope,uid,field){
     const prefs=this._data?.preference_entities||{};
@@ -388,7 +521,10 @@ class RobotixMultiChargeCard extends HTMLElement {
     shell.append(head);
     const tabs=mcEl("nav","tabs");tabs.setAttribute("aria-label","MultiCharge views");
     for(const item of MC_TABS){
-      const btn=mcButton(item,()=>{this._tab=item;this.render();});
+      const btn=mcButton(item,()=>{
+        if(item!=="Settings"&&this._yamlFlow)void this.cancelYamlEditor();
+        this._tab=item;this.render();
+      });
       btn.setAttribute("aria-selected",String(this._tab===item));
       tabs.append(btn);
     }
@@ -926,8 +1062,21 @@ class RobotixMultiChargeCard extends HTMLElement {
         "YAML · read-only; edit Home Assistant YAML and restart"
     );
 
-    this.configure(container);
+    const toolbar=mcEl("div","settings-toolbar");
+    this.configure(toolbar);
+    if(this.canEditSettings()){
+      const edit=mcButton(this._yamlFlow?"Cancel YAML":"Edit YAML",()=>
+        this._yamlFlow?this.cancelYamlEditor():this.openYamlEditor());
+      edit.disabled=this._yamlBusy;
+      toolbar.append(edit);
+    }
+    container.append(toolbar);
     this.feedback(container);
+    if(this._yamlError&&!this._yamlFlow){
+      const warning=mcEl("p","yaml-error",this._yamlError);
+      warning.setAttribute("role","alert");container.append(warning);
+    }
+    this.yamlEditor(container);
     const settingsGrid=mcEl("div","settings-grid");
     for(const title of MC_SETTINGS){
       const open=title===this._settingsOpen;
@@ -1006,7 +1155,9 @@ class RobotixMultiChargeCard extends HTMLElement {
           mcPair(detail,"Configuration",d.configuration_managed_by_yaml?
             (d.configuration_managed_by_json?"JSON source":"YAML source"):"Home Assistant settings");
           detail.append(mcEl("p","muted small",
-            "Expert configuration is edited in Home Assistant files, not in this dashboard. Use one package file, verify configuration and restart. The existing integration entry is adopted; do not add a second entry."));
+            d.configuration_managed_by_yaml?
+              "This site is managed by external Home Assistant YAML/JSON. Edit its existing source file, validate and restart. The dashboard will not overwrite that authority.":
+              "For GUI-managed sites, use Edit YAML above, review changes and save through Home Assistant. The Config Entry remains the only authority; no separate file or charging writer is created."));
           detail.append(mcEl("p","muted small",
             "Path: /config/packages/multicharge.yaml (with HA packages enabled)"));
           detail.append(mcEl("pre","config-code",
