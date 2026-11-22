@@ -554,8 +554,11 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 )),
                 vol.Optional("temporary"): bool,
                 vol.Optional("expires_at"): str,
-                vol.Optional("charge_efficiency"): vol.All(
-                    vol.Coerce(float), vol.Range(min=0.01, max=1)
+                vol.Optional("charge_efficiency"): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0.01, max=1, step=0.01,
+                        mode=selector.NumberSelectorMode.BOX
+                    )
                 ),
             }),
             errors={"base": "invalid_config"} if user_input else {},
@@ -630,7 +633,12 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                     min=0.01, max=1000, step=0.1, mode=selector.NumberSelectorMode.BOX
                 )),
                 vol.Optional("phase_ids"): str,
-                vol.Optional("voltage_v"): vol.All(vol.Coerce(float), vol.Range(min=200, max=260)),
+                vol.Optional("voltage_v"): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=200, max=260, step=1,
+                        mode=selector.NumberSelectorMode.BOX
+                    )
+                ),
                 vol.Optional("current_step_a"): selector.NumberSelector(selector.NumberSelectorConfig(
                     min=0.01, max=1000, step=0.1, mode=selector.NumberSelectorMode.BOX
                 )),
