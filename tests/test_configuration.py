@@ -24,6 +24,36 @@ from multicharge_configuration_tests.configuration import (  # noqa: E402 - impo
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_idle_only_vehicle_rebind_is_in_place_not_physical_reload(self):
+        from multicharge_configuration_tests.configuration import (
+            apply_settings_change, is_in_place_runtime_preference_change,
+        )
+        config = default_configuration()
+        config["assets"] = [
+            {"id": "a", "name": "A", "requested_kwh": 3},
+            {"id": "b", "name": "B", "requested_kwh": 4},
+        ]
+        config["chargers"] = [
+            {"id": "c1", "name": "One", "kind": "on_off",
+             "rated_power_kw": 3.5, "asset": "a"},
+            {"id": "c2", "name": "Two", "kind": "on_off",
+             "rated_power_kw": 3.5, "asset": "b"},
+            {"id": "c3", "name": "Three", "kind": "on_off",
+             "rated_power_kw": 3.5},
+        ]
+        before = validate_configuration(config)
+        after = apply_settings_change(before, "charger", "c2", {"asset": "a"})
+        self.assertTrue(is_in_place_runtime_preference_change(before, after))
+        self.assertNotIn("asset", after["chargers"][0])
+        self.assertEqual(after["chargers"][1]["asset"], "a")
+        self.assertEqual(before["chargers"][2], after["chargers"][2])
+        self.assertFalse(is_in_place_runtime_preference_change(before, before))
+        structural = validate_configuration({**before, "chargers": [
+            {**before["chargers"][0], "power_entity": "sensor.another"},
+            *before["chargers"][1:],
+        ]})
+        self.assertFalse(is_in_place_runtime_preference_change(before, structural))
+
     def test_plan_display_preferences_cannot_change_physical_runtime(self):
         from multicharge_configuration_tests.configuration import (
             is_plan_presentation_only_change, apply_settings_change,

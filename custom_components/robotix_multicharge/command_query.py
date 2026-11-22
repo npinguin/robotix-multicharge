@@ -86,9 +86,16 @@ async def apply_native_preference(hass, entry, runtime, scope, target_id, change
             else:
                 candidates = runtime.configuration["chargers"]
             for charger in candidates:
-                if (charger.get("control_owner") != "multicharge"
-                        or charger.get("physical_commissioned") is not True):
+                rebind = scope == "charger" and set(changes) <= {"asset"}
+                owned = (charger.get("control_owner") == "multicharge"
+                         and charger.get("physical_commissioned") is True)
+                if not rebind and not owned:
                     continue
+                # A remembered assignment is not an active connection identity.
+                # Never move an in-flight or unclosed physical session.
+                if rebind and (charger["id"] in runtime.executor._sessions
+                               or charger["id"] in runtime.executor._start_pending):
+                    raise ValueError("charger_busy")
                 observed = runtime.executor._switch(
                     hass, charger.get("control_entity")
                 )
@@ -96,8 +103,11 @@ async def apply_native_preference(hass, entry, runtime, scope, target_id, change
                     hass, charger.get("power_entity"), "power",
                     datetime.now(timezone.utc)
                 )
-                if (observed is None or observed.state != "off"
-                        or power.quality != "ok" or power.value > 0.05):
+                # For an idle-only rebind even an external-owned charger needs
+                # physical power evidence: unobserved is not safely idle.
+                if (power.quality != "ok" or power.value > 0.05
+                        or (observed is not None and observed.state != "off")
+                        or (owned and observed is None)):
                     raise ValueError("charger_busy")
         expected = configuration_revision(updated)
         runtime.record_settings_action(

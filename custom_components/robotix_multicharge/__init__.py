@@ -23,6 +23,7 @@ from homeassistant.core import HomeAssistant
 from .configuration import (
     effective_configuration, validate_configuration,
     is_plan_presentation_only_change,
+    is_in_place_runtime_preference_change,
 )
 from .const import DOMAIN
 from .runtime import MultiChargeRuntime
@@ -46,9 +47,11 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
         except (KeyError, ValueError):
             _LOGGER.error("MultiCharge updated configuration failed validation")
             return
-        if is_plan_presentation_only_change(existing.configuration, changed):
-            # Visual-only choices are runtime values, not structural devices.
-            # Reload would call shutdown/STOP on actively charging equipment.
+        if (is_plan_presentation_only_change(existing.configuration, changed)
+                or is_in_place_runtime_preference_change(existing.configuration, changed)):
+            # Existing device preferences (including qualified idle-only rebind)
+            # must not reload and STOP unrelated active charging hardware.
+            # Structural wiring/registration changes retain guarded reload.
             original = existing.configuration
             existing.configuration = changed
             existing.refresh()

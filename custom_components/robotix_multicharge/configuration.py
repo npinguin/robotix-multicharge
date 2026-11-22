@@ -462,3 +462,35 @@ def is_plan_presentation_only_change(before, after):
             rest["controller"].pop(key, None)
         return rest
     return without_visual(before) == without_visual(after)
+
+
+def is_in_place_runtime_preference_change(before, after):
+    """Reconcile edits to existing native preferences without stopping other EVSEs.
+
+    Physical topology, source subscriptions, object registration and writer
+    identity are structural and continue through the normal guarded reload.
+    This classifier never authorizes the edit: the settings writer separately
+    checks physical idle and source evidence before persisting changes.
+    """
+    if before == after:
+        return False
+
+    def structure(cfg):
+        result = deepcopy(cfg)
+        for field in ("name", "plan_label_mode", "plan_color_by",
+                      "show_indicative_forecast", "mode", "max_parallel",
+                      "max_power_kw", "phase_limits_a"):
+            result["controller"].pop(field, None)
+        for asset in result["assets"]:
+            for field in ("name", "kind", "plan_color", "capacity_kwh",
+                          "target_soc", "max_charge_kw", "requested_kwh",
+                          "requested_duration_minutes", "ready_by",
+                          "ready_by_repeat", "charge_efficiency", "priority",
+                          "temporary", "expires_at", "expected_connection_at"):
+                asset.pop(field, None)
+        for charger in result["chargers"]:
+            for field in ("name", "plan_color", "asset"):
+                charger.pop(field, None)
+        return result
+
+    return structure(before) == structure(after)
