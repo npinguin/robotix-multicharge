@@ -76,7 +76,7 @@ class MultiChargeRuntime:
                                reason=None):
         self._settings_action = {
             "scope": scope, "target_id": target_id, "action": action,
-            "fields": sorted(changes),
+            "fields": sorted(str(field) for field in changes),
             "expected_revision": expected_revision,
             "requested_at": datetime.now(timezone.utc).isoformat(),
             "status": status,

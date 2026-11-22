@@ -548,6 +548,10 @@ class _ChargerCurrentSensor(_NativeMultiChargeSensor):
         if metric not in ("setpoint", "actual"):
             raise ValueError("unsupported charger current metric")
         self.metric = metric
+        # A confirmed control setpoint is not a measured physical observation.
+        self._attr_state_class = (
+            SensorStateClass.MEASUREMENT if metric == "actual" else None
+        )
         self._attr_name = (
             "Confirmed current setpoint" if metric == "setpoint"
             else "Actual current"
