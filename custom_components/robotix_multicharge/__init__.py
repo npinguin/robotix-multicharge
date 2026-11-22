@@ -60,6 +60,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     @callback
     def on_tick(now):
         runtime.refresh(now)
+        hass.async_create_task(runtime.executor.supervise())
 
     runtime.set_unsubscribe(
         async_track_time_interval(hass, on_tick, timedelta(minutes=1))
@@ -72,6 +73,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.data[DOMAIN].pop(entry.entry_id, None)
         raise
     reconcile_frontend(hass, entry)
+    await runtime.executor.supervise()
     return True
 
 

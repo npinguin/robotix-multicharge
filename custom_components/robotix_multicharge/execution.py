@@ -29,6 +29,7 @@ class NativeSwitchExecutor:
         self._requests = {}
         self._quarantine = set()
         self._stopped = False
+        self._supervising = False
 
     def detach(self):
         """Do not replay commands on unload or a restarted runtime."""
@@ -193,6 +194,72 @@ class NativeSwitchExecutor:
             _LOGGER.exception("Protective STOP could not be delivered for %s",
                               charger["id"])
             return False
+
+    async def supervise(self):
+        """Protect commissioned on/off chargers against Off and lost safety input.
+
+        This is the SAME sole physical writer and native STOP path as manual
+        operation. No automatic START or command replay exists.
+        """
+        if self._stopped or self._supervising:
+            return
+        self._supervising = True
+        try:
+            cfg = self.runtime.configuration
+            controller = cfg["controller"]
+            at = datetime.now(timezone.utc)
+            active = []
+            for c in cfg["chargers"]:
+                if (c.get("kind") != "on_off"
+                        or c.get("control_owner") != "multicharge"
+                        or c.get("physical_commissioned") is not True):
+                    continue
+                state = self._switch(self.runtime.hass, c.get("control_entity"))
+                if state is None:
+                    _LOGGER.error("Physical charger state unknown: %s", c["id"])
+                    continue
+                if state.state == "on":
+                    active.append(c)
+            if not active:
+                return
+            hold = controller.get("mode") == "Off"
+            cap = controller.get("max_power_kw")
+            if cap is None:
+                hold = True
+            source = controller.get("binding_entity") or controller.get("site_power_entity")
+            if source:
+                envelope, quality = binding(self.runtime.hass, source, at)
+                if envelope is None or quality != "OK":
+                    hold = True
+                else:
+                    until = at + timedelta(seconds=30)
+                    slots = [s for s in envelope.slots if s.start <= at and s.end >= until]
+                    if len(slots) != 1 or envelope.valid_until < until:
+                        hold = True
+                    else:
+                        cap = min(cap, slots[0].max_charging_kw) if cap is not None else None
+            if cap is not None and (
+                len(active) > controller["max_parallel"]
+                or sum(c["rated_power_kw"] for c in active) > cap + 1e-9
+            ):
+                hold = True
+            for charger in active:
+                cable = connection(self.runtime.hass, charger.get("connected_entity"), at)
+                power = number(self.runtime.hass, charger.get("power_entity"), "power", at)
+                unsafe = (
+                    hold or cable.quality != "ok" or cable.value is not True
+                    or power.quality != "ok"
+                    or power.value > charger["rated_power_kw"] * 1.10
+                )
+                if unsafe:
+                    outcome = await self.execute(charger["id"], "stop")
+                    if outcome["status"] != "confirmed":
+                        _LOGGER.error(
+                            "Protective charger STOP not physically confirmed: %s %s",
+                            charger["id"], outcome["reason"]
+                        )
+        finally:
+            self._supervising = False
 
     def _readback(self, charger, action, requested_at):
         switch = self._switch(self.runtime.hass, charger["control_entity"])
