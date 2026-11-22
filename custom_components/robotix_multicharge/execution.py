@@ -26,6 +26,7 @@ class NativeSwitchExecutor:
         self.runtime = runtime
         self._lock = asyncio.Lock()
         self._outcomes = {}
+        self._requests = {}
         self._quarantine = set()
         self._stopped = False
 
@@ -169,18 +170,27 @@ class NativeSwitchExecutor:
         return power
 
     async def execute(self, charger_id, action, *, context=None,
-                      readback_seconds=READBACK_SECONDS):
+                      request_id=None, readback_seconds=READBACK_SECONDS):
         """Perform a real HA switch call; success requires fresh independent power."""
         if action not in ("start", "stop"):
             raise ValueError("unsupported physical action")
         at = datetime.now(timezone.utc)
-        request_id = uuid4().hex
+        request_id = request_id or uuid4().hex
+        if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
+            raise ValueError("request ID must be 1..128 characters")
         async with self._lock:
+            previous = self._requests.get(request_id)
+            if previous is not None:
+                if previous["charger_id"] != charger_id or previous["action"] != action:
+                    raise ValueError("request ID used for a different command")
+                return dict(previous)
             cfg = self.runtime.configuration
             charger = next((c for c in cfg["chargers"] if c["id"] == charger_id), None)
             def result(status, reason, **extras):
-                return self._publish(charger_id, request_id, action, status,
-                                     reason, at, **extras)
+                recorded = self._publish(charger_id, request_id, action, status,
+                                         reason, at, **extras)
+                self._requests[request_id] = dict(recorded)
+                return recorded
             if charger is None:
                 return result("rejected", "UNKNOWN_CHARGER")
             if self._stopped:
@@ -245,4 +255,9 @@ class NativeSwitchExecutor:
                                   action, charger_id)
                     return result("execution_unknown",
                                   "PHYSICAL_READBACK_TIMEOUT", service_sent=True)
-                await asyncio.sleep(min(0.5, remaining))
+                try:
+                    await asyncio.sleep(min(0.5, remaining))
+                except asyncio.CancelledError:
+                    result("execution_unknown", "COMMAND_CANCELLED_AWAITING_READBACK",
+                           service_sent=True)
+                    raise
