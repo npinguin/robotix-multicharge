@@ -95,7 +95,8 @@ def validate_configuration(value):
         _allowed(source, ("id", "name", "kind", "soc_entity",
                           "capacity_kwh", "target_soc", "max_charge_kw",
                           "requested_kwh", "requested_duration_minutes", "ready_by",
-                          "ready_by_repeat", "charge_efficiency", "priority"), "asset")
+                          "ready_by_repeat", "charge_efficiency", "priority",
+                          "temporary", "expires_at"), "asset")
         uid = _text(source.get("id"), "asset.id")
         if uid in ids:
             raise ValueError("asset.id: duplicate")
@@ -120,6 +121,24 @@ def validate_configuration(value):
             asset["requested_duration_minutes"] = minutes
         if "requested_kwh" in asset and "requested_duration_minutes" in asset:
             raise ValueError("asset: choose kWh or minutes, not both")
+        if source.get("temporary") is not None:
+            if type(source["temporary"]) is not bool:
+                raise ValueError("asset.temporary: expected boolean")
+            if source["temporary"]:
+                asset["temporary"] = True
+        if source.get("expires_at") is not None:
+            if not asset.get("temporary"):
+                raise ValueError("asset.expires_at: only temporary assets can expire")
+            raw = _text(source["expires_at"], "asset.expires_at")
+            try:
+                instant = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError("asset.expires_at: expected ISO time") from exc
+            if instant.tzinfo is None or instant.utcoffset() is None:
+                raise ValueError("asset.expires_at: timezone required")
+            asset["expires_at"] = instant.isoformat()
+        if asset.get("temporary") and "expires_at" not in asset:
+            raise ValueError("asset.temporary: expiry required")
         if source.get("priority") is not None:
             priority = source["priority"]
             if isinstance(priority, bool) or not isinstance(priority, int) or not 0 <= priority <= 100:
@@ -317,6 +336,7 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
             "name", "kind", "soc_entity", "capacity_kwh", "target_soc",
             "max_charge_kw", "requested_kwh", "requested_duration_minutes",
             "ready_by", "ready_by_repeat", "charge_efficiency", "priority",
+            "temporary", "expires_at",
         },
         "charger": {"name", "asset"},
     }
