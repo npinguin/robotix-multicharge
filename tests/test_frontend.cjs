@@ -214,6 +214,24 @@ async function main(){
   }
   card._tab="Chargers";
   card._hass.language="en";card.render();
+  fixture.preference_entities.chargers.drive.confirm_connection="button.drive_confirm";
+  fixture.connection_identity={drive:null};
+  const pressed=[];
+  card._hass.callService=async(domain,action,args)=>{
+    pressed.push({domain,action,args});
+    if(domain!=="button"||action!=="press")
+      throw new Error("Only actual native confirm button allowed");
+    fixture.connection_identity={
+      drive:{asset_id:"car",confirmed_at:new Date().toISOString()}
+    };
+  };
+  card.render();
+  assert.ok(find(card.shadowRoot,"button","Confirm connected vehicle"),
+    "Connected unidentified asset must expose a real HA-native confirmation");
+  find(card.shadowRoot,"button","Confirm connected vehicle").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(pressed.some(c=>c.args.entity_id==="button.drive_confirm"),
+    "Confirmation invokes the owning native HA button, never frontend identity inference");
 
   assert.ok(!find(card.shadowRoot,"button","Start charging"),
             "uncommissioned hardware cannot gain optimistic action");

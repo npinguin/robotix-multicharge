@@ -126,6 +126,16 @@ def build_diagnostics(runtime, entry, captured_at=None):
             "shortfall_kwh": _by_id(planning.shortfall_kwh) if planning else {},
             "proposed_kwh": _by_id(planning.proposed_kwh) if planning else {},
         },
+        "connection_identity": {
+            _alias(c["id"]): {
+                "status": "confirmed" if receipt else "unconfirmed",
+                "asset_id": _alias(receipt["asset_id"]) if receipt else None,
+                "connection_started_at": receipt["connected_at"] if receipt else None,
+                "confirmed_at": receipt["confirmed_at"] if receipt else None,
+            }
+            for c in cfg["chargers"]
+            for receipt in [runtime.executor.connection_confirmation(c, when)]
+        },
         "execution": {
             "action_health": runtime.live_state()["action_health"],
             "persistence_verified": runtime.executor._persistence_verified,
