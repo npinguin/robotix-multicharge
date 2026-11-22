@@ -30,6 +30,8 @@ class MultiChargeRuntime(_ProductionRuntime):
 
     def __init__(self, hass, config):
         super().__init__(hass, config)
+        if hass is None:
+            return
         for charger in config["chargers"]:
             source = hass.states.get(charger.get("connected_entity"))
             if (source is not None and source.state in ("on", "connected")
