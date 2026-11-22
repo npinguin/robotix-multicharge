@@ -68,6 +68,7 @@ class MultiChargeRuntime:
             uid=setting["id"], name=setting["name"],
             max_parallel=setting["max_parallel"],
             max_group_power_kw=setting.get("max_power_kw"),
+            phase_limits_a=setting.get("phase_limits_a"),
         )
         assets = {a["id"]: a for a in cfg["assets"]}
         chargers = {}
@@ -88,6 +89,12 @@ class MultiChargeRuntime:
                 phase_count=raw.get("phase_count"),
                 min_current_a=raw.get("min_current_a"),
                 max_current_a=raw.get("max_current_a"),
+                phase_ids=tuple(raw.get("phase_ids", ())),
+                voltage_v=raw.get("voltage_v"),
+                current_step_a=raw.get("current_step_a"),
+                fixed_current_a=raw.get("fixed_current_a"),
+                circuit_id=raw.get("circuit_id"),
+                circuit_limit_a=raw.get("circuit_limit_a"),
             )
             cable = connection(self.hass, raw.get("connected_entity"), at)
             power = number(self.hass, raw.get("power_entity"), "power", at)
@@ -246,6 +253,7 @@ class MultiChargeRuntime:
                     "start": slot.start.isoformat(),
                     "end": slot.end.isoformat(),
                     "proposed_power_kw": slot.power_kw,
+                    "proposed_current_a": slot.current_a,
                     "proposed_energy_kwh": round(
                         slot.power_kw * (slot.end - slot.start).total_seconds() / 3600, 6
                     ),

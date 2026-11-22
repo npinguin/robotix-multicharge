@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import isfinite
+from typing import Mapping
 
 
 def _positive(value: float | None, name: str) -> None:
@@ -45,6 +46,12 @@ class Charger:
     phase_count: int | None = None
     min_current_a: float | None = None
     max_current_a: float | None = None
+    phase_ids: tuple[str, ...] = ()
+    voltage_v: float | None = None
+    current_step_a: float | None = None
+    fixed_current_a: float | None = None
+    circuit_id: str | None = None
+    circuit_limit_a: float | None = None
 
     def __post_init__(self) -> None:
         if not all(v.strip() for v in (self.uid, self.name, self.controller_uid)):
@@ -61,11 +68,24 @@ class Charger:
         ):
             raise ValueError("on_off cannot claim variable-current capability")
         if self.control_kind == "variable_current" and (
-            self.min_current_a is None
-            or self.max_current_a is None
+            self.min_current_a is None or self.max_current_a is None
             or self.min_current_a > self.max_current_a
         ):
             raise ValueError("variable current requires verified min/max")
+        if self.phase_ids and (
+            len(self.phase_ids) != len(set(self.phase_ids))
+            or any(x not in ("L1", "L2", "L3") for x in self.phase_ids)
+            or self.phase_count != len(self.phase_ids)
+        ):
+            raise ValueError("charger phase identifiers must match phase count")
+        for field in ("voltage_v", "current_step_a", "fixed_current_a", "circuit_limit_a"):
+            _positive(getattr(self, field), field)
+        if self.circuit_limit_a is not None and not self.circuit_id:
+            raise ValueError("circuit limit requires an identified circuit")
+        if self.fixed_current_a is not None and self.control_kind != "on_off":
+            raise ValueError("fixed current only valid for on/off")
+        if self.current_step_a is not None and self.control_kind != "variable_current":
+            raise ValueError("setpoint step only valid for adjustable charger")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -76,6 +96,7 @@ class ChargeController:
     name: str
     max_parallel: int = 1
     max_group_power_kw: float | None = None
+    phase_limits_a: Mapping[str, float] | None = None
 
     def __post_init__(self) -> None:
         if not self.uid.strip() or not self.name.strip():
@@ -83,3 +104,10 @@ class ChargeController:
         if self.max_parallel < 1:
             raise ValueError("max_parallel must be >= 1")
         _positive(self.max_group_power_kw, "max_group_power_kw")
+        if self.phase_limits_a is not None:
+            if not self.phase_limits_a or any(
+                key not in ("L1", "L2", "L3") for key in self.phase_limits_a
+            ):
+                raise ValueError("phase limit keys must be L1/L2/L3")
+            for current in self.phase_limits_a.values():
+                _positive(current, "phase current limit")

@@ -311,6 +311,43 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(len(result.plan.slots), 2)
         self.assertEqual(result.proposed_kwh["c0"], 2.0)
 
+
+    def test_variable_current_respects_site_phase_and_circuit(self):
+        controller = ChargeController(
+            uid="site", name="Site", max_parallel=2, max_group_power_kw=12,
+            phase_limits_a={"L1": 20, "L2": 20, "L3": 20},
+        )
+        chargers = {
+            "a": Charger(uid="a", name="A", controller_uid="site",
+                control_kind="variable_current", rated_power_kw=11,
+                phase_count=3, phase_ids=("L1", "L2", "L3"), voltage_v=230,
+                min_current_a=6, max_current_a=16, current_step_a=1,
+                circuit_id="shared", circuit_limit_a=20),
+            "b": Charger(uid="b", name="B", controller_uid="site",
+                control_kind="variable_current", rated_power_kw=11,
+                phase_count=3, phase_ids=("L1", "L2", "L3"), voltage_v=230,
+                min_current_a=6, max_current_a=16, current_step_a=1,
+                circuit_id="shared", circuit_limit_a=20),
+        }
+        demand = [ChargeDemand("car-a", "a", 5, NOW, priority=10),
+                  ChargeDemand("car-b", "b", 5, NOW)]
+        result = compile_plan(controller, chargers, demand, NOW, mode="Force Charge")
+        for slot in {s.start for s in result.plan.slots}:
+            selected = [s for s in result.plan.slots if s.start == slot]
+            self.assertLessEqual(sum(s.current_a for s in selected), 20)
+            self.assertLessEqual(sum(s.power_kw for s in selected), 12)
+        self.assertTrue(any(s.current_a < 16 for s in result.plan.slots
+                            if s.charger_uid == "b"))
+
+    def test_variable_current_without_verified_wiring_cannot_be_planned(self):
+        controller = ChargeController(uid="site", name="Site", max_group_power_kw=11)
+        charger = Charger(uid="c", name="C", controller_uid="site",
+            control_kind="variable_current", rated_power_kw=11, phase_count=3,
+            min_current_a=6, max_current_a=16)
+        result = compile_plan(controller, {"c": charger},
+            [ChargeDemand("car", "c", 2, NOW)], NOW, mode="Automatic")
+        self.assertEqual(result.reasons["c"], "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED")
+
     def test_reject_advisory_as_binding(self):
         ctl, chargers = build()
         env = PowerEnvelope(

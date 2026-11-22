@@ -145,6 +145,40 @@ class ConfigurationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_configuration(cfg)
 
+
+    def test_owned_adjustable_charger_requires_verified_distinct_readback(self):
+        cfg = default_configuration()
+        cfg["assets"] = [{"id": "car", "name": "Car", "requested_kwh": 2}]
+        c = {"id": "drive", "name": "Drive", "kind": "variable_current",
+             "rated_power_kw": 11, "asset": "car", "control_owner": "multicharge",
+             "control_entity": "switch.drive", "connected_entity": "binary_sensor.plug",
+             "power_entity": "sensor.power", "phase_count": 3,
+             "phase_ids": ["L1", "L2", "L3"], "voltage_v": 230,
+             "min_current_a": 6, "max_current_a": 16, "current_step_a": 1,
+             "circuit_id": "drive", "circuit_limit_a": 16,
+             "current_control_entity": "number.charge_limit",
+             "current_readback_entity": "sensor.actual_current"}
+        cfg["chargers"] = [c]
+        self.assertEqual(validate_configuration(cfg)["chargers"][0]["phase_ids"],
+                         ["L1", "L2", "L3"])
+        c["current_readback_entity"] = "number.charge_limit"
+        with self.assertRaisesRegex(ValueError, "independent current sensor"):
+            validate_configuration(cfg)
+
+    def test_phase_circuit_conflicts_are_rejected(self):
+        cfg = default_configuration()
+        cfg["controller"]["phase_limits_a"] = {"L1": 16}
+        cfg["chargers"] = [
+            {"id": "a", "name": "A", "kind": "on_off", "rated_power_kw": 2,
+             "phase_count": 1, "phase_ids": ["L1"], "voltage_v": 230,
+             "fixed_current_a": 10, "circuit_id": "common", "circuit_limit_a": 16},
+            {"id": "b", "name": "B", "kind": "on_off", "rated_power_kw": 2,
+             "phase_count": 1, "phase_ids": ["L1"], "voltage_v": 230,
+             "fixed_current_a": 10, "circuit_id": "common", "circuit_limit_a": 10},
+        ]
+        with self.assertRaisesRegex(ValueError, "sharing a circuit"):
+            validate_configuration(cfg)
+
     def test_forged_yaml_extra_keys_fails(self):
         cfg = default_configuration()
         cfg["controller"]["private_writer"] = True

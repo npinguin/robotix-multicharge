@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 from hashlib import sha256
-from math import ceil, isfinite
+from math import ceil, floor, isfinite
 from typing import Mapping, Sequence
 
 from .contracts import (
@@ -145,6 +145,8 @@ def compile_plan(
         cursor += QUARTER
 
     used_kw: dict[datetime, float] = {}
+    used_phase_a: dict[datetime, dict[str, float]] = {}
+    used_circuit_a: dict[datetime, dict[str, float]] = {}
     active: dict[datetime, set[str]] = {}
     seen: set[str] = set()
     ranked = sorted(demands, key=lambda d: (
@@ -217,15 +219,32 @@ def compile_plan(
             shortfall[uid] = demand.remaining_grid_kwh
             coverage[uid] = "UNAVAILABLE"
             continue
-        # Fixed nominal power is an *advisory* full-slot estimate.  It is never
-        # interpreted as a verified physical current setpoint.
-        power = charger.rated_power_kw
-        needed = (
-            ceil(demand.remaining_duration_minutes / 15)
-            if demand.remaining_duration_minutes is not None
-            else ceil(demand.remaining_grid_kwh / (power / 4) - 1e-10)
-        )
-        possible: list[tuple[tuple[int, float], datetime, str]] = []
+        # A verified adjustable charger can propose stepped current, never a
+        # fictitious fractional on/off switch. Unknown wiring remains unavailable.
+        adjustable = charger.control_kind == "variable_current"
+        if adjustable and (
+            not charger.phase_ids or charger.voltage_v is None
+            or charger.current_step_a is None
+        ):
+            reasons[uid] = "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED"
+            shortfall[uid] = demand.remaining_grid_kwh
+            coverage[uid] = "UNAVAILABLE"
+            continue
+        if controller.phase_limits_a is not None and (
+            not charger.phase_ids or charger.voltage_v is None
+            or any(p not in controller.phase_limits_a for p in charger.phase_ids)
+            or (not adjustable and charger.fixed_current_a is None)
+        ):
+            reasons[uid] = "PHASE_WIRING_UNVERIFIED"
+            shortfall[uid] = demand.remaining_grid_kwh
+            coverage[uid] = "UNAVAILABLE"
+            continue
+        if charger.circuit_id and charger.circuit_limit_a is None:
+            reasons[uid] = "CIRCUIT_LIMIT_UNVERIFIED"
+            shortfall[uid] = demand.remaining_grid_kwh
+            coverage[uid] = "UNAVAILABLE"
+            continue
+        possible = []
         missing_price = False
         missing_solar = False
         missing_binding = False
@@ -250,10 +269,49 @@ def compile_plan(
                     missing_solar = True
                     continue
                 cap = min(cap, source.max_charging_kw)
-            if used_kw.get(slot, 0.0) + power > cap + 1e-9:
-                continue
             if len(active.get(slot, ())) >= controller.max_parallel:
                 continue
+            remaining_kw = cap - used_kw.get(slot, 0.0)
+            if demand.max_power_kw is not None:
+                remaining_kw = min(remaining_kw, demand.max_power_kw)
+            phases = charger.phase_ids
+            voltage = charger.voltage_v
+            if adjustable:
+                remaining_kw = min(remaining_kw, charger.rated_power_kw)
+                current_cap = min(charger.max_current_a,
+                                  remaining_kw * 1000 / (voltage * len(phases)))
+                if controller.phase_limits_a is not None:
+                    current_cap = min(current_cap, *(
+                        controller.phase_limits_a[p] - used_phase_a.get(slot, {}).get(p, 0)
+                        for p in phases
+                    ))
+                if charger.circuit_id:
+                    current_cap = min(
+                        current_cap, charger.circuit_limit_a
+                        - used_circuit_a.get(slot, {}).get(charger.circuit_id, 0)
+                    )
+                steps = floor((current_cap - charger.min_current_a + 1e-9)
+                              / charger.current_step_a)
+                current = (charger.min_current_a + max(0, steps) * charger.current_step_a)
+                if current_cap + 1e-9 < charger.min_current_a:
+                    continue
+                power = round(current * voltage * len(phases) / 1000, 6)
+            else:
+                power = charger.rated_power_kw
+                current = charger.fixed_current_a
+                if power > remaining_kw + 1e-9:
+                    continue
+                if controller.phase_limits_a is not None and any(
+                    used_phase_a.get(slot, {}).get(p, 0) + current >
+                    controller.phase_limits_a[p] + 1e-9 for p in phases
+                ):
+                    continue
+                if charger.circuit_id and (
+                    current is None or used_circuit_a.get(slot, {}).get(
+                        charger.circuit_id, 0
+                    ) + current > charger.circuit_limit_a + 1e-9
+                ):
+                    continue
             tariff = _cover((tariffs or {}).get(uid, ()), slot, finish)
             if mode == "Economy" and tariff is None:
                 missing_price = True
@@ -266,8 +324,6 @@ def compile_plan(
                     and used_kw.get(slot, 0.0) + power
                     <= available_solar.max_charging_kw + 1e-9
                 )
-                # Real negative tariffs may be more advantageous than solar.
-                # Never substitute a fabricated price into a financial result.
                 if rate is not None and rate < 0:
                     key, chosen_strategy = (-1, rate), "negative_tariff"
                 elif solar_covers:
@@ -280,29 +336,48 @@ def compile_plan(
                 key, chosen_strategy = (0, rate), "economy"
             else:
                 key, chosen_strategy = (0, 0.0), mode
-            possible.append((key, slot, chosen_strategy))
+            possible.append((key, slot, chosen_strategy, power, current))
         possible.sort(key=lambda item: (item[0], item[1]))
-        selected = possible[:needed]
-        chosen = sorted((slot, selected_mode) for _, slot, selected_mode in selected)
-        strategy[uid] = ",".join(sorted({method for _, method in chosen})) if chosen else mode
-        for slot, _ in chosen:
+        chosen = []
+        delivered = 0.0
+        for _, slot, selected_mode, power, current in possible:
+            if demand.remaining_duration_minutes is not None:
+                if len(chosen) * 15 >= demand.remaining_duration_minutes:
+                    break
+            elif delivered + 1e-9 >= demand.remaining_grid_kwh:
+                break
+            chosen.append((slot, selected_mode, power, current))
+            delivered += power / 4
+        chosen.sort(key=lambda item: item[0])
+        strategy[uid] = ",".join(sorted({method for _, method, _, _ in chosen})) if chosen else mode
+        for slot, _, power, current in chosen:
             allocations.append(PlannedChargeSlot(
-                charger_uid=uid,
-                asset_uid=demand.asset_uid,
-                start=slot,
-                end=slot + QUARTER,
-                power_kw=power,
+                charger_uid=uid, asset_uid=demand.asset_uid, start=slot,
+                end=slot + QUARTER, power_kw=power,
+                current_a=current if adjustable else None,
             ))
             active.setdefault(slot, set()).add(uid)
             used_kw[slot] = used_kw.get(slot, 0.0) + power
-        proposed[uid] = round(len(chosen) * power / 4, 5)
-        remaining_slots = max(0, needed - len(chosen))
+            if current is not None:
+                phases_used = used_phase_a.setdefault(slot, {})
+                for phase in phases:
+                    phases_used[phase] = phases_used.get(phase, 0) + current
+                if charger.circuit_id:
+                    circuits = used_circuit_a.setdefault(slot, {})
+                    circuits[charger.circuit_id] = (
+                        circuits.get(charger.circuit_id, 0) + current
+                    )
+        proposed[uid] = round(delivered, 5)
         shortfall[uid] = (
-            round(max(0.0, demand.remaining_grid_kwh - proposed[uid]), 5)
-            if demand.remaining_grid_kwh is not None
-            else None
+            round(max(0.0, demand.remaining_grid_kwh - delivered), 5)
+            if demand.remaining_grid_kwh is not None else None
         )
-        if remaining_slots == 0:
+        completed = (
+            len(chosen) * 15 >= demand.remaining_duration_minutes
+            if demand.remaining_duration_minutes is not None
+            else delivered + 1e-9 >= demand.remaining_grid_kwh
+        )
+        if completed:
             reasons[uid] = "PROPOSED"
             coverage[uid] = "COMPLETE"
         else:
@@ -318,7 +393,7 @@ def compile_plan(
     signature = "|".join((
         controller.uid, mode,
         *(
-            f"{s.charger_uid}:{s.start.isoformat()}:{s.power_kw}"
+            f"{s.charger_uid}:{s.start.isoformat()}:{s.power_kw}:{s.current_a}"
             for s in allocations
         ),
         *(f"{uid}:{reasons[uid]}:{strategy.get(uid, '')}" for uid in sorted(reasons)),

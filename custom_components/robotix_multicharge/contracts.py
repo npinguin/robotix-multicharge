@@ -119,6 +119,7 @@ class PlannedChargeSlot:
     start: datetime
     end: datetime
     power_kw: float
+    current_a: float | None = None
 
     def __post_init__(self) -> None:
         if not self.charger_uid.strip():
@@ -126,6 +127,10 @@ class PlannedChargeSlot:
         _interval(self.start, self.end)
         if not isfinite(self.power_kw) or self.power_kw < 0:
             raise ValueError("planned power must be nonnegative")
+        if self.current_a is not None and (
+            not isfinite(self.current_a) or self.current_a <= 0
+        ):
+            raise ValueError("planned current must be positive and verified")
 
 
 @dataclass(frozen=True)

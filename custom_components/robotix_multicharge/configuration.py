@@ -54,7 +54,7 @@ def validate_configuration(value):
     ctl = value.get("controller")
     _allowed(ctl, ("id", "name", "max_parallel", "max_power_kw",
                    "price_entity", "site_power_entity", "solar_entity",
-                   "binding_entity", "mode"), "controller")
+                   "binding_entity", "mode", "phase_limits_a"), "controller")
     cid = _text(ctl.get("id", "home"), "controller.id")
     parallel = ctl.get("max_parallel", 1)
     if isinstance(parallel, bool) or not isinstance(parallel, int) or parallel < 1:
@@ -66,13 +66,24 @@ def validate_configuration(value):
                   "max_parallel": parallel, "mode": mode}
     if ctl.get("max_power_kw") is not None:
         controller["max_power_kw"] = _number(ctl["max_power_kw"], "controller.max_power_kw")
+    if ctl.get("phase_limits_a") is not None:
+        limits = ctl["phase_limits_a"]
+        if not isinstance(limits, dict) or not limits or any(
+            phase not in ("L1", "L2", "L3") for phase in limits
+        ):
+            raise ValueError("controller.phase_limits_a: use L1/L2/L3 map")
+        controller["phase_limits_a"] = {
+            phase: _number(current, "controller.phase_limits_a." + phase)
+            for phase, current in limits.items()
+        }
     if ctl.get("binding_entity") and ctl.get("site_power_entity"):
         raise ValueError("controller: select one authoritative capacity binding source")
     for key in ("price_entity", "site_power_entity", "solar_entity", "binding_entity"):
         if ctl.get(key):
             controller[key] = _entity(ctl[key], "controller." + key)
     ChargeController(uid=cid, name=controller["name"],
-                     max_parallel=parallel, max_group_power_kw=controller.get("max_power_kw"))
+                     max_parallel=parallel, max_group_power_kw=controller.get("max_power_kw"),
+                     phase_limits_a=controller.get("phase_limits_a"))
 
     assets = []
     ids = set()
@@ -147,7 +158,10 @@ def validate_configuration(value):
         _allowed(source, ("id", "name", "kind", "rated_power_kw", "asset",
                           "control_entity", "connected_entity", "power_entity",
                           "energy_entity", "min_current_a", "max_current_a",
-                          "phase_count", "control_owner", "physical_commissioned"), "charger")
+                          "phase_count", "control_owner", "physical_commissioned",
+                          "phase_ids", "voltage_v", "current_step_a", "fixed_current_a",
+                          "circuit_id", "circuit_limit_a", "current_control_entity",
+                          "current_readback_entity"), "charger")
         uid = _text(source.get("id"), "charger.id")
         if uid in charger_ids:
             raise ValueError("charger.id: duplicate")
@@ -166,8 +180,6 @@ def validate_configuration(value):
         commissioned = source.get("physical_commissioned", False)
         if commissioned and owner != "multicharge":
             raise ValueError("charger: physical commissioning requires MultiCharge owner")
-        if owner == "multicharge" and source.get("kind") != "on_off":
-            raise ValueError("charger: variable current commands not implemented")
         if owner == "multicharge" and (
             not str(source.get("control_entity", "")).startswith("switch.")
             or not source.get("connected_entity")
@@ -181,10 +193,41 @@ def validate_configuration(value):
             if isinstance(p, bool) or not isinstance(p, int) or p not in (1, 2, 3):
                 raise ValueError("charger.phase_count: expected 1, 2 or 3")
             charger["phase_count"] = p
-        for key in ("min_current_a", "max_current_a"):
+        for key in ("min_current_a", "max_current_a", "voltage_v",
+                    "current_step_a", "fixed_current_a", "circuit_limit_a"):
             if source.get(key) is not None:
                 charger[key] = _number(source[key], "charger." + key)
-        for key in ("control_entity", "connected_entity", "power_entity", "energy_entity"):
+        if source.get("phase_ids") is not None:
+            phases = source["phase_ids"]
+            if not isinstance(phases, list) or not phases or (
+                len(phases) != len(set(phases))
+                or any(p not in ("L1", "L2", "L3") for p in phases)
+            ):
+                raise ValueError("charger.phase_ids: expected unique L1/L2/L3")
+            charger["phase_ids"] = list(phases)
+        if source.get("circuit_id"):
+            charger["circuit_id"] = _text(source["circuit_id"], "charger.circuit_id")
+        if owner == "multicharge" and source["kind"] == "variable_current":
+            if not all(key in charger for key in (
+                "phase_count", "phase_ids", "voltage_v", "current_step_a",
+                "min_current_a", "max_current_a", "circuit_id", "circuit_limit_a"
+            )) or not str(source.get("current_control_entity", "")).startswith("number.") or not str(
+                source.get("current_readback_entity", "")
+            ).startswith("sensor."):
+                raise ValueError("charger: controlled current requires verified phases, circuit, setpoint and independent current sensor")
+            if charger["voltage_v"] < 200 or charger["voltage_v"] > 260:
+                raise ValueError("charger.voltage_v: expected verified line-neutral voltage")
+        if (source.get("current_readback_entity")
+                and source.get("current_readback_entity") ==
+                source.get("current_control_entity")):
+            raise ValueError("charger: independent current sensor required")
+        if owner == "multicharge" and ctl.get("phase_limits_a"):
+            if not charger.get("phase_ids") or not charger.get("voltage_v"):
+                raise ValueError("charger: verified phase wiring and voltage required")
+            if source["kind"] == "on_off" and not charger.get("fixed_current_a"):
+                raise ValueError("charger: on/off current required for phase protection")
+        for key in ("control_entity", "connected_entity", "power_entity", "energy_entity",
+                    "current_control_entity", "current_readback_entity"):
             if source.get(key):
                 charger[key] = _entity(source[key], "charger." + key)
         if source.get("asset"):
@@ -196,9 +239,21 @@ def validate_configuration(value):
                 control_kind=charger["kind"], rated_power_kw=charger["rated_power_kw"],
                 min_current_a=charger.get("min_current_a"),
                 max_current_a=charger.get("max_current_a"),
-                phase_count=charger.get("phase_count"))
+                phase_count=charger.get("phase_count"),
+                phase_ids=tuple(charger.get("phase_ids", ())),
+                voltage_v=charger.get("voltage_v"),
+                current_step_a=charger.get("current_step_a"),
+                fixed_current_a=charger.get("fixed_current_a"),
+                circuit_id=charger.get("circuit_id"),
+                circuit_limit_a=charger.get("circuit_limit_a"))
         chargers.append(charger)
 
+    circuits = {}
+    for c in chargers:
+        if c.get("circuit_id"):
+            previous = circuits.setdefault(c["circuit_id"], c.get("circuit_limit_a"))
+            if previous != c.get("circuit_limit_a"):
+                raise ValueError("chargers sharing a circuit must share one binding current limit")
     assignments = [c["asset"] for c in chargers if "asset" in c]
     if len(assignments) != len(set(assignments)):
         raise ValueError("asset assigned to more than one charger")
@@ -209,7 +264,8 @@ def validate_configuration(value):
     physical_sources = {}
     for charger in chargers:
         for role in (
-            "control_entity", "connected_entity", "power_entity", "energy_entity"
+            "control_entity", "connected_entity", "power_entity", "energy_entity",
+            "current_control_entity", "current_readback_entity"
         ):
             entity = charger.get(role)
             if not entity:
