@@ -53,6 +53,18 @@ class NativeMeasuredHistoryTests(unittest.TestCase):
         self.assertEqual(items[0]["quality"], "measured_power_integral")
         self.assertIsNone(items[2]["actual_power_kw"])
 
+    def test_unavailable_sensor_event_breaks_historical_coverage(self):
+        start = NOW - timedelta(minutes=15)
+        # The meter goes unavailable five minutes into the same quarter.
+        # We must not forward-fill the last known positive reading.
+        samples = [
+            recorded(start, 2000),
+            recorded(start + timedelta(minutes=5), "unavailable"),
+        ]
+        actual = actual_quarters(samples, start, NOW, NOW)[0]
+        self.assertEqual(actual["quality"], "unknown")
+        self.assertIsNone(actual["actual_energy_kwh"])
+
     def test_invalid_unit_and_future_never_claim_actual_power(self):
         start = NOW - timedelta(minutes=15)
         items = actual_quarters(
