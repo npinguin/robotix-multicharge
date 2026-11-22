@@ -130,6 +130,29 @@ async function main(){
   }
   assert.ok(commands.length>0);
   assert.equal(commands[0].type,"robotix_multicharge/get_plan");
+  // A newly installed Controller with no Chargers must not show an empty
+  // hour grid, tariff legend or fictitious missing-measurement incident.
+  const emptyCard=new Card();
+  emptyCard.setConfig({});
+  emptyCard.hass={user:{is_admin:true},states:{},callWS:async()=>({
+    ...fixture,configuration:{
+      controller:{id:"home",name:"Home charging",mode:"Off",max_parallel:1},
+      assets:[],chargers:[]
+    },slots:[],forecast_slots:[],measured_slots:[],price_slots:[]
+  })};
+  await new Promise(resolve=>setImmediate(resolve));
+  emptyCard._tab="Charging Plan";emptyCard.render();
+  assert.ok(content(emptyCard.shadowRoot).includes("No charging points"),
+    "Empty charging plan explains why there is no chart");
+  assert.ok(find(emptyCard.shadowRoot,"a","Configure in Home Assistant"),
+    "Empty charging plan offers the existing native configuration path");
+  assert.ok(!find(emptyCard.shadowRoot,"svg"),
+    "Empty charging plan does not render a fictitious plot");
+  assert.ok(!content(emptyCard.shadowRoot).includes("Measured power unavailable"),
+    "Empty charging plan does not claim a missing measurement incident");
+  emptyCard._tab="Overview";emptyCard.render();
+  assert.ok(content(emptyCard.shadowRoot).includes("Configure a charger to begin"),
+    "Empty overview states the necessary next action");
   assert.ok(!require("node:fs").readFileSync(
     require("node:path").join(__dirname,
       "../custom_components/robotix_multicharge/frontend/robotix-multicharge.js"),
