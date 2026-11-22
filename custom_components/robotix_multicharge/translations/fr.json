@@ -190,7 +190,7 @@
       },
       "yaml": {
         "title": "Configuration YAML MultiCharge",
-        "description": "Modifier la configuration complète ou des éléments ciblés. Valider avant enregistrement.",
+        "description": "Modifier la configuration complète ou des éléments ciblés. Valider avant enregistrement. {note}",
         "data": {
           "mode": "Mode de mise à jour",
           "yaml_text": "Configuration MultiCharge (YAML/JSON)"
