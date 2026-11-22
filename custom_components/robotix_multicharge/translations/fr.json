@@ -1,0 +1,104 @@
+{
+  "entity": {
+    "select": {
+      "plan_label_mode": {
+        "name": "Libellés du plan",
+        "state": {
+          "vehicle": "Véhicule",
+          "charger": "Borne",
+          "both": "Les deux"
+        }
+      },
+      "plan_color_by": {
+        "name": "Couleur par",
+        "state": {
+          "vehicle": "Véhicule",
+          "charger": "Borne"
+        }
+      },
+      "show_indicative_forecast": {
+        "name": "Prévision",
+        "state": {
+          "on": "Afficher",
+          "off": "Masquer"
+        }
+      },
+      "mode": {
+        "name": "Mode de charge",
+        "state": {
+          "automatic": "Automatique",
+          "solar": "Solaire",
+          "economy": "Économique",
+          "ready_by": "Prêt pour",
+          "force_charge": "Charge immédiate",
+          "off": "Arrêt"
+        }
+      },
+      "plan_color": {
+        "name": "Couleur du plan",
+        "state": {
+          "blue": "Bleu",
+          "orange": "Orange",
+          "green": "Vert",
+          "purple": "Violet",
+          "gold": "Or",
+          "teal": "Sarcelle",
+          "pink": "Rose",
+          "indigo": "Indigo",
+          "olive": "Olive",
+          "brown": "Marron",
+          "coral": "Corail",
+          "slate": "Ardoise",
+          "violet": "Mauve",
+          "lime": "Citron vert",
+          "salmon": "Saumon",
+          "cyan": "Cyan",
+          "wine": "Bordeaux",
+          "forest": "Vert forêt",
+          "peach": "Pêche",
+          "lavender": "Lavande",
+          "turquoise": "Turquoise",
+          "rust": "Rouille",
+          "navy": "Bleu marine",
+          "moss": "Vert mousse"
+        }
+      },
+      "selected_vehicle": {
+        "name": "Véhicule",
+        "state": {
+          "none": "Aucun véhicule"
+        }
+      },
+      "ready_by_repeat": {
+        "name": "Répétition",
+        "state": {
+          "none": "Aucune",
+          "daily": "Chaque jour",
+          "weekly": "Chaque semaine"
+        }
+      }
+    },
+    "number": {
+      "target_soc": {
+        "name": "Cible"
+      },
+      "requested_kwh": {
+        "name": "Énergie"
+      },
+      "requested_duration_minutes": {
+        "name": "Durée"
+      },
+      "priority": {
+        "name": "Priorité"
+      }
+    },
+    "datetime": {
+      "ready_by": {
+        "name": "Prêt pour"
+      },
+      "expected_connection_at": {
+        "name": "Connexion prévue"
+      }
+    }
+  }
+}

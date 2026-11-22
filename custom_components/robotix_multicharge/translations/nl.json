@@ -1,0 +1,104 @@
+{
+  "entity": {
+    "select": {
+      "plan_label_mode": {
+        "name": "Planlabels",
+        "state": {
+          "vehicle": "Voertuig",
+          "charger": "Laadpaal",
+          "both": "Beide"
+        }
+      },
+      "plan_color_by": {
+        "name": "Kleur per",
+        "state": {
+          "vehicle": "Voertuig",
+          "charger": "Laadpaal"
+        }
+      },
+      "show_indicative_forecast": {
+        "name": "Prognose",
+        "state": {
+          "on": "Tonen",
+          "off": "Verbergen"
+        }
+      },
+      "mode": {
+        "name": "Laadmodus",
+        "state": {
+          "automatic": "Automatisch",
+          "solar": "Zonne-energie",
+          "economy": "Voordelig",
+          "ready_by": "Klaar om",
+          "force_charge": "Direct laden",
+          "off": "Uit"
+        }
+      },
+      "plan_color": {
+        "name": "Plankleur",
+        "state": {
+          "blue": "Blauw",
+          "orange": "Oranje",
+          "green": "Groen",
+          "purple": "Paars",
+          "gold": "Goud",
+          "teal": "Blauwgroen",
+          "pink": "Roze",
+          "indigo": "Indigo",
+          "olive": "Olijfgroen",
+          "brown": "Bruin",
+          "coral": "Koraal",
+          "slate": "Leigrijs",
+          "violet": "Violet",
+          "lime": "Limoen",
+          "salmon": "Zalm",
+          "cyan": "Cyaan",
+          "wine": "Wijnrood",
+          "forest": "Bosgroen",
+          "peach": "Perzik",
+          "lavender": "Lavendel",
+          "turquoise": "Turkoois",
+          "rust": "Roest",
+          "navy": "Marineblauw",
+          "moss": "Mosgroen"
+        }
+      },
+      "selected_vehicle": {
+        "name": "Voertuig",
+        "state": {
+          "none": "Geen voertuig"
+        }
+      },
+      "ready_by_repeat": {
+        "name": "Herhalen",
+        "state": {
+          "none": "Geen",
+          "daily": "Dagelijks",
+          "weekly": "Wekelijks"
+        }
+      }
+    },
+    "number": {
+      "target_soc": {
+        "name": "Doel"
+      },
+      "requested_kwh": {
+        "name": "Energie"
+      },
+      "requested_duration_minutes": {
+        "name": "Duur"
+      },
+      "priority": {
+        "name": "Prioriteit"
+      }
+    },
+    "datetime": {
+      "ready_by": {
+        "name": "Klaar om"
+      },
+      "expected_connection_at": {
+        "name": "Verwachte aansluiting"
+      }
+    }
+  }
+}

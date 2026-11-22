@@ -179,5 +179,107 @@
     "error": {
       "invalid_config": "Check the provided values and references."
     }
+  },
+  "entity": {
+    "select": {
+      "plan_label_mode": {
+        "name": "Plan labels",
+        "state": {
+          "vehicle": "Vehicle",
+          "charger": "Charger",
+          "both": "Both"
+        }
+      },
+      "plan_color_by": {
+        "name": "Color by",
+        "state": {
+          "vehicle": "Vehicle",
+          "charger": "Charger"
+        }
+      },
+      "show_indicative_forecast": {
+        "name": "Forecast",
+        "state": {
+          "on": "Show",
+          "off": "Hide"
+        }
+      },
+      "mode": {
+        "name": "Charging mode",
+        "state": {
+          "automatic": "Automatic",
+          "solar": "Solar",
+          "economy": "Economy",
+          "ready_by": "Ready by",
+          "force_charge": "Force charge",
+          "off": "Off"
+        }
+      },
+      "plan_color": {
+        "name": "Plan color",
+        "state": {
+          "blue": "Blue",
+          "orange": "Orange",
+          "green": "Green",
+          "purple": "Purple",
+          "gold": "Gold",
+          "teal": "Teal",
+          "pink": "Pink",
+          "indigo": "Indigo",
+          "olive": "Olive",
+          "brown": "Brown",
+          "coral": "Coral",
+          "slate": "Slate",
+          "violet": "Violet",
+          "lime": "Lime",
+          "salmon": "Salmon",
+          "cyan": "Cyan",
+          "wine": "Wine",
+          "forest": "Forest",
+          "peach": "Peach",
+          "lavender": "Lavender",
+          "turquoise": "Turquoise",
+          "rust": "Rust",
+          "navy": "Navy",
+          "moss": "Moss"
+        }
+      },
+      "selected_vehicle": {
+        "name": "Vehicle",
+        "state": {
+          "none": "No vehicle"
+        }
+      },
+      "ready_by_repeat": {
+        "name": "Repeat",
+        "state": {
+          "none": "None",
+          "daily": "Daily",
+          "weekly": "Weekly"
+        }
+      }
+    },
+    "number": {
+      "target_soc": {
+        "name": "Target"
+      },
+      "requested_kwh": {
+        "name": "Energy"
+      },
+      "requested_duration_minutes": {
+        "name": "Duration"
+      },
+      "priority": {
+        "name": "Priority"
+      }
+    },
+    "datetime": {
+      "ready_by": {
+        "name": "Ready by"
+      },
+      "expected_connection_at": {
+        "name": "Expected connection"
+      }
+    }
   }
 }

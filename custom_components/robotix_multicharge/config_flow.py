@@ -332,10 +332,6 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
             else:
                 cfg["controller"].pop("max_power_kw", None)
             cfg["controller"]["mode"] = user_input["mode"]
-            for field in ("plan_label_mode", "plan_color_by",
-                          "show_indicative_forecast"):
-                if field in user_input:
-                    cfg["controller"][field] = user_input[field]
             if user_input.get("phase_limits_a"):
                 cfg["controller"]["phase_limits_a"] = _phase_limits(user_input["phase_limits_a"])
             for key in ("price_entity", "solar_entity", "binding_entity"):
@@ -358,15 +354,6 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
                                     cfg["controller"].get("phase_limits_a", {}).items())): str,
                 vol.Required("mode", default=cfg["controller"].get("mode", "Off")):
                     vol.In(["Automatic", "Solar", "Economy", "Ready By", "Force Charge", "Off"]),
-                vol.Required("plan_label_mode",
-                             default=cfg["controller"].get("plan_label_mode", "both")):
-                    vol.In(["vehicle", "charger", "both"]),
-                vol.Required("plan_color_by",
-                             default=cfg["controller"].get("plan_color_by", "vehicle")):
-                    vol.In(["vehicle", "charger"]),
-                vol.Required("show_indicative_forecast",
-                             default=cfg["controller"].get("show_indicative_forecast", True)):
-                    bool,
                 vol.Optional("price_entity"): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
                 ),
