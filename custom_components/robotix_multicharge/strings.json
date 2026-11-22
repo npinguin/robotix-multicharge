@@ -189,7 +189,7 @@
       },
       "yaml": {
         "title": "MultiCharge — YAML configuration",
-        "description": "Edit all current settings or submit scoped changes. All changes are validated before review; no physical controls are activated.",
+        "description": "Edit all current settings or submit scoped changes. All changes are validated before review; no physical controls are activated. {note}",
         "data": {
           "mode": "Update mode",
           "yaml_text": "MultiCharge configuration (YAML / JSON data)"
