@@ -1081,7 +1081,8 @@ class NativeSwitchExecutor:
                         or previous.get("requested_current_a") != current_a
                         or previous.get("manual_request") != manual_request):
                     raise ValueError("request ID used for a different command")
-                return dict(previous)
+                return {key: value for key, value in previous.items()
+                        if key != "manual_request"}
             cfg = self.runtime.configuration
             charger = next((c for c in cfg["chargers"] if c["id"] == charger_id), None)
             def result(status, reason, **extras):
