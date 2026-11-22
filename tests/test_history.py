@@ -32,7 +32,7 @@ class NativeMeasuredHistoryTests(unittest.TestCase):
         ], start, NOW, NOW)[0]
         self.assertEqual(row["quality"], "measured_power_integral")
         self.assertAlmostEqual(row["actual_energy_kwh"], 25 / 60, places=6)
-        self.assertAlmostEqual(row["actual_power_kw"], 25 / 15)
+        self.assertAlmostEqual(row["actual_power_kw"], 25 / 15, places=6)
 
     def test_measured_zero_is_distinct_from_unknown(self):
         start = NOW - timedelta(minutes=15)
