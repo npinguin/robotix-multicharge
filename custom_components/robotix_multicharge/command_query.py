@@ -73,7 +73,7 @@ async def apply_native_preference(hass, entry, runtime, scope, target_id, change
     never reload a working EVSE for a visual-only preference.
     """
     if (entry is None or entry.source == "import"
-            or entry.data.get("source") == "yaml"):
+            or entry.data.get("source") in ("yaml", "json")):
         raise ValueError("readonly_import_configuration")
     async with runtime.executor._lock:
         if expected_revision is not None and (
@@ -161,7 +161,7 @@ async def websocket_update_settings(
     entry = hass.config_entries.async_get_entry(entry_id)
     if entry is None or entry.data.get("source") == "yaml":
         connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT,
-                              "YAML-owned configuration is edited through YAML")
+                              "Expert-managed configuration is edited in its JSON/YAML source")
         return
     try:
         next_revision = await apply_native_preference(
