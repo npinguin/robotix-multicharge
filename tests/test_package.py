@@ -34,6 +34,13 @@ class PackageTest(unittest.TestCase):
         source = (COMPONENT / "sensor.py").read_text(encoding="utf8")
         self.assertNotIn("via_device", source)
 
+    def test_native_read_only_property_surfaces(self):
+        sensor = (COMPONENT / "sensor.py").read_text(encoding="utf8")
+        self.assertIn("Actual power", sensor)
+        self.assertIn("Battery level", sensor)
+        self.assertIn("Connection", sensor)
+        self.assertNotIn("services.async_call(", sensor)
+
     def test_no_legacy_setup_or_alias_entities(self):
         source = (COMPONENT / "sensor.py").read_text(encoding="utf8")
         self.assertIn(":readiness", source)

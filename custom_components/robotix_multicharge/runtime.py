@@ -54,6 +54,12 @@ class MultiChargeRuntime:
         demands = []
         self.observations = {"chargers": {}, "assets": {}, "sources": {}}
         self.excluded = {}
+        # Observe every logical asset, including unassigned assets and explicit
+        # kWh/duration intents. Do not reconstruct a second OEM/vehicle truth.
+        for asset in cfg["assets"]:
+            self.observations["assets"][asset["id"]] = {
+                "soc": number(self.hass, asset.get("soc_entity"), "soc", at)
+            }
         for raw in cfg["chargers"]:
             uid = raw["id"]
             chargers[uid] = Charger(
@@ -80,8 +86,7 @@ class MultiChargeRuntime:
             amount = asset.get("requested_kwh")
             minutes = asset.get("requested_duration_minutes")
             if amount is None and minutes is None:
-                reading = number(self.hass, asset.get("soc_entity"), "soc", at)
-                self.observations["assets"][asset["id"]] = {"soc": reading}
+                reading = self.observations["assets"][asset["id"]]["soc"]
                 if (
                     reading.quality == "ok"
                     and "target_soc" in asset
@@ -209,6 +214,17 @@ class MultiChargeRuntime:
             "revision": assessment.plan.revision if assessment else None,
             "generated_at": (
                 assessment.plan.generated_at.isoformat() if assessment else None
+            ),
+            "valid_until": (
+                (assessment.plan.generated_at + timedelta(minutes=2)).isoformat()
+                if assessment else None
+            ),
+            "timezone": getattr(
+                getattr(self.hass, "config", None), "time_zone", "UTC"
+            ),
+            "quality": dict(self.observations.get("sources", {})),
+            "shortfall_kwh": (
+                dict(assessment.shortfall_kwh) if assessment else {}
             ),
             "start": first.isoformat(),
             "end": last.isoformat(),

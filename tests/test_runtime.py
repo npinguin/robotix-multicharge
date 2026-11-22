@@ -66,6 +66,23 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(rt.summary()["status"], "proposed")
         self.assertFalse(rt.summary()["physical_actuation_authorized"])
 
+    def test_unassigned_asset_still_exposes_source_observation(self):
+        cfg = sample()
+        cfg["assets"].append({
+            "id": "bike", "name": "Bike", "soc_entity": "sensor.bike",
+        })
+        readings = {
+            "sensor.soc": state("50", "%"),
+            "sensor.bike": state("0", "%"),
+            "binary_sensor.cable": state("on"),
+        }
+        rt = MultiChargeRuntime(
+            SimpleNamespace(states=SimpleNamespace(get=readings.get)), cfg
+        )
+        rt.refresh(NOW)
+        self.assertEqual(rt.observations["assets"]["bike"]["soc"].value, 0)
+        self.assertEqual(rt.observations["assets"]["bike"]["soc"].quality, "ok")
+
     def test_no_connection_never_proposes_charging(self):
         cfg = sample()
         rt = MultiChargeRuntime(SimpleNamespace(
@@ -106,6 +123,12 @@ class RuntimeTests(unittest.TestCase):
         rt.refresh(NOW)
         result = rt.read_plan(NOW, NOW + timedelta(hours=2), charger_id="drive")
         self.assertEqual(result["schema_major"], 1)
+        self.assertEqual(result["timezone"], "UTC")
+        self.assertIn("binding_quality", result["quality"])
+        self.assertEqual(
+            result["valid_until"],
+            (NOW + timedelta(minutes=2)).isoformat(),
+        )
         self.assertEqual(len(result["slots"]), 6)
         self.assertIsNone(result["slots"][0]["actual_power_kw"])
         self.assertIsNone(result["slots"][0]["accepted_power_kw"])

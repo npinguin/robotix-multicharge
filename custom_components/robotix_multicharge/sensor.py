@@ -1,14 +1,14 @@
-"""Native logical status entities, never duplicated source devices.
+"""Native source-neutral logical HA entities for charging status and evidence.
 
-The read-only planning runtime remains physically uncommissioned. One bounded
-source refresh per minute; entity state updates stay on the HA event loop.
+All measurements originate from explicitly selected source devices. We do not
+copy their identities, reparent devices or assert physical command ownership.
 """
 
 from __future__ import annotations
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EntityCategory
+from homeassistant.const import EntityCategory, UnitOfPower, PERCENTAGE
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -28,6 +28,14 @@ async def async_setup_entry(
         _LogicalReadinessSensor("charger", row, runtime) for row in cfg["chargers"]
     )
     entities.append(_PlanStatusSensor(cfg["controller"], runtime))
+    entities.append(
+        _LogicalEvidenceSensor("controller", cfg["controller"], runtime, "power")
+    )
+    for asset in cfg["assets"]:
+        entities.append(_LogicalEvidenceSensor("asset", asset, runtime, "soc"))
+    for charger in cfg["chargers"]:
+        entities.append(_LogicalEvidenceSensor("charger", charger, runtime, "power"))
+        entities.append(_LogicalEvidenceSensor("charger", charger, runtime, "connected"))
     async_add_entities(entities)
 
 
@@ -113,4 +121,84 @@ class _PlanStatusSensor(_NativeMultiChargeSensor):
             "planned_kwh_by_charger": summary.get("planned_kwh_by_charger", {}),
             "read_only": True,
             "physical_actuation_authorized": False,
+        }
+
+
+class _LogicalEvidenceSensor(_NativeMultiChargeSensor):
+    """Quality-gated live value. Missing/stale is unknown, never measured zero."""
+
+    def __init__(self, kind: str, data: dict, runtime, property_name: str) -> None:
+        super().__init__(kind, data, runtime)
+        self.property_name = property_name
+        names = {"power": "Actual power", "soc": "Battery level",
+                 "connected": "Connection"}
+        self._attr_name = names[property_name]
+        self._attr_unique_id = (
+            f"{DOMAIN}:{kind}:{data['id']}:{property_name}"
+        )
+        if property_name == "power":
+            self._attr_device_class = SensorDeviceClass.POWER
+            self._attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
+            self._attr_state_class = SensorStateClass.MEASUREMENT
+        elif property_name == "soc":
+            self._attr_device_class = SensorDeviceClass.BATTERY
+            self._attr_native_unit_of_measurement = PERCENTAGE
+            self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._update_value()
+
+    def _update_value(self):
+        source_name = None
+        observation = None
+        if self.kind == "controller":
+            # Only report a site total when every configured Charger is
+            # independently measured with qualified fresh power.
+            raw = list(self.runtime.observations.get("chargers", {}).values())
+            if raw and len(raw) == len(self.runtime.configuration["chargers"]):
+                values = [row.get("power_kw") for row in raw]
+                if all(e is not None and e.quality == "ok" for e in values):
+                    self._attr_native_value = round(
+                        sum(e.value for e in values), 6
+                    )
+                    self._attr_extra_state_attributes = {
+                        "quality": "ok", "coverage": "all_configured_chargers"
+                    }
+                    return
+            self._attr_native_value = None
+            self._attr_extra_state_attributes = {
+                "quality": "unknown", "coverage": "incomplete"
+            }
+            return
+        if self.kind == "asset":
+            observation = self.runtime.observations.get("assets", {}).get(
+                self.data["id"], {}
+            ).get("soc")
+            source_name = self.data.get("soc_entity")
+        elif self.kind == "charger":
+            readings = self.runtime.observations.get("chargers", {}).get(
+                self.data["id"], {}
+            )
+            observation = readings.get(
+                "connected" if self.property_name == "connected" else "power_kw"
+            )
+            source_name = self.data.get(
+                "connected_entity" if self.property_name == "connected"
+                else "power_entity"
+            )
+
+        self._attr_native_value = None
+        if observation is not None and observation.quality == "ok":
+            if self.property_name == "connected":
+                self._attr_native_value = (
+                    "connected" if observation.value else "disconnected"
+                )
+            else:
+                self._attr_native_value = observation.value
+        self._attr_extra_state_attributes = {
+            "quality": observation.quality if observation else "unknown",
+            "reason": observation.reason if observation else "SOURCE_NOT_SELECTED",
+            "observed_at": (
+                observation.observed_at.isoformat()
+                if observation is not None and observation.observed_at else None
+            ),
+            "source_entity_id": source_name,
         }
