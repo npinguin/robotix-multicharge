@@ -471,7 +471,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         select.append(entry);
       }
       select.value=value;
-      select.disabled=this._settingsBusy||!this.ownerEntity("controller",controller.id,setting);
+      select.disabled=!this.canManage()||this._settingsBusy||!this.ownerEntity("controller",controller.id,setting);
       select.addEventListener("change",()=>{
         const selected=setting==="show_indicative_forecast"?
           select.value==="true":select.value;
