@@ -153,6 +153,10 @@ async function main(){
   emptyCard._tab="Overview";emptyCard.render();
   assert.ok(content(emptyCard.shadowRoot).includes("Configure a charger to begin"),
     "Empty overview states the necessary next action");
+  assert.ok(find(emptyCard.shadowRoot,"a","Configure in Home Assistant"),
+    "Empty overview offers native setup action, not a passive hint");
+  assert.ok(!content(emptyCard.shadowRoot).includes("No data"),
+    "Empty overview does not misrepresent unconfigured site as failed readings");
   assert.ok(!require("node:fs").readFileSync(
     require("node:path").join(__dirname,
       "../custom_components/robotix_multicharge/frontend/robotix-multicharge.js"),
