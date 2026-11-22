@@ -354,6 +354,29 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         await rt.executor.supervise()
         self.assertEqual([c[1] for c in services.calls], ["turn_on", "turn_off"])
 
+    async def test_unload_calls_real_stop_and_requires_observed_zero(self):
+        rt, _, services = rig()
+        started = await rt.executor.execute("evse", "start")
+        self.assertEqual(started["status"], "confirmed")
+        result = await rt.executor.shutdown()
+        self.assertTrue(result)
+        self.assertEqual([x[1] for x in services.calls], ["turn_on", "turn_off"])
+        self.assertEqual(rt.executor.snapshot()["evse"]["status"], "confirmed")
+
+    async def test_unload_refuses_unknown_physical_switch_state(self):
+        rt, states, services = rig()
+        states["switch.evse_control"].state = "unavailable"
+        result = await rt.executor.shutdown()
+        self.assertFalse(result)
+        self.assertEqual(services.calls, [])
+
+    async def test_unload_does_not_touch_native_external_owner(self):
+        rt, states, services = rig(owner="external", commissioned=False)
+        states["switch.evse_control"].state = "on"
+        result = await rt.executor.shutdown()
+        self.assertTrue(result)
+        self.assertEqual(services.calls, [])
+
     async def test_unload_never_allows_new_commands(self):
         rt, _, services = rig()
         rt.stop()
