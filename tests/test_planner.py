@@ -215,6 +215,32 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(result.reasons["c0"], "GROUP_CAPACITY_UNQUALIFIED")
         self.assertEqual(len(result.plan.slots), 0)
 
+    def test_asset_power_cap_blocks_unqualified_modulation(self):
+        ctl, chargers = build(power=7.2, limit=11)
+        request = ChargeDemand(
+            "bike", "c0", 1.0, NOW + timedelta(hours=1),
+            max_power_kw=2.0,
+        )
+        result = compile_plan(ctl, chargers, [request], NOW)
+        self.assertEqual(result.plan.slots, ())
+        self.assertEqual(
+            result.reasons["c0"],
+            "ASSET_POWER_LIMIT_REQUIRES_VERIFIED_MODULATION",
+        )
+
+    def test_prices_of_different_currencies_are_not_compared(self):
+        ctl, chargers = build()
+        prices = [
+            PriceSlot(NOW, NOW + timedelta(minutes=15), -0.1, "EUR"),
+            PriceSlot(NOW + timedelta(minutes=15),
+                      NOW + timedelta(minutes=30), 0.1, "USD"),
+        ]
+        with self.assertRaisesRegex(ValueError, "mixed tariff currencies"):
+            compile_plan(
+                ctl, chargers, [demand(0)], NOW, mode="Economy",
+                tariffs={"c0": prices},
+            )
+
     def test_one_charger_may_only_have_one_request(self):
         ctl, chargers = build()
         with self.assertRaises(ValueError):

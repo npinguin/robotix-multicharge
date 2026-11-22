@@ -80,6 +80,12 @@ def compile_plan(
         raise ValueError("horizon must be 1..48 hours")
     if binding is not None and binding.authority != "binding":
         raise ValueError("advisory capacity is not a physical binding ceiling")
+    # Comparing nominal prices in different currencies creates a false
+    # financial optimization; one Charger needs one actual currency basis.
+    if tariffs is not None:
+        for charger_id, prices in tariffs.items():
+            if len({price.currency for price in prices}) > 1:
+                raise ValueError(f"mixed tariff currencies for charger {charger_id}")
 
     reasons: dict[str, str] = {}
     shortfall: dict[str, float | None] = {}
@@ -154,6 +160,17 @@ def compile_plan(
             continue
         if not isfinite(charger.rated_power_kw) or charger.rated_power_kw <= 0:
             reasons[uid] = "CHARGER_CAPABILITY_UNQUALIFIED"
+            shortfall[uid] = demand.remaining_grid_kwh
+            coverage[uid] = "UNAVAILABLE"
+            continue
+        if (
+            demand.max_power_kw is not None
+            and demand.max_power_kw + 1e-9 < charger.rated_power_kw
+        ):
+            # A full-power fixed-slot proposal would exceed the asset cap.
+            # Variable-current control needs separately verified voltage,
+            # phase, min/max and setpoint readback before it can be accepted.
+            reasons[uid] = "ASSET_POWER_LIMIT_REQUIRES_VERIFIED_MODULATION"
             shortfall[uid] = demand.remaining_grid_kwh
             coverage[uid] = "UNAVAILABLE"
             continue

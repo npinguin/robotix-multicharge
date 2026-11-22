@@ -73,6 +73,14 @@ class ConceptsTest(unittest.TestCase):
             ChargePlan("home", "r1", NOW.replace(tzinfo=None), "accepted", ())
 
 
+    def test_priority_and_asset_power_cap_require_valid_evidence(self):
+        with self.assertRaises(ValueError):
+            ChargeDemand("car", "charger", 1, NOW, priority=-1)
+        with self.assertRaises(ValueError):
+            ChargeDemand("car", "charger", 1, NOW, max_power_kw=0)
+        accepted = ChargeDemand("car", "charger", 1, NOW, max_power_kw=4)
+        self.assertEqual(accepted.max_power_kw, 4)
+
     def test_energy_and_duration_not_conflated(self):
         self.assertEqual(
             ChargeDemand("asset", "charger", 4.0, NOW).remaining_grid_kwh, 4.0

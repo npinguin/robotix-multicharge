@@ -105,6 +105,7 @@ class MultiChargeRuntime:
                 remaining_grid_kwh=amount, ready_by=deadline,
                 priority=asset.get("priority", 0),
                 remaining_duration_minutes=minutes,
+                max_power_kw=asset.get("max_charge_kw"),
             ))
         tariff, tariff_quality = intervals(
             self.hass, setting.get("price_entity"), "price", at
