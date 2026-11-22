@@ -80,7 +80,7 @@ class ChargeDemand:
     priority: int = 0
     remaining_duration_minutes: int | None = None
 
-    def __post_init__ -> None:
+    def __post_init__(self) -> None:
         if not self.asset_uid.strip():
             raise ValueError("asset identity required")
         if self.remaining_grid_kwh is not None and (
