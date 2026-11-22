@@ -52,9 +52,9 @@ class ConceptsTest(unittest.TestCase):
             ChargeController(uid="x", name="Home", max_group_power_kw=-1)
 
     def test_price_can_be_negative(self):
-        self.assertEqual(PriceSlot(NOW, NOW + timedelta(minutes=15), -0.02).effective_eur_per_kwh, -0.02)
+        self.assertEqual(PriceSlot(NOW, NOW + timedelta(minutes=15), -0.02, "USD").effective_price_per_kwh, -0.02)
         with self.assertRaises(ValueError):
-            PriceSlot(NOW, NOW, 0)
+            PriceSlot(NOW, NOW, 0, "EUR")
 
     def test_binding_supervision_expiry_and_explicit_zero(self):
         slot = PowerLimitSlot(NOW, NOW + timedelta(minutes=15), 0)

@@ -189,7 +189,7 @@ def compile_plan(
                 missing_price = True
                 continue
             rate = (
-                tariff.effective_eur_per_kwh if tariff is not None
+                tariff.effective_price_per_kwh if tariff is not None
                 else 0.0  # ordering ONLY: never a claimed or published price
             )
             # Price sorting is permitted only for qualified slot values.

@@ -6,7 +6,7 @@ The integration's `domain.py`, `contracts.py` and `interfaces.py` currently defi
 | --- | --- | --- |
 | Charging assets | `ChargeableAsset` / `ChargeDemand` | Stable identity; explicit need, target, deadline and unknown source state |
 | Charger capability | `Charger` / `ChargerProvider` | Observed and configured capabilities separated from requested commands |
-| Prices | `PriceProvider` / `PriceSlot` | Zoned intervals, validated coverage and possible negative prices |
+| Prices | `PriceProvider` / `PriceSlot` | Zoned intervals, explicit currency, validated coverage and possible negative prices; no fixed country or all-in price inference |
 | Available charging power | `PowerProvider` / `PowerEnvelope` | Optional, bounded time-based limit; no assumption that missing means unlimited |
 | Charge plan | `ChargeController` / `ChargePlan` | Revisioned interval proposals/acceptance; planned does not mean actual |
 | Hardware execution | `ChargeActuator` | Exclusive authorized writer; validated limits and independent readback |

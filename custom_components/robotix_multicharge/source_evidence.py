@@ -97,13 +97,14 @@ def intervals(hass, entity_id: str | None, kind: str, now: datetime):
     """Accept only a versioned, source-qualified series of real interval data.
 
     Expected attributes:
-    kind=effective_eur_kwh|solar_limit_kw, valid_until=aware ISO timestamp,
-    intervals=[{start, end, value}]. No silent spot/all-in conversion.
+    kind=effective_price_kwh|solar_limit_kw, valid_until=aware ISO timestamp,
+    intervals=[{start, end, value}], and price sources require currency=ISO-4217.
+    No silent spot/all-in, currency or provider assumption.
     """
     obj, evidence = _state(hass, entity_id, now, timedelta(hours=24))
     if obj is None:
         return (), evidence.reason
-    expected = {"price": "effective_eur_kwh", "solar": "solar_limit_kw"}
+    expected = {"price": "effective_price_kwh", "solar": "solar_limit_kw"}
     if kind not in expected:
         raise ValueError("unsupported interval kind")
     if obj.attributes.get("kind") != expected[kind]:
@@ -124,7 +125,7 @@ def intervals(hass, entity_id: str | None, kind: str, now: datetime):
             if not isfinite(value):
                 raise ValueError("invalid interval")
             if kind == "price":
-                slots.append(PriceSlot(start, end, value))
+                slots.append(PriceSlot(start, end, value, obj.attributes["currency"]))
             else:
                 slots.append(PowerLimitSlot(start, end, value))
         slots.sort(key=lambda s: s.start)

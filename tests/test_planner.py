@@ -93,10 +93,10 @@ class PlannerTests(unittest.TestCase):
     def test_negative_prices_choose_cheapest_real_quarters(self):
         ctl, chargers = build()
         rates = [
-            PriceSlot(NOW, NOW + timedelta(minutes=15), 0.4),
+            PriceSlot(NOW, NOW + timedelta(minutes=15), 0.4, "EUR"),
             PriceSlot(
                 NOW + timedelta(minutes=15),
-                NOW + timedelta(minutes=30), -0.1
+                NOW + timedelta(minutes=30), -0.1, "EUR"
             ),
         ]
         result = compile_plan(

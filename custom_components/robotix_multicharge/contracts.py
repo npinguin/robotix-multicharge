@@ -24,12 +24,19 @@ def _interval(start: datetime, end: datetime) -> None:
 class PriceSlot:
     start: datetime
     end: datetime
-    effective_eur_per_kwh: float  # may be negative; spot is not assumed all-in
+    effective_price_per_kwh: float  # negative allowed; no spot-to-all-in inference
+    currency: str  # explicit ISO-4217 currency; never a country assumption
 
     def __post_init__(self) -> None:
         _interval(self.start, self.end)
-        if not isfinite(self.effective_eur_per_kwh):
+        if not isfinite(self.effective_price_per_kwh):
             raise ValueError("price must be finite")
+        if (not isinstance(self.currency, str)
+                or len(self.currency) != 3
+                or not self.currency.isascii()
+                or not self.currency.isupper()
+                or not self.currency.isalpha()):
+            raise ValueError("price currency must be an uppercase ISO-4217 code")
 
 
 @dataclass(frozen=True)

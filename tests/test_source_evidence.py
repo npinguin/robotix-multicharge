@@ -74,7 +74,7 @@ class EvidenceTests(unittest.TestCase):
         }]
         obj = hass({
             "sensor.prices": state(
-                "ok", kind="effective_eur_kwh",
+                "ok", kind="effective_price_kwh", currency="EUR",
                 valid_until=(NOW + timedelta(hours=1)).isoformat(),
                 intervals=slots,
             ),
@@ -86,7 +86,7 @@ class EvidenceTests(unittest.TestCase):
         })
         accepted, status = intervals(obj, "sensor.prices", "price", NOW)
         self.assertEqual(status, "OK")
-        self.assertEqual(accepted[0].effective_eur_per_kwh, -0.1)
+        self.assertEqual(accepted[0].effective_price_per_kwh, -0.1)
         self.assertEqual(intervals(obj, "sensor.spot", "price", NOW)[0], ())
 
     def test_binding_requires_fresh_authoritative_intervals(self):
@@ -111,6 +111,22 @@ class EvidenceTests(unittest.TestCase):
         self.assertIsNone(binding(bad, "sensor.binding", NOW)[0])
         self.assertIsNone(binding(obj, "sensor.binding", NOW + timedelta(hours=2))[0])
 
+    def test_price_without_currency_is_not_qualified(self):
+        row = {
+            "start": NOW.isoformat(),
+            "end": (NOW + timedelta(minutes=15)).isoformat(),
+            "value": -0.2,
+        }
+        obj = hass({"sensor.price": state(
+            "ready", kind="effective_price_kwh",
+            valid_until=(NOW + timedelta(hours=1)).isoformat(),
+            intervals=[row],
+        )})
+        self.assertEqual(
+            intervals(obj, "sensor.price", "price", NOW),
+            ((), "INTERVAL_PAYLOAD_INVALID"),
+        )
+
     def test_price_slot_cannot_outlive_source_validity(self):
         row = {
             "start": NOW.isoformat(),
@@ -118,7 +134,7 @@ class EvidenceTests(unittest.TestCase):
             "value": 0.12,
         }
         obj = hass({"sensor.price": state(
-            "ready", kind="effective_eur_kwh",
+            "ready", kind="effective_price_kwh", currency="USD",
             valid_until=(NOW + timedelta(minutes=30)).isoformat(),
             intervals=[row],
         )})
