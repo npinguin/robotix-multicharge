@@ -81,6 +81,11 @@ jobs:
         run: |
           python -m pip install --index-url https://pypi.org/simple homeassistant==2026.11.2
           python scripts/qa_hacs_artifact.py
+      - name: Installed Home Assistant smoke of exact source-equivalent candidate
+        if: steps.gate.outputs.publish == 'true'
+        run: |
+          python -m pip install --index-url https://pypi.org/simple pytest-homeassistant==2026.11.2
+          python -m pytest -q tests/ha_runtime/test_native_integration.py
       - name: Immutable TEST release with exact package, digest and provenance
         if: steps.gate.outputs.publish == 'true'
         shell: bash
