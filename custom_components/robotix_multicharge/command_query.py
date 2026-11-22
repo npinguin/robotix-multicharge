@@ -59,7 +59,8 @@ async def apply_native_preference(hass, entry, runtime, scope, target_id, change
     Under the physical executor lock, validate the one Config Entry source and
     never reload a working EVSE for a visual-only preference.
     """
-    if entry is None or entry.source == "import":
+    if (entry is None or entry.source == "import"
+            or entry.data.get("source") == "yaml"):
         raise ValueError("readonly_import_configuration")
     async with runtime.executor._lock:
         if expected_revision is not None and (

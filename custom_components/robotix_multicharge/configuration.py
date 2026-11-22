@@ -452,7 +452,8 @@ def is_plan_presentation_only_change(before, after):
         rest = deepcopy(cfg)
         for row in (*rest["assets"], *rest["chargers"]):
             row.pop("plan_color", None)
-        for key in ("plan_label_mode", "plan_color_by",
+            row.pop("name", None)
+        for key in ("name", "plan_label_mode", "plan_color_by",
                     "show_indicative_forecast"):
             rest["controller"].pop(key, None)
         return rest

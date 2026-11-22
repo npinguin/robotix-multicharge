@@ -49,8 +49,25 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
         if is_plan_presentation_only_change(existing.configuration, changed):
             # Visual-only choices are runtime values, not structural devices.
             # Reload would call shutdown/STOP on actively charging equipment.
+            original = existing.configuration
             existing.configuration = changed
             existing.refresh()
+            from homeassistant.helpers import device_registry as dr
+            registry = dr.async_get(hass)
+            for kind, before_rows, after_rows in (
+                ("controller", [original["controller"]], [changed["controller"]]),
+                ("asset", original["assets"], changed["assets"]),
+                ("charger", original["chargers"], changed["chargers"]),
+            ):
+                former = {row["id"]: row["name"] for row in before_rows}
+                for row in after_rows:
+                    if former.get(row["id"]) == row["name"]:
+                        continue
+                    device = registry.async_get_device(
+                        identifiers={(DOMAIN, f"{kind}/{row['id']}")}
+                    )
+                    if device is not None:
+                        registry.async_update_device(device.id, name=row["name"])
             return
     if not await hass.config_entries.async_reload(entry.entry_id):
         _LOGGER.error("MultiCharge options changed but safe integration reload failed")

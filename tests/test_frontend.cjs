@@ -179,12 +179,14 @@ async function main(){
   card._tab="Chargers";card._open="";card.render();
   find(card.shadowRoot,"button","Details").click();
   assert.ok(content(card.shadowRoot).includes("Plan color"));
-  let chargerColor,assignment;
+  let chargerColor;
   visit(card.shadowRoot,x=>{
     if(x.tag==="select"&&x.attributes.id==="multicharge-plan-color")chargerColor=x;
-    if(x.tag==="select"&&x.attributes.id==="multicharge-selected-vehicle")assignment=x;
+    // The selected vehicle belongs to the native Charger device, not a copy.
   });
-  assert.ok(chargerColor&&assignment,"charger owns color and selected vehicle");
+  assert.ok(chargerColor,"charger owns its configurable plan color");
+  assert.ok(content(card.shadowRoot).includes("Selected vehicle"),
+    "Charger shows its selected vehicle on its own detail view");
   chargerColor.value="pink";
   chargerColor.events.change();
   await new Promise(resolve=>setImmediate(resolve));

@@ -727,13 +727,12 @@ class RobotixMultiChargeCard extends HTMLElement {
         if(actual.reason)mcPair(detail,"Reason",mcReason(actual.reason));
         if(actual.readback_at)mcPair(detail,"Measured confirmation",mcTime(actual.readback_at,d.timezone));
         this.ownerColorControl(detail,"charger",c);
-        const assignment=this.field(detail,"Selected vehicle",c.asset||"none",null,
-          [["none",mcTr("No vehicle")],...((d.configuration.assets||[]).map(a=>[a.id,a.name]))]);
-        assignment.disabled=!this.ownerEntity("charger",c.id,"asset")||this._settingsBusy;
-        assignment.addEventListener("change",()=>{
-          const selected=(d.configuration.assets||[]).find(a=>a.id===assignment.value);
-          this.nativeSelect("charger",c.id,"asset",selected?selected.name:"none");
-        });
+        if(this.ownerEntity("charger",c.id,"asset")){
+          const setting=mcEl("div","row");
+          setting.append(mcEl("span","muted small","Selected vehicle"),
+            mcButton("Edit",()=>this.openNative("charger",c.id,"asset")));
+          detail.append(setting);
+        }
         card.append(detail);
       }
       const capability=(d.command_capabilities||{})[c.id]||{};

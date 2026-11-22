@@ -99,6 +99,33 @@ class ConfigurationTests(unittest.TestCase):
         self.assertNotIn("requested_duration_minutes", result["assets"][0])
         self.assertEqual(result["assets"][0]["plan_color"], "blue")
 
+    def test_owner_rename_and_color_do_not_reload_active_charger(self):
+        from multicharge_configuration_tests.configuration import (
+            apply_settings_change, is_plan_presentation_only_change,
+        )
+        base = validate_configuration(default_configuration())
+        with_car = apply_settings_change(base, "asset", "car", {
+            "name": "Car", "kind": "car"
+        }, action="create")
+        renamed = apply_settings_change(
+            with_car, "asset", "car", {"name": "New car"}
+        )
+        self.assertTrue(is_plan_presentation_only_change(with_car, renamed))
+        recolored = apply_settings_change(
+            renamed, "asset", "car", {"plan_color": "orange"}
+        )
+        self.assertTrue(is_plan_presentation_only_change(renamed, recolored))
+        new_controller = apply_settings_change(
+            base, "controller", "home", {"name": "New site"}
+        )
+        self.assertTrue(is_plan_presentation_only_change(base, new_controller))
+        self.assertEqual(renamed["assets"][0]["id"], "car")
+        self.assertFalse(is_plan_presentation_only_change(
+            base, apply_settings_change(base, "controller", "home", {
+                "max_parallel": 2
+            })
+        ))
+
     def test_default_is_valid(self):
         self.assertEqual(validate_configuration(default_configuration())["controller"]["id"], "home")
 
