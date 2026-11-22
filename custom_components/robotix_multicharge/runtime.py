@@ -377,16 +377,20 @@ class MultiChargeRuntime:
             outcomes.values(),
             key=lambda row: (row.get("requested_at") or "", row.get("request_id") or ""),
         )
+        pending = any(
+            r.get("status") in ("requested", "accepted_unconfirmed")
+            for r in actions
+        )
         unresolved_restart = (
             not self.executor._persistence_verified or bool(
-                self.executor._inflight
-                and not self.executor.session_snapshot()
+                self.executor._inflight and not self.executor.session_snapshot()
+                and not pending
             )
         )
         command_status = (
             "hold" if unresolved_restart
             else "unconfirmed" if any(r.get("status") == "execution_unknown" for r in actions)
-            else "pending" if any(r.get("status") == "requested" for r in actions)
+            else "pending" if pending
             else "rejected" if any(r.get("status") == "rejected" for r in actions)
             else "confirmed" if actions else "idle"
         )
