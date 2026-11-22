@@ -462,15 +462,6 @@ class NativeSwitchExecutor:
         asset = next(
             (a for a in cfg["assets"] if a["id"] == charger.get("asset")), None
         )
-        # A previously issued, possibly interrupted manual Force START is
-        # unresolved across HA restarts. It may not silently replay merely
-        # because the charger now reports "off" or the car reconnects.
-        if not planned and (
-            (asset is not None and asset["id"] in self._inflight)
-            or (manual_request is not None
-                and f"charger:{charger['id']}" in self._inflight)
-        ):
-            return "UNRESOLVED_PREVIOUS_CHARGE_INTENT"
         if manual_request is not None:
             if planned or charger.get("asset") is not None:
                 return "MANUAL_ONE_OFF_REQUIRES_UNASSIGNED_CHARGER"
@@ -566,6 +557,15 @@ class NativeSwitchExecutor:
             return "INDEPENDENT_POWER_UNAVAILABLE"
         if this_power.value > start_power_limit(charger):
             return "POWER_ALREADY_PRESENT_WITHOUT_CONFIRMED_OWNER"
+        # The final admission gate prevents a previous manual Force start
+        # from replaying after a crash. Earlier source/guest checks keep their
+        # more specific, equally fail-closed reasons.
+        if not planned and (
+            (asset is not None and asset["id"] in self._inflight)
+            or (manual_request is not None
+                and f"charger:{charger['id']}" in self._inflight)
+        ):
+            return "UNRESOLVED_PREVIOUS_CHARGE_INTENT"
         return self._physical_budget(
             charger, at, requested_kw,
             target_current if charger["kind"] == "variable_current"
