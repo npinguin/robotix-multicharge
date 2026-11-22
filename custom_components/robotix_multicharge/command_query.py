@@ -52,6 +52,64 @@ def register_command_query(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_charge_command)
 
 
+async def apply_native_preference(hass, entry, runtime, scope, target_id, changes,
+                                  *, expected_revision=None, action="save"):
+    """Single native settings writer for HA entities and admin WebSocket.
+
+    Under the physical executor lock, validate the one Config Entry source and
+    never reload a working EVSE for a visual-only preference.
+    """
+    if entry is None or entry.source == "import":
+        raise ValueError("readonly_import_configuration")
+    async with runtime.executor._lock:
+        if expected_revision is not None and (
+                expected_revision != configuration_revision(runtime.configuration)):
+            raise ValueError("stale_settings")
+        updated = apply_settings_change(
+            runtime.configuration, scope, target_id, changes, action,
+        )
+        if not is_plan_presentation_only_change(runtime.configuration, updated):
+            # A charger assignment changes both its own command boundary and
+            # the former charger's assignment. Other active chargers are safe.
+            if scope == "charger" and set(changes) <= {"asset"}:
+                affected = {target_id}
+                selected = changes.get("asset")
+                affected.update(
+                    c["id"] for c in runtime.configuration["chargers"]
+                    if c.get("asset") == selected and selected
+                )
+                candidates = [
+                    c for c in runtime.configuration["chargers"]
+                    if c["id"] in affected
+                ]
+            else:
+                candidates = runtime.configuration["chargers"]
+            for charger in candidates:
+                if (charger.get("control_owner") != "multicharge"
+                        or charger.get("physical_commissioned") is not True):
+                    continue
+                observed = runtime.executor._switch(
+                    hass, charger.get("control_entity")
+                )
+                power = number(
+                    hass, charger.get("power_entity"), "power",
+                    datetime.now(timezone.utc)
+                )
+                if (observed is None or observed.state != "off"
+                        or power.quality != "ok" or power.value > 0.05):
+                    raise ValueError("charger_busy")
+        expected = configuration_revision(updated)
+        runtime.record_settings_action(
+            scope, target_id, action, changes, expected,
+        )
+        if not await runtime.persist_control_state():
+            raise ValueError("settings_not_saved")
+        hass.config_entries.async_update_entry(
+            entry, options={**entry.options, "configuration": updated},
+        )
+        return expected
+
+
 @websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "robotix_multicharge/update_settings",
@@ -81,46 +139,11 @@ async def websocket_update_settings(
                               "YAML-owned configuration is edited through YAML")
         return
     try:
-        async with runtime.executor._lock:
-            if msg["expected_revision"] != configuration_revision(runtime.configuration):
-                raise ValueError("Settings changed elsewhere; refresh before saving")
-            updated = apply_settings_change(
-                runtime.configuration, msg["scope"], msg["target_id"],
-                msg["changes"], msg.get("action", "save"),
-            )
-            # A color/label/forecast visibility choice must not require
-            # stopping a live EVSE. All physical/scheduling changes retain
-            # strict idle/readback admission before Config Entry reload.
-            if not is_plan_presentation_only_change(
-                runtime.configuration, updated
-            ):
-                for charger in runtime.configuration["chargers"]:
-                    if (charger.get("control_owner") != "multicharge"
-                            or charger.get("physical_commissioned") is not True):
-                        continue
-                    state = runtime.executor._switch(
-                        hass, charger.get("control_entity")
-                    )
-                    power = number(
-                        hass, charger.get("power_entity"), "power",
-                        datetime.now(timezone.utc)
-                    )
-                    if (state is None or state.state != "off"
-                            or power.quality != "ok" or power.value > 0.05):
-                        raise ValueError(
-                            "Stop and verify owned charging equipment before editing"
-                        )
-            next_revision = configuration_revision(updated)
-            runtime.record_settings_action(
-                msg["scope"], msg["target_id"], msg.get("action", "save"),
-                msg["changes"], next_revision,
-            )
-            if not await runtime.persist_control_state():
-                raise ValueError("Cannot safely persist settings action evidence")
-            hass.config_entries.async_update_entry(
-                entry,
-                options={**entry.options, "configuration": updated},
-            )
+        next_revision = await apply_native_preference(
+            hass, entry, runtime, msg["scope"], msg["target_id"],
+            msg["changes"], expected_revision=msg["expected_revision"],
+            action=msg.get("action", "save"),
+        )
     except (ValueError, TypeError, KeyError):
         runtime.record_settings_action(
             msg["scope"], msg["target_id"], msg.get("action", "save"),
