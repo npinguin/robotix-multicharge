@@ -36,6 +36,42 @@ class NativeSwitchExecutor:
     def snapshot(self):
         return {uid: dict(record) for uid, record in self._outcomes.items()}
 
+    def capabilities(self):
+        """Expose exact current action eligibility; no optimistic UI guessing."""
+        result = {}
+        at = datetime.now(timezone.utc)
+        for charger in self.runtime.configuration["chargers"]:
+            uid = charger["id"]
+            if self._stopped:
+                reason = "INTEGRATION_UNLOADED"
+            elif charger.get("kind") != "on_off":
+                reason = "VARIABLE_CURRENT_NOT_IMPLEMENTED"
+            elif not str(charger.get("control_entity", "")).startswith("switch."):
+                reason = "NATIVE_SWITCH_REQUIRED"
+            elif charger.get("control_owner", "external") != "multicharge":
+                reason = "EXTERNAL_WRITER_OWNS_CHARGER"
+            elif charger.get("physical_commissioned") is not True:
+                reason = "PHYSICAL_COMMISSIONING_REQUIRED"
+            elif self._switch(self.runtime.hass, charger["control_entity"]) is None:
+                reason = "NATIVE_SWITCH_UNAVAILABLE"
+            else:
+                reason = self._admit_start(charger, at)
+            stop_allowed = (
+                not self._stopped
+                and charger.get("kind") == "on_off"
+                and charger.get("control_owner") == "multicharge"
+                and charger.get("physical_commissioned") is True
+                and self._switch(self.runtime.hass, charger.get("control_entity")) is not None
+            )
+            result[uid] = {
+                "start_allowed": reason is None and uid not in self._quarantine,
+                "stop_allowed": stop_allowed,
+                "reason": "PREVIOUS_COMMAND_UNCONFIRMED"
+                          if reason is None and uid in self._quarantine
+                          else reason or "READY",
+            }
+        return result
+
     def _publish(self, uid, request_id, action, status, reason, requested_at,
                  *, observed_at=None, measured_kw=None, service_sent=False):
         result = {
@@ -162,6 +198,8 @@ class NativeSwitchExecutor:
             if state is None:
                 return result("rejected", "NATIVE_SWITCH_UNAVAILABLE")
             if action == "start":
+                if state.state != "off":
+                    return result("rejected", "SWITCH_ALREADY_ON")
                 if charger_id in self._quarantine:
                     return result("rejected", "PREVIOUS_COMMAND_UNCONFIRMED")
                 reason = self._admit_start(charger, at)
@@ -184,13 +222,17 @@ class NativeSwitchExecutor:
             except Exception as exc:
                 _LOGGER.exception("Native charge %s service failed for %s",
                                   action, charger_id)
-                return result("rejected",
-                              "NATIVE_SERVICE_ERROR:" + type(exc).__name__)
+                return result("execution_unknown",
+                              "NATIVE_SERVICE_EXCEPTION:" + type(exc).__name__,
+                              service_sent=True)
             self._publish(charger_id, request_id, action,
                           "accepted_unconfirmed", "AWAITING_PHYSICAL_READBACK",
                           at, service_sent=True)
             deadline = asyncio.get_running_loop().time() + readback_seconds
             while True:
+                if self._stopped:
+                    return result("execution_unknown", "INTEGRATION_UNLOADED_PENDING",
+                                  service_sent=True)
                 observed = self._readback(charger, action, at)
                 if observed is not None:
                     return result("confirmed", "INDEPENDENT_POWER_READBACK",

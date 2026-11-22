@@ -422,8 +422,8 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
                 vol.Optional("energy_entity"): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
                 ),
-                vol.Required("control_owner", default="external"): vol.In(["external", "multicharge"]),
-                vol.Required("physical_commissioned", default=False): bool,
+                vol.Optional("control_owner"): vol.In(["external", "multicharge"]),
+                vol.Optional("physical_commissioned"): bool,
                 vol.Optional("phase_count"): vol.All(vol.Coerce(int), vol.In([1, 2, 3])),
                 vol.Optional("min_current_a"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
                 vol.Optional("max_current_a"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),

@@ -20,6 +20,7 @@ from .configuration import effective_configuration, validate_configuration
 from .const import DOMAIN
 from .runtime import MultiChargeRuntime
 from .plan_query import register_plan_query
+from .command_query import register_command_query
 from .frontend import register_frontend, reconcile_frontend
 
 _LOGGER = logging.getLogger(__name__)
@@ -31,6 +32,7 @@ CONFIG_SCHEMA = vol.Schema({vol.Optional(DOMAIN): dict}, extra=vol.ALLOW_EXTRA)
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Optional expert YAML, imported through the same native Config Entry."""
     register_plan_query(hass)
+    register_command_query(hass)
     register_frontend(hass)
     if DOMAIN not in config:
         return True

@@ -13,6 +13,7 @@ from .contracts import ChargeDemand, PowerEnvelope
 from .domain import ChargeController, Charger
 from .planner import compile_plan, resolve_recurring_ready_by
 from .source_evidence import binding, connection, intervals, number
+from .execution import NativeSwitchExecutor
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -35,6 +36,7 @@ class MultiChargeRuntime:
         self.observations = {"chargers": {}, "assets": {}, "sources": {}}
         self.excluded = {}
         self.price_slots = ()
+        self.executor = NativeSwitchExecutor(self)
         self._listeners = set()
         self._unsubscribe_tick = None
 
@@ -45,7 +47,12 @@ class MultiChargeRuntime:
         self._listeners.add(callback)
         return lambda: self._listeners.discard(callback)
 
+    def notify(self):
+        for listener in tuple(self._listeners):
+            listener()
+
     def stop(self):
+        self.executor.detach()
         if self._unsubscribe_tick is not None:
             self._unsubscribe_tick()
             self._unsubscribe_tick = None
@@ -176,8 +183,7 @@ class MultiChargeRuntime:
             _LOGGER.warning("MultiCharge proposal unavailable: %s", exc)
             self.assessment = None
             self.excluded["controller"] = "INVALID_PLANNING_INPUT"
-        for listener in tuple(self._listeners):
-            listener()
+        self.notify()
 
     def summary(self):
         assessment = self.assessment
@@ -194,6 +200,7 @@ class MultiChargeRuntime:
             "strategy_by_charger": dict(assessment.strategy),
             "read_only": True,
             "physical_actuation_authorized": False,
+            "command_outcomes": self.executor.snapshot(),
         }
 
     def read_plan(self, start: datetime, end: datetime, *,
@@ -265,6 +272,8 @@ class MultiChargeRuntime:
             "strategy_by_charger": dict(assessment.strategy) if assessment else {},
             "reasons": {**self.excluded, **assessment.reasons} if assessment else dict(self.excluded),
             "slots": slots,
+            "command_outcomes": self.executor.snapshot(),
+            "command_capabilities": self.executor.capabilities(),
             "price_slots": [
                 {"start": row.start.isoformat(), "end": row.end.isoformat(),
                  "price_per_kwh": row.effective_price_per_kwh,
