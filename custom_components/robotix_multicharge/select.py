@@ -12,6 +12,11 @@ from .command_query import apply_native_preference
 from .configuration import PLAN_COLORS
 from .const import DOMAIN
 
+MODES = {
+    "automatic": "Automatic", "solar": "Solar", "economy": "Economy",
+    "ready_by": "Ready By", "force_charge": "Force Charge", "off": "Off",
+}
+
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
@@ -79,12 +84,12 @@ class _OwnedSelect(SelectEntity):
         if self.field == "show_indicative_forecast":
             return ["on", "off"]
         if self.field == "mode":
-            return ["Automatic", "Solar", "Economy", "Ready By", "Force Charge", "Off"]
+            return list(MODES)
         if self.field == "ready_by_repeat":
             return ["none", "daily", "weekly"]
         # The selected Charger owns the ONLY editable assignment relationship.
         # User-facing select options are names, not opaque vehicle IDs.
-        names = ["No vehicle"]
+        names = ["none"]
         seen = set(names)
         for asset in self.runtime.configuration["assets"]:
             display = asset["name"]
@@ -103,10 +108,15 @@ class _OwnedSelect(SelectEntity):
             selected = next((
                 row["name"] for row in self.runtime.configuration["assets"]
                 if row["id"] == current.get("asset")
-            ), "No vehicle")
+            ), "none")
             self._attr_current_option = (
-                selected if selected in self._attr_options else "No vehicle"
+                selected if selected in self._attr_options else "none"
             )
+        elif self.field == "mode":
+            self._attr_current_option = next((
+                name for name, source in MODES.items()
+                if source == current.get("mode")
+            ), "off")
         elif self.field == "show_indicative_forecast":
             self._attr_current_option = (
                 "on" if current.get(self.field, True) else "off"
@@ -135,16 +145,18 @@ class _OwnedSelect(SelectEntity):
         if option not in self._options():
             raise ValueError("unsupported_choice")
         if self.field == "asset":
-            selected = None if option == "No vehicle" else next((
+            selected = None if option == "none" else next((
                 row["id"] for row in self.runtime.configuration["assets"]
                 if row["name"] == option
                 or f"{row['name']} ({row['id']})" == option
             ), None)
-            if option != "No vehicle" and selected is None:
+            if option != "none" and selected is None:
                 raise ValueError("unknown_vehicle")
             value = selected
         elif self.field == "show_indicative_forecast":
             value = option == "on"
+        elif self.field == "mode":
+            value = MODES[option]
         else:
             value = option
         await apply_native_preference(
