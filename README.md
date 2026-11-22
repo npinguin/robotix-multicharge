@@ -31,7 +31,7 @@ The planned everyday experience has five sections:
 | **Chargers** | Connection, power, actual state, active assignment and safe controls |
 | **Settings** | Guided source selection, limits, diagnostics and expert YAML import |
 
-The first guided setup, YAML import parser and read-only logical setup entities exist in development but have **not passed actual Home Assistant runtime qualification**. A complete, beginner-friendly setup and a single bundled charging-plan timeline card are in scope, not yet operational. Both UI and optional YAML must use one validation model; no competing YAML automation engine is planned. Physical device identities remain with their native Home Assistant integrations.
+The current development Config Flow creates a site record, while Options Flow exposes basic asset/charger fields; **the approved Site → Charger → Asset → Sources → Verify wizard is not built yet**. YAML structural validation and one read-only Readiness diagnostic per logical device exist, but have **not passed actual Home Assistant runtime qualification**. The complete beginner experience and charging-plan timeline are not operational. UI and optional YAML must share a single validated configuration authority. Physical device identities remain with their native Home Assistant integrations.
 
 The stable core concepts are `ChargeableAsset`, `Charger` and `ChargeController`. A physical device stays owned by its native Home Assistant integration; MultiCharge only represents the logical charging role.
 

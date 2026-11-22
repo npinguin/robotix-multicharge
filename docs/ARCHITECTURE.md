@@ -120,7 +120,7 @@ This document describes public implementation boundaries, not confidential proje
 
 ## Native logical devices — no historical facades
 
-One stable logical HA Device Registry identity per product Controller/Charger/ChargeableAsset ID; native source devices retain their identifiers, entity registry entries and Recorder history. Never duplicate original physical devices or copy provider entities/controls into a new logical device. No legacy EVSC entity aliases or bridge sensors, no semantic parentage with HA \`via_device\`. Source observations only update runtime values; structural changes require explicit validated configuration revisions.
+One stable logical HA Device Registry identity per product Controller/Charger/ChargeableAsset ID; native source devices retain their identifiers, entity registry entries and Recorder history. Never duplicate original physical devices or copy provider entities/controls into a new logical device. No legacy EVSC entity aliases or bridge sensors, no semantic parentage with HA `via_device`. Source observations only update runtime values; structural changes require explicit validated configuration revisions.
 
 | Logical device | Canonical specialist properties/actions at Feature Complete | Excluded |
 | --- | --- | --- |
@@ -128,7 +128,7 @@ One stable logical HA Device Registry identity per product Controller/Charger/Ch
 | **Charger** | Connection **observed** vs assignment, verified capabilities and limits, actual kW/session kWh/readback/quality, authorized command status and safe physical actions | Reparented vendor device, raw source command copies, second active EVSE writer |
 | **ChargeableAsset** | Stable identity, source/SoC/provenance/quality, target, remaining kWh **or** duration, Ready By, priority, feasibility/shortfall and selected charger | Second OEM truth, climate/security/comfort controls or a competing vehicle identity |
 
-Normal HA sensors/selects/buttons must be independently usable in user dashboards and automations, with current values and safe role-based admission. A single \`Readiness\` diagnostic is a valid canonical property; the current constant \`not_commissioned\` is development-only and must become true runtime evidence. No permanent placeholders, unqualified control buttons or silently renamed unique IDs.
+Normal HA sensors/selects/buttons must be independently usable in user dashboards and automations, with current values and safe role-based admission. A single `Readiness` diagnostic is a valid canonical property; the current constant `not_commissioned` is development-only and must become true runtime evidence. No permanent placeholders, unqualified control buttons or silently renamed unique IDs.
 
 ## Implementation and release gates
 
@@ -140,6 +140,6 @@ Normal HA sensors/selects/buttons must be independently usable in user dashboard
 
 **G4 Feature Complete before full qualification:** all 29 scenarios, five rendered UX tabs and source/negative/permission behavior complete with no open agreed functional debt. Green syntax/unit tests do not meet G4.
 
-**G5 Qualify exact candidate:** HACS/Hassfest, actual HA setup/reload/unload/upgrades/rollback, frontend browser screenshots at the three viewports, provider interoperability, owner-safe physical commissioning and explicit release permission. Public HACS TEST must follow the validated exact-\`main\` governance path. Keep the existing Draft PR on \`dev\` for the ongoing agreed batch.
+**G5 Qualify exact candidate:** HACS/Hassfest, actual HA setup/reload/unload/upgrades/rollback, frontend browser screenshots at the three viewports, provider interoperability, owner-safe physical commissioning and explicit release permission. Public HACS TEST must follow the validated exact-`main` governance path. Keep the existing Draft PR on `dev` for the ongoing agreed batch.
 
 **Present status (2026-11-22):** only config scaffolding, candidate dataclasses and a constant readiness entity are implemented. No real planner, native five-tab UX, chart, source reader or physical executor. This specification is an acceptance target, not shipped capability.
