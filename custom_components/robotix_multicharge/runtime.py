@@ -11,6 +11,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from .contracts import ChargeDemand, PowerEnvelope
+from .configuration import configuration_revision
 from .domain import ChargeController, Charger
 from .planner import compile_plan, resolve_recurring_ready_by
 from .source_evidence import binding, connection, intervals, number
@@ -323,6 +324,7 @@ class MultiChargeRuntime:
         ]
         return {
             "schema_major": 1,
+            "configuration_revision": configuration_revision(self.configuration),
             "controller_id": self.configuration["controller"]["id"],
             "revision": assessment.plan.revision if assessment else None,
             "generated_at": (

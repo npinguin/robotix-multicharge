@@ -43,6 +43,46 @@ class ConfigurationTests(unittest.TestCase):
         normalized = validate_configuration(cfg)
         self.assertEqual(len(normalized["chargers"]), 2)
 
+    def test_atomic_preferences_and_stable_revision(self):
+        from multicharge_configuration_tests.configuration import (
+            apply_settings_change, configuration_revision,
+        )
+        cfg = validate_configuration(default_configuration())
+        revised = apply_settings_change(cfg, "controller", "home", {
+            "mode": "Economy", "max_power_kw": 7.4,
+        })
+        self.assertEqual(cfg["controller"]["mode"], "Off")
+        self.assertEqual(revised["controller"]["mode"], "Economy")
+        self.assertNotEqual(configuration_revision(cfg), configuration_revision(revised))
+        self.assertEqual(configuration_revision(revised),
+                         configuration_revision(validate_configuration(revised)))
+
+    def test_preferences_cannot_commission_or_replace_physical_writer(self):
+        from multicharge_configuration_tests.configuration import apply_settings_change
+        cfg = validate_configuration(default_configuration())
+        for field in ("physical_commissioned", "control_owner", "control_entity"):
+            with self.assertRaises(ValueError):
+                apply_settings_change(cfg, "charger", "drive", {field: True})
+        with self.assertRaises(ValueError):
+            apply_settings_change(cfg, "controller", "home", {"unknown": 7})
+
+    def test_asset_preference_lifecycle_requires_integrity(self):
+        from multicharge_configuration_tests.configuration import apply_settings_change
+        cfg = validate_configuration(default_configuration())
+        created = apply_settings_change(cfg, "asset", "guest", {
+            "name": "Guest", "kind": "car", "requested_kwh": 3.0
+        }, "create")
+        self.assertEqual(created["assets"][0]["id"], "guest")
+        revised = apply_settings_change(created, "asset", "guest", {
+            "requested_kwh": None, "requested_duration_minutes": 45,
+        })
+        self.assertNotIn("requested_kwh", revised["assets"][0])
+        self.assertEqual(revised["assets"][0]["requested_duration_minutes"], 45)
+        with self.assertRaises(ValueError):
+            apply_settings_change(revised, "asset", "guest", {"name": ""})
+        self.assertEqual(apply_settings_change(revised, "asset", "guest",
+                                               {"name": "placeholder"}, "delete")["assets"], [])
+
     def test_no_guessed_entities(self):
         cfg = default_configuration()
         cfg["assets"] = [{"id": "car", "name": "Car", "soc_entity": "car-battery"}]

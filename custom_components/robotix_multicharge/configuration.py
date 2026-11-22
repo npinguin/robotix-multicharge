@@ -6,6 +6,8 @@ This module never reads Home Assistant state or sends physical commands.
 from __future__ import annotations
 
 from copy import deepcopy
+from hashlib import sha256
+from json import dumps
 from datetime import datetime
 from math import isfinite
 from re import fullmatch
@@ -291,3 +293,64 @@ def effective_configuration(entry):
     return validate_configuration(deepcopy(
         entry.options.get("configuration", entry.data["configuration"])
     ))
+
+
+def configuration_revision(config):
+    """Stable optimistic lock for native settings; not a planner revision."""
+    return sha256(dumps(config, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:20]
+
+
+def apply_settings_change(configuration, scope, target_id, changes, action="save"):
+    """Narrow user-preference editor through the one native Config Entry authority.
+
+    Physical ownership, commissioning, wiring and source device capabilities
+    are deliberately NOT editable from this everyday surface.
+    """
+    if not isinstance(changes, dict) or not changes:
+        raise ValueError("settings changes must contain values")
+    allowed = {
+        "controller": {
+            "name", "max_parallel", "max_power_kw", "phase_limits_a",
+            "price_entity", "solar_entity", "binding_entity", "mode",
+        },
+        "asset": {
+            "name", "kind", "soc_entity", "capacity_kwh", "target_soc",
+            "max_charge_kw", "requested_kwh", "requested_duration_minutes",
+            "ready_by", "ready_by_repeat", "charge_efficiency", "priority",
+        },
+        "charger": {"name", "asset"},
+    }
+    if scope not in allowed or set(changes) - allowed[scope]:
+        raise ValueError("settings field not editable in this scope")
+    if action not in ("save", "create", "delete"):
+        raise ValueError("unsupported settings action")
+    cfg = deepcopy(configuration)
+    if scope == "controller":
+        if action != "save" or target_id != cfg["controller"]["id"]:
+            raise ValueError("controller identity is immutable")
+        target = cfg["controller"]
+    else:
+        if not isinstance(target_id, str) or not target_id.strip():
+            raise ValueError("stable logical ID required")
+        collection = cfg["assets" if scope == "asset" else "chargers"]
+        target = next((row for row in collection if row["id"] == target_id), None)
+        if action == "create":
+            if scope != "asset" or target is not None:
+                raise ValueError("only unassigned chargeable assets can be created")
+            target = {"id": target_id}
+            collection.append(target)
+        elif action == "delete":
+            if scope != "asset" or target is None:
+                raise ValueError("only existing unassigned assets can be deleted")
+            collection.remove(target)
+            return validate_configuration(cfg)
+        elif target is None:
+            raise ValueError("unknown logical object")
+    for name, value in changes.items():
+        if value is None or value == "":
+            if name == "name":
+                raise ValueError("name cannot be empty")
+            target.pop(name, None)
+        else:
+            target[name] = value
+    return validate_configuration(cfg)
