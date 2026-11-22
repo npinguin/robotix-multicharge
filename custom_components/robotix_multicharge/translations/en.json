@@ -7,7 +7,8 @@
         "data": {
           "name": "Charging site name",
           "max_parallel": "Maximum simultaneous charging points",
-          "max_power_kw": "Configured group power ceiling (kW; hardware verification required)"
+          "max_power_kw": "Configured group power ceiling (kW; hardware verification required)",
+          "phase_limits_a": "Verified phase current ceilings, e.g. L1:16,L2:16,L3:16 (A)"
         }
       },
       "charger": {
@@ -25,7 +26,15 @@
           "power_entity": "Actual power sensor",
           "energy_entity": "Energy meter",
           "control_entity": "Command entity (saved only; not activated)",
-          "add_another": "Add another charger"
+          "add_another": "Add another charger",
+          "phase_ids": "Verified wired phases (L1,L2,L3)",
+          "voltage_v": "Verified line-to-neutral voltage (V)",
+          "current_step_a": "Supported current adjustment step (A)",
+          "fixed_current_a": "On/off current per phase (A)",
+          "circuit_id": "Electrical circuit identifier",
+          "circuit_limit_a": "Circuit current ceiling (A)",
+          "current_control_entity": "Native current limit setpoint (number)",
+          "current_readback_entity": "Independent actual current sensor (A)"
         }
       },
       "asset": {
@@ -91,10 +100,11 @@
           "name": "Name",
           "max_parallel": "Simultaneous chargers",
           "max_power_kw": "Maximum charging power (kW)",
-          "mode": "Charging mode (read-only plan, no physical control)",
+          "mode": "Charging mode (physical actuation requires approved commissioning)",
           "price_entity": "Effective price interval source",
           "solar_entity": "Qualified solar available-power interval source",
-          "binding_entity": "Optional binding power envelope (fail closed if unavailable)"
+          "binding_entity": "Optional binding power envelope (fail closed if unavailable)",
+          "phase_limits_a": "Verified phase limits, e.g. L1:16,L2:16,L3:16 (A)"
         }
       },
       "asset": {
@@ -135,12 +145,20 @@
           "min_current_a": "Minimum current (A)",
           "max_current_a": "Maximum current (A)",
           "control_owner": "Selected command owner (external or multicharge)",
-          "physical_commissioned": "Physical safety validated and all previous writers disabled (commissioning declaration)"
+          "physical_commissioned": "Physical safety validated and all previous writers disabled (commissioning declaration)",
+          "phase_ids": "Wired phases (L1,L2,L3)",
+          "voltage_v": "Verified line-neutral voltage (V)",
+          "current_step_a": "Current adjustment step (A)",
+          "fixed_current_a": "On/off per-phase current (A)",
+          "circuit_id": "Circuit identifier",
+          "circuit_limit_a": "Circuit protection ceiling (A)",
+          "current_control_entity": "Native current setpoint (number)",
+          "current_readback_entity": "Independent actual current sensor (A)"
         }
       },
       "display": {
         "title": "Dashboard card",
-        "description": "Optional five-view card in Home Assistant. Disabling it does not affect read-only planning.",
+        "description": "Optional five-view card; the qualified backend remains available when this card is disabled.",
         "data": {
           "enable_ux": "Enable bundled MultiCharge dashboard card"
         }

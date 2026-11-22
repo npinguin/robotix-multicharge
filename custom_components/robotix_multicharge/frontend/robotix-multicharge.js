@@ -162,7 +162,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(this._tab==="Chargeable Assets")this.assets(shell);
       if(this._tab==="Chargers")this.chargers(shell);
       if(this._tab==="Settings")this.settings(shell);
-      this.notice(shell,"Planning is advisory. Manual on/off commands require exclusive ownership, physical commissioning and independent measured readback. Other modes and variable-current execution remain unavailable.",false);
+      this.notice(shell,"Automatic slot execution and variable current require an exclusively owned, separately commissioned charger with qualified electrical limits and independent measured readback. Unqualified controls remain unavailable.",false);
     }
     root.append(shell);
   }

@@ -49,7 +49,7 @@ chargers:
     power_entity: sensor.driveway_power
 ```
 
-Config/Options Flow code, YAML structural validation and read-only logical setup devices have been committed. Real HA setup, import/reload, Options editing and rollback still require qualification. No current code can start charging.
+Config/Options Flow code, YAML structural validation and read-only logical setup devices have been committed. Real HA setup, import/reload, Options editing and rollback still require qualification. On `dev`, physical actuation is source-tested but remains gated by explicit owner selection, verified capabilities, a commissioning declaration and real independent readback. No field commissioning is approved.
 
 ## User experience and native entities
 
@@ -77,7 +77,7 @@ A single responsive, bundled timeline will be usable at ChargeController level a
 - A simple mobile view, accessible labels, readable legends and explicit unavailable/unknown states.
 - Future slots queried through one bounded, read-only plan view; measured history from native HA telemetry and Recorder. Do not rewrite 48-hour plan arrays into giant sensor attributes or compute a new plan in the chart.
 
-The source contains a deterministic **read-only** 15-minute proposal planner, a bounded admin-only native HA query and an optional source-tested five-tab card with a proposed-only chart. A **real, explicit, admin-only native HA on/off START/STOP path** now calls the selected source switch through one serialized runtime writer; it requires a manually declared exclusive owner, separate commissioning, qualified source, safety admission and post-command independent power readback. Unknown START execution triggers best-effort protective STOP and stays quarantined. **No physical field qualification has occurred, and the developer's control-owner declaration alone cannot prove that a separate provider was disabled.** Accepted/observed interval overlays, all effective automatic modes, variable current and complete Settings remain open.
+The source contains a deterministic **read-only** 15-minute proposal planner, a bounded admin-only native HA query and an optional source-tested five-tab card with a proposed-only chart. A **real, explicit, admin-only native HA on/off START/STOP path** now calls the selected source switch through one serialized runtime writer; it requires a manually declared exclusive owner, separate commissioning, qualified source, safety admission and post-command independent power readback. Unknown START execution triggers best-effort protective STOP and stays quarantined. **No physical field qualification has occurred, and the developer's control-owner declaration alone cannot prove that a separate provider was disabled.** Source-tested accepted slot evidence, automatic quarter execution and adjustable-current commands now exist; physical HA/EVSE acceptance, durable full session reconciliation and complete Settings remain open.
 
 ## Planning, physical execution and safety
 
@@ -142,4 +142,4 @@ Normal HA sensors/selects/buttons must be independently usable in user dashboard
 
 **G5 Qualify exact candidate:** HACS/Hassfest, actual HA setup/reload/unload/upgrades/rollback, frontend browser screenshots at the three viewports, provider interoperability, owner-safe physical commissioning and explicit release permission. Public HACS TEST must follow the validated exact-`main` governance path. Keep the existing Draft PR on `dev` for the ongoing agreed batch.
 
-**Present status (2026-11-22):** native five-step wizard and Config/Options/YAML structure, source-tested five-tab card and provisional proposed-only chart, selected-source observations, fail-closed capacity/price evidence, deterministic read-only quarter-hour proposals, a bounded native HA plan query, basic native logical evidence sensors, and **guarded, source-tested manual on/off physical command execution plus observed readback** exist on dev. Real hardware commissioning, actual HA UI qualification, automatic plan execution, variable current, complete Settings, accepted/measured session history and all six effective physical modes are **still open**. Source green is not Feature Complete or a shipped HACS release.
+**Present status (2026-11-22): the same `dev` batch now includes verified source/config schema, phase/circuit-aware stepped planning, native switch/current commands and independent readback, quarter-hour admission for Automatic/Solar/Economy/Ready By, guarded Force Charge/Off, a bounded accepted/proposed/actual query and native storage replay hold. These are development/source-tested capabilities only. Actual HA/browser and hardware qualification, complete session/UX editing and exact-candidate release gates remain OPEN.
