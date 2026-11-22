@@ -416,6 +416,20 @@ class _ControllerLiveSensor(_NativeMultiChargeSensor):
                 "site_max_power_kw": ctl.get("max_power_kw"),
                 "phase_limits_a": ctl.get("phase_limits_a"),
                 "source": "native_config_entry",
+                "assignments": {
+                    c["id"]: c.get("asset")
+                    for c in self.runtime.configuration["chargers"]
+                },
+                "asset_intentions": {
+                    asset["id"]: {
+                        "requested_kwh": asset.get("requested_kwh"),
+                        "duration_minutes": asset.get("requested_duration_minutes"),
+                        "target_soc": asset.get("target_soc"),
+                        "ready_by": asset.get("ready_by"),
+                        "priority": asset.get("priority", 0),
+                    }
+                    for asset in self.runtime.configuration["assets"]
+                },
             })
         if self.field == "action_health":
             self._attr_extra_state_attributes.update({
@@ -435,6 +449,21 @@ class _ControllerLiveSensor(_NativeMultiChargeSensor):
                     live["last_action"]["charger_id"]
                     if live["last_action"] is not None else None
                 ),
+                "by_charger": {
+                    uid: {
+                        "action": outcome.get("action"),
+                        "status": outcome.get("status"),
+                        "reason": outcome.get("reason"),
+                        "requested_at": outcome.get("requested_at"),
+                        "readback_at": outcome.get("readback_at"),
+                    }
+                    for uid, outcome in live["command_outcomes"].items()
+                },
+                "confirmed_current_a_by_charger": {
+                    uid: session.get("target_current_a")
+                    for uid, session in self.runtime.executor.session_snapshot().items()
+                    if session.get("target_current_a") is not None
+                },
             })
 
 

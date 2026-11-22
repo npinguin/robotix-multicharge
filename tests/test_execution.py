@@ -475,6 +475,32 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
                               asset_id="car")
         self.assertEqual(result["completed_sessions"][0]["asset_id"], "car")
 
+    async def test_independent_charger_actions_remain_scoped_in_controller_projection(self):
+        rt, sources, services = rig()
+        cfg = rt.configuration
+        cfg["controller"]["max_parallel"] = 2
+        cfg["controller"]["max_power_kw"] = 4.0
+        cfg["chargers"].append({
+            "id": "second", "name": "Second", "kind": "on_off",
+            "rated_power_kw": 2.0, "phase_count": 1,
+            "control_entity": "switch.second",
+            "power_entity": "sensor.second_power",
+            "connected_entity": "binary_sensor.second_cable",
+            "control_owner": "external", "physical_commissioned": False,
+        })
+        sources["switch.second"] = state("off")
+        sources["sensor.second_power"] = state(0, "W")
+        sources["binary_sensor.second_cable"] = state("off")
+        rt.refresh()
+        self.assertEqual(rt.live_state()["connected_chargers"], 1)
+        result = await rt.executor.execute("evse", "start")
+        self.assertEqual(result["status"], "confirmed")
+        summary = rt.live_state()
+        self.assertEqual(summary["charging_chargers"], 1)
+        self.assertEqual(summary["last_action"]["charger_id"], "evse")
+        self.assertEqual(summary["command_outcomes"]["evse"]["status"], "confirmed")
+        self.assertNotIn("second", summary["command_outcomes"])
+
     async def test_controller_action_projection_updates_on_requested_and_confirmed(self):
         rt, _, services = rig()
         observed = []
