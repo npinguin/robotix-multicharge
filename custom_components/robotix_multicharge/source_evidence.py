@@ -40,7 +40,11 @@ def _state(hass, entity_id, now, max_age):
     if obj is None:
         return None, Evidence(None, "unavailable", None, "SOURCE_MISSING")
     try:
-        observed = _date(obj.last_updated)
+        # HA last_updated changes only when a value/attribute changes. Real
+        # periodic reporting of an unchanged physical sensor updates
+        # last_reported, which is the correct freshness evidence.
+        reported = getattr(obj, "last_reported", None)
+        observed = _date(reported if reported is not None else obj.last_updated)
     except (TypeError, ValueError, OverflowError, AttributeError):
         return None, Evidence(None, "invalid", None, "SOURCE_TIME_INVALID")
     if observed > now + timedelta(minutes=2):

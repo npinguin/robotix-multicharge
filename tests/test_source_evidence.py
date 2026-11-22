@@ -56,6 +56,22 @@ class EvidenceTests(unittest.TestCase):
         self.assertIsNone(number(obj, "sensor.missing", "soc", NOW).value)
         self.assertIsNone(number(obj, "sensor.unknown", "soc", NOW).value)
 
+    def test_repeated_unchanged_native_reports_preserve_freshness(self):
+        cable = state("on", observed=NOW - timedelta(hours=4))
+        meter = state("150", "W", observed=NOW - timedelta(hours=4))
+        cable.last_reported = NOW
+        meter.last_reported = NOW
+        source = hass({
+            "binary_sensor.cable": cable,
+            "sensor.actual": meter,
+        })
+        self.assertEqual(connection(source, "binary_sensor.cable", NOW).quality, "ok")
+        self.assertEqual(number(source, "sensor.actual", "power", NOW).value, 0.15)
+        # If the provider stops reporting altogether, a stale source is not
+        # silently recast as healthy merely because its HA state is unchanged.
+        cable.last_reported = NOW - timedelta(hours=1)
+        self.assertEqual(connection(source, "binary_sensor.cable", NOW).quality, "stale")
+
     def test_switch_on_is_not_physical_connection(self):
         obj = hass({
             "switch.plug": state("on"),
