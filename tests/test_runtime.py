@@ -21,8 +21,8 @@ for name in ("domain", "contracts", "configuration", "planner",
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
 
-from multicharge_runtime_test.configuration import default_configuration, validate_configuration
-from multicharge_runtime_test.runtime import MultiChargeRuntime
+from multicharge_runtime_test.configuration import default_configuration, validate_configuration  # noqa: E402 - imported after isolated pure-module bootstrap
+from multicharge_runtime_test.runtime import MultiChargeRuntime  # noqa: E402 - imported after isolated pure-module bootstrap
 
 NOW = datetime(2026, 11, 22, 12, tzinfo=timezone.utc)
 

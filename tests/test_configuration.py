@@ -18,7 +18,7 @@ for name in ("domain", "configuration"):
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
 
-from multicharge_configuration_tests.configuration import (
+from multicharge_configuration_tests.configuration import (  # noqa: E402 - imported after isolated pure-module bootstrap
     default_configuration, effective_configuration, validate_configuration
 )
 

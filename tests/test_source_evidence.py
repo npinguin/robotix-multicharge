@@ -20,7 +20,7 @@ for name in ("contracts", "source_evidence"):
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
 
-from multicharge_source_test.source_evidence import binding, connection, intervals, number
+from multicharge_source_test.source_evidence import binding, connection, intervals, number  # noqa: E402 - imported after isolated pure-module bootstrap
 
 NOW = datetime(2026, 11, 22, 12, tzinfo=timezone.utc)
 

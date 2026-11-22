@@ -20,9 +20,9 @@ for name in ("domain", "contracts", "planner"):
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
 
-from multicharge_plan_test.contracts import ChargeDemand, PowerEnvelope, PowerLimitSlot, PriceSlot
-from multicharge_plan_test.domain import Charger, ChargeController
-from multicharge_plan_test.planner import compile_plan
+from multicharge_plan_test.contracts import ChargeDemand, PowerEnvelope, PowerLimitSlot, PriceSlot  # noqa: E402 - imported after isolated pure-module bootstrap
+from multicharge_plan_test.domain import Charger, ChargeController  # noqa: E402 - imported after isolated pure-module bootstrap
+from multicharge_plan_test.planner import compile_plan  # noqa: E402 - imported after isolated pure-module bootstrap
 
 NOW = datetime(2026, 11, 22, 12, tzinfo=timezone.utc)
 

@@ -19,8 +19,8 @@ for name in ("domain", "contracts", "interfaces"):
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
 
-from multicharge_test_core.domain import ChargeableAsset, Charger, ChargeController
-from multicharge_test_core.contracts import (
+from multicharge_test_core.domain import ChargeableAsset, Charger, ChargeController  # noqa: E402 - imported after isolated pure-module bootstrap
+from multicharge_test_core.contracts import (  # noqa: E402 - imported after isolated pure-module bootstrap
     PowerEnvelope, PowerLimitSlot, PriceSlot, ChargePlan, ChargeDemand,
     AssetObservation, ChargerObservation, CommandOutcome,
 )
