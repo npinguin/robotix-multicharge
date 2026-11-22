@@ -8,7 +8,7 @@
 
 Robotix MultiCharge is an open-source Home Assistant integration being built to coordinate charging for electric cars, e-bikes and other compatible rechargeable assets. The goal: make smart use of electricity prices, solar energy, available power and charging deadlines—without locking you to a vehicle, charger or energy provider.
 
-> **Early development — do not install on live charging equipment.** The current `dev` branch now contains source-tested phase/circuit budgets, guarded switch and adjustable-current execution, qualified quarter-hour execution for the six strategies, independent physical readback and a stored replay-safety hold. The physical writer is external by default. **The first v0.1.0 HACS TEST is published; physical EVSE commissioning and STABLE acceptance are not approved.**
+> **TEST, not field-qualified.** The immutable v0.1.2 community prerelease is published, with guarded native execution, independent readback and a built-in five-tab interface. Further fixes are developed on `dev` under Draft PR #5 and are **not** part of v0.1.2. Charging ownership defaults to `external`, mode to `Off` and physical commissioning to `false`. Do not transfer live EVSE control until physical exclusivity, source integrity, electrical limits, STOP/readback and rollback are validated.
 
 ## What we're building
 
@@ -31,7 +31,7 @@ The planned everyday experience has five sections:
 | **Chargers** | Connection, power, actual state, active assignment and safe controls |
 | **Settings** | Guided source selection, limits, diagnostics and expert YAML import |
 
-On `dev`, native Site → Charger → Asset → Sources → Verify setup and the bundled five-tab card are source-tested. A single specialist planner proposes bounded 15-minute slots. Only the one guarded executor can apply qualified automatic slots or manual Force Charge through native switch/current services; independent readback is required for confirmation. Confirmed accepted slots are separated from proposals and native Recorder actuals. Explicit intent evidence is retained through native HA storage to prevent silent restart/replay after an unknown or interrupted session. YAML and UI use one validated configuration authority. **The source now includes durable completed-session receipts, bounded fully qualified session costing, admin-validated inline preferences, temporary guest expiry, native command sensors and safe STOP. Real HA/browser/hardware acceptance, unqualified advanced settings and exhaustive session/recovery verification remain OPEN; this code is not field approved.** The plan query is readable by authenticated HA household users; writes remain admin-authorized, and YAML-managed settings stay read-only.
+On the v0.1.2 TEST baseline, native Site → Charger → Asset → Sources → Verify setup and the bundled five-tab card are source-tested. A single specialist planner proposes bounded 15-minute slots. Only the one guarded executor can apply qualified automatic slots or manual Force Charge through native switch/current services; independent readback is required for confirmation. Confirmed accepted slots are separated from proposals and native Recorder actuals. Explicit intent evidence is retained through native HA storage to prevent silent restart/replay after an unknown or interrupted session. YAML and UI use one validated configuration authority. **The source now includes durable completed-session receipts, bounded fully qualified session costing, admin-validated inline preferences, temporary guest expiry, native command sensors and safe STOP. Real HA/browser/hardware acceptance, unqualified advanced settings and exhaustive session/recovery verification remain OPEN; this code is not field approved.** The plan query is readable by authenticated HA household users; writes remain admin-authorized, and YAML-managed settings stay read-only.
 
 The stable core concepts are `ChargeableAsset`, `Charger` and `ChargeController`. A physical device stays owned by its native Home Assistant integration; MultiCharge only represents the logical charging role.
 
@@ -117,12 +117,76 @@ The exact mapping is:
 
 To supply measured performance, optional additional Charger keys are
 `Charging-power-sensor`, `Charging-energy-sensor`, and
-`Charging-connected-sensor`. These are independent sources; a session status
-sensor must never be silently treated as a cumulative or per-session energy
-meter. The vehicle command bindings are **saved and represented as such**;
-there is no second physical writer. Setting an entity does not authorize
-MultiCharge to invoke it. Charger command ownership remains `external` and
-physical commissioning is `false`.
+`Charging-connected-sensor`. These are independent sources. An optional
+`Charging-Session-sensor` has explicit source-quality/readback attributes on
+the logical Charger **Connection** entity, but its active/paused/idle state
+is not proof of physical cable, confirmed vehicle identity, charging power,
+energy or permission to issue commands. Vehicle command bindings are retained
+as passive source references: there is no second vehicle physical writer.
+
+### Expert configuration for a qualified site
+
+The **development branch** additionally maps normal charging intent and
+installation-only electrical configuration through the *same*
+`normalize_expert_json → validate_configuration → Config Entry` path:
+
+| Owner | Expert JSON keys |
+| --- | --- |
+| Controller | `Mode`, `Max-power-kW`, `Max-parallel`, `Phase-limits-A` (L1/L2/L3 map), `Price-entity`, `Solar-entity`, `Power-envelope-entity`, `Plan-label-mode`, `Plan-color-by`, `Show-indicative-forecast` |
+| ChargingAsset | `Requested-kWh` **or** `Requested-duration-minutes`, `Usable-capacity-kWh`, `Target-SoC-percent`, `Max-charge-kW`, `Ready-by`, `Ready-by-repeat`, `Priority`, `Charging-efficiency`, `Temporary`, `Expires-at`, `Expected-connection-at`, `Plan-color` |
+| Charger | `Control-kind` (on_off/variable_current), `Control-owner` (external/multicharge), `Physical-commissioned`, `Rated-power-kW`, `Phase-count`, `Phase-IDs`, `Voltage-V`, `Fixed-current-A` or `Min-current-A`/`Max-current-A`/`Current-step-A`, `Circuit-ID`, `Circuit-limit-A`, `Charging-current-readback-sensor`, `Plan-color` and physical source bindings |
+
+**All keys are optional for an external-owned charger except its name and
+switch reference.** A Charger without vehicle assignment remains valid.
+A Controller-only JSON document is valid for an empty setup. Adding
+`Control-owner: multicharge` requires an explicit measured rating, site
+power/phase limits, charger phase/circuit/current limits, independent source
+readback and a qualified native control binding. It is rejected if these
+fields are incomplete or inconsistent; the default 3.6 kW value is never
+accepted as an assumed commissioned rating.
+
+For example, the following *structural* values illustrate a **non-actuating**
+on/off configuration. They are **not measured limits, real entity mappings
+or approval to control physical hardware**:
+
+```json
+{
+  "Controller": {
+    "Name": "Home charging",
+    "Mode": "Off",
+    "Max-power-kW": 3.0,
+    "Phase-limits-A": {"L1": 16}
+  },
+  "Charger": {
+    "ID": "workshop_plug",
+    "Name": "Workshop plug",
+    "Control-kind": "on_off",
+    "Control-owner": "multicharge",
+    "Physical-commissioned": false,
+    "Rated-power-kW": 0.5,
+    "Charging-startstop-entity": "switch.workshop_charging",
+    "Charging-connected-sensor": "binary_sensor.workshop_connected",
+    "Charging-power-sensor": "sensor.workshop_power",
+    "Phase-count": 1,
+    "Phase-IDs": ["L1"],
+    "Voltage-V": 230,
+    "Fixed-current-A": 3,
+    "Circuit-ID": "workshop",
+    "Circuit-limit-A": 10
+  }
+}
+```
+
+Only after independent physical commissioning and proven exclusive command
+handoff may an installer explicitly set `Physical-commissioned: true`.
+That setting is a **declaration**, not a test result: the executor additionally
+checks live connection, phase/circuit capacity, available site budget,
+persistent intent, current session identity, exclusive ownership and
+independent power/current readback before confirming any start. No import
+silently changes an EVSE's current physical owner. Source changes require
+a controlled reimport/restart and a verified safe STOP/rollback when an
+existing commissioned charger is active. Do not use the development schema
+with the immutable v0.1.2 release.
 
 Upon HA restart, the native startup importer reads the JSON through Home
 Assistant's built-in `!include`, validates every key and source domain, and
@@ -144,7 +208,7 @@ reference only, not an instruction to express the configuration in YAML.
 Robotix MultiCharge is a **single MIT-licensed community integration**. It installs
 from source; no precompiled runtime, paid Robotix services or separate mirror.
 
-After a `TEST` prerelease is published, open HACS in Home Assistant, add
+For the current published `v0.1.2` TEST prerelease, open HACS in Home Assistant and add
 `https://github.com/npinguin/robotix-multicharge` as a **custom Integration
 repository**, enable prerelease/beta versions where applicable, and install
 the latest explicitly qualified TEST release (v0.1.2 for the expert JSON bypass). Restart Home Assistant, then
@@ -167,8 +231,7 @@ contains planner outcomes, source quality, current-session identity,
 command/readback receipts and qualified charging history, with aliased local
 identifiers. Inspect private diagnostics and logs before sharing publicly.
 Record the issue, exact TEST version, mode, selected hardware, expected versus
-observed result and diagnostics in the existing MultiCharge Issue #1/PR #2
-workflow. A green source CI or prerelease publication is not proof of successful
+observed result and diagnostics in the existing MultiCharge Issue #1 and active Draft PR #5. A green source CI or prerelease publication is not proof of successful
 physical Wessels acceptance.
 
 ## Development and documentation
@@ -177,7 +240,7 @@ physical Wessels acceptance.
 - [Candidate contracts and interfaces](docs/INTERFACES.md)
 - [Functional use cases and acceptance](https://github.com/npinguin/robotix-multicharge/issues/1)
 - [Open development issues](https://github.com/npinguin/robotix-multicharge/issues)
-- [Active development PR](https://github.com/npinguin/robotix-multicharge/pull/2)
+- [Active development PR](https://github.com/npinguin/robotix-multicharge/pull/5)
 
 Source checks (no Home Assistant installation needed):
 
