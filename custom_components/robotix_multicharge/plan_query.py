@@ -68,10 +68,12 @@ async def websocket_get_plan(
         # Exact native Registry entity IDs: no guessed entity_id in the card.
         from homeassistant.helpers import entity_registry as er
         registry = er.async_get(hass)
-        def native_select(kind, uid, field):
+        def native_entity(platform, kind, uid, field):
             return registry.async_get_entity_id(
-                "select", DOMAIN, f"{DOMAIN}:{kind}:{uid}:{field}"
+                platform, DOMAIN, f"{DOMAIN}:{kind}:{uid}:{field}"
             )
+        def native_select(kind, uid, field):
+            return native_entity("select", kind, uid, field)
         cfg = runtime.configuration
         result["preference_entities"] = {
             "controller": {
@@ -81,8 +83,19 @@ async def websocket_get_plan(
             },
             "assets": {
                 row["id"]: {
-                    field: native_select("asset", row["id"], field)
-                    for field in ("plan_color", "ready_by_repeat")
+                    **{
+                        field: native_select("asset", row["id"], field)
+                        for field in ("plan_color", "ready_by_repeat")
+                    },
+                    **{
+                        field: native_entity("number", "asset", row["id"], field)
+                        for field in ("target_soc", "requested_kwh",
+                                      "requested_duration_minutes", "priority")
+                    },
+                    **{
+                        field: native_entity("datetime", "asset", row["id"], field)
+                        for field in ("ready_by", "expected_connection_at")
+                    },
                 }
                 for row in cfg["assets"]
             },
