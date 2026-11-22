@@ -29,7 +29,10 @@ from .const import DOMAIN
 from .runtime import MultiChargeRuntime
 from .plan_query import register_plan_query
 from .command_query import register_command_query, register_settings_query
-from .frontend import register_frontend, reconcile_frontend
+from .frontend import (
+    register_frontend, reconcile_frontend, register_sidebar_panel,
+    unregister_sidebar_panel,
+)
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor", "button", "select", "number", "datetime", "text", "binary_sensor"]
@@ -187,6 +190,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.data[DOMAIN].pop(entry.entry_id, None)
         raise
     reconcile_frontend(hass, entry)
+    await register_sidebar_panel(hass, entry)
     await runtime.executor.supervise()
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     return True
@@ -199,6 +203,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return False
     ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if ok:
+        unregister_sidebar_panel(hass)
         reconcile_frontend(hass)
         runtime = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
         if runtime is not None:
