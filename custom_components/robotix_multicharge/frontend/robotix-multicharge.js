@@ -270,8 +270,35 @@ class RobotixMultiChargeCard extends HTMLElement {
       const item=mcEl("span");const dot=mcEl("span","dot");dot.style.background=color;item.append(dot,document.createTextNode(text));legend.append(item);
     }
     container.append(legend);
-    const hasActual=raw.some(s=>typeof s.actual_power_kw==="number");
-    if(!hasActual)this.notice(container,"Measured interval history is unavailable. No actual charging or cost is inferred from proposals.",false);
+    const actual=(d.actual_slots||[]);
+    const expected=this._filter ? 1 : (d.configuration.chargers||[]).length;
+    const buckets=new Map();
+    for(const sample of actual){
+      const rows=buckets.get(sample.start)||[];
+      rows.push(sample);
+      buckets.set(sample.start,rows);
+    }
+    let qualifiedActual=0;
+    for(const [timestamp,rows] of buckets){
+      if(!expected||rows.length!==expected||
+         !rows.every(item=>typeof item.actual_power_kw==="number"))continue;
+      const index=Math.floor((new Date(timestamp).getTime()-start)/900000);
+      if(index<0||index>=count)continue;
+      const kw=rows.reduce((total,row)=>total+row.actual_power_kw,0);
+      const h=Math.max(0,kw/max*150);
+      const w=850/count;
+      const rect=mcSVG("rect",{
+        x:40+index*w+w*0.55,y:174-h,
+        width:Math.max(1,w*0.35),height:h,fill:"#2d9c70"
+      });
+      rect.append(mcSVG("title",{},"Measured "+kw.toFixed(2)+" kW · "+mcTime(timestamp,d.timezone)));
+      svg.append(rect);
+      qualifiedActual++;
+    }
+    if(!qualifiedActual)this.notice(container,
+      "Measured interval history unavailable: "+
+      (d.actual_history_quality||"RECORDER_OR_SOURCE_UNQUALIFIED")+
+      ". No actual charging or cost is inferred from proposals.",false);
     const next=mcEl("div","card");next.append(mcEl("h3","","Next planned session"));
     const first=raw.find(x=>x.proposed_power_kw>0);
     next.append(mcEl("p","",first?mcTime(first.start,d.timezone)+" · "+first.proposed_power_kw+" kW":"No qualified charging slot"));

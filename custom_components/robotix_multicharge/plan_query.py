@@ -10,6 +10,7 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
+from .history import read_actual_history
 from .history import read_native_history
 
 
@@ -58,6 +59,12 @@ async def websocket_get_plan(
             start, end,
             charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
         )
+        actual, quality = await read_actual_history(
+            hass, runtime.configuration, start, end,
+            charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id")
+        )
+        result["actual_slots"] = actual
+        result["actual_history_quality"] = quality
     except (ValueError, TypeError, OverflowError, KeyError):
         connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT,
                               "Invalid plan scope, filter or interval")
