@@ -111,6 +111,70 @@ def rig(*, owner="multicharge", commissioned=True, group_kw=4.0,
 
 
 class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_manual_force_start_is_durably_held_across_restart(self):
+        rt, states, services = rig()
+        class MemoryStore:
+            def __init__(self):
+                self.data = None
+            async def async_save(self, payload):
+                self.data = payload
+
+        store = MemoryStore()
+        rt.attach_control_store(store, None)
+        started = await rt.executor.execute("evse", "start")
+        self.assertEqual(started["status"], "confirmed")
+        self.assertIn("car", store.data["inflight"])
+        restarted = MultiChargeRuntime(rt.hass, rt.configuration)
+        restarted.attach_control_store(store, store.data)
+        self.assertIn("car", restarted.executor._inflight)
+        # A restart cannot reuse previous connection identity as evidence.
+        self.assertEqual(
+            restarted.executor.confirm_current_connection("evse")["status"],
+            "confirmed",
+        )
+        before = len(services.calls)
+        states["switch.evse_control"].state = "off"
+        states["sensor.actual_power"].state = "0"
+        states["sensor.actual_power"].last_updated = datetime.now(timezone.utc)
+        blocked = await restarted.executor.execute("evse", "start")
+        self.assertEqual(blocked["reason"], "UNRESOLVED_PREVIOUS_CHARGE_INTENT")
+        self.assertEqual(len(services.calls), before)
+
+    async def test_manual_force_start_fails_closed_when_intent_persistence_fails(self):
+        rt, sources, services = rig()
+        class RejectingStore:
+            async def async_save(self, payload):
+                raise OSError("storage unavailable")
+        rt.attach_control_store(RejectingStore(), None)
+        result = await rt.executor.execute("evse", "start")
+        self.assertEqual(result["reason"], "MANUAL_INTENT_NOT_PERSISTED")
+        self.assertEqual(result["status"], "rejected")
+        self.assertEqual(services.calls, [])
+        self.assertFalse(rt.executor._persistence_verified)
+
+    async def test_charger_only_manual_intent_is_durable_until_measured_stop(self):
+        rt, sources, services = rig()
+        rt.configuration["chargers"][0].pop("asset")
+        rt.refresh()
+        before = rt.executor.export_state()["inflight"]
+        self.assertEqual(before, {})
+        started = await rt.executor.execute(
+            "evse", "start", manual_request={"energy_kwh": 2.0}
+        )
+        self.assertEqual(started["status"], "confirmed")
+        key = "charger:evse"
+        self.assertIn(key, rt.executor.export_state()["inflight"])
+        restored = MultiChargeRuntime(rt.hass, rt.configuration)
+        restored.executor.restore_state(rt.executor.export_state())
+        self.assertIn(key, restored.executor._inflight)
+        sources["sensor.meter"].state = "6"
+        sources["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        self.assertEqual((await rt.executor.execute("evse", "stop"))["status"],
+                         "confirmed")
+        self.assertNotIn(key, rt.executor.export_state()["inflight"])
+        self.assertEqual(rt.executor.completed_sessions()[-1]["actual_energy_kwh"],
+                         1.0)
+
     async def test_pause_persists_hold_and_resume_never_starts_hardware(self):
         rt, sources, services = rig()
         outcome = await rt.executor.execute("evse", "pause")
@@ -235,7 +299,7 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         states["sensor.meter"].state = "6.2"
         states["sensor.meter"].last_updated = datetime.now(timezone.utc)
         reject = await rt.executor.execute("evse", "start")
-        self.assertEqual(reject["reason"], "ASSET_MEASURED_PROGRESS_UNAVAILABLE")
+        self.assertEqual(reject["reason"], "UNRESOLVED_PREVIOUS_CHARGE_INTENT")
         self.assertEqual([x[1] for x in services.calls], ["turn_on", "turn_off"])
 
     async def test_charger_only_measured_kwh_stops_and_keeps_asset_unattributed(self):
