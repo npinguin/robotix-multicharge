@@ -214,6 +214,10 @@ class MultiChargeRuntime:
             ),
             "command_outcomes": self.executor.snapshot(),
             "active_sessions": self.executor.session_snapshot(),
+            "accepted_slots": [{
+                **row, "start": row["start"].isoformat(),
+                "end": row["end"].isoformat(),
+            } for row in self.executor.accepted_slots().values()],
         }
 
     def read_plan(self, start: datetime, end: datetime, *,
@@ -261,6 +265,33 @@ class MultiChargeRuntime:
                     "actual_power_kw": None,
                     "actual_energy_kwh": None,
                 })
+        # Accepted slots are admitted physical history, not an inferred plan.
+        for accepted in self.executor.accepted_slots().values():
+            if accepted["start"] >= last or accepted["end"] <= first:
+                continue
+            if charger_id is not None and accepted["charger_id"] != charger_id:
+                continue
+            if asset_id is not None and accepted["asset_id"] != asset_id:
+                continue
+            match = next((row for row in slots if
+                row["charger_id"] == accepted["charger_id"]
+                and row["start"] == accepted["start"].isoformat()), None)
+            if match is None:
+                match = {
+                    "charger_id": accepted["charger_id"],
+                    "asset_id": accepted["asset_id"],
+                    "start": accepted["start"].isoformat(),
+                    "end": accepted["end"].isoformat(),
+                    "proposed_power_kw": None,
+                    "proposed_energy_kwh": None,
+                    "proposed_current_a": None,
+                    "actual_power_kw": None,
+                    "actual_energy_kwh": None,
+                }
+                slots.append(match)
+            match["accepted_power_kw"] = accepted["power_kw"]
+            match["accepted_current_a"] = accepted["current_a"]
+        slots.sort(key=lambda row: (row["start"], row["charger_id"]))
         return {
             "schema_major": 1,
             "controller_id": self.configuration["controller"]["id"],

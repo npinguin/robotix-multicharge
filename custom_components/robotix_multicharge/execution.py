@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from .source_evidence import binding, connection, number
+from .planner import resolve_recurring_ready_by
 
 _LOGGER = logging.getLogger(__name__)
 START_POWER_KW = 0.10
@@ -32,6 +33,11 @@ class NativeSwitchExecutor:
         self._supervising = False
         self._sessions = {}
         self._start_pending = set()
+        self._accepted = {}
+        self._accepted_history = {}
+        self._grants = {}
+        self._last_advance = None
+        self._completed = {}
 
     def detach(self):
         """Do not replay commands on unload or a restarted runtime."""
@@ -48,6 +54,14 @@ class NativeSwitchExecutor:
                 for key, value in record.items()
             }
             for uid, record in self._sessions.items()
+        }
+
+    def accepted_slots(self):
+        """Actual admitted slots only, never future proposals masquerading as execution."""
+        threshold = datetime.now(timezone.utc) - timedelta(hours=48)
+        return {
+            key: dict(value) for key, value in self._accepted_history.items()
+            if value["end"] >= threshold
         }
 
     def capabilities(self):
@@ -110,6 +124,7 @@ class NativeSwitchExecutor:
         if status == "confirmed" and action == "stop":
             self._quarantine.discard(uid)
             self._sessions.pop(uid, None)
+            self._accepted.pop(uid, None)
         if status == "confirmed":
             self.runtime.refresh()
         else:
@@ -176,6 +191,13 @@ class NativeSwitchExecutor:
                 due = datetime.fromisoformat(
                     asset["ready_by"].replace("Z", "+00:00")
                 )
+                repeat = asset.get("ready_by_repeat", "none")
+                if repeat != "none":
+                    due, reason = resolve_recurring_ready_by(
+                        due, at, repeat, self.runtime.hass.config.time_zone
+                    )
+                    if due is None:
+                        return reason
                 if due.tzinfo is None or due.utcoffset() is None or at >= due:
                     return "READY_BY_EXPIRED"
             except ValueError:
@@ -408,11 +430,17 @@ class NativeSwitchExecutor:
         if duration is not None:
             end = min(end, now + timedelta(minutes=duration))
         if asset.get("ready_by"):
-            end = min(
-                end, datetime.fromisoformat(
-                    asset["ready_by"].replace("Z", "+00:00")
-                ).astimezone(timezone.utc)
-            )
+            due = datetime.fromisoformat(
+                asset["ready_by"].replace("Z", "+00:00")
+            ).astimezone(timezone.utc)
+            if asset.get("ready_by_repeat", "none") != "none":
+                due, _ = resolve_recurring_ready_by(
+                    due, now, asset["ready_by_repeat"],
+                    self.runtime.hass.config.time_zone
+                )
+            if due is None:
+                return "READY_BY_UNAVAILABLE"
+            end = min(end, due)
         self._sessions[charger["id"]] = {
             "asset_id": asset["id"],
             "started_at": now,
@@ -427,18 +455,148 @@ class NativeSwitchExecutor:
         }
         return None
 
-    async def supervise(self):
-        """Protect commissioned on/off chargers against Off and lost safety input.
+    def _accept_slot(self, charger, slot, revision):
+        """Accept only a physically confirmed current slot; keep bounded evidence."""
+        record = {
+            "charger_id": charger["id"], "asset_id": slot.asset_uid,
+            "start": slot.start, "end": slot.end,
+            "power_kw": slot.power_kw, "current_a": slot.current_a,
+            "revision": revision, "status": "accepted",
+        }
+        self._accepted[charger["id"]] = record
+        self._accepted_history[(charger["id"], slot.start)] = record
+        threshold = datetime.now(timezone.utc) - timedelta(hours=48)
+        for key, old in list(self._accepted_history.items()):
+            if old["end"] < threshold:
+                del self._accepted_history[key]
 
-        This is the SAME sole physical writer and native STOP path as manual
-        operation. No automatic START or command replay exists.
+    async def advance_plan(self, quarter_start):
+        """Apply one qualified quarter plan through the only existing executor.
+
+        Called only by the native HA quarter-hour callback. An arbitrary
+        source refresh does not cause a new START, and boot never replays an
+        accepted command without an independent current-session authority.
+        """
+        mode = self.runtime.configuration["controller"]["mode"]
+        if self._stopped or mode not in ("Automatic", "Economy", "Solar", "Ready By"):
+            return
+        if self._last_advance == quarter_start:
+            return
+        self._last_advance = quarter_start
+        assessment = self.runtime.assessment
+        if assessment is None or assessment.plan.status != "proposed":
+            return
+        slots = {
+            slot.charger_uid: slot for slot in assessment.plan.slots
+            if slot.start == quarter_start and slot.end == quarter_start + timedelta(minutes=15)
+        }
+        self._grants = dict(slots)
+        try:
+            for charger in self.runtime.configuration["chargers"]:
+                uid = charger["id"]
+                if (charger.get("control_owner", "external") != "multicharge"
+                        or charger.get("physical_commissioned") is not True):
+                    continue
+                slot = slots.get(uid)
+                switch = self._switch(self.runtime.hass, charger.get("control_entity"))
+                if switch is None:
+                    continue
+                if switch.state == "on":
+                    # Never adopt an unowned session after restart or handover.
+                    session = self._sessions.get(uid)
+                    if session is None or uid not in self._accepted:
+                        await self.execute(uid, "stop")
+                        continue
+                    if slot is None or slot.asset_uid != session["asset_id"]:
+                        await self.execute(uid, "stop")
+                        continue
+                    if charger["kind"] == "variable_current":
+                        target = slot.current_a
+                        if target is None:
+                            await self.execute(uid, "stop")
+                            continue
+                        if abs(target - session.get("target_current_a", 0)) > 1e-6:
+                            outcome = await self.execute(
+                                uid, "set_current", current_a=target
+                            )
+                            if outcome["status"] != "confirmed":
+                                continue
+                    # Still-owned physical session and verified slot continuity.
+                    self._accept_slot(charger, slot, assessment.plan.revision)
+                    continue
+                if slot is None:
+                    continue
+                asset = next((a for a in self.runtime.configuration["assets"]
+                              if a["id"] == slot.asset_uid), None)
+                if asset is None:
+                    continue
+                # An explicit fixed demand completed in this runtime cannot be
+                # silently restarted next quarter. Repeated Ready By intentions
+                # are keyed by the resolved actual deadline occurrence.
+                resolved = None
+                if asset.get("ready_by"):
+                    resolved = asset["ready_by"]
+                    if asset.get("ready_by_repeat", "none") != "none":
+                        due, reason = resolve_recurring_ready_by(
+                            datetime.fromisoformat(resolved), quarter_start,
+                            asset["ready_by_repeat"],
+                            self.runtime.hass.config.time_zone,
+                        )
+                        if due is None:
+                            continue
+                        resolved = due.isoformat()
+                if self._completed.get(asset["id"]) == resolved:
+                    continue
+                result = await self.execute(
+                    uid, "start", current_a=slot.current_a, plan_slot=slot,
+                )
+                if result["status"] == "confirmed":
+                    self._accept_slot(charger, slot, assessment.plan.revision)
+        finally:
+            self._grants.clear()
+
+    async def _reduce_current(self, charger, at):
+        """Only confirmed smaller supported setpoints may avert a safety STOP."""
+        session = self._sessions.get(charger["id"])
+        if charger["kind"] != "variable_current" or not session:
+            return False
+        existing = session.get("target_current_a")
+        if existing is None:
+            return False
+        step, minimum = charger["current_step_a"], charger["min_current_a"]
+        candidate = round(existing - step, 6)
+        while candidate + 1e-9 >= minimum:
+            problem, power = self._requested_current(charger, candidate, at)
+            if problem is None and self._physical_budget(
+                charger, at, power, candidate
+            ) is None:
+                outcome = await self.execute(
+                    charger["id"], "set_current", current_a=candidate
+                )
+                if outcome["status"] == "confirmed":
+                    accepted = self._accepted.get(charger["id"])
+                    if accepted is not None:
+                        accepted["current_a"] = candidate
+                        accepted["power_kw"] = power
+                    return True
+                return False
+            candidate = round(candidate - step, 6)
+        return False
+
+    async def supervise(self):
+        """Reconcile physical truth; never treat stale/unknown as safe capacity.
+
+        Automatic START is exclusively advance_plan at a real quarter boundary.
+        This guard may reduce verified adjustable current or physically STOP;
+        it never independently starts a charger.
         """
         if self._stopped or self._supervising:
             return
         self._supervising = True
         try:
             cfg = self.runtime.configuration
-            controller = cfg["controller"]
+            ctl = cfg["controller"]
+            mode = ctl["mode"]
             at = datetime.now(timezone.utc)
             active = []
             for c in cfg["chargers"]:
@@ -452,70 +610,73 @@ class NativeSwitchExecutor:
                     continue
                 if state.state == "on":
                     active.append(c)
-            if not active:
-                return
-            # Manual START belongs exclusively to Force Charge. Switching to
-            # any advisory mode must stop the formerly authorized session.
-            hold = controller.get("mode") != "Force Charge"
-            cap = controller.get("max_power_kw")
-            if cap is None:
-                hold = True
-            source = controller.get("binding_entity") or controller.get("site_power_entity")
-            if source:
-                envelope, quality = binding(self.runtime.hass, source, at)
-                if envelope is None or quality != "OK":
-                    hold = True
-                else:
-                    until = at + timedelta(seconds=30)
-                    slots = [s for s in envelope.slots if s.start <= at and s.end >= until]
-                    if len(slots) != 1 or envelope.valid_until < until:
-                        hold = True
-                    else:
-                        cap = min(cap, slots[0].max_charging_kw) if cap is not None else None
-            # Every configured charger consumes the same site budget,
-            # regardless of whether MultiCharge or another HA owner controls it.
-            reserved = 0.0
-            charging_count = 0
-            for c in cfg["chargers"]:
-                physical = number(self.runtime.hass, c.get("power_entity"), "power", at)
-                state = self._switch(self.runtime.hass, c.get("control_entity"))
-                if physical.quality != "ok" or state is None:
-                    hold = True
-                    continue
-                if state.state == "on":
-                    reserved += c["rated_power_kw"]
-                    charging_count += 1
-                elif physical.value > STOP_POWER_KW:
-                    hold = True
-            if cap is not None and (
-                charging_count > controller["max_parallel"]
-                or reserved > cap + 1e-9
-            ):
-                hold = True
             for charger in active:
+                uid = charger["id"]
                 cable = connection(self.runtime.hass, charger.get("connected_entity"), at)
                 power = number(self.runtime.hass, charger.get("power_entity"), "power", at)
                 session_reason = self._session_stop_reason(charger, at)
+                accepted = self._accepted.get(uid)
+                is_auto = mode in ("Automatic", "Solar", "Economy", "Ready By")
+                # Give a pending quarter callback a brief handover window.
+                in_grace = (at - datetime.fromtimestamp(
+                    int(at.timestamp()) // 900 * 900, timezone.utc
+                )).total_seconds() < 10
+                no_plan = is_auto and (
+                    accepted is None or accepted["end"] <= at and not in_grace
+                )
+                unowned = is_auto and accepted is None and not in_grace
+                wrong_mode = mode == "Off" or (is_auto and (no_plan or unowned))
+                if mode == "Force Charge" and accepted is not None:
+                    wrong_mode = True
                 unsafe = (
-                    hold or cable.quality != "ok" or cable.value is not True
+                    wrong_mode or cable.quality != "ok" or cable.value is not True
                     or power.quality != "ok"
                     or power.value > charger["rated_power_kw"] * 1.10
-                    or (charger["kind"] == "variable_current"
-                        and (number(self.runtime.hass,
-                            charger.get("current_readback_entity"), "current", at).quality != "ok"))
                     or session_reason is not None
                 )
+                if charger["kind"] == "variable_current":
+                    amps = number(self.runtime.hass,
+                        charger.get("current_readback_entity"), "current", at)
+                    session = self._sessions.get(uid)
+                    current = session.get("target_current_a") if session else None
+                    if (amps.quality != "ok" or current is None
+                            or amps.value > current + max(
+                                0.25, charger["current_step_a"] / 2
+                            )):
+                        unsafe = True
+                if not unsafe:
+                    session = self._sessions.get(uid)
+                    kw = (charger["rated_power_kw"]
+                          if charger["kind"] == "on_off" else
+                          session["target_current_a"] * charger["voltage_v"]
+                          * len(charger["phase_ids"]) / 1000)
+                    current = (charger.get("fixed_current_a")
+                               if charger["kind"] == "on_off"
+                               else session["target_current_a"])
+                    limit_reason = self._physical_budget(charger, at, kw, current)
+                    if limit_reason is not None:
+                        if not await self._reduce_current(charger, at):
+                            unsafe = True
                 if unsafe:
-                    _LOGGER.warning(
-                        "Stopping %s: mode/capacity/source or %s",
-                        charger["id"], session_reason or "SAFETY_ADMISSION"
-                    )
-                    outcome = await self.execute(charger["id"], "stop")
+                    if session_reason in (
+                        "REQUESTED_ENERGY_COMPLETE", "REQUESTED_DURATION_COMPLETE",
+                        "SOC_TARGET_REACHED"
+                    ) and is_auto:
+                        asset = next((a for a in cfg["assets"]
+                                      if a["id"] == charger.get("asset")), None)
+                        if asset is not None:
+                            occurrence = asset.get("ready_by")
+                            if occurrence and asset.get("ready_by_repeat", "none") != "none":
+                                due, _ = resolve_recurring_ready_by(
+                                    datetime.fromisoformat(occurrence), at,
+                                    asset["ready_by_repeat"], self.runtime.hass.config.time_zone
+                                )
+                                occurrence = due.isoformat() if due else None
+                            self._completed[asset["id"]] = occurrence
+                    outcome = await self.execute(uid, "stop")
                     if outcome["status"] != "confirmed":
-                        _LOGGER.error(
-                            "Protective charger STOP not physically confirmed: %s %s",
-                            charger["id"], outcome["reason"]
-                        )
+                        _LOGGER.error("Protective charger STOP not physically confirmed: %s %s",
+                                      uid, outcome["reason"])
         finally:
             self._supervising = False
 
@@ -650,7 +811,7 @@ class NativeSwitchExecutor:
                     return result("rejected", "PREVIOUS_COMMAND_UNCONFIRMED")
                 if plan_slot is not None:
                     assessment = self.runtime.assessment
-                    if (assessment is None or plan_slot not in assessment.plan.slots
+                    if (self._grants.get(charger_id) != plan_slot
                             or not plan_slot.start <= at < plan_slot.end
                             or plan_slot.charger_uid != charger_id
                             or plan_slot.asset_uid != charger.get("asset")):

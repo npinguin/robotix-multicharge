@@ -6,11 +6,12 @@ Read-only live source evidence and plan evaluation; no physical execution.
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from homeassistant.core import callback
 from homeassistant.helpers.event import (
     async_track_time_interval, async_track_state_change_event,
+    async_track_time_change,
 )
 
 import voluptuous as vol
@@ -90,6 +91,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     runtime.set_unsubscribe(
         async_track_time_interval(hass, on_source_change, timedelta(minutes=1))
     )
+
+    @callback
+    def on_quarter(_event=None):
+        async def apply_quarter():
+            if not runtime.active:
+                return
+            at = datetime.now(timezone.utc)
+            quarter = at.replace(minute=(at.minute // 15) * 15,
+                                 second=0, microsecond=0)
+            runtime.refresh(quarter)
+            await runtime.executor.advance_plan(quarter)
+            await runtime.executor.supervise()
+        hass.async_create_task(apply_quarter())
+
+    runtime.set_unsubscribe(async_track_time_change(
+        hass, on_quarter, minute=[0, 15, 30, 45], second=0
+    ))
     monitored = {
         value for row in (
             cfg["controller"], *cfg["chargers"], *cfg["assets"]
