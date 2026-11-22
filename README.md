@@ -70,10 +70,10 @@ Create `/config/multicharge.json` containing only this object:
   "Controller": {"ID": "home", "Name": "Home charging"},
   "Charger": [
     {
-      "Name": "Garage White",
-      "Charging-Session-sensor": "sensor.garage_white_session",
-      "Charging-startstop-entity": "switch.garage_white_charging",
-      "Charging-amp-entity": "number.garage_white_current",
+      "Name": "Garage charger",
+      "Charging-Session-sensor": "sensor.garage_session",
+      "Charging-startstop-entity": "switch.garage_charging",
+      "Charging-amp-entity": "number.garage_current",
       "ChargingAsset": "Family car"
     }
   ],
@@ -216,6 +216,15 @@ open **Settings → Devices & services → Add integration → Robotix MultiChar
 The source ZIP attached to GitHub Releases has the same runtime files and a
 SHA256 sidecar; HACS normally installs from the matching immutable tag.
 
+The current `dev` implementation adds a persistent **Pause charging /
+Resume charging** control for a qualified MultiCharge-owned Charger. Pause
+stores the hold before requesting an independently confirmed physical STOP.
+Resume is administrator-authorized, requires an observed physically idle
+Charger, and **does not automatically start charging**; only a later eligible
+quarter or explicitly approved manual START may do that. Failed STOP or
+unverified delivery remains held. These changes are **not** present in the
+immutable v0.1.2 TEST and require a new qualified patch release.
+
 During testing, the native Charger device exposes current connection and
 physical readback. Select the actual vehicle and use **Confirm connected
 vehicle** after each real connection, then use real modes/commands and observe
@@ -232,7 +241,7 @@ command/readback receipts and qualified charging history, with aliased local
 identifiers. Inspect private diagnostics and logs before sharing publicly.
 Record the issue, exact TEST version, mode, selected hardware, expected versus
 observed result and diagnostics in the existing MultiCharge Issue #1 and active Draft PR #5. A green source CI or prerelease publication is not proof of successful
-physical Wessels acceptance.
+real-site physical acceptance.
 
 ## Development and documentation
 
