@@ -43,7 +43,9 @@ const fixture={
   },
   plan_palette:{pink:"#B05D81",green:"#32816E",blue:"#3779B9"},
   preference_entities:{
-    controller:{name:"text.site_name",mode:"select.site_mode",plan_label_mode:"select.site_labels",
+    controller:{name:"text.site_name",mode:"select.site_mode",
+                max_parallel:"number.site_parallel",max_power_kw:"number.site_kw",
+                plan_label_mode:"select.site_labels",
                 plan_color_by:"select.site_colors",
                 show_indicative_forecast:"select.site_forecast"},
     assets:{car:{plan_color:"select.car_color",target_soc:"number.car_target",
