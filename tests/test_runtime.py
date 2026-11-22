@@ -119,6 +119,21 @@ class RuntimeTests(unittest.TestCase):
         self.assertTrue(response["read_only"])
         self.assertIsNone(response["slots"][0]["actual_energy_kwh"])
 
+    def test_expired_guest_is_excluded_from_charging_proposals(self):
+        cfg = sample()
+        cfg["assets"][0]["temporary"] = True
+        cfg["assets"][0]["expires_at"] = (NOW - timedelta(minutes=1)).isoformat()
+        rt = MultiChargeRuntime(
+            SimpleNamespace(states=SimpleNamespace(get={
+                "sensor.soc": state("45", "%"),
+                "binary_sensor.cable": state("on"),
+                "sensor.power": state("0", "W"),
+            }.get)), cfg
+        )
+        rt.refresh(NOW)
+        self.assertEqual(rt.assessment.plan.slots, ())
+        self.assertEqual(rt.excluded["drive"], "TEMPORARY_ASSET_EXPIRED")
+
     def test_no_connection_never_proposes_charging(self):
         cfg = sample()
         rt = MultiChargeRuntime(SimpleNamespace(

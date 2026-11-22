@@ -83,6 +83,22 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(apply_settings_change(revised, "asset", "guest",
                                                {"name": "placeholder"}, "delete")["assets"], [])
 
+    def test_guest_expiry_requires_timezone_and_is_not_ignored(self):
+        cfg = default_configuration()
+        cfg["assets"] = [{"id": "guest", "name": "Guest", "kind": "car",
+                          "temporary": True, "expires_at": "2026-11-23T15:00:00+01:00",
+                          "requested_kwh": 2}]
+        normalized = validate_configuration(cfg)
+        self.assertTrue(normalized["assets"][0]["temporary"])
+        self.assertEqual(normalized["assets"][0]["expires_at"],
+                         "2026-11-23T15:00:00+01:00")
+        cfg["assets"][0].pop("expires_at")
+        with self.assertRaisesRegex(ValueError, "expiry required"):
+            validate_configuration(cfg)
+        cfg["assets"][0]["expires_at"] = "2026-11-23T15:00:00"
+        with self.assertRaisesRegex(ValueError, "timezone required"):
+            validate_configuration(cfg)
+
     def test_no_guessed_entities(self):
         cfg = default_configuration()
         cfg["assets"] = [{"id": "car", "name": "Car", "soc_entity": "car-battery"}]

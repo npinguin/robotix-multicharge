@@ -307,6 +307,9 @@ class NativeSwitchExecutor:
         )
         if asset is None:
             return "ASSET_NOT_ASSIGNED"
+        if (asset.get("temporary")
+                and datetime.fromisoformat(asset["expires_at"]) <= at):
+            return "TEMPORARY_ASSET_EXPIRED"
         if charger.get("phase_count") not in (1, 2, 3):
             return "PHYSICAL_PHASES_UNVERIFIED"
         requested_kw = charger["rated_power_kw"]
@@ -559,6 +562,9 @@ class NativeSwitchExecutor:
         )
         if asset is None or charger.get("asset") != session["asset_id"]:
             return "ACTIVE_SESSION_ASSIGNMENT_CHANGED"
+        if (asset.get("temporary")
+                and datetime.fromisoformat(asset["expires_at"]) <= now):
+            return "TEMPORARY_ASSET_EXPIRED"
         if now >= session["hard_stop_at"]:
             return "SESSION_SAFETY_DEADLINE_REACHED"
         if session["requested_duration_minutes"] is not None:

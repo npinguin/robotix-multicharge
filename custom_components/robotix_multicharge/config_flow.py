@@ -157,6 +157,7 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     for key in ("soc_entity", "capacity_kwh", "target_soc",
                                 "requested_kwh", "requested_duration_minutes",
                                 "ready_by", "ready_by_repeat", "charge_efficiency", "max_charge_kw",
+                                "temporary", "expires_at",
                                 "priority"):
                         if user_input.get(key) is not None:
                             asset[key] = user_input[key]
@@ -193,6 +194,8 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.All(vol.Coerce(int), vol.Range(min=1)),
             vol.Optional("ready_by"): selector.DateTimeSelector(),
             vol.Optional("ready_by_repeat"): vol.In(["none", "daily", "weekly"]),
+            vol.Optional("temporary"): bool,
+            vol.Optional("expires_at"): str,
             vol.Optional("charge_efficiency"):
                 vol.All(vol.Coerce(float), vol.Range(min=0.01, max=1)),
             vol.Optional("max_charge_kw"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
@@ -379,7 +382,8 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
                 asset.update({"id": uid, "name": user_input["name"], "kind": user_input["kind"]})
                 for field in ("soc_entity", "capacity_kwh", "target_soc", "max_charge_kw",
                               "requested_kwh", "requested_duration_minutes",
-                              "ready_by", "ready_by_repeat", "charge_efficiency", "priority"):
+                              "ready_by", "ready_by_repeat", "charge_efficiency", "priority",
+                              "temporary", "expires_at"):
                     if user_input.get(field) is not None and user_input.get(field) != "":
                         asset[field] = user_input[field]
                 cfg["assets"] = [a for a in cfg["assets"] if a["id"] != uid] + [asset]
@@ -407,6 +411,8 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
                 ),
                 vol.Optional("ready_by"): selector.DateTimeSelector(),
                 vol.Optional("ready_by_repeat"): vol.In(["none", "daily", "weekly"]),
+                vol.Optional("temporary"): bool,
+                vol.Optional("expires_at"): str,
                 vol.Optional("charge_efficiency"): vol.All(
                     vol.Coerce(float), vol.Range(min=0.01, max=1)
                 ),

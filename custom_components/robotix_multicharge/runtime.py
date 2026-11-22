@@ -129,6 +129,10 @@ class MultiChargeRuntime:
             if asset is None:
                 self.excluded[uid] = "NO_CHARGEABLE_ASSET"
                 continue
+            if (asset.get("temporary")
+                    and datetime.fromisoformat(asset["expires_at"]) <= at):
+                self.excluded[uid] = "TEMPORARY_ASSET_EXPIRED"
+                continue
             amount = asset.get("requested_kwh")
             minutes = asset.get("requested_duration_minutes")
             if amount is None and minutes is None:
@@ -262,6 +266,9 @@ class MultiChargeRuntime:
             raise ValueError("unknown charger")
         if asset_id is not None and not any(
             a["id"] == asset_id for a in self.configuration["assets"]
+        ) and not any(
+            receipt["asset_id"] == asset_id
+            for receipt in self.executor.completed_sessions()
         ):
             raise ValueError("unknown asset")
         assessment = self.assessment
