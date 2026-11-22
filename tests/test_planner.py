@@ -345,7 +345,8 @@ class PlannerTests(unittest.TestCase):
             control_kind="variable_current", rated_power_kw=11, phase_count=3,
             min_current_a=6, max_current_a=16)
         result = compile_plan(controller, {"c": charger},
-            [ChargeDemand("car", "c", 2, NOW)], NOW, mode="Automatic")
+            [ChargeDemand("car", "c", 2, NOW + timedelta(hours=1))],
+            NOW, mode="Automatic")
         self.assertEqual(result.reasons["c"], "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED")
 
     def test_reject_advisory_as_binding(self):

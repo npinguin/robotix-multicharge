@@ -59,7 +59,8 @@ def number(hass, entity_id, kind: str, now: datetime) -> Evidence:
     if obj is None:
         return evidence
     units = {"soc": {"%": 1.0}, "power": {"W": 0.001, "kW": 1.0},
-             "energy": {"Wh": 0.001, "kWh": 1.0}}
+             "energy": {"Wh": 0.001, "kWh": 1.0},
+             "current": {"A": 1.0}}
     factors = units.get(kind)
     if factors is None:
         raise ValueError("unsupported measurement type")

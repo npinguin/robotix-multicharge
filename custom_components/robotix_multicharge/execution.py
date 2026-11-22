@@ -58,8 +58,8 @@ class NativeSwitchExecutor:
             uid = charger["id"]
             if self._stopped:
                 reason = "INTEGRATION_UNLOADED"
-            elif charger.get("kind") != "on_off":
-                reason = "VARIABLE_CURRENT_NOT_IMPLEMENTED"
+            elif charger.get("kind") not in ("on_off", "variable_current"):
+                reason = "CHARGER_CONTROL_UNSUPPORTED"
             elif not str(charger.get("control_entity", "")).startswith("switch."):
                 reason = "NATIVE_SWITCH_REQUIRED"
             elif charger.get("control_owner", "external") != "multicharge":
@@ -71,10 +71,17 @@ class NativeSwitchExecutor:
             elif self._switch(self.runtime.hass, charger["control_entity"]).state == "on":
                 reason = "SWITCH_ALREADY_ON"
             else:
-                reason = self._admit_start(charger, at)
+                if plan_slot is not None:
+                    assessment = self.runtime.assessment
+                    if (assessment is None or plan_slot not in assessment.plan.slots
+                            or not plan_slot.start <= at < plan_slot.end
+                            or plan_slot.charger_uid != charger_id):
+                        return result("rejected", "PLAN_SLOT_NOT_AUTHORIZED")
+                reason = self._admit_start(charger, at, planned=plan_slot is not None,
+                                           target_current=current_a)
             stop_allowed = (
                 not self._stopped
-                and charger.get("kind") == "on_off"
+                and charger.get("kind") in ("on_off", "variable_current")
                 and charger.get("control_owner") == "multicharge"
                 and charger.get("physical_commissioned") is True
                 and self._switch(self.runtime.hass, charger.get("control_entity")) is not None
@@ -122,11 +129,15 @@ class NativeSwitchExecutor:
             return None
         return state
 
-    def _admit_start(self, charger, at):
+    def _admit_start(self, charger, at, *, planned=False, target_current=None):
         cfg = self.runtime.configuration
         ctl = cfg["controller"]
-        if ctl.get("mode") != "Force Charge":
+        if not planned and ctl.get("mode") != "Force Charge":
             return "MANUAL_START_REQUIRES_FORCE_CHARGE"
+        if planned and ctl.get("mode") not in (
+            "Automatic", "Solar", "Economy", "Ready By"
+        ):
+            return "AUTOMATIC_MODE_NOT_ENABLED"
         asset = next(
             (a for a in cfg["assets"] if a["id"] == charger.get("asset")), None
         )
@@ -134,8 +145,15 @@ class NativeSwitchExecutor:
             return "ASSET_NOT_ASSIGNED"
         if charger.get("phase_count") not in (1, 2, 3):
             return "PHYSICAL_PHASES_UNVERIFIED"
+        requested_kw = charger["rated_power_kw"]
+        if charger["kind"] == "variable_current":
+            problem, requested_kw = self._requested_current(
+                charger, target_current, at
+            )
+            if problem:
+                return problem
         if (asset.get("max_charge_kw") is not None
-                and charger["rated_power_kw"] > asset["max_charge_kw"]):
+                and requested_kw > asset["max_charge_kw"] + 1e-9):
             return "ASSET_POWER_CAP_REQUIRES_MODULATION"
         amount = asset.get("requested_kwh")
         duration = asset.get("requested_duration_minutes")
@@ -174,12 +192,66 @@ class NativeSwitchExecutor:
             return "INDEPENDENT_POWER_UNAVAILABLE"
         if this_power.value > START_POWER_KW:
             return "POWER_ALREADY_PRESENT_WITHOUT_CONFIRMED_OWNER"
+        return self._physical_budget(
+            charger, at, requested_kw,
+            target_current if charger["kind"] == "variable_current"
+            else charger.get("fixed_current_a"),
+        )
+
+
+    def _requested_current(self, charger, current, at):
+        """Reject a claimed adjustable capability until native source metadata agrees."""
+        if charger.get("kind") != "variable_current":
+            return "CHARGER_NOT_ADJUSTABLE", None
+        if not isinstance(current, (float, int)) or isinstance(current, bool):
+            return "CURRENT_SETPOINT_REQUIRED", None
+        lo, hi, step = (charger.get("min_current_a"), charger.get("max_current_a"),
+                        charger.get("current_step_a"))
+        if not all(isinstance(v, (float, int)) and v > 0 for v in (lo, hi, step)):
+            return "CURRENT_RANGE_UNVERIFIED", None
+        if current < lo - 1e-7 or current > hi + 1e-7:
+            return "CURRENT_OUTSIDE_VERIFIED_RANGE", None
+        steps = round((current - lo) / step)
+        if abs(lo + steps * step - current) > 1e-6:
+            return "CURRENT_STEP_UNSUPPORTED", None
+        entity = charger.get("current_control_entity")
+        reading = charger.get("current_readback_entity")
+        if not str(entity).startswith("number.") or not str(reading).startswith("sensor."):
+            return "CURRENT_WRITE_OR_INDEPENDENT_READBACK_MISSING", None
+        device = self.runtime.hass.states.get(entity)
+        if device is None or device.state in ("unavailable", "unknown"):
+            return "CURRENT_CONTROL_UNAVAILABLE", None
+        try:
+            attrs = device.attributes
+            hmin, hmax, hstep = (float(attrs["min"]), float(attrs["max"]),
+                                 float(attrs["step"]))
+            if hstep <= 0 or current < hmin or current > hmax:
+                return "NATIVE_CURRENT_CAPABILITY_MISMATCH", None
+            if abs((current - hmin) / hstep - round((current - hmin) / hstep)) > 1e-5:
+                return "NATIVE_CURRENT_STEP_MISMATCH", None
+        except (KeyError, ValueError, TypeError, OverflowError, ZeroDivisionError):
+            return "NATIVE_CURRENT_CAPABILITY_UNVERIFIED", None
+        phases = charger.get("phase_ids") or []
+        voltage = charger.get("voltage_v")
+        if (charger.get("phase_count") != len(phases)
+                or len(phases) != len(set(phases))
+                or not phases or not isinstance(voltage, (float, int))):
+            return "ELECTRICAL_WIRING_UNVERIFIED", None
+        kw = float(current) * voltage * len(phases) / 1000
+        if kw > charger["rated_power_kw"] + 1e-9:
+            return "RATED_CHARGER_POWER_EXCEEDED", None
+        return None, round(kw, 6)
+
+    def _physical_budget(self, charger, at, kw, current):
+        """Conservative site, phase and circuit budget across all configured sources."""
+        cfg = self.runtime.configuration
+        ctl = cfg["controller"]
         cap = ctl.get("max_power_kw")
         if cap is None:
             return "SITE_POWER_CAPACITY_UNVERIFIED"
-        authority = ctl.get("binding_entity") or ctl.get("site_power_entity")
-        if authority:
-            envelope, quality = binding(self.runtime.hass, authority, at)
+        selected = ctl.get("binding_entity") or ctl.get("site_power_entity")
+        if selected:
+            envelope, quality = binding(self.runtime.hass, selected, at)
             if envelope is None or quality != "OK":
                 return "BINDING_CAPACITY_UNAVAILABLE"
             until = at + timedelta(seconds=30)
@@ -187,8 +259,9 @@ class NativeSwitchExecutor:
             if len(slots) != 1 or envelope.valid_until < until:
                 return "BINDING_CAPACITY_SLOT_MISSING"
             cap = min(cap, slots[0].max_charging_kw)
-        occupied = 0
-        reserved = charger["rated_power_kw"]
+        occupied, reserved = 0, kw
+        phase_totals = {}
+        circuits = {}
         for other in cfg["chargers"]:
             if other["id"] == charger["id"]:
                 continue
@@ -200,14 +273,59 @@ class NativeSwitchExecutor:
                 return "OTHER_CHARGER_OWNER_OR_STATE_UNKNOWN"
             if state.state == "on":
                 occupied += 1
-                reserved += other["rated_power_kw"]
+                reserved += other["rated_power_kw"] if other["kind"] == "on_off" else max(
+                    power.value, other["rated_power_kw"])
+                amps = other.get("fixed_current_a")
+                if other["kind"] == "variable_current":
+                    sensed = number(self.runtime.hass,
+                                    other.get("current_readback_entity"), "current", at)
+                    if sensed.quality != "ok":
+                        return "OTHER_CHARGER_CURRENT_UNAVAILABLE"
+                    amps = max(sensed.value, other["max_current_a"])
+                if ctl.get("phase_limits_a") or other.get("circuit_id"):
+                    if amps is None or not other.get("phase_ids"):
+                        return "OTHER_CHARGER_PHASES_UNVERIFIED"
+                    for phase in other["phase_ids"]:
+                        phase_totals[phase] = phase_totals.get(phase, 0) + amps
+                    if other.get("circuit_id"):
+                        key = other["circuit_id"]
+                        circuits[key] = circuits.get(key, 0) + amps
             elif power.value > STOP_POWER_KW:
                 return "OTHER_CHARGER_POWER_WITH_SWITCH_OFF"
         if occupied >= ctl["max_parallel"]:
             return "MAX_PARALLEL_REACHED"
         if reserved > cap + 1e-9:
             return "SITE_CAPACITY_EXCEEDED"
+        phases = charger.get("phase_ids") or []
+        if ctl.get("phase_limits_a"):
+            limits = ctl["phase_limits_a"]
+            if current is None or not phases or any(p not in limits for p in phases):
+                return "PHYSICAL_PHASES_UNVERIFIED"
+            if any(phase_totals.get(p, 0) + current > limits[p] + 1e-9 for p in phases):
+                return "SITE_PHASE_CURRENT_EXCEEDED"
+        if charger.get("circuit_id"):
+            if current is None or charger.get("circuit_limit_a") is None:
+                return "CIRCUIT_CURRENT_UNVERIFIED"
+            if (circuits.get(charger["circuit_id"], 0) + current >
+                    charger["circuit_limit_a"] + 1e-9):
+                return "CIRCUIT_CURRENT_EXCEEDED"
         return None
+
+    async def _set_native_current(self, charger, current, context):
+        """Native HA write only, not confirmation of physical charging current."""
+        await self.runtime.hass.services.async_call(
+            "number", "set_value",
+            {"entity_id": charger["current_control_entity"], "value": float(current)},
+            blocking=True, context=context,
+        )
+
+    def _current_confirmed(self, charger, current, requested_at):
+        reading = number(self.runtime.hass, charger.get("current_readback_entity"),
+                         "current", datetime.now(timezone.utc))
+        return (reading.quality == "ok" and reading.observed_at is not None
+                and reading.observed_at >= requested_at
+                and abs(reading.value - current) <= max(0.25,
+                    charger.get("current_step_a", 1) / 2))
 
     async def _protective_stop(self, charger, context):
         """Best-effort real STOP on an unconfirmed START, never claim it succeeded."""
@@ -302,6 +420,7 @@ class NativeSwitchExecutor:
             "starting_energy_kwh": starting_energy,
             "actual_energy_kwh": 0.0 if starting_energy is not None else None,
             "last_physical_readback": observed.observed_at,
+            "target_current_a": None,
         }
         return None
 
@@ -320,7 +439,7 @@ class NativeSwitchExecutor:
             at = datetime.now(timezone.utc)
             active = []
             for c in cfg["chargers"]:
-                if (c.get("kind") != "on_off"
+                if (c.get("kind") not in ("on_off", "variable_current")
                         or c.get("control_owner") != "multicharge"
                         or c.get("physical_commissioned") is not True):
                     continue
@@ -378,6 +497,9 @@ class NativeSwitchExecutor:
                     hold or cable.quality != "ok" or cable.value is not True
                     or power.quality != "ok"
                     or power.value > charger["rated_power_kw"] * 1.10
+                    or (charger["kind"] == "variable_current"
+                        and (number(self.runtime.hass,
+                            charger.get("current_readback_entity"), "current", at).quality != "ok"))
                     or session_reason is not None
                 )
                 if unsafe:
@@ -397,7 +519,7 @@ class NativeSwitchExecutor:
     async def shutdown(self):
         """Stop each owned charger before unload, with actual power readback."""
         for charger in self.runtime.configuration["chargers"]:
-            if (charger.get("kind") != "on_off"
+            if (charger.get("kind") not in ("on_off", "variable_current")
                     or charger.get("control_owner", "external") != "multicharge"
                     or charger.get("physical_commissioned") is not True):
                 continue
@@ -434,9 +556,10 @@ class NativeSwitchExecutor:
         return power
 
     async def execute(self, charger_id, action, *, context=None,
-                      request_id=None, readback_seconds=READBACK_SECONDS):
+                      request_id=None, readback_seconds=READBACK_SECONDS,
+                      current_a=None, plan_slot=None):
         """Perform a real HA switch call; success requires fresh independent power."""
-        if action not in ("start", "stop"):
+        if action not in ("start", "stop", "set_current"):
             raise ValueError("unsupported physical action")
         at = datetime.now(timezone.utc)
         request_id = request_id or uuid4().hex
@@ -445,7 +568,9 @@ class NativeSwitchExecutor:
         async with self._lock:
             previous = self._requests.get(request_id)
             if previous is not None:
-                if previous["charger_id"] != charger_id or previous["action"] != action:
+                if (previous["charger_id"] != charger_id
+                        or previous["action"] != action
+                        or previous.get("requested_current_a") != current_a):
                     raise ValueError("request ID used for a different command")
                 return dict(previous)
             cfg = self.runtime.configuration
@@ -459,8 +584,8 @@ class NativeSwitchExecutor:
                 return result("rejected", "UNKNOWN_CHARGER")
             if self._stopped:
                 return result("rejected", "INTEGRATION_UNLOADED")
-            if charger.get("kind") != "on_off":
-                return result("rejected", "VARIABLE_CURRENT_NOT_IMPLEMENTED")
+            if charger.get("kind") not in ("on_off", "variable_current"):
+                return result("rejected", "CHARGER_CONTROL_UNSUPPORTED")
             entity = charger.get("control_entity")
             if not entity or not entity.startswith("switch."):
                 return result("rejected", "NATIVE_SWITCH_REQUIRED")
@@ -471,12 +596,61 @@ class NativeSwitchExecutor:
             state = self._switch(self.runtime.hass, entity)
             if state is None:
                 return result("rejected", "NATIVE_SWITCH_UNAVAILABLE")
+            if action in ("start", "set_current"):
+                if charger["kind"] == "variable_current":
+                    if current_a is None and action == "start" and plan_slot is None:
+                        current_a = charger["min_current_a"]
+                    if plan_slot is not None and action == "start":
+                        current_a = plan_slot.current_a
+                    problem, requested_kw = self._requested_current(charger, current_a, at)
+                    if problem:
+                        return result("rejected", problem)
+                elif action == "set_current":
+                    return result("rejected", "ON_OFF_CANNOT_MODULATE")
+            if action == "set_current":
+                if state.state != "on" or charger_id not in self._sessions:
+                    return result("rejected", "CURRENT_CHANGE_REQUIRES_OWNED_SESSION")
+                cable = connection(self.runtime.hass, charger.get("connected_entity"), at)
+                if cable.quality != "ok" or cable.value is not True:
+                    return result("rejected", "PHYSICAL_CONNECTION_UNVERIFIED")
+                reason = self._physical_budget(charger, at, requested_kw, current_a)
+                if reason:
+                    return result("rejected", reason)
+                self._publish(charger_id, request_id, action, "requested", "REQUESTED", at)
+                try:
+                    await self._set_native_current(charger, current_a, context)
+                except Exception as exc:
+                    await self._protective_stop(charger, context)
+                    return result("execution_unknown",
+                                  "NATIVE_CURRENT_SERVICE_EXCEPTION:" + type(exc).__name__,
+                                  service_sent=True)
+                deadline = asyncio.get_running_loop().time() + readback_seconds
+                while True:
+                    if self._current_confirmed(charger, current_a, at):
+                        self._sessions[charger_id]["target_current_a"] = current_a
+                        out = result("confirmed", "INDEPENDENT_CURRENT_READBACK",
+                            observed_at=datetime.now(timezone.utc),
+                            measured_kw=number(self.runtime.hass,
+                                charger.get("power_entity"), "power",
+                                datetime.now(timezone.utc)).value, service_sent=True)
+                        self._requests[request_id]["requested_current_a"] = current_a
+                        return out
+                    if asyncio.get_running_loop().time() >= deadline:
+                        await self._protective_stop(charger, context)
+                        return result("execution_unknown", "CURRENT_READBACK_TIMEOUT;PROTECTIVE_STOP_SENT",
+                                      service_sent=True)
+                    await asyncio.sleep(0.25)
             if action == "start":
                 if state.state != "off":
                     return result("rejected", "SWITCH_ALREADY_ON")
                 if charger_id in self._quarantine:
                     return result("rejected", "PREVIOUS_COMMAND_UNCONFIRMED")
-                reason = self._admit_start(charger, at)
+                reason = self._admit_start(
+                    charger, at, target_current=(
+                        charger.get("min_current_a") if charger["kind"] == "variable_current"
+                        else None
+                    ),
+                )
                 if reason:
                     return result("rejected", reason)
             elif state.state == "off":
@@ -491,6 +665,8 @@ class NativeSwitchExecutor:
             self._publish(charger_id, request_id, action, "requested",
                           "REQUESTED", at)
             try:
+                if action == "start" and charger["kind"] == "variable_current":
+                    await self._set_native_current(charger, current_a, context)
                 await self.runtime.hass.services.async_call(
                     "switch", "turn_on" if action == "start" else "turn_off",
                     {"entity_id": entity}, blocking=True, context=context
@@ -522,10 +698,16 @@ class NativeSwitchExecutor:
                     return result("execution_unknown", "INTEGRATION_UNLOADED_PENDING",
                                   service_sent=True)
                 observed = self._readback(charger, action, at)
+                if (observed is not None and action == "start"
+                        and charger["kind"] == "variable_current"
+                        and not self._current_confirmed(charger, current_a, at)):
+                    observed = None
                 if observed is not None:
                     if action == "start":
                         reason = self._start_session(charger, observed)
                         self._start_pending.discard(charger_id)
+                        if reason is None and charger["kind"] == "variable_current":
+                            self._sessions[charger_id]["target_current_a"] = current_a
                         if reason is not None:
                             await self._protective_stop(charger, context)
                             return result(
@@ -533,10 +715,13 @@ class NativeSwitchExecutor:
                                 reason + ";PROTECTIVE_STOP_SENT",
                                 service_sent=True
                             )
-                    return result("confirmed", "INDEPENDENT_POWER_READBACK",
+                    outcome = result("confirmed", "INDEPENDENT_POWER_READBACK",
                                   observed_at=observed.observed_at,
                                   measured_kw=observed.value,
                                   service_sent=True)
+                    if current_a is not None:
+                        self._requests[request_id]["requested_current_a"] = current_a
+                    return outcome
                 remaining = deadline - asyncio.get_running_loop().time()
                 if remaining <= 0:
                     self._start_pending.discard(charger_id)

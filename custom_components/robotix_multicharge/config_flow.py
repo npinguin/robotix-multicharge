@@ -17,6 +17,19 @@ def _id(value: str) -> str:
     return sub(r"[^a-z0-9]+", "_", value.strip().lower()).strip("_")
 
 
+def _phases(raw):
+    return [item.strip().upper() for item in raw.split(",") if item.strip()]
+
+
+def _phase_limits(raw):
+    entries = [item.strip() for item in raw.split(",") if item.strip()]
+    try:
+        return {phase.strip().upper(): float(value) for phase, value in
+                (entry.split(":", 1) for entry in entries)}
+    except (ValueError, TypeError) as exc:
+        raise ValueError("Use L1:16,L2:16,L3:16") from exc
+
+
 class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Native beginner wizard; the resulting Config Entry remains sole authority."""
 
@@ -35,6 +48,9 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._draft["controller"]["max_parallel"] = user_input["max_parallel"]
                 self._draft["controller"]["max_power_kw"] = user_input["max_power_kw"]
                 self._draft["controller"]["mode"] = "Off"
+                if user_input.get("phase_limits_a"):
+                    self._draft["controller"]["phase_limits_a"] = _phase_limits(
+                        user_input["phase_limits_a"])
                 validate_configuration(self._draft)
             except (KeyError, ValueError):
                 return self.async_show_form(
@@ -52,6 +68,7 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.All(vol.Coerce(int), vol.Range(min=1, max=16)),
             vol.Required("max_power_kw", default=3.6):
                 vol.All(vol.Coerce(float), vol.Range(min=0.01)),
+            vol.Optional("phase_limits_a"): str,
         })
 
     async def async_step_charger(self, user_input=None):
@@ -69,9 +86,13 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     }
                     for key in ("phase_count", "min_current_a", "max_current_a",
                                 "connected_entity", "power_entity", "energy_entity",
-                                "control_entity"):
+                                "control_entity", "voltage_v", "current_step_a",
+                                "fixed_current_a", "circuit_id", "circuit_limit_a",
+                                "current_control_entity", "current_readback_entity"):
                         if user_input.get(key) is not None:
                             charger[key] = user_input[key]
+                    if user_input.get("phase_ids"):
+                        charger["phase_ids"] = _phases(user_input["phase_ids"])
                     trial = deepcopy(self._draft)
                     trial["chargers"].append(charger)
                     validate_configuration(trial)
@@ -97,6 +118,18 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Optional("phase_count"): vol.In([1, 2, 3]),
             vol.Optional("min_current_a"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
             vol.Optional("max_current_a"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
+            vol.Optional("phase_ids"): str,
+            vol.Optional("voltage_v"): vol.All(vol.Coerce(float), vol.Range(min=200, max=260)),
+            vol.Optional("current_step_a"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
+            vol.Optional("fixed_current_a"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
+            vol.Optional("circuit_id"): str,
+            vol.Optional("circuit_limit_a"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
+            vol.Optional("current_control_entity"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="number")
+            ),
+            vol.Optional("current_readback_entity"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
             vol.Optional("connected_entity"): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain=["binary_sensor", "sensor"])
             ),
@@ -296,6 +329,8 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
             else:
                 cfg["controller"].pop("max_power_kw", None)
             cfg["controller"]["mode"] = user_input["mode"]
+            if user_input.get("phase_limits_a"):
+                cfg["controller"]["phase_limits_a"] = _phase_limits(user_input["phase_limits_a"])
             for key in ("price_entity", "solar_entity", "binding_entity"):
                 if user_input.get(key):
                     cfg["controller"][key] = user_input[key]
@@ -311,6 +346,9 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
                 vol.Required("max_parallel", default=cfg["controller"]["max_parallel"]):
                     vol.All(vol.Coerce(int), vol.Range(min=1, max=16)),
                 vol.Optional("max_power_kw"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
+                vol.Optional("phase_limits_a",
+                             default=",".join(f"{p}:{x}" for p,x in
+                                    cfg["controller"].get("phase_limits_a", {}).items())): str,
                 vol.Required("mode", default=cfg["controller"].get("mode", "Off")):
                     vol.In(["Automatic", "Solar", "Economy", "Ready By", "Force Charge", "Off"]),
                 vol.Optional("price_entity"): selector.EntitySelector(
@@ -394,9 +432,15 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
                                 "rated_power_kw": user_input.get("rated_power_kw")})
                 for field in ("asset", "control_entity", "connected_entity", "power_entity",
                               "energy_entity", "phase_count", "min_current_a", "max_current_a",
-                               "control_owner", "physical_commissioned"):
+                              "voltage_v", "current_step_a", "fixed_current_a",
+                              "circuit_id", "circuit_limit_a", "current_control_entity",
+                              "current_readback_entity",
+                              "control_owner", "physical_commissioned"):
+
                     if user_input.get(field) is not None and user_input.get(field) != "":
                         charger[field] = user_input[field]
+                if user_input.get("phase_ids"):
+                    charger["phase_ids"] = _phases(user_input["phase_ids"])
                 cfg["chargers"] = [c for c in cfg["chargers"] if c["id"] != uid] + [charger]
                 result = self._saved(cfg)
             if result is not None:
@@ -427,6 +471,18 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
                 vol.Optional("phase_count"): vol.All(vol.Coerce(int), vol.In([1, 2, 3])),
                 vol.Optional("min_current_a"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
                 vol.Optional("max_current_a"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
+                vol.Optional("phase_ids"): str,
+                vol.Optional("voltage_v"): vol.All(vol.Coerce(float), vol.Range(min=200, max=260)),
+                vol.Optional("current_step_a"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
+                vol.Optional("fixed_current_a"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
+                vol.Optional("circuit_id"): str,
+                vol.Optional("circuit_limit_a"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
+                vol.Optional("current_control_entity"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="number")
+                ),
+                vol.Optional("current_readback_entity"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
             }),
             errors={"base": "invalid_config"} if user_input else {},
         )

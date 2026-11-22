@@ -209,7 +209,8 @@ def compile_plan(
             coverage[uid] = "UNAVAILABLE"
             continue
         if (
-            demand.max_power_kw is not None
+            charger.control_kind == "on_off"
+            and demand.max_power_kw is not None
             and demand.max_power_kw + 1e-9 < charger.rated_power_kw
         ):
             # A full-power fixed-slot proposal would exceed the asset cap.
