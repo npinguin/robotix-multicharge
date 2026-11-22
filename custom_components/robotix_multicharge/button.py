@@ -1,4 +1,4 @@
-"""Safe native HA STOP buttons, never an unqualified START automation."""
+"""Native guarded charging STOP, Pause/Resume and plug identity controls."""
 from __future__ import annotations
 
 from homeassistant.components.button import ButtonEntity
@@ -53,7 +53,17 @@ class _SafeStopButton(ButtonEntity):
             )
 
 
-class _PauseButton(_SafeStopButton):
+class _AdminChargeActionButton(_SafeStopButton):
+    """A native HA button must not bypass the admin-only command WebSocket."""
+
+    async def _require_admin_context(self):
+        actor = getattr(self.context, "user_id", None)
+        user = await self.hass.auth.async_get_user(actor) if actor else None
+        if user is None or not user.is_admin:
+            raise RuntimeError("This charging action requires an HA administrator")
+
+
+class _PauseButton(_AdminChargeActionButton):
     """Durable operator hold plus independently verified physical STOP."""
     _attr_icon = "mdi:pause-circle-outline"
 
@@ -63,6 +73,7 @@ class _PauseButton(_SafeStopButton):
         self._attr_unique_id = f"{DOMAIN}:charger:{charger['id']}:pause"
 
     async def async_press(self) -> None:
+        await self._require_admin_context()
         outcome = await self.runtime.executor.execute(
             self._charger_id, "pause", context=self.context
         )
@@ -72,7 +83,7 @@ class _PauseButton(_SafeStopButton):
             )
 
 
-class _ResumeButton(_SafeStopButton):
+class _ResumeButton(_AdminChargeActionButton):
     """Release user hold; never issues an automatic physical START."""
     _attr_icon = "mdi:play-circle-outline"
 
@@ -82,6 +93,7 @@ class _ResumeButton(_SafeStopButton):
         self._attr_unique_id = f"{DOMAIN}:charger:{charger['id']}:resume"
 
     async def async_press(self) -> None:
+        await self._require_admin_context()
         outcome = await self.runtime.executor.execute(
             self._charger_id, "resume", context=self.context
         )
