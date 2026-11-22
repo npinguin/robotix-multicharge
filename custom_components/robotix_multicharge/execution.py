@@ -42,6 +42,7 @@ class NativeSwitchExecutor:
         self._last_advance = None
         self._completed = {}
         self._inflight = {}
+        self._session_history = []
         self._persistence_verified = True
 
 
@@ -77,6 +78,9 @@ class NativeSwitchExecutor:
             completed = snapshot["completed"]
             inflight = snapshot["inflight"]
             rows = snapshot["accepted"]
+            sessions = snapshot.get("sessions", [])
+            if not isinstance(sessions, list) or len(sessions) > 200:
+                raise ValueError("invalid session history")
             if not isinstance(completed, dict) or not isinstance(inflight, dict):
                 raise ValueError("invalid persisted intents")
             if not isinstance(rows, list) or len(rows) > 2000:
@@ -96,7 +100,31 @@ class NativeSwitchExecutor:
                 history[(record["charger_id"], start)] = record
             self._completed = dict(completed)
             self._inflight = dict(inflight)
+            receipts = []
+            for row in sessions:
+                if not isinstance(row, dict):
+                    raise ValueError("invalid session receipt")
+                begun = datetime.fromisoformat(row["started_at"])
+                ended = datetime.fromisoformat(row["ended_at"])
+                if (begun.utcoffset() is None or ended.utcoffset() is None
+                        or ended < begun or not isinstance(row["charger_id"], str)
+                        or not isinstance(row["asset_id"], str)):
+                    raise ValueError("invalid session identity")
+                amount = row.get("actual_energy_kwh")
+                if amount is not None and (
+                    type(amount) not in (int, float)
+                    or not isfinite(amount) or amount < 0
+                ):
+                    raise ValueError("invalid session energy")
+                cost = row.get("cost")
+                if cost is not None and (
+                    type(cost) not in (int, float) or not isfinite(cost)
+                    or amount is None or not isinstance(row.get("currency"), str)
+                ):
+                    raise ValueError("invalid session valuation")
+                receipts.append(dict(row))
             self._accepted_history = history
+            self._session_history = receipts
         except (ValueError, KeyError, TypeError, OverflowError):
             self._persistence_verified = False
             _LOGGER.error("Invalid charging control state: physical START held")
@@ -106,6 +134,7 @@ class NativeSwitchExecutor:
         return {
             "schema_major": 1,
             "completed": dict(self._completed),
+            "sessions": list(self._session_history[-200:]),
             "inflight": dict(self._inflight),
             "accepted": [
                 {**record, "start": record["start"].isoformat(),
@@ -130,6 +159,50 @@ class NativeSwitchExecutor:
             }
             for uid, record in self._sessions.items()
         }
+
+    def completed_sessions(self):
+        """Durable measured session receipts with stable logical attribution."""
+        return [dict(row) for row in self._session_history]
+
+    def _archive_session(self, charger_id, finished_at, reason):
+        """Only a physically confirmed STOP may produce a completed receipt."""
+        session = self._sessions.get(charger_id)
+        if session is None:
+            return
+        charger = next((c for c in self.runtime.configuration["chargers"]
+                        if c["id"] == charger_id), None)
+        begun = session["started_at"]
+        end = max(finished_at or datetime.now(timezone.utc), begun)
+        source = charger.get("energy_entity") if charger else None
+        delivered, meter_at = None, None
+        if session["starting_energy_kwh"] is not None and source:
+            sample = number(self.runtime.hass, source, "energy", datetime.now(timezone.utc))
+            if (sample.quality == "ok" and sample.observed_at is not None
+                    and sample.observed_at >= begun):
+                delta = sample.value - session["starting_energy_kwh"]
+                if delta >= -0.00001:
+                    delivered = round(max(delta, 0), 6)
+                    meter_at = sample.observed_at.isoformat()
+        cost, currency = None, None
+        if (delivered is not None and self.runtime.observations.get(
+                "sources", {}).get("tariff_quality") == "OK"):
+            matching = [p for p in self.runtime.price_slots
+                        if p.start <= begun and p.end >= end]
+            if len(matching) == 1:
+                cost = round(delivered * matching[0].effective_price_per_kwh, 6)
+                currency = matching[0].currency
+        self._session_history.append({
+            "charger_id": charger_id, "asset_id": session["asset_id"],
+            "started_at": begun.isoformat(), "ended_at": end.isoformat(),
+            "duration_minutes": round((end - begun).total_seconds() / 60, 3),
+            "actual_energy_kwh": delivered,
+            "energy_quality": "measured" if delivered is not None else "unknown",
+            "meter_entity": source, "meter_observed_at": meter_at,
+            "cost": cost, "currency": currency,
+            "cost_quality": "qualified_effective_tariff" if cost is not None else "unknown",
+            "stop_reason": reason, "physical_stop_confirmed": True,
+        })
+        self._session_history = self._session_history[-200:]
 
     def accepted_slots(self):
         """Actual admitted slots only, never future proposals masquerading as execution."""
@@ -199,6 +272,7 @@ class NativeSwitchExecutor:
         if status == "execution_unknown":
             self._quarantine.add(uid)
         if status == "confirmed" and action == "stop":
+            self._archive_session(uid, observed_at, reason)
             self._quarantine.discard(uid)
             self._sessions.pop(uid, None)
             self._accepted.pop(uid, None)
@@ -492,7 +566,7 @@ class NativeSwitchExecutor:
                 60 * session["requested_duration_minutes"]
             ):
                 return "REQUESTED_DURATION_COMPLETE"
-        if session["requested_kwh"] is not None:
+        if session["starting_energy_kwh"] is not None:
             obs = number(self.runtime.hass, charger.get("energy_entity"), "energy", now)
             if obs.quality != "ok":
                 return "SESSION_ENERGY_METER_UNAVAILABLE"
@@ -500,7 +574,8 @@ class NativeSwitchExecutor:
             if delivered < -0.00001:
                 return "SESSION_ENERGY_METER_RESET"
             session["actual_energy_kwh"] = round(max(0, delivered), 6)
-            if delivered >= session["requested_kwh"]:
+            if (session["requested_kwh"] is not None
+                    and delivered >= session["requested_kwh"]):
                 return "REQUESTED_ENERGY_COMPLETE"
         if session["soc_target"] is not None:
             soc = number(self.runtime.hass, asset.get("soc_entity"), "soc", now)
@@ -524,13 +599,16 @@ class NativeSwitchExecutor:
             if explicit_energy is None and duration is None else None
         )
         starting_energy = None
-        if explicit_energy is not None:
+        if charger.get("energy_entity"):
             baseline = number(
-                self.runtime.hass, charger.get("energy_entity"), "energy", now
+                self.runtime.hass, charger["energy_entity"], "energy", now
             )
-            if baseline.quality != "ok":
+            if baseline.quality == "ok":
+                starting_energy = baseline.value
+            elif explicit_energy is not None:
                 return "SESSION_ENERGY_METER_UNAVAILABLE"
-            starting_energy = baseline.value
+        elif explicit_energy is not None:
+            return "MEASURED_ENERGY_METER_REQUIRED"
         # Session cannot run longer than 24h on one manual authorization.
         end = now + timedelta(hours=24)
         if duration is not None:
@@ -981,9 +1059,12 @@ class NativeSwitchExecutor:
                 power = number(self.runtime.hass, charger.get("power_entity"),
                                "power", at)
                 if power.quality == "ok" and power.value <= STOP_POWER_KW:
-                    return result("confirmed", "ALREADY_PHYSICALLY_STOPPED",
-                                  observed_at=power.observed_at,
-                                  measured_kw=power.value)
+                    outcome = result("confirmed", "ALREADY_PHYSICALLY_STOPPED",
+                                     observed_at=power.observed_at,
+                                     measured_kw=power.value)
+                    if not await self.runtime.persist_control_state():
+                        self._persistence_verified = False
+                    return outcome
             if action == "start":
                 self._start_pending.add(charger_id)
             self._publish(charger_id, request_id, action, "requested",
@@ -1043,6 +1124,8 @@ class NativeSwitchExecutor:
                                   observed_at=observed.observed_at,
                                   measured_kw=observed.value,
                                   service_sent=True)
+                    if action == "stop" and not await self.runtime.persist_control_state():
+                        self._persistence_verified = False
                     return outcome
                 remaining = deadline - asyncio.get_running_loop().time()
                 if remaining <= 0:
