@@ -113,8 +113,30 @@ class NativeSwitchExecutor:
         ctl = cfg["controller"]
         if ctl.get("mode") != "Force Charge":
             return "MANUAL_START_REQUIRES_FORCE_CHARGE"
-        if not charger.get("asset"):
+        asset = next(
+            (a for a in cfg["assets"] if a["id"] == charger.get("asset")), None
+        )
+        if asset is None:
             return "ASSET_NOT_ASSIGNED"
+        if charger.get("phase_count") not in (1, 2, 3):
+            return "PHYSICAL_PHASES_UNVERIFIED"
+        if (asset.get("max_charge_kw") is not None
+                and charger["rated_power_kw"] > asset["max_charge_kw"]):
+            return "ASSET_POWER_CAP_REQUIRES_MODULATION"
+        amount = asset.get("requested_kwh")
+        duration = asset.get("requested_duration_minutes")
+        if amount is not None and amount <= 0:
+            return "TARGET_ALREADY_MET"
+        if duration is None and amount is None:
+            if not all(k in asset for k in (
+                "soc_entity", "capacity_kwh", "target_soc", "charge_efficiency"
+            )):
+                return "ASSET_DEMAND_UNVERIFIED"
+            soc = number(self.runtime.hass, asset["soc_entity"], "soc", at)
+            if soc.quality != "ok":
+                return "ASSET_SOC_UNAVAILABLE"
+            if soc.value >= asset["target_soc"]:
+                return "TARGET_ALREADY_MET"
         cable = connection(self.runtime.hass, charger.get("connected_entity"), at)
         if cable.quality != "ok" or cable.value is not True:
             return "PHYSICAL_CONNECTION_UNVERIFIED"
