@@ -94,6 +94,32 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(len(rt.assessment.plan.slots), 2)
         self.assertEqual(rt.assessment.proposed_kwh["plug"], 1)
 
+    def test_bounded_plan_read_does_not_fake_actual_energy(self):
+        data = {
+            "sensor.soc": state("50", "%"),
+            "sensor.power": state("2300", "W"),
+            "binary_sensor.cable": state("on"),
+        }
+        rt = MultiChargeRuntime(
+            SimpleNamespace(states=SimpleNamespace(get=data.get)), sample()
+        )
+        rt.refresh(NOW)
+        result = rt.read_plan(NOW, NOW + timedelta(hours=2), charger_id="drive")
+        self.assertEqual(result["schema_major"], 1)
+        self.assertEqual(len(result["slots"]), 6)
+        self.assertIsNone(result["slots"][0]["actual_power_kw"])
+        self.assertIsNone(result["slots"][0]["accepted_power_kw"])
+        self.assertFalse(result["physical_actuation_authorized"])
+
+    def test_plan_read_rejects_unknown_and_oversized_ranges(self):
+        rt = MultiChargeRuntime(None, sample())
+        with self.assertRaises(ValueError):
+            rt.read_plan(NOW, NOW + timedelta(hours=49))
+        with self.assertRaises(ValueError):
+            rt.read_plan(NOW.replace(tzinfo=None), NOW + timedelta(hours=1))
+        with self.assertRaises(ValueError):
+            rt.read_plan(NOW, NOW + timedelta(hours=1), charger_id="not-real")
+
     def test_no_silent_energization_after_unload(self):
         rt = MultiChargeRuntime(None, sample())
         events = []

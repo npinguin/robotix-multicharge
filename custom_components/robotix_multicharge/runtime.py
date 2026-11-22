@@ -7,7 +7,7 @@ physical command authorization and independent readback are separate gates.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from .contracts import ChargeDemand
 from .domain import ChargeController, Charger
@@ -134,6 +134,67 @@ class MultiChargeRuntime:
             "planned_kwh_by_charger": dict(assessment.proposed_kwh),
             "shortfall_kwh_by_charger": dict(assessment.shortfall_kwh),
             "coverage_by_charger": dict(assessment.coverage),
+            "read_only": True,
+            "physical_actuation_authorized": False,
+        }
+
+    def read_plan(self, start: datetime, end: datetime, *,
+                  charger_id: str | None = None, asset_id: str | None = None):
+        """Bounded, read-only, versioned plan for native HA consumers.
+
+        No future observed power/energy, copied currency valuation or
+        implicit execution authority is advertised.
+        """
+        if (start.tzinfo is None or start.utcoffset() is None
+                or end.tzinfo is None or end.utcoffset() is None):
+            raise ValueError("aware interval required")
+        first, last = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
+        if not first < last or last - first > timedelta(hours=48):
+            raise ValueError("plan query must be a positive interval <=48h")
+        if charger_id is not None and not any(
+            c["id"] == charger_id for c in self.configuration["chargers"]
+        ):
+            raise ValueError("unknown charger")
+        if asset_id is not None and not any(
+            a["id"] == asset_id for a in self.configuration["assets"]
+        ):
+            raise ValueError("unknown asset")
+        assessment = self.assessment
+        slots = []
+        if assessment is not None:
+            for slot in assessment.plan.slots:
+                if slot.start >= last or slot.end <= first:
+                    continue
+                if charger_id is not None and slot.charger_uid != charger_id:
+                    continue
+                if asset_id is not None and slot.asset_uid != asset_id:
+                    continue
+                slots.append({
+                    "charger_id": slot.charger_uid,
+                    "asset_id": slot.asset_uid,
+                    "start": slot.start.isoformat(),
+                    "end": slot.end.isoformat(),
+                    "proposed_power_kw": slot.power_kw,
+                    "proposed_energy_kwh": round(
+                        slot.power_kw * (slot.end - slot.start).total_seconds() / 3600, 6
+                    ),
+                    "accepted_power_kw": None,
+                    "actual_power_kw": None,
+                    "actual_energy_kwh": None,
+                })
+        return {
+            "schema_major": 1,
+            "controller_id": self.configuration["controller"]["id"],
+            "revision": assessment.plan.revision if assessment else None,
+            "generated_at": (
+                assessment.plan.generated_at.isoformat() if assessment else None
+            ),
+            "start": first.isoformat(),
+            "end": last.isoformat(),
+            "status": assessment.plan.status if assessment else "unavailable",
+            "coverage": dict(assessment.coverage) if assessment else {},
+            "reasons": {**self.excluded, **assessment.reasons} if assessment else dict(self.excluded),
+            "slots": slots,
             "read_only": True,
             "physical_actuation_authorized": False,
         }

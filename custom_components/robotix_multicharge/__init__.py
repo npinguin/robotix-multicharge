@@ -19,6 +19,7 @@ from homeassistant.core import HomeAssistant
 from .configuration import effective_configuration, validate_configuration
 from .const import DOMAIN
 from .runtime import MultiChargeRuntime
+from .plan_query import register_plan_query
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor"]
@@ -28,6 +29,7 @@ CONFIG_SCHEMA = vol.Schema({vol.Optional(DOMAIN): dict}, extra=vol.ALLOW_EXTRA)
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Optional expert YAML, imported through the same native Config Entry."""
+    register_plan_query(hass)
     if DOMAIN not in config:
         return True
     try:

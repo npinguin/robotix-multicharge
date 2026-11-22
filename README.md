@@ -8,7 +8,7 @@
 
 Robotix MultiCharge is an open-source Home Assistant integration being built to coordinate charging for electric cars, e-bikes and other compatible rechargeable assets. The goal: make smart use of electricity prices, solar energy, available power and charging deadlines—without locking you to a vehicle, charger or energy provider.
 
-> **Early development — do not use to control charging equipment.** The current `dev` branch contains configuration validation and read-only logical setup diagnostics, but no charging planner, chart or physical executor. No public installable TEST or STABLE release is available yet. Features described below are goals, not claims about the current release.
+> **Early development — do not use to control charging equipment.** The current `dev` branch contains a read-only quarter-hour proposal engine, source-quality checks and native logical plan diagnostics, but no qualified physical executor or five-tab chart. No public installable TEST or STABLE release is available yet. Features described below are goals, not claims about the current release.
 
 ## What we're building
 
@@ -31,7 +31,7 @@ The planned everyday experience has five sections:
 | **Chargers** | Connection, power, actual state, active assignment and safe controls |
 | **Settings** | Guided source selection, limits, diagnostics and expert YAML import |
 
-The current development Config Flow creates a site record, while Options Flow exposes basic asset/charger fields; **the approved Site → Charger → Asset → Sources → Verify wizard is not built yet**. YAML structural validation and one read-only Readiness diagnostic per logical device exist, but have **not passed actual Home Assistant runtime qualification**. The complete beginner experience and charging-plan timeline are not operational. UI and optional YAML must share a single validated configuration authority. Physical device identities remain with their native Home Assistant integrations.
+The current development Config Flow creates a site record, while Options Flow exposes basic asset/charger fields; **the approved Site → Charger → Asset → Sources → Verify wizard is not built yet**. YAML structural validation and one read-only Readiness diagnostic per logical device exist, but have **not passed actual Home Assistant runtime qualification**. The complete beginner experience, chart and physical charging are not operational; the engine currently exposes read-only proposals through a bounded administrative HA query. UI and optional YAML must share a single validated configuration authority. Physical device identities remain with their native Home Assistant integrations.
 
 The stable core concepts are `ChargeableAsset`, `Charger` and `ChargeController`. A physical device stays owned by its native Home Assistant integration; MultiCharge only represents the logical charging role.
 
