@@ -72,7 +72,7 @@ def number(hass, entity_id, kind: str, now: datetime) -> Evidence:
             raise ValueError("invalid measurement")
     except (TypeError, ValueError, OverflowError):
         return Evidence(None, "invalid", evidence.observed_at, "VALUE_INVALID")
-    return Evidence(value, "ok", evidence.observed_at, "OK")
+    return Evidence(round(value, 6), "ok", evidence.observed_at, "OK")
 
 
 def connection(hass, entity_id: str | None, now: datetime) -> Evidence:
