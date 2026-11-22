@@ -8,7 +8,7 @@
 
 Robotix MultiCharge is an open-source Home Assistant integration being built to coordinate charging for electric cars, e-bikes and other compatible rechargeable assets. The goal: make smart use of electricity prices, solar energy, available power and charging deadlines—without locking you to a vehicle, charger or energy provider.
 
-> **HACS TEST candidate v0.1.3 — not field-qualified.** This version extends the previous v0.1.2 TEST with validated expert JSON charging and electrical configuration, persistent Pause/Resume, verified physical STOP and conservative restart/replay protection. Charging ownership still defaults to `external`, mode to `Off` and physical commissioning to `false`. Do not transfer live EVSE control until physical exclusivity, source integrity, electrical limits, STOP/readback and rollback are validated.
+> **HACS TEST candidate v0.1.4 — not field-qualified.** This version retains the guarded v0.1.3 charging runtime and improves native Settings clarity, YAML package installation guidance, compact responsive navigation and truthful empty states. Charging ownership still defaults to `external`, mode to `Off` and physical commissioning to `false`. Do not transfer live EVSE control until physical exclusivity, source integrity, electrical limits, STOP/readback and rollback are validated.
 
 ## What we're building
 
@@ -31,7 +31,7 @@ The planned everyday experience has five sections:
 | **Chargers** | Connection, power, actual state, active assignment and safe controls |
 | **Settings** | Guided source selection, limits, diagnostics and expert YAML import |
 
-In the v0.1.3 TEST candidate, native Site → Charger → Asset → Sources → Verify setup and the bundled five-tab card are source-tested. A single specialist planner proposes bounded 15-minute slots. Only the one guarded executor can apply qualified automatic slots or manual Force Charge through native switch/current services; independent readback is required for confirmation. Confirmed accepted slots are separated from proposals and native Recorder actuals. Explicit intent evidence is retained through native HA storage to prevent silent restart/replay after an unknown or interrupted session. YAML and UI use one validated configuration authority. **The source now includes durable completed-session receipts, bounded fully qualified session costing, admin-validated inline preferences, temporary guest expiry, native command sensors and safe STOP. Real HA/browser/hardware acceptance, unqualified advanced settings and exhaustive session/recovery verification remain OPEN; this code is not field approved.** The plan query is readable by authenticated HA household users; writes remain admin-authorized, and YAML-managed settings stay read-only.
+In the v0.1.4 TEST candidate, native Site → Charger → Asset → Sources → Verify setup and the bundled five-tab card are source-tested. A single specialist planner proposes bounded 15-minute slots. Only the one guarded executor can apply qualified automatic slots or manual Force Charge through native switch/current services; independent readback is required for confirmation. Confirmed accepted slots are separated from proposals and native Recorder actuals. Explicit intent evidence is retained through native HA storage to prevent silent restart/replay after an unknown or interrupted session. YAML and UI use one validated configuration authority. **The source now includes durable completed-session receipts, bounded fully qualified session costing, admin-validated inline preferences, temporary guest expiry, native command sensors and safe STOP. Real HA/browser/hardware acceptance, unqualified advanced settings and exhaustive session/recovery verification remain OPEN; this code is not field approved.** The plan query is readable by authenticated HA household users; writes remain admin-authorized, and YAML-managed settings stay read-only.
 
 The stable core concepts are `ChargeableAsset`, `Charger` and `ChargeController`. A physical device stays owned by its native Home Assistant integration; MultiCharge only represents the logical charging role.
 
@@ -126,7 +126,7 @@ as passive source references: there is no second vehicle physical writer.
 
 ### Expert configuration for a qualified site
 
-The **v0.1.3 TEST candidate** additionally maps normal charging intent and
+The **v0.1.3+ source schema** additionally maps normal charging intent and
 installation-only electrical configuration through the *same*
 `normalize_expert_json → validate_configuration → Config Entry` path:
 
@@ -185,7 +185,7 @@ persistent intent, current session identity, exclusive ownership and
 independent power/current readback before confirming any start. No import
 silently changes an EVSE's current physical owner. Source changes require
 a controlled reimport/restart and a verified safe STOP/rollback when an
-existing commissioned charger is active. Do not use the v0.1.3 JSON schema with the immutable v0.1.2 release.
+existing commissioned charger is active. Do not use this expert schema with the immutable v0.1.2 release.
 
 Upon HA restart, the native startup importer reads the JSON through Home
 Assistant's built-in `!include`, validates every key and source domain, and
@@ -202,20 +202,33 @@ Existing structured expert YAML remains compatible, but is **not a prerequisite*
 for this JSON bypass. The YAML include line is Home Assistant's one-line file
 reference only, not an instruction to express the configuration in YAML.
 
+### Configuring a real Home Assistant site from YAML
+
+MultiCharge can import **one** validated expert YAML source without adding another integration entry. For an existing Home Assistant installation, put an expert package such as `/config/packages/multicharge.yaml` under the native `homeassistant.packages` include, combining any existing source `template:` definitions with the top-level `robotix_multicharge:` configuration. For example, the relevant part of `/config/configuration.yaml` is:
+
+```yaml
+homeassistant:
+  packages: !include_dir_named packages
+```
+
+Keep the existing controller `id` when converting from a GUI-created entry (the wizard default is `home`). Check configuration and restart Home Assistant. The importer adopts the existing Config Entry, preserving its identity. Check every actual source entity in Developer Tools, and keep `mode: Off`, `control_owner: external` and `physical_commissioned: false` before any field qualification. Do not edit this package in the MultiCharge card: **Advanced & YAML is transparent read-only guidance**, not a fake YAML file editor or a second configuration authority. Native HA File Editor or existing configuration deployment owns the file. Do not duplicate `robotix_multicharge:` in separate files.
+
 ## Community HACS TEST installation and closing-iteration evidence
 
 Robotix MultiCharge is a **single MIT-licensed community integration**. It installs
 from source; no precompiled runtime, paid Robotix services or separate mirror.
 
-For the `v0.1.3` TEST candidate, after the corresponding GitHub prerelease is published, open HACS in Home Assistant and add
+For the `v0.1.4` TEST candidate, after the corresponding GitHub prerelease is published, open HACS in Home Assistant and add
 `https://github.com/npinguin/robotix-multicharge` as a **custom Integration
 repository**, enable prerelease/beta versions where applicable, and install
-the `v0.1.3` TEST prerelease. Restart Home Assistant, then
-open **Settings → Devices & services → Add integration → Robotix MultiCharge**.
+the `v0.1.4` TEST prerelease. Restart Home Assistant. For the GUI wizard,
+open **Settings → Devices & services → Add integration → Robotix MultiCharge**;
+for an expert YAML/JSON include, Home Assistant imports or adopts the **existing**
+Config Entry automatically and you should **not add a second entry**.
 The source ZIP attached to GitHub Releases has the same runtime files and a
 SHA256 sidecar; HACS normally installs from the matching immutable tag.
 
-The `v0.1.3` TEST candidate adds a persistent **Pause charging /
+The `v0.1.3+` guarded runtime includes a persistent **Pause charging /
 Resume charging** control for a qualified MultiCharge-owned Charger. Pause
 stores the hold before requesting an independently confirmed physical STOP.
 Resume is administrator-authorized, requires an observed physically idle
@@ -238,7 +251,7 @@ contains planner outcomes, source quality, current-session identity,
 command/readback receipts and qualified charging history, with aliased local
 identifiers. Inspect private diagnostics and logs before sharing publicly.
 Record the issue, exact TEST version, mode, selected hardware, expected versus
-observed result and diagnostics in the existing MultiCharge Issue #1 and active Draft PR #5. A green source CI or prerelease publication is not proof of successful
+observed result and diagnostics in the existing MultiCharge Issue #1. A green source CI or prerelease publication is not proof of successful
 real-site physical acceptance.
 
 ## Development and documentation
@@ -247,7 +260,6 @@ real-site physical acceptance.
 - [Candidate contracts and interfaces](docs/INTERFACES.md)
 - [Functional use cases and acceptance](https://github.com/npinguin/robotix-multicharge/issues/1)
 - [Open development issues](https://github.com/npinguin/robotix-multicharge/issues)
-- [Active development PR](https://github.com/npinguin/robotix-multicharge/pull/5)
 
 Source checks (no Home Assistant installation needed):
 

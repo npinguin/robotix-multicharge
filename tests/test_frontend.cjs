@@ -130,6 +130,33 @@ async function main(){
   }
   assert.ok(commands.length>0);
   assert.equal(commands[0].type,"robotix_multicharge/get_plan");
+  // A newly installed Controller with no Chargers must not show an empty
+  // hour grid, tariff legend or fictitious missing-measurement incident.
+  const emptyCard=new Card();
+  emptyCard.setConfig({});
+  emptyCard.hass={user:{is_admin:true},states:{},callWS:async()=>({
+    ...fixture,configuration:{
+      controller:{id:"home",name:"Home charging",mode:"Off",max_parallel:1},
+      assets:[],chargers:[]
+    },slots:[],forecast_slots:[],measured_slots:[],price_slots:[]
+  })};
+  await new Promise(resolve=>setImmediate(resolve));
+  emptyCard._tab="Charging Plan";emptyCard.render();
+  assert.ok(content(emptyCard.shadowRoot).includes("No charging points"),
+    "Empty charging plan explains why there is no chart");
+  assert.ok(find(emptyCard.shadowRoot,"a","Configure in Home Assistant"),
+    "Empty charging plan offers the existing native configuration path");
+  assert.ok(!find(emptyCard.shadowRoot,"svg"),
+    "Empty charging plan does not render a fictitious plot");
+  assert.ok(!content(emptyCard.shadowRoot).includes("Measured power unavailable"),
+    "Empty charging plan does not claim a missing measurement incident");
+  emptyCard._tab="Overview";emptyCard.render();
+  assert.ok(content(emptyCard.shadowRoot).includes("Configure a charger to begin"),
+    "Empty overview states the necessary next action");
+  assert.ok(find(emptyCard.shadowRoot,"a","Configure in Home Assistant"),
+    "Empty overview offers native setup action, not a passive hint");
+  assert.ok(!content(emptyCard.shadowRoot).includes("No data"),
+    "Empty overview does not misrepresent unconfigured site as failed readings");
   assert.ok(!require("node:fs").readFileSync(
     require("node:path").join(__dirname,
       "../custom_components/robotix_multicharge/frontend/robotix-multicharge.js"),
@@ -220,6 +247,18 @@ async function main(){
     assert.ok(content(card.shadowRoot).includes(name),name);
   }
   assert.ok(find(card.shadowRoot,"a"),"Settings open real HA integration configuration");
+  assert.ok(content(card.shadowRoot).includes("Expert YAML / JSON configuration"),
+    "Settings summary exposes real expert configuration instead of a fake editor");
+  card._settingsOpen="Advanced & YAML";card.render();
+  assert.ok(content(card.shadowRoot).includes("/config/packages/multicharge.yaml"),
+    "Advanced configuration explains a real HA package path");
+  assert.ok(content(card.shadowRoot).includes("!include_dir_named packages"),
+    "Advanced configuration shows exact HA include syntax");
+  card._settingsOpen="";card.render();
+  const settingsGrids=[];
+  visit(card.shadowRoot,x=>{if(x.className==="settings-grid")settingsGrids.push(x);});
+  assert.equal(settingsGrids.length,1,
+    "Settings use one compact responsive grid, not six full-width accordions");
   assert.ok(find(card.shadowRoot,"button","Details"),
             "Settings groups disclose details instead of an inert edit action");
   card.dispatchEvent=event=>{card._lastMoreInfo=event;return true;};
