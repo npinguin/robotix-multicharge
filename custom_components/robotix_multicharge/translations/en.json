@@ -35,7 +35,8 @@
           "max_power_kw": "Maximum charging power (kW)",
           "mode": "Charging mode (read-only plan, no physical control)",
           "price_entity": "Effective price interval source",
-          "solar_entity": "Qualified solar available-power interval source"
+          "solar_entity": "Qualified solar available-power interval source",
+          "binding_entity": "Optional binding power envelope (fail closed if unavailable)"
         }
       },
       "asset": {

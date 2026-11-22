@@ -83,6 +83,32 @@ class ConfigurationTests(unittest.TestCase):
             options = {"configuration": default_configuration("Edited via UI")}
         self.assertEqual(effective_configuration(Entry())["controller"]["name"], "Edited via UI")
 
+    def test_binding_source_is_explicitly_preserved(self):
+        cfg = default_configuration()
+        cfg["controller"]["binding_entity"] = "sensor.site_envelope"
+        cfg["controller"]["mode"] = "Solar"
+        value = validate_configuration(cfg)["controller"]
+        self.assertEqual(value["binding_entity"], "sensor.site_envelope")
+        self.assertEqual(value["mode"], "Solar")
+
+    def test_explicit_duration_and_energy_cannot_be_combined(self):
+        cfg = default_configuration()
+        cfg["assets"] = [{
+            "id": "guest", "name": "Guest", "requested_kwh": 3.0,
+            "requested_duration_minutes": 60,
+        }]
+        with self.assertRaises(ValueError):
+            validate_configuration(cfg)
+
+    def test_ready_by_requires_aware_instant(self):
+        cfg = default_configuration()
+        cfg["assets"] = [{
+            "id": "guest", "name": "Guest", "requested_kwh": 3,
+            "ready_by": "2026-12-01T08:00:00",
+        }]
+        with self.assertRaises(ValueError):
+            validate_configuration(cfg)
+
     def test_forged_yaml_extra_keys_fails(self):
         cfg = default_configuration()
         cfg["controller"]["private_writer"] = True

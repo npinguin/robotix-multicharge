@@ -97,7 +97,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
             else:
                 cfg["controller"].pop("max_power_kw", None)
             cfg["controller"]["mode"] = user_input["mode"]
-            for key in ("price_entity", "solar_entity"):
+            for key in ("price_entity", "solar_entity", "binding_entity"):
                 if user_input.get(key):
                     cfg["controller"][key] = user_input[key]
                 else:
@@ -118,6 +118,9 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
                     selector.EntitySelectorConfig(domain="sensor")
                 ),
                 vol.Optional("solar_entity"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional("binding_entity"): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
                 ),
             }),

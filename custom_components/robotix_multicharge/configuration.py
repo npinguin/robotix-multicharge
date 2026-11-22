@@ -53,7 +53,8 @@ def validate_configuration(value):
     _allowed(value, ("controller", "assets", "chargers"), "configuration")
     ctl = value.get("controller")
     _allowed(ctl, ("id", "name", "max_parallel", "max_power_kw",
-                   "price_entity", "site_power_entity", "solar_entity", "mode"), "controller")
+                   "price_entity", "site_power_entity", "solar_entity",
+                   "binding_entity", "mode"), "controller")
     cid = _text(ctl.get("id", "home"), "controller.id")
     parallel = ctl.get("max_parallel", 1)
     if isinstance(parallel, bool) or not isinstance(parallel, int) or parallel < 1:
@@ -65,7 +66,7 @@ def validate_configuration(value):
                   "max_parallel": parallel, "mode": mode}
     if ctl.get("max_power_kw") is not None:
         controller["max_power_kw"] = _number(ctl["max_power_kw"], "controller.max_power_kw")
-    for key in ("price_entity", "site_power_entity", "solar_entity"):
+    for key in ("price_entity", "site_power_entity", "solar_entity", "binding_entity"):
         if ctl.get(key):
             controller[key] = _entity(ctl[key], "controller." + key)
     ChargeController(uid=cid, name=controller["name"],
