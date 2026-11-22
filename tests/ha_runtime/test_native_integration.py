@@ -27,6 +27,66 @@ from custom_components.robotix_multicharge.const import DOMAIN
 from custom_components.robotix_multicharge.diagnostics import async_get_config_entry_diagnostics
 
 
+def test_expert_reimport_rejects_live_writer_before_entry_mutation():
+    from types import SimpleNamespace
+    from datetime import datetime, timezone
+    from custom_components.robotix_multicharge.config_flow import (
+        _assert_safe_expert_import,
+    )
+    old = validate_configuration({
+        "controller": {
+            "id": "site", "name": "Sample", "mode": "Off",
+            "max_parallel": 1, "max_power_kw": 3,
+        },
+        "assets": [],
+        "chargers": [{
+            "id": "charger", "name": "Charged point",
+            "kind": "on_off", "rated_power_kw": 0.5,
+            "control_entity": "switch.charger",
+            "connected_entity": "binary_sensor.cable",
+            "power_entity": "sensor.charger_power",
+            "control_owner": "multicharge",
+            "physical_commissioned": True,
+        }],
+    })
+    revised = validate_configuration({
+        **old, "controller": {**old["controller"], "max_power_kw": 4},
+    })
+    now = datetime.now(timezone.utc)
+    states = {
+        "switch.charger": SimpleNamespace(state="on"),
+        "sensor.charger_power": SimpleNamespace(
+            state="300", attributes={"unit_of_measurement": "W"},
+            last_updated=now,
+        ),
+    }
+    executor = SimpleNamespace(
+        _sessions={}, _start_pending=set(), _quarantine=set(),
+        _switch=lambda h, key: h.states.get(key),
+    )
+    runtime = SimpleNamespace(
+        configuration=old, executor=executor,
+        hass=SimpleNamespace(states=SimpleNamespace(get=states.get)),
+    )
+    with pytest.raises(ValueError, match="VERIFIED_IDLE"):
+        _assert_safe_expert_import(runtime, revised)
+    states["switch.charger"].state = "off"
+    states["sensor.charger_power"].state = "0"
+    _assert_safe_expert_import(runtime, revised)
+    executor._sessions["charger"] = {"asset_id": None}
+    with pytest.raises(ValueError, match="VERIFIED_IDLE"):
+        _assert_safe_expert_import(runtime, revised)
+    executor._sessions.clear()
+    states["switch.charger"].state = "on"
+    with pytest.raises(ValueError, match="VERIFIED_IDLE"):
+        _assert_safe_expert_import(runtime, old, source_changed=True)
+    # Presentation-only updates reuse the existing in-place path.
+    _assert_safe_expert_import(runtime, validate_configuration({
+        **old,
+        "controller": {**old["controller"], "name": "Renamed"},
+    }))
+
+
 @pytest.mark.asyncio
 async def test_native_pause_resume_never_bypass_admin_authorization():
     """Admin-only native buttons may not turn a resident into a charger owner."""
