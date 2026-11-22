@@ -24,6 +24,40 @@ def recorded(at, value, units="W"):
 
 
 class NativeMeasuredHistoryTests(unittest.TestCase):
+    def test_historical_attribution_uses_session_at_time_not_new_assignment(self):
+        beginning = NOW - timedelta(minutes=45)
+        receipts = [{
+            "charger_id": "drive", "asset_id": "old_car",
+            "started_at": beginning.isoformat(),
+            "ended_at": NOW.isoformat(),
+            "physical_stop_confirmed": True,
+        }]
+        self.assertEqual(
+            mod._session_asset_at_time(
+                receipts, "drive", NOW-timedelta(minutes=30),
+                NOW-timedelta(minutes=15),
+            ), "old_car"
+        )
+        self.assertIsNone(mod._session_asset_at_time(
+            receipts, "drive", NOW, NOW+timedelta(minutes=15)))
+        self.assertIsNone(mod._session_asset_at_time(
+            receipts, "new_charger", NOW-timedelta(minutes=30),
+            NOW-timedelta(minutes=15)))
+        self.assertIsNone(mod._session_asset_at_time(
+            [], "drive", NOW-timedelta(minutes=30),
+            NOW-timedelta(minutes=15)))
+
+    def test_ambiguous_overlapping_session_receipts_do_not_guess_vehicle(self):
+        when = NOW-timedelta(minutes=30)
+        evidence = [
+            {"charger_id":"drive","asset_id":id,
+             "started_at":(when-timedelta(minutes=10)).isoformat(),
+             "ended_at":NOW.isoformat(),"physical_stop_confirmed":True}
+            for id in ("car_a","car_b")
+        ]
+        self.assertIsNone(mod._session_asset_at_time(
+            evidence, "drive", when, when+timedelta(minutes=15)))
+
     def test_real_meter_integrates_recorded_power_changes(self):
         start = NOW - timedelta(minutes=15)
         row = actual_quarters([

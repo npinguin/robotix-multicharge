@@ -69,15 +69,39 @@ def _quarter_actuals(states, first, last, now):
     return series
 
 
+def _session_asset_at_time(receipts, charger_id, start, end):
+    """Only an independently closed, whole-quarter session proves attribution.
+
+    Current charger.asset is explicitly NOT consulted; no retroactive relabeling
+    after swapping a vehicle or deleting its persistent profile.
+    """
+    matched = []
+    for receipt in receipts:
+        if (receipt.get("charger_id") != charger_id
+                or receipt.get("physical_stop_confirmed") is not True):
+            continue
+        try:
+            since = datetime.fromisoformat(receipt["started_at"])
+            until = datetime.fromisoformat(receipt["ended_at"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        if (since.tzinfo is None or until.tzinfo is None
+                or since.utcoffset() is None or until.utcoffset() is None):
+            continue
+        if since <= start and until >= end:
+            matched.append(receipt.get("asset_id"))
+    return matched[0] if len(matched) == 1 else None
+
+
 async def read_actual_history(hass, configuration, start, end, *,
-                              charger_id=None, asset_id=None):
+                              charger_id=None, asset_id=None,
+                              session_receipts=()):
     """Query the installed native Recorder once for exact configured chargers."""
     now = datetime.now(timezone.utc)
     first, last = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
     selected = [
         c for c in configuration["chargers"]
-        if (charger_id is None or c["id"] == charger_id)
-        and (asset_id is None or c.get("asset") == asset_id)
+        if charger_id is None or c["id"] == charger_id
     ]
     if not selected:
         return [], "NO_MATCHING_CHARGER"
@@ -107,11 +131,25 @@ async def read_actual_history(hass, configuration, start, end, *,
             historical.get(charger["power_entity"], []), first, last, now
         )
         for row in rows:
-            row.update({"charger_id": charger["id"],
-                        "asset_id": charger.get("asset")})
-            result.append(row)
+            since = datetime.fromisoformat(row["start"])
+            until = datetime.fromisoformat(row["end"])
+            attributed = _session_asset_at_time(
+                session_receipts, charger["id"], since, until
+            )
+            row.update({
+                "charger_id": charger["id"], "asset_id": attributed,
+                "asset_provenance": (
+                    "confirmed_closed_session" if attributed is not None
+                    else "unattributed_charger_actual"
+                ),
+            })
+            if asset_id is None or asset_id == attributed:
+                result.append(row)
     if not result:
-        return [], "NO_RECORDED_QUARTERS"
+        return [], (
+            "NO_CONFIRMED_ASSET_HISTORY" if asset_id is not None
+            else "NO_RECORDED_QUARTERS"
+        )
     if any(row["quality"] != "measured_power_integral" for row in result):
         return result, "INCOMPLETE_POWER_HISTORY"
     return result, "MEASURED_POWER_HISTORY"

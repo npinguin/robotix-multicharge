@@ -60,7 +60,8 @@ async def websocket_get_plan(
         )
         actual, quality = await read_actual_history(
             hass, runtime.configuration, start, end,
-            charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id")
+            charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
+            session_receipts=runtime.executor.completed_sessions(),
         )
         result["actual_slots"] = actual
         result["actual_history_quality"] = quality
