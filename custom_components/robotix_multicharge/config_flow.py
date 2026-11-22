@@ -153,9 +153,15 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                               "power_entity", "energy_entity"):
                     if user_input.get(field) is not None:
                         charger[field] = user_input[field]
-                self._draft = validate_configuration(trial)
-                if user_input.get("configure_electrical"):
+                if (user_input.get("configure_electrical")
+                        or charger["kind"] == "variable_current"):
+                    # Min/max current is mandatory only if this capability was
+                    # actually selected; allow the user to enter it next.
+                    self._pending_charger_details = trial
                     return await self.async_step_charger_electrical()
+                self._draft = validate_configuration(trial)
+                if hasattr(self, "_pending_charger_details"):
+                    del self._pending_charger_details
                 return await self._after_charger_details()
             except (KeyError, ValueError, StopIteration):
                 return self.async_show_form(
@@ -193,7 +199,9 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Optional wiring/current proof. No actuation gets commissioned here."""
         if user_input is not None:
             try:
-                trial = deepcopy(self._draft)
+                trial = deepcopy(
+                    getattr(self, "_pending_charger_details", self._draft)
+                )
                 charger = next(
                     c for c in trial["chargers"] if c["id"] == self._advanced_charger_id
                 )
