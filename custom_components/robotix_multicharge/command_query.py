@@ -1,7 +1,8 @@
 """Admin-only native Home Assistant command endpoint for real physical charging.
 
-No commands are issued by plan reads, installation or background refresh.
-Every START/STOP is an explicit user action with an exact charger scope.
+No commands are issued by plan reads or installation. Manual commands require
+HA-admin authority; the separate qualified quarter callback may admit its own
+planned execution through the same serialized and physically verified writer.
 """
 from __future__ import annotations
 

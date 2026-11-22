@@ -1,4 +1,4 @@
-"""Real native HA switch START/STOP, strict admission and physical readback.
+"""Single native HA switch/current executor, strict admission and physical readback.
 
 Only explicitly selected switch entities can be controlled. External EVSC
 ownership remains the default. Hardware cutover and commissioning are not

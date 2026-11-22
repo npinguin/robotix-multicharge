@@ -187,6 +187,83 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(services.calls[0][2]["value"], 12)
         self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 12)
 
+
+    async def test_automatic_modes_require_qualified_interval_sources(self):
+        for mode in ("Automatic", "Economy", "Solar", "Ready By"):
+            rt, states, services = rig(mode=mode)
+            at = datetime.now(timezone.utc)
+            quarter = at.replace(minute=(at.minute // 15) * 15,
+                                 second=0, microsecond=0)
+            rt.configuration["assets"][0]["ready_by"] = (
+                quarter + timedelta(hours=1)
+            ).isoformat()
+            if mode == "Economy":
+                rt.configuration["controller"]["price_entity"] = "sensor.price"
+                meter = state("ready")
+                meter.attributes = {
+                    "kind": "effective_price_kwh", "currency": "EUR",
+                    "valid_until": (quarter + timedelta(hours=1)).isoformat(),
+                    "intervals": [{"start": quarter.isoformat(),
+                                   "end": (quarter + timedelta(hours=1)).isoformat(),
+                                   "value": -0.04}],
+                }
+                states["sensor.price"] = meter
+            if mode == "Solar":
+                rt.configuration["controller"]["solar_entity"] = "sensor.solar"
+                available = state("ready")
+                available.attributes = {
+                    "kind": "solar_limit_kw",
+                    "valid_until": (quarter + timedelta(hours=1)).isoformat(),
+                    "intervals": [{"start": quarter.isoformat(),
+                                   "end": (quarter + timedelta(hours=1)).isoformat(),
+                                   "value": 2.5}],
+                }
+                states["sensor.solar"] = available
+            for row in states.values():
+                row.last_updated = quarter + timedelta(seconds=1)
+            rt.refresh(quarter)
+            await rt.executor.advance_plan(quarter)
+            self.assertEqual([c[1] for c in services.calls], ["turn_on"], mode)
+            self.assertEqual(len(rt.executor.accepted_slots()), 1, mode)
+            self.assertTrue(rt.executor._inflight, mode)
+
+    async def test_persisted_intent_blocks_restart_replay_until_reconciled(self):
+        class MemoryStore:
+            def __init__(self):
+                self.data = None
+            async def async_save(self, data):
+                self.data = data
+
+        rt, states, services = rig(mode="Automatic")
+        store = MemoryStore()
+        rt.attach_control_store(store, None)
+        at = datetime.now(timezone.utc)
+        quarter = at.replace(minute=(at.minute // 15) * 15,
+                             second=0, microsecond=0)
+        for row in states.values():
+            row.last_updated = quarter + timedelta(seconds=1)
+        rt.refresh(quarter)
+        await rt.executor.advance_plan(quarter)
+        self.assertEqual(store.data["schema_major"], 1)
+        self.assertTrue(store.data["inflight"])
+        self.assertEqual((await rt.executor.execute("evse", "stop"))["status"],
+                         "confirmed")
+        new = MultiChargeRuntime(rt.hass, rt.configuration)
+        new.attach_control_store(store, store.data)
+        new.refresh(quarter)
+        before = len(services.calls)
+        await new.executor.advance_plan(quarter)
+        self.assertEqual(len(services.calls), before)
+        self.assertFalse(new.executor.accepted_slots() == {})
+
+    async def test_corrupt_persisted_control_state_fails_closed(self):
+        rt, _, services = rig()
+        rt.executor.restore_state({"schema_major": 100, "inflight": {}})
+        denied = await rt.executor.execute("evse", "start")
+        self.assertEqual(denied["reason"], "CONTROL_STATE_UNVERIFIED")
+        self.assertEqual(services.calls, [])
+        self.assertTrue(rt.executor.capabilities()["evse"]["stop_allowed"])
+
     async def test_invalid_adjustable_current_is_rejected_without_physical_write(self):
         rt, states, services = rig(group_kw=7.5)
         rt.configuration["chargers"][0].update(

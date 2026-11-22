@@ -1,6 +1,6 @@
 """Home Assistant lifecycle for one logical MultiCharge configuration.
 
-Read-only live source evidence and plan evaluation; no physical execution.
+Native source/planning lifecycle and a physically guarded single charging writer.
 """
 
 from __future__ import annotations
