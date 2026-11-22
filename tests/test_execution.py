@@ -414,6 +414,67 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(receipt["cost"])
         self.assertEqual(receipt["energy_quality"], "unknown")
 
+    async def test_temporary_guest_expiry_rejects_start_and_stops_active_guest(self):
+        rt, states, services = rig()
+        guest = rt.configuration["assets"][0]
+        guest["temporary"] = True
+        guest["expires_at"] = (datetime.now(timezone.utc)
+                                + timedelta(hours=1)).isoformat()
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"], "confirmed")
+        guest["expires_at"] = (datetime.now(timezone.utc)
+                                - timedelta(seconds=1)).isoformat()
+        await rt.executor.supervise()
+        self.assertEqual(services.calls[-1][1], "turn_off")
+        self.assertFalse(rt.executor.session_snapshot())
+        before = len(services.calls)
+        rejected = await rt.executor.execute("evse", "start")
+        self.assertEqual(rejected["reason"], "TEMPORARY_ASSET_EXPIRED")
+        self.assertEqual(before, len(services.calls))
+
+    async def test_measured_session_uses_only_full_qualified_effective_tariff(self):
+        rt, states, _ = rig()
+        now = datetime.now(timezone.utc)
+        price = state("ready")
+        price.attributes = {
+            "kind": "effective_price_kwh", "currency": "EUR",
+            "valid_until": (now + timedelta(hours=2)).isoformat(),
+            "intervals": [{
+                "start": (now - timedelta(hours=1)).isoformat(),
+                "end": (now + timedelta(hours=2)).isoformat(),
+                "value": -0.08,
+            }],
+        }
+        states["sensor.effective_price"] = price
+        rt.configuration["controller"]["price_entity"] = "sensor.effective_price"
+        rt.refresh()
+        self.assertEqual(rt.observations["sources"]["tariff_quality"], "OK")
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"], "confirmed")
+        states["sensor.meter"].state = "5.5"
+        states["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        self.assertEqual((await rt.executor.execute("evse", "stop"))["status"], "confirmed")
+        receipt = rt.executor.completed_sessions()[0]
+        self.assertEqual(receipt["cost_quality"], "qualified_effective_tariff")
+        self.assertEqual(receipt["currency"], "EUR")
+        self.assertAlmostEqual(receipt["actual_energy_kwh"], 0.5)
+        self.assertAlmostEqual(receipt["cost"], -0.04)
+
+    async def test_rebinding_does_not_rewrite_completed_session_asset_identity(self):
+        rt, states, _ = rig()
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"], "confirmed")
+        states["sensor.meter"].state = "5.25"
+        states["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        self.assertEqual((await rt.executor.execute("evse", "stop"))["status"], "confirmed")
+        rt.configuration["assets"].append({
+            "id": "guest", "name": "Guest", "kind": "car", "requested_kwh": 2
+        })
+        rt.configuration["chargers"][0]["asset"] = "guest"
+        rt.refresh()
+        self.assertEqual(rt.executor.completed_sessions()[0]["asset_id"], "car")
+        at = datetime.now(timezone.utc)
+        result = rt.read_plan(at - timedelta(hours=1), at + timedelta(minutes=1),
+                              asset_id="car")
+        self.assertEqual(result["completed_sessions"][0]["asset_id"], "car")
+
     async def test_real_on_and_off_calls_require_independent_power_confirmation(self):
         runtime, states, services = rig()
         self.assertTrue(runtime.executor.capabilities()["evse"]["start_allowed"])
