@@ -8,7 +8,8 @@ The HA adapter supplies qualified source readings; the command owner is separate
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 from hashlib import sha256
 from math import ceil, isfinite
 from typing import Mapping, Sequence
@@ -18,6 +19,48 @@ from .contracts import (
     PriceSlot,
 )
 from .domain import ChargeController, Charger
+
+def resolve_recurring_ready_by(
+    anchor: datetime, now: datetime, repeat: str, site_time_zone: str
+) -> tuple[datetime | None, str]:
+    """Resolve the next real wall-clock deadline without inventing DST instants.
+
+    Recurrence is local to the HA site time zone; ambiguous or nonexistent
+    upcoming wall times fail closed rather than silently shifting deadlines.
+    """
+    if anchor.tzinfo is None or anchor.utcoffset() is None:
+        raise ValueError("Ready By anchor must be timezone-aware")
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("now must be timezone-aware")
+    if repeat == "none":
+        return anchor, "ONE_OFF"
+    if repeat not in ("daily", "weekly"):
+        raise ValueError("unsupported Ready By repetition")
+    zone = ZoneInfo(site_time_zone)
+    local_anchor = anchor.astimezone(zone)
+    local_now = now.astimezone(zone)
+    day = max(local_anchor.date(), local_now.date())
+    if repeat == "weekly":
+        day += timedelta(days=(local_anchor.weekday() - day.weekday()) % 7)
+    step = 1 if repeat == "daily" else 7
+    for _ in range(370 if repeat == "daily" else 54):
+        wall = datetime.combine(
+            day, time(local_anchor.hour, local_anchor.minute,
+                      local_anchor.second, local_anchor.microsecond)
+        )
+        first = wall.replace(tzinfo=zone, fold=0)
+        second = wall.replace(tzinfo=zone, fold=1)
+        # The two possible offsets differ on ambiguous and nonexistent times.
+        # Reject the first upcoming invalid occurrence; do not shift by an
+        # implicit hour or quietly skip a user's required departure.
+        if first.utcoffset() != second.utcoffset():
+            if first > local_now:
+                return None, "DEADLINE_DST_UNRESOLVED"
+        elif first > local_now and first >= local_anchor:
+            return first, "RECURRING"
+        day += timedelta(days=step)
+    return None, "DEADLINE_UNAVAILABLE"
+
 
 QUARTER = timedelta(minutes=15)
 MODES = frozenset(("Automatic", "Solar", "Economy", "Ready By", "Force Charge", "Off"))

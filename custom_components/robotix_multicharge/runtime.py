@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 
 from .contracts import ChargeDemand, PowerEnvelope
 from .domain import ChargeController, Charger
-from .planner import compile_plan
+from .planner import compile_plan, resolve_recurring_ready_by
 from .source_evidence import binding, connection, intervals, number
 
 _LOGGER = logging.getLogger(__name__)
@@ -111,6 +111,16 @@ class MultiChargeRuntime:
                     )
             ready = asset.get("ready_by")
             deadline = datetime.fromisoformat(ready) if ready else None
+            repeat = asset.get("ready_by_repeat", "none")
+            if deadline is not None and repeat != "none":
+                zone = getattr(getattr(self.hass, "config", None),
+                               "time_zone", "UTC")
+                deadline, reason = resolve_recurring_ready_by(
+                    deadline, at, repeat, zone
+                )
+                if deadline is None:
+                    self.excluded[uid] = reason
+                    continue
             demands.append(ChargeDemand(
                 asset_uid=asset["id"], charger_uid=uid,
                 remaining_grid_kwh=amount, ready_by=deadline,

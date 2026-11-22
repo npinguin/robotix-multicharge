@@ -22,7 +22,7 @@ for name in ("domain", "contracts", "planner"):
 
 from multicharge_plan_test.contracts import ChargeDemand, PowerEnvelope, PowerLimitSlot, PriceSlot  # noqa: E402 - imported after isolated pure-module bootstrap
 from multicharge_plan_test.domain import Charger, ChargeController  # noqa: E402 - imported after isolated pure-module bootstrap
-from multicharge_plan_test.planner import compile_plan  # noqa: E402 - imported after isolated pure-module bootstrap
+from multicharge_plan_test.planner import compile_plan, resolve_recurring_ready_by  # noqa: E402 - imported after isolated pure-module bootstrap
 
 NOW = datetime(2026, 11, 22, 12, tzinfo=timezone.utc)
 
@@ -251,6 +251,41 @@ class PlannerTests(unittest.TestCase):
         result = compile_plan(ctl, chargers, [demand(0)], NOW)
         self.assertEqual(result.plan.status, "proposed")
         self.assertFalse(hasattr(result.plan, "authorized_physical_execution"))
+
+    def test_recurring_ready_by_uses_site_wall_clock_across_spring_dst(self):
+        zone = ZoneInfo("Europe/Brussels")
+        anchor = datetime(2026, 3, 28, 8, tzinfo=zone)
+        now = datetime(2026, 3, 29, 7, tzinfo=zone)
+        deadline, reason = resolve_recurring_ready_by(
+            anchor, now, "daily", "Europe/Brussels"
+        )
+        self.assertEqual(reason, "RECURRING")
+        self.assertEqual(deadline.astimezone(timezone.utc).hour, 6)
+        self.assertEqual(deadline.astimezone(zone).hour, 8)
+
+    def test_recurring_ready_by_refuses_nonexistent_and_ambiguous_dst(self):
+        zone = ZoneInfo("Europe/Brussels")
+        for anchor, now in (
+            (datetime(2026, 3, 28, 2, 30, tzinfo=zone),
+             datetime(2026, 3, 29, 1, tzinfo=zone)),
+            (datetime(2026, 10, 24, 2, 30, tzinfo=zone),
+             datetime(2026, 10, 25, 1, tzinfo=zone)),
+        ):
+            deadline, reason = resolve_recurring_ready_by(
+                anchor, now, "daily", "Europe/Brussels"
+            )
+            self.assertIsNone(deadline)
+            self.assertEqual(reason, "DEADLINE_DST_UNRESOLVED")
+
+    def test_weekly_ready_by_preserves_anchor_weekday(self):
+        zone = ZoneInfo("Europe/Brussels")
+        anchor = datetime(2026, 11, 23, 9, tzinfo=zone)
+        now = datetime(2026, 11, 25, 12, tzinfo=zone)
+        deadline, reason = resolve_recurring_ready_by(
+            anchor, now, "weekly", "Europe/Brussels"
+        )
+        self.assertEqual(reason, "RECURRING")
+        self.assertEqual(deadline.astimezone(zone).date().isoformat(), "2026-11-30")
 
     def test_dst_is_real_utc_quarters_not_fixed_local_96(self):
         tz = ZoneInfo("Europe/Brussels")

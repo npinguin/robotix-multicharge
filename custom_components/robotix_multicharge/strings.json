@@ -44,7 +44,8 @@
           "charge_efficiency": "Verified charging efficiency",
           "max_charge_kw": "Asset charging limit (kW)",
           "priority": "Priority (0–100)",
-          "add_another": "Add another asset"
+          "add_another": "Add another asset",
+          "ready_by_repeat": "Repeat Ready By (none/daily/weekly, site time zone)"
         }
       },
       "sources": {
@@ -112,7 +113,8 @@
           "requested_duration_minutes": "Explicit requested charging duration (minutes)",
           "ready_by": "Ready By (date/time including timezone)",
           "charge_efficiency": "Known charging efficiency (0–1)",
-          "priority": "Priority (0–100)"
+          "priority": "Priority (0–100)",
+          "ready_by_repeat": "Repeat Ready By (none/daily/weekly, site time zone)"
         }
       },
       "charger": {

@@ -129,6 +129,13 @@ class ConfigurationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_configuration(cfg)
 
+    def test_recurrence_requires_a_real_ready_by_anchor(self):
+        cfg = default_configuration()
+        cfg["assets"] = [{"id": "guest", "name": "Guest",
+                          "ready_by_repeat": "weekly"}]
+        with self.assertRaisesRegex(ValueError, "anchor required"):
+            validate_configuration(cfg)
+
     def test_ready_by_requires_aware_instant(self):
         cfg = default_configuration()
         cfg["assets"] = [{

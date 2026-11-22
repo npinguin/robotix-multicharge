@@ -82,7 +82,7 @@ def validate_configuration(value):
         _allowed(source, ("id", "name", "kind", "soc_entity",
                           "capacity_kwh", "target_soc", "max_charge_kw",
                           "requested_kwh", "requested_duration_minutes", "ready_by",
-                          "charge_efficiency", "priority"), "asset")
+                          "ready_by_repeat", "charge_efficiency", "priority"), "asset")
         uid = _text(source.get("id"), "asset.id")
         if uid in ids:
             raise ValueError("asset.id: duplicate")
@@ -126,6 +126,13 @@ def validate_configuration(value):
             if parsed.tzinfo is None or parsed.utcoffset() is None:
                 raise ValueError("asset.ready_by: explicit timezone required")
             asset["ready_by"] = parsed.isoformat()
+        repeat = source.get("ready_by_repeat", "none")
+        if repeat not in ("none", "daily", "weekly"):
+            raise ValueError("asset.ready_by_repeat: expected none/daily/weekly")
+        if repeat != "none" and "ready_by" not in asset:
+            raise ValueError("asset.ready_by_repeat: Ready By anchor required")
+        if source.get("ready_by_repeat") is not None:
+            asset["ready_by_repeat"] = repeat
         ChargeableAsset(uid=uid, name=asset["name"], kind=asset["kind"],
                         usable_capacity_kwh=asset.get("capacity_kwh"),
                         target_soc_pct=asset.get("target_soc"),
