@@ -338,13 +338,7 @@
         "name": "Batterinivå"
       },
       "connection": {
-        "name": "Tilkobling",
-        "state": {
-          "True": "Connected",
-          "False": "Disconnected",
-          "true": "Connected",
-          "false": "Disconnected"
-        }
+        "name": "Tilkobling"
       },
       "session_energy": {
         "name": "Øktenergi"
@@ -363,15 +357,7 @@
         "name": "Siste øktenergi"
       },
       "charging_mode": {
-        "name": "Lademodus",
-        "state": {
-          "Automatic": "Automatic",
-          "Solar": "Solar",
-          "Economy": "Economy",
-          "Ready By": "Ready by",
-          "Force Charge": "Charge now",
-          "Off": "Off"
-        }
+        "name": "Lademodus"
       },
       "settings_revision": {
         "name": "Innstillingsversjon"

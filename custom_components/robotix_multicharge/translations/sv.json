@@ -338,13 +338,7 @@
         "name": "Batterinivå"
       },
       "connection": {
-        "name": "Anslutning",
-        "state": {
-          "True": "Connected",
-          "False": "Disconnected",
-          "true": "Connected",
-          "false": "Disconnected"
-        }
+        "name": "Anslutning"
       },
       "session_energy": {
         "name": "Sessionsenergi"
@@ -363,15 +357,7 @@
         "name": "Senaste sessionsenergi"
       },
       "charging_mode": {
-        "name": "Laddläge",
-        "state": {
-          "Automatic": "Automatic",
-          "Solar": "Solar",
-          "Economy": "Economy",
-          "Ready By": "Ready by",
-          "Force Charge": "Charge now",
-          "Off": "Off"
-        }
+        "name": "Laddläge"
       },
       "settings_revision": {
         "name": "Inställningsversion"

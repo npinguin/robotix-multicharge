@@ -339,13 +339,7 @@
         "name": "Batterij"
       },
       "connection": {
-        "name": "Aansluiting",
-        "state": {
-          "True": "Aangesloten",
-          "False": "Niet aangesloten",
-          "true": "Aangesloten",
-          "false": "Niet aangesloten"
-        }
+        "name": "Aansluiting"
       },
       "session_energy": {
         "name": "Sessie-energie"
@@ -364,15 +358,7 @@
         "name": "Laatste laadsessie"
       },
       "charging_mode": {
-        "name": "Laadmodus",
-        "state": {
-          "Automatic": "Automatisch",
-          "Solar": "Zonne-energie",
-          "Economy": "Voordelig",
-          "Ready By": "Klaar om",
-          "Force Charge": "Direct laden",
-          "Off": "Uit"
-        }
+        "name": "Laadmodus"
       },
       "settings_revision": {
         "name": "Instellingenversie"

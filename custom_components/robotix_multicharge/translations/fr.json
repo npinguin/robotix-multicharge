@@ -339,13 +339,7 @@
         "name": "Batterie"
       },
       "connection": {
-        "name": "Connexion",
-        "state": {
-          "True": "Connecté",
-          "False": "Déconnecté",
-          "true": "Connecté",
-          "false": "Déconnecté"
-        }
+        "name": "Connexion"
       },
       "session_energy": {
         "name": "Énergie de session"
@@ -364,15 +358,7 @@
         "name": "Dernière charge"
       },
       "charging_mode": {
-        "name": "Mode de charge",
-        "state": {
-          "Automatic": "Automatique",
-          "Solar": "Solaire",
-          "Economy": "Économique",
-          "Ready By": "Prêt pour",
-          "Force Charge": "Charge immédiate",
-          "Off": "Arrêt"
-        }
+        "name": "Mode de charge"
       },
       "settings_revision": {
         "name": "Version des réglages"
