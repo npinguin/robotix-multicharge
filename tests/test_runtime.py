@@ -86,6 +86,39 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(rt.observations["assets"]["bike"]["soc"].value, 0)
         self.assertEqual(rt.observations["assets"]["bike"]["soc"].quality, "ok")
 
+    def test_true_negative_effective_tariff_reaches_native_view_without_fake_cost(self):
+        cfg = sample()
+        cfg["controller"]["price_entity"] = "sensor.effective_tariff"
+        price_state = state("ready")
+        price_state.attributes = {
+            "kind": "effective_price_kwh",
+            "currency": "EUR",
+            "valid_until": (NOW + timedelta(hours=1)).isoformat(),
+            "intervals": [{
+                "start": NOW.isoformat(),
+                "end": (NOW + timedelta(minutes=30)).isoformat(),
+                "value": -0.05,
+            }],
+        }
+        data = {
+            "sensor.soc": state("50", "%"),
+            "binary_sensor.cable": state("on"),
+            "sensor.power": state("1200", "W"),
+            "sensor.effective_tariff": price_state,
+        }
+        rt = MultiChargeRuntime(
+            SimpleNamespace(states=SimpleNamespace(get=data.get)), cfg
+        )
+        rt.refresh(NOW)
+        response = rt.read_plan(NOW, NOW + timedelta(minutes=45))
+        self.assertEqual(response["observations"]["sources"]["current_price"], {
+            "quality": "ok", "value": -0.05, "currency": "EUR"
+        })
+        self.assertEqual(response["price_slots"][0]["currency"], "EUR")
+        self.assertEqual(response["price_slots"][0]["price_per_kwh"], -0.05)
+        self.assertTrue(response["read_only"])
+        self.assertIsNone(response["slots"][0]["actual_energy_kwh"])
+
     def test_no_connection_never_proposes_charging(self):
         cfg = sample()
         rt = MultiChargeRuntime(SimpleNamespace(

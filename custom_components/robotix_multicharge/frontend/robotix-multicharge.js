@@ -145,6 +145,10 @@ class RobotixMultiChargeCard extends HTMLElement {
     const d=this._data,c=d.configuration||{},assets=c.assets||[],chargers=c.chargers||[];
     this.title(container,"Charging overview");
     const observations=(d.observations||{}).chargers||{};
+    const priced=((d.observations||{}).sources||{}).current_price||{};
+    const priceLabel=priced.quality==="ok"&&typeof priced.value==="number"&&priced.currency
+      ?new Intl.NumberFormat(undefined,{style:"currency",currency:priced.currency,maximumFractionDigits:4}).format(priced.value)+"/kWh"
+      :"Unavailable";
     const powers=chargers.map(x=>(observations[x.id]||{}).power_kw);
     const complete=powers.length>0&&powers.every(x=>x&&x.quality==="ok"&&typeof x.value==="number");
     const active=powers.filter(x=>x&&x.quality==="ok"&&x.value>0).length;
@@ -152,7 +156,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     for(const [key,value] of [
       ["Active chargers",complete?String(active):"Unknown"],
       ["Actual power",complete?(powers.reduce((sum,x)=>sum+x.value,0).toFixed(2)+" kW"):"Unknown"],
-      ["Current price","Unavailable"]
+      ["Current price",priceLabel]
     ]){const el=mcEl("div","metric");el.append(mcEl("p","muted small",key),mcEl("div","value",value));metrics.append(el);}
     container.append(metrics);
     const mode=(c.controller||{}).mode||"Off";
@@ -212,6 +216,23 @@ class RobotixMultiChargeCard extends HTMLElement {
         const h=Math.max(0,slot.actual_power_kw/max*150);
         svg.append(mcSVG("rect",{x:x+w*0.55,y:174-h,width:Math.max(1,w*0.35),height:h,fill:"#2d9c70"}));
       }
+    }
+    const priceSlots=(d.price_slots||[]).filter(s=>typeof s.price_per_kwh==="number");
+    if(priceSlots.length){
+      const vmin=Math.min(...priceSlots.map(s=>s.price_per_kwh));
+      const vmax=Math.max(...priceSlots.map(s=>s.price_per_kwh));
+      const range=vmax-vmin||1;
+      let path="",started=false;
+      for(let i=0;i<count;i++){
+        const t=start+i*900000;
+        const eligible=priceSlots.filter(s=>new Date(s.start).getTime()<=t&&new Date(s.end).getTime()>=t+900000);
+        if(eligible.length!==1){started=false;continue;}
+        const x=40+(i+0.5)*850/count;
+        const y=170-(eligible[0].price_per_kwh-vmin)/range*145;
+        path+=(started?" L":" M")+x.toFixed(2)+" "+y.toFixed(2);
+        started=true;
+      }
+      if(path)svg.append(mcSVG("path",{d:path,fill:"none",stroke:"#d89a22","stroke-width":2}));
     }
     for(let i=0;i<=4;i++){
       const t=new Date(start+(end-start)*i/4);

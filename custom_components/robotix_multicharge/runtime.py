@@ -34,6 +34,7 @@ class MultiChargeRuntime:
         self.assessment = None
         self.observations = {"chargers": {}, "assets": {}, "sources": {}}
         self.excluded = {}
+        self.price_slots = ()
         self._listeners = set()
         self._unsubscribe_tick = None
 
@@ -123,6 +124,14 @@ class MultiChargeRuntime:
         solar, solar_quality = intervals(
             self.hass, setting.get("solar_entity"), "solar", at
         )
+        self.price_slots = tuple(tariff)
+        current = [row for row in tariff if row.start <= at < row.end]
+        current_price = (
+            {"quality": "ok", "value": current[0].effective_price_per_kwh,
+             "currency": current[0].currency}
+            if tariff_quality == "OK" and len(current) == 1 else
+            {"quality": "unknown", "value": None, "currency": None}
+        )
         external_binding = None
         binding_quality = "NOT_CONFIGURED"
         # Never ignore the pre-existing site_power_entity configuration:
@@ -145,6 +154,7 @@ class MultiChargeRuntime:
         self.observations["sources"] = {
             "tariff_quality": tariff_quality, "solar_quality": solar_quality,
             "binding_quality": binding_quality,
+            "current_price": current_price,
         }
         try:
             self.assessment = compile_plan(
@@ -245,6 +255,13 @@ class MultiChargeRuntime:
             "strategy_by_charger": dict(assessment.strategy) if assessment else {},
             "reasons": {**self.excluded, **assessment.reasons} if assessment else dict(self.excluded),
             "slots": slots,
+            "price_slots": [
+                {"start": row.start.isoformat(), "end": row.end.isoformat(),
+                 "price_per_kwh": row.effective_price_per_kwh,
+                 "currency": row.currency}
+                for row in self.price_slots
+                if row.start < last and row.end > first
+            ],
             "configuration": self.configuration,
             "observations": {
                 "assets": {
