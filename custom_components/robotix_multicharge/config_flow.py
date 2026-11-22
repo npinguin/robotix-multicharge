@@ -379,7 +379,11 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
                 result = self._saved(cfg)
             else:
                 asset = next((dict(a) for a in cfg["assets"] if a["id"] == uid), {})
-                asset.update({"id": uid, "name": user_input["name"], "kind": user_input["kind"]})
+                asset.update({
+                    "id": uid,
+                    "name": user_input.get("name") or asset.get("name"),
+                    "kind": user_input.get("kind") or asset.get("kind", "car"),
+                })
                 for field in ("soc_entity", "capacity_kwh", "target_soc", "max_charge_kw",
                               "requested_kwh", "requested_duration_minutes",
                               "ready_by", "ready_by_repeat", "charge_efficiency", "priority",
@@ -396,7 +400,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
                 vol.Required("action", default="save"): vol.In(["save", "delete"]),
                 vol.Optional("id"): str,
                 vol.Optional("name"): str,
-                vol.Required("kind", default="car"): vol.In(
+                vol.Optional("kind"): vol.In(
                     ["car", "bicycle", "motorcycle", "scooter", "other"]
                 ),
                 vol.Optional("soc_entity"): selector.EntitySelector(
@@ -433,9 +437,15 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
                 result = self._saved(cfg)
             else:
                 charger = next((dict(c) for c in cfg["chargers"] if c["id"] == uid), {})
-                charger.update({"id": uid, "name": user_input.get("name"),
-                                "kind": user_input["kind"],
-                                "rated_power_kw": user_input.get("rated_power_kw")})
+                charger["id"] = uid
+                if user_input.get("name"):
+                    charger["name"] = user_input["name"]
+                if user_input.get("kind"):
+                    charger["kind"] = user_input["kind"]
+                elif "kind" not in charger:
+                    charger["kind"] = "on_off"
+                if user_input.get("rated_power_kw") is not None:
+                    charger["rated_power_kw"] = user_input["rated_power_kw"]
                 for field in ("asset", "control_entity", "connected_entity", "power_entity",
                               "energy_entity", "phase_count", "min_current_a", "max_current_a",
                               "voltage_v", "current_step_a", "fixed_current_a",
@@ -457,7 +467,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
                 vol.Required("action", default="save"): vol.In(["save", "delete"]),
                 vol.Optional("id"): str,
                 vol.Optional("name"): str,
-                vol.Required("kind", default="on_off"): vol.In(["on_off", "variable_current"]),
+                vol.Optional("kind"): vol.In(["on_off", "variable_current"]),
                 vol.Optional("rated_power_kw"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
                 vol.Optional("asset"): vol.In([""] + [a["id"] for a in cfg["assets"]]),
                 vol.Optional("control_entity"): selector.EntitySelector(
