@@ -51,9 +51,11 @@ async def test_native_setup_registry_diagnostics_and_unload(hass: HomeAssistant)
         unique_id=DOMAIN,
     )
     entry.add_to_hass(hass)
+    # HA automatically sets up a config entry when its parent component is
+    # initialized. Calling async_setup twice is forbidden on a loaded entry.
     assert await async_setup_component(hass, DOMAIN, {})
-    assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
+    assert entry.state.value == "loaded"
     devices = dr.async_get(hass)
     for kind, uid in (("controller", "site"), ("charger", "charger"),
                       ("asset", "asset")):
@@ -91,9 +93,11 @@ async def test_native_empty_configuration_still_installs(hass: HomeAssistant):
         data={"source": "ui", "configuration": cfg}, unique_id=DOMAIN,
     )
     entry.add_to_hass(hass)
+    # HA automatically sets up a config entry when its parent component is
+    # initialized. Calling async_setup twice is forbidden on a loaded entry.
     assert await async_setup_component(hass, DOMAIN, {})
-    assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
+    assert entry.state.value == "loaded"
     assert dr.async_get(hass).async_get_device(
         identifiers={(DOMAIN, "controller/empty")}
     ) is not None
