@@ -90,6 +90,15 @@
       },
       "priority": {
         "name": "Prioriteit"
+      },
+      "max_charge_kw": {
+        "name": "Max. laadvermogen"
+      },
+      "max_parallel": {
+        "name": "Gelijktijdige laadpalen"
+      },
+      "max_power_kw": {
+        "name": "Max. locatievermogen"
       }
     },
     "datetime": {
@@ -98,6 +107,9 @@
       },
       "expected_connection_at": {
         "name": "Verwachte aansluiting"
+      },
+      "expires_at": {
+        "name": "Gast geldig tot"
       }
     }
   }

@@ -13,7 +13,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .command_query import apply_native_preference
 from .const import DOMAIN
 
-FIELDS = ("ready_by", "expected_connection_at")
+FIELDS = ("ready_by", "expected_connection_at", "expires_at")
 
 
 async def async_setup_entry(
@@ -23,6 +23,7 @@ async def async_setup_entry(
     async_add_entities(
         _AssetDateTime(entry, runtime, asset, field)
         for asset in runtime.configuration["assets"] for field in FIELDS
+        if field != "expires_at" or asset.get("temporary")
     )
 
 

@@ -16,16 +16,20 @@ FIELDS = {
     "requested_kwh": (0, 200, 0.1, "kWh"),
     "requested_duration_minutes": (0, 1440, 15, "min"),
     "priority": (0, 100, 1, None),
+    "max_charge_kw": (0.1, 100, 0.1, "kW"),
 }
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     runtime = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities(
+    entities = [
         _AssetNumber(entry, runtime, asset, field)
         for asset in runtime.configuration["assets"] for field in FIELDS
-    )
+    ]
+    for field in ("max_parallel", "max_power_kw"):
+        entities.append(_SiteNumber(entry, runtime, field))
+    async_add_entities(entities)
 
 
 class _AssetNumber(NumberEntity):
@@ -91,4 +95,61 @@ class _AssetNumber(NumberEntity):
                 changes["requested_kwh"] = None
         await apply_native_preference(
             self.hass, self.entry, self.runtime, "asset", self.uid, changes
+        )
+
+
+
+class _SiteNumber(NumberEntity):
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_mode = NumberMode.BOX
+
+    def __init__(self, entry, runtime, field):
+        self.entry, self.runtime, self.field = entry, runtime, field
+        ctl = runtime.configuration["controller"]
+        self._attr_unique_id = f"{DOMAIN}:controller:{ctl['id']}:{field}"
+        self._attr_translation_key = field
+        self._attr_native_min_value = 1 if field == "max_parallel" else 0.1
+        self._attr_native_max_value = 16 if field == "max_parallel" else 100
+        self._attr_native_step = 1 if field == "max_parallel" else 0.1
+        self._attr_native_unit_of_measurement = (
+            None if field == "max_parallel" else "kW"
+        )
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, f"controller/{ctl['id']}")},
+            "name": ctl["name"], "manufacturer": "Robotix",
+            "model": "ChargeController",
+        }
+        self._unsubscribe = None
+        self._refresh_value()
+
+    def _refresh_value(self):
+        ctl = self.runtime.configuration["controller"]
+        self._attr_native_value = ctl.get(self.field)
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        self._unsubscribe = self.runtime.subscribe(self._refresh)
+
+    @callback
+    def _refresh(self):
+        self._refresh_value()
+        self.async_write_ha_state()
+
+    async def async_will_remove_from_hass(self):
+        if self._unsubscribe is not None:
+            self._unsubscribe()
+            self._unsubscribe = None
+        await super().async_will_remove_from_hass()
+
+    async def async_set_native_value(self, value: float):
+        if self.field == "max_parallel":
+            if not float(value).is_integer():
+                raise ValueError("whole_number_required")
+            value = int(value)
+        await apply_native_preference(
+            self.hass, self.entry, self.runtime,
+            "controller", self.runtime.configuration["controller"]["id"],
+            {self.field: value},
         )
