@@ -315,6 +315,12 @@ class RobotixMultiChargeCard extends HTMLElement {
       mcPair(card,"Connection",mcValue(obs.connected));
       mcPair(card,"Actual power",mcValue(obs.power_kw," kW"));
       mcPair(card,"Control type",c.kind==="on_off"?"On/off":"Variable current (not commissioned)");
+      const session=(d.active_sessions||{})[c.id];
+      if(session){
+        mcPair(card,"Active session",mcTime(session.started_at,d.timezone));
+        mcPair(card,"Measured session energy",
+               session.actual_energy_kwh===null?"Unknown":session.actual_energy_kwh+" kWh");
+      }
       mcPair(card,"Assigned asset",c.asset||"Not assigned");
       if(this._open===c.id){
         const detail=mcEl("div","details");

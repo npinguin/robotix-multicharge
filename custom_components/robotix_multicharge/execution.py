@@ -41,8 +41,14 @@ class NativeSwitchExecutor:
         return {uid: dict(record) for uid, record in self._outcomes.items()}
 
     def session_snapshot(self):
-        """Only physically observed active charging sessions, never proposals."""
-        return {uid: dict(record) for uid, record in self._sessions.items()}
+        """Only observed active sessions. ISO timestamps allow native HA consumers."""
+        return {
+            uid: {
+                key: value.isoformat() if isinstance(value, datetime) else value
+                for key, value in record.items()
+            }
+            for uid, record in self._sessions.items()
+        }
 
     def capabilities(self):
         """Expose exact current action eligibility; no optimistic UI guessing."""

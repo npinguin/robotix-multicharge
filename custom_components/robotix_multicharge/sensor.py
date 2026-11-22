@@ -36,6 +36,8 @@ async def async_setup_entry(
     for charger in cfg["chargers"]:
         entities.append(_LogicalEvidenceSensor("charger", charger, runtime, "power"))
         entities.append(_LogicalEvidenceSensor("charger", charger, runtime, "connected"))
+        if charger.get("energy_entity"):
+            entities.append(_LogicalSessionEnergySensor(charger, runtime))
     async_add_entities(entities)
 
 
@@ -241,4 +243,36 @@ class _LogicalEvidenceSensor(_NativeMultiChargeSensor):
                 if observation is not None and observation.observed_at else None
             ),
             "source_entity_id": source_name,
+        }
+
+
+class _LogicalSessionEnergySensor(_NativeMultiChargeSensor):
+    """Recorder-backed actual kWh for a confirmed active physical charge session.
+
+    This is NOT a lifetime meter duplicate. No active qualified session means
+    unavailable, not zero. HA Recorder owns the historic observations.
+    """
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_native_unit_of_measurement = "kWh"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, charger: dict, runtime) -> None:
+        super().__init__("charger", charger, runtime)
+        self._attr_name = "Session energy"
+        self._attr_unique_id = f"{DOMAIN}:charger:{charger['id']}:session_energy"
+        self._update_value()
+
+    def _update_value(self):
+        session = self.runtime.executor.session_snapshot().get(self.data["id"])
+        self._attr_native_value = (
+            session["actual_energy_kwh"]
+            if session is not None else None
+        )
+        self._attr_extra_state_attributes = {
+            "quality": "measured" if (
+                session is not None and session["actual_energy_kwh"] is not None
+            ) else "unknown",
+            "asset_id": session["asset_id"] if session else None,
+            "started_at": session["started_at"] if session else None,
+            "meter_source": self.data.get("energy_entity"),
         }

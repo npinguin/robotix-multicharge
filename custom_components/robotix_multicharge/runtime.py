@@ -206,6 +206,7 @@ class MultiChargeRuntime:
                 for x in self.executor.capabilities().values()
             ),
             "command_outcomes": self.executor.snapshot(),
+            "active_sessions": self.executor.session_snapshot(),
         }
 
     def read_plan(self, start: datetime, end: datetime, *,
@@ -279,6 +280,7 @@ class MultiChargeRuntime:
             "slots": slots,
             "command_outcomes": self.executor.snapshot(),
             "command_capabilities": self.executor.capabilities(),
+            "active_sessions": self.executor.session_snapshot(),
             "price_slots": [
                 {"start": row.start.isoformat(), "end": row.end.isoformat(),
                  "price_per_kwh": row.effective_price_per_kwh,
