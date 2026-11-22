@@ -35,6 +35,24 @@ On `dev`, native Site → Charger → Asset → Sources → Verify setup and the
 
 The stable core concepts are `ChargeableAsset`, `Charger` and `ChargeController`. A physical device stays owned by its native Home Assistant integration; MultiCharge only represents the logical charging role.
 
+## Built-in Home Assistant dashboard
+
+After the integration loads (from guided setup **or** direct expert JSON),
+Home Assistant automatically registers **Robotix MultiCharge** in the left
+sidebar at `/robotix-multicharge`. No Lovelace dashboard creation, card
+editing or manual resource registration is necessary. The panel uses the
+one existing source-backed five-view card: **Overview**, **Charging Plan**,
+**Chargeable Assets**, **Chargers** and **Settings**.
+
+The dashboard is visible to **all authenticated Home Assistant users**;
+charging commands and settings changes remain protected by the native admin
+authorization, and JSON-managed settings are read-only. The optional
+`robotix-multicharge-card` Lovelace card remains available for users who
+wish to embed the same view elsewhere, but it is no longer the only UX.
+The sidebar panel is registered only while MultiCharge is installed and its
+UI is enabled; it is removed on successful unload without altering other
+Home Assistant dashboards or the Robotix Mobility navigation.
+
 ## Expert JSON — direct setup, no wizard
 
 Expert users **do not need to complete the five setup screens**. The entire
