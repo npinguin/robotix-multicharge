@@ -414,9 +414,12 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self.hass.config_entries.async_update_entry(
                     entry, data=next_data, options=next_options
                 )
-                self.hass.async_create_task(
-                    self.hass.config_entries.async_reload(entry.entry_id)
-                )
+                # Loaded entries already have the canonical update listener.
+                # Do not request a second reload/STOP on the same live charger.
+                if entry.entry_id not in self.hass.data.get(DOMAIN, {}):
+                    self.hass.async_create_task(
+                        self.hass.config_entries.async_reload(entry.entry_id)
+                    )
                 return self.async_abort(reason="configuration_updated")
             return self.async_abort(reason="already_configured")
         return self.async_create_entry(
@@ -452,7 +455,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         cfg = self._current()
         if user_input is not None:
             cfg["controller"]["name"] = user_input["name"]
-            cfg["controller"]["max_parallel"] = user_input["max_parallel"]
+            cfg["controller"]["max_parallel"] = int(user_input["max_parallel"])
             if user_input.get("max_power_kw"):
                 cfg["controller"]["max_power_kw"] = user_input["max_power_kw"]
             else:
@@ -474,8 +477,14 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             data_schema=vol.Schema({
                 vol.Required("name", default=cfg["controller"]["name"]): str,
                 vol.Required("max_parallel", default=cfg["controller"]["max_parallel"]):
-                    vol.All(vol.Coerce(int), vol.Range(min=1, max=16)),
-                vol.Optional("max_power_kw"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
+                    selector.NumberSelector(selector.NumberSelectorConfig(
+                        min=1, max=16, step=1, mode=selector.NumberSelectorMode.BOX
+                    )),
+                vol.Optional("max_power_kw"): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0.01, max=1000, step=0.1,
+                        mode=selector.NumberSelectorMode.BOX
+                    )),
                 vol.Optional("phase_limits_a",
                              default=",".join(f"{p}:{x}" for p,x in
                                     cfg["controller"].get("phase_limits_a", {}).items())): str,
@@ -532,7 +541,9 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional("soc_entity"): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
                 ),
-                vol.Optional("capacity_kwh"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
+                vol.Optional("capacity_kwh"): selector.NumberSelector(selector.NumberSelectorConfig(
+                    min=0.01, max=1000, step=0.1, mode=selector.NumberSelectorMode.BOX
+                )),
                 vol.Optional("temporary"): bool,
                 vol.Optional("expires_at"): str,
                 vol.Optional("charge_efficiency"): vol.All(
@@ -585,7 +596,9 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional("id"): str,
                 vol.Optional("name"): str,
                 vol.Optional("kind"): vol.In(["on_off", "variable_current"]),
-                vol.Optional("rated_power_kw"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
+                vol.Optional("rated_power_kw"): selector.NumberSelector(selector.NumberSelectorConfig(
+                    min=0.01, max=1000, step=0.1, mode=selector.NumberSelectorMode.BOX
+                )),
 
                 vol.Optional("control_entity"): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain=["switch", "input_boolean", "number"])
@@ -601,15 +614,25 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 ),
                 vol.Optional("control_owner"): vol.In(["external", "multicharge"]),
                 vol.Optional("physical_commissioned"): bool,
-                vol.Optional("phase_count"): vol.All(vol.Coerce(int), vol.In([1, 2, 3])),
-                vol.Optional("min_current_a"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
-                vol.Optional("max_current_a"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
+                vol.Optional("phase_count"): vol.In([1, 2, 3]),
+                vol.Optional("min_current_a"): selector.NumberSelector(selector.NumberSelectorConfig(
+                    min=0.01, max=1000, step=0.1, mode=selector.NumberSelectorMode.BOX
+                )),
+                vol.Optional("max_current_a"): selector.NumberSelector(selector.NumberSelectorConfig(
+                    min=0.01, max=1000, step=0.1, mode=selector.NumberSelectorMode.BOX
+                )),
                 vol.Optional("phase_ids"): str,
                 vol.Optional("voltage_v"): vol.All(vol.Coerce(float), vol.Range(min=200, max=260)),
-                vol.Optional("current_step_a"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
-                vol.Optional("fixed_current_a"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
+                vol.Optional("current_step_a"): selector.NumberSelector(selector.NumberSelectorConfig(
+                    min=0.01, max=1000, step=0.1, mode=selector.NumberSelectorMode.BOX
+                )),
+                vol.Optional("fixed_current_a"): selector.NumberSelector(selector.NumberSelectorConfig(
+                    min=0.01, max=1000, step=0.1, mode=selector.NumberSelectorMode.BOX
+                )),
                 vol.Optional("circuit_id"): str,
-                vol.Optional("circuit_limit_a"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
+                vol.Optional("circuit_limit_a"): selector.NumberSelector(selector.NumberSelectorConfig(
+                    min=0.01, max=1000, step=0.1, mode=selector.NumberSelectorMode.BOX
+                )),
                 vol.Optional("current_control_entity"): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="number")
                 ),
