@@ -94,6 +94,26 @@ class PackageTest(unittest.TestCase):
         self.assertIn("Connection", sensor)
         self.assertNotIn("services.async_call(", sensor)
 
+    def test_no_fourth_forecast_or_session_device(self):
+        """HA entities attach to existing Controller, Charger or Asset."""
+        platforms = (
+            "sensor.py", "binary_sensor.py", "button.py", "select.py",
+            "number.py", "datetime.py", "text.py",
+        )
+        for filename in platforms:
+            source = (COMPONENT / filename).read_text(encoding="utf8")
+            self.assertNotIn("via_device", source)
+            self.assertNotIn('f"session/', source)
+            self.assertNotIn('f"forecast/', source)
+            self.assertIn('"identifiers"', source)
+        root = (COMPONENT / "__init__.py").read_text(encoding="utf8")
+        for filename in platforms:
+            self.assertIn('"' + filename[:-3] + '"', root)
+        text = (COMPONENT / "sensor.py").read_text(encoding="utf8")
+        self.assertIn("class _AssetIntentSensor", text)
+        self.assertIn("class _PlanStatusSensor", text)
+        self.assertIn('field in ("connected_chargers", "charging_chargers")', text)
+
     def test_no_legacy_setup_or_alias_entities(self):
         source = (COMPONENT / "sensor.py").read_text(encoding="utf8")
         self.assertIn(":readiness", source)

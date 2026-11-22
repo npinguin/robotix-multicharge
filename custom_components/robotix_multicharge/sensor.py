@@ -164,7 +164,7 @@ class _LogicalReadinessSensor(_NativeMultiChargeSensor):
 
 
 class _PlanStatusSensor(_NativeMultiChargeSensor):
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    """Ordinary Controller plan state, visible with its physical status."""
 
     def __init__(self, controller: dict, runtime) -> None:
         super().__init__("controller", controller, runtime)
@@ -385,6 +385,8 @@ class _ControllerLiveSensor(_NativeMultiChargeSensor):
     def __init__(self, controller: dict, runtime, field: str) -> None:
         super().__init__("controller", controller, runtime)
         self.field = field
+        if field in ("connected_chargers", "charging_chargers"):
+            self._attr_entity_category = None
         self._attr_name = {
             "mode": "Charging mode",
             "configuration_revision": "Settings revision",
