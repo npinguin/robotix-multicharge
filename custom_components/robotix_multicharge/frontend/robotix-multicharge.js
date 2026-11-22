@@ -148,7 +148,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       this._data=await this._hass.callWS(cmd);
       if(this._pendingSettings&&
          this._data.configuration_revision===this._pendingSettings.expected_revision){
-        this._settingsFeedback={status:"confirmed",message:"Settings confirmed after Home Assistant readback."};
+        this._settingsFeedback={status:"confirmed",message:"Saved"};
         this._pendingSettings=null;
       }
       this._last=Date.now();
@@ -161,7 +161,7 @@ class RobotixMultiChargeCard extends HTMLElement {
   async command(charger,action){
     if(this._commandBusy||!this._hass)return;
     this._commandBusy=true;
-    this._commandFeedback[charger]={status:"requested",reason:"Submitting physical command…"};
+    this._commandFeedback[charger]={status:"requested",reason:"Pending"};
     this.render();
     try {
       const request={type:"robotix_multicharge/command",
@@ -177,18 +177,18 @@ class RobotixMultiChargeCard extends HTMLElement {
     }catch(error){
       this._commandFeedback[charger]={
         status:"rejected",
-        reason:"COMMAND_REQUEST_FAILED: "+String(error.message||error)
+        reason:"COMMAND_REQUEST_FAILED"
       };
     }finally{this._commandBusy=false;this.render();}
   }
   async saveSettings(scope,targetId,changes,action){
     if(this._settingsBusy||!this._hass||!this._data)return;
     if(!this._data.configuration_revision){
-      this._settingsFeedback={status:"rejected",message:"Settings revision unavailable. Refresh first."};
+      this._settingsFeedback={status:"rejected",message:"Unavailable"};
       this.render();return;
     }
     this._settingsBusy=true;
-    this._settingsFeedback={status:"requested",message:"Validating settings…"};
+    this._settingsFeedback={status:"requested",message:"Pending"};
     this.render();
     try{
       const receipt=await this._hass.callWS({
@@ -199,10 +199,10 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(receipt.status!=="accepted_unconfirmed"||!receipt.expected_revision)
         throw new Error("Settings change was not admitted");
       this._pendingSettings={expected_revision:receipt.expected_revision};
-      this._settingsFeedback={status:"accepted_unconfirmed",message:"Saved to Home Assistant; checking the reloaded configuration…"};
+      this._settingsFeedback={status:"accepted_unconfirmed",message:"Pending"};
       this._last=0;
     }catch(error){
-      this._settingsFeedback={status:"rejected",message:String(error.message||error)};
+      this._settingsFeedback={status:"rejected",message:"Unavailable"};
     }finally{
       this._settingsBusy=false;
       if(this._pendingSettings)await this.load();
@@ -274,7 +274,8 @@ class RobotixMultiChargeCard extends HTMLElement {
   feedback(container){
     if(!this._settingsFeedback)return;
     const result=this._settingsFeedback;
-    const node=mcEl("p","message "+(result.status==="confirmed"?"confirmed":result.status==="rejected"?"error":"pending"),result.message);
+    const node=mcEl("p","message "+(result.status==="confirmed"?"confirmed":result.status==="rejected"?"error":"pending"),
+      result.status==="confirmed"?"Saved":result.status==="rejected"?"Unavailable":"Pending");
     node.setAttribute("role",result.status==="rejected"?"alert":"status");
     container.append(node);
   }
@@ -285,9 +286,9 @@ class RobotixMultiChargeCard extends HTMLElement {
     container.append(mcEl("div","notice"+(bad?" error":""),message));
   }
   configure(container){
-    const link=mcEl("a","action","Open Home Assistant integration settings");
+    const link=mcEl("a","action","Home Assistant");
     link.href="/config/integrations/integration/robotix_multicharge";
-    link.setAttribute("aria-label","Open MultiCharge native configuration and options");
+    link.setAttribute("aria-label",mcTr("Home Assistant"));
     container.append(link);
   }
   render(){
@@ -661,7 +662,7 @@ class RobotixMultiChargeCard extends HTMLElement {
             ()=>this.openNative("asset",a.id,field)));
           detail.append(row);
         }
-        this.configure(detail);card.append(detail);
+        card.append(detail);
       }
       container.append(card);
     }
@@ -739,7 +740,7 @@ class RobotixMultiChargeCard extends HTMLElement {
           const selected=(d.configuration.assets||[]).find(a=>a.id===assignment.value);
           this.nativeSelect("charger",c.id,"asset",selected?selected.name:"none");
         });
-        this.configure(detail);card.append(detail);
+        card.append(detail);
       }
       const capability=(d.command_capabilities||{})[c.id]||{};
       const outcome=this._commandFeedback[c.id]||(d.command_outcomes||{})[c.id];
@@ -770,7 +771,7 @@ class RobotixMultiChargeCard extends HTMLElement {
   settings(container){
     const d=this._data,c=d.configuration||{},ctl=c.controller||{};
     this.title(container,"Settings");
-    this.notice(container,"Changes are validated by Home Assistant and confirmed only after reloading. Stop active owned chargers before structural changes; commissioning and hardware capabilities remain in native advanced options.",false);
+
     this.configure(container);
     this.feedback(container);
     for(const title of MC_SETTINGS){
@@ -798,13 +799,13 @@ class RobotixMultiChargeCard extends HTMLElement {
             "controller",ctl.id,{price_entity:price.value||null,
             solar_entity:solar.value||null,binding_entity:binding.value||null}
           )));
-          detail.append(mcEl("p","muted small","Source IDs must refer to existing qualified native Home Assistant sensors. Unknown capacity never becomes unlimited."));
+
         }else if(title==="Charging strategy"){
           detail.append(mcEl("p","", "Selected: "+(ctl.mode||"Off")));
           const chips=mcEl("div","chips");
           for(const mode of MC_MODES){
-            const button=mcButton(mode,()=>this.saveSettings("controller",ctl.id,{mode}));
-            button.disabled=this._settingsBusy||mode===ctl.mode;
+            const button=mcButton(mode,()=>this.nativeSelect("controller",ctl.id,"mode",mode));
+            button.disabled=this._settingsBusy||mode===ctl.mode||!this.ownerEntity("controller",ctl.id,"mode");
             if(mode===ctl.mode)button.className="active";
             chips.append(button);
           }
@@ -830,15 +831,15 @@ class RobotixMultiChargeCard extends HTMLElement {
               phase_limits_a:limits
             });
           }));
-          detail.append(mcEl("p","muted small","Circuit wiring, physical ownership and commissioning are only changed through native expert configuration after electrical verification."));
+
         }else if(title==="Integrations"){
-          detail.append(mcEl("p","","Home Assistant integrations own physical sources and charger devices. MultiCharge only references their qualified entities."));
+
           mcPair(detail,"Tariff",(d.observations||{}).sources?.tariff_quality||"Unknown");
           mcPair(detail,"Solar",(d.observations||{}).sources?.solar_quality||"Unknown");
           mcPair(detail,"Capacity",(d.observations||{}).sources?.binding_quality||"Unknown");
           this.configure(detail);
         }else{
-          detail.append(mcEl("p","","Advanced wiring, assets, charger commissioning, import and YAML remain managed by native Home Assistant Options. Existing logical IDs are retained on edit."));
+
           this.configure(detail);
         }
         group.append(detail);
