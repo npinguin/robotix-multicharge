@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.data_entry_flow import FlowResultType
+from homeassistant import config_entries
 from homeassistant.helpers import device_registry as dr
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant.common import MockConfigEntry
@@ -105,3 +107,78 @@ async def test_native_empty_configuration_still_installs(hass: HomeAssistant):
     assert data["chargers"] == []
     assert data["assets"] == []
     assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
+async def test_minimal_native_setup_then_yaml_takes_over_same_entry(hass: HomeAssistant):
+    """Actual HA forms and one-way YAML adoption, without physical actuation."""
+    source = (Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN)
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    assert await async_setup_component(hass, DOMAIN, {})
+
+    wizard = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    assert wizard["type"] == FlowResultType.FORM
+    assert wizard["step_id"] == "user"
+    # All site electrical limits may be absent.
+    wizard = await hass.config_entries.flow.async_configure(
+        wizard["flow_id"], {"name": "Wessels Home", "max_parallel": 1}
+    )
+    assert wizard["step_id"] == "charger"
+    # Exactly name + physical command entity are required to add a charger.
+    wizard = await hass.config_entries.flow.async_configure(
+        wizard["flow_id"], {
+            "action": "add", "name": "Garage White",
+            "control_entity": "switch.garage_white",
+        }
+    )
+    assert wizard["step_id"] == "asset"
+    wizard = await hass.config_entries.flow.async_configure(
+        wizard["flow_id"], {"action": "finish"}
+    )
+    assert wizard["step_id"] == "sources"
+    wizard = await hass.config_entries.flow.async_configure(
+        wizard["flow_id"], {}
+    )
+    assert wizard["step_id"] == "verify"
+    completed = await hass.config_entries.flow.async_configure(
+        wizard["flow_id"], {"confirm": True}
+    )
+    assert completed["type"] == FlowResultType.CREATE_ENTRY
+    entry = completed["result"]
+    before_id = entry.entry_id
+    assert entry.data["source"] == "ui"
+    assert entry.data["configuration"]["chargers"][0]["name"] == "Garage White"
+    assert entry.data["configuration"]["chargers"][0]["control_owner"] == "external"
+    assert entry.data["configuration"]["chargers"][0]["physical_commissioned"] is False
+    assert "max_power_kw" not in entry.data["configuration"]["controller"]
+
+    # User adds YAML at a subsequent HA startup; there is no deletion,
+    # re-pairing or second Config Entry.
+    yaml_config = validate_configuration({
+        **entry.data["configuration"],
+        "controller": {
+            **entry.data["configuration"]["controller"],
+            "name": "Wessels Expert",
+        },
+    })
+    hass.config_entries.async_update_entry(
+        entry, options={"configuration": entry.data["configuration"],
+                        "enable_ux": True}
+    )
+    migrated = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_IMPORT},
+        data=yaml_config,
+    )
+    await hass.async_block_till_done()
+    assert migrated["type"] == FlowResultType.ABORT
+    assert migrated["reason"] == "configuration_updated"
+    assert entry.entry_id == before_id
+    assert entry.data["source"] == "yaml"
+    assert entry.data["configuration"] == yaml_config
+    assert "configuration" not in entry.options
+    assert entry.options["enable_ux"] is True
+    assert len(hass.config_entries.async_entries(DOMAIN)) == 1
