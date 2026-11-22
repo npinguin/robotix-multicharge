@@ -159,6 +159,18 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(unchanged.live_state()["settings_action"]["status"],
                          "accepted_unconfirmed")
 
+    def test_plan_query_uses_single_config_palette(self):
+        from multicharge_runtime_test.configuration import PLAN_COLORS
+        cfg = sample()
+        rt = MultiChargeRuntime(
+            SimpleNamespace(states=SimpleNamespace(get={}.get)), cfg
+        )
+        rt.refresh(NOW)
+        plan = rt.read_plan(NOW, NOW + timedelta(hours=1))
+        self.assertEqual(plan["plan_palette"], PLAN_COLORS)
+        self.assertIn(plan["configuration"]["assets"][0]["plan_color"], PLAN_COLORS)
+        self.assertIn(plan["configuration"]["chargers"][0]["plan_color"], PLAN_COLORS)
+
     def test_real_source_soc_produces_read_only_plan(self):
         data = {
             "sensor.soc": state("50", "%"),

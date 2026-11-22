@@ -44,6 +44,52 @@ class ConfigurationTests(unittest.TestCase):
         self.assertFalse(is_plan_presentation_only_change(visual, physical))
         self.assertFalse(is_plan_presentation_only_change(original, physical))
 
+    def test_auto_palette_unique_per_owner_and_stable_across_reorder(self):
+        from multicharge_configuration_tests.configuration import PLAN_COLORS
+        cfg = default_configuration()
+        cfg["assets"] = [
+            {"id": f"vehicle_{i}", "name": f"Vehicle {i}", "kind": "car"}
+            for i in range(10)
+        ]
+        cfg["chargers"] = [
+            {"id": f"charger_{i}", "name": f"Charger {i}", "kind": "on_off",
+             "rated_power_kw": 3.6} for i in range(10)
+        ]
+        first = validate_configuration(cfg)
+        self.assertEqual(len({a["plan_color"] for a in first["assets"]}), 10)
+        self.assertEqual(len({c["plan_color"] for c in first["chargers"]}), 10)
+        self.assertTrue(all(a["plan_color"] in PLAN_COLORS for a in first["assets"]))
+        cfg["assets"].reverse()
+        cfg["chargers"].reverse()
+        reordered = validate_configuration(cfg)
+        self.assertEqual({a["id"]: a["plan_color"] for a in first["assets"]},
+                         {a["id"]: a["plan_color"] for a in reordered["assets"]})
+        changed = first["assets"][2]
+        changed["plan_color"] = "wine"
+        self.assertEqual(
+            validate_configuration(first)["assets"][2]["plan_color"], "wine"
+        )
+
+    def test_plan_color_is_native_owner_only_and_display_change(self):
+        from multicharge_configuration_tests.configuration import (
+            apply_settings_change, is_plan_presentation_only_change,
+        )
+        cfg = default_configuration()
+        cfg["assets"] = [{"id": "a", "name": "A", "kind": "car"}]
+        cfg["chargers"] = [{"id": "c", "name": "C",
+                            "kind": "on_off", "rated_power_kw": 2}]
+        original = validate_configuration(cfg)
+        updated = apply_settings_change(original, "asset", "a",
+                                        {"plan_color": "pink"})
+        updated = apply_settings_change(updated, "charger", "c",
+                                        {"plan_color": "coral"})
+        self.assertTrue(is_plan_presentation_only_change(original, updated))
+        self.assertEqual(updated["assets"][0]["plan_color"], "pink")
+        self.assertEqual(updated["chargers"][0]["plan_color"], "coral")
+        with self.assertRaises(ValueError):
+            apply_settings_change(updated, "controller", "home",
+                                  {"plan_color": "blue"})
+
     def test_default_is_valid(self):
         self.assertEqual(validate_configuration(default_configuration())["controller"]["id"], "home")
 
