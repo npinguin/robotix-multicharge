@@ -3,7 +3,8 @@
   "name": "Robotix MultiCharge",
   "after_dependencies": [
     "frontend",
-    "http"
+    "http",
+    "recorder"
   ],
   "codeowners": [
     "@npinguin"
