@@ -61,11 +61,21 @@ class PackageTest(unittest.TestCase):
             json.loads((COMPONENT / "translations/en.json").read_text(encoding="utf8")),
         )
 
-    def test_no_physical_executor_in_bootstrap(self):
-        for name in ("__init__.py", "sensor.py", "config_flow.py"):
+    def test_one_physical_writer_no_bypass_in_setup_sensors_or_gui(self):
+        for name in ("__init__.py", "sensor.py", "config_flow.py", "runtime.py",
+                     "command_query.py"):
             source = (COMPONENT / name).read_text(encoding="utf8")
             self.assertNotIn("services.async_call(", source)
-            self.assertNotIn("async_track_state_change", source)
+        executor = (COMPONENT / "execution.py").read_text(encoding="utf8")
+        self.assertIn("services.async_call(", executor)
+        self.assertIn('"switch", "turn_on" if action == "start" else "turn_off"', executor)
+        self.assertIn('"INDEPENDENT_POWER_READBACK"', executor)
+        self.assertIn("async def supervise(", executor)
+        native = (COMPONENT / "__init__.py").read_text(encoding="utf8")
+        self.assertIn("async_track_state_change_event", native)
+        self.assertIn("register_command_query(hass)", native)
+        api = (COMPONENT / "command_query.py").read_text(encoding="utf8")
+        self.assertIn("@websocket_api.require_admin", api)
 
     def test_logical_devices_not_reparented(self):
         source = (COMPONENT / "sensor.py").read_text(encoding="utf8")
