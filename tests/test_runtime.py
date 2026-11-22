@@ -102,6 +102,21 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(live["charging_chargers"], 1)
         self.assertEqual(live["actual_power_kw"], 2.3)
 
+    def test_rejected_settings_action_is_never_confirmed_by_matching_revision(self):
+        cfg = sample()
+        rt = MultiChargeRuntime(
+            SimpleNamespace(states=SimpleNamespace(get={}.get)), cfg
+        )
+        from multicharge_runtime_test.configuration import configuration_revision
+        rt.record_settings_action(
+            "controller", cfg["controller"]["id"], "save",
+            {"mode": "Economy"}, configuration_revision(cfg),
+            status="rejected", reason="SETTINGS_VALIDATION_OR_SAFETY_HOLD",
+        )
+        action = rt.live_state()["settings_action"]
+        self.assertEqual(action["status"], "rejected")
+        self.assertEqual(action["reason"], "SETTINGS_VALIDATION_OR_SAFETY_HOLD")
+
     def test_controller_settings_receipt_is_not_confirmed_before_config_reload(self):
         from multicharge_runtime_test.configuration import (
             apply_settings_change, configuration_revision

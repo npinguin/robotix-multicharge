@@ -71,13 +71,16 @@ class MultiChargeRuntime:
             )
         return recorded
 
-    def record_settings_action(self, scope, target_id, action, changes, expected_revision):
+    def record_settings_action(self, scope, target_id, action, changes,
+                               expected_revision, *, status="accepted_unconfirmed",
+                               reason=None):
         self._settings_action = {
             "scope": scope, "target_id": target_id, "action": action,
             "fields": sorted(changes),
             "expected_revision": expected_revision,
             "requested_at": datetime.now(timezone.utc).isoformat(),
-            "status": "accepted_unconfirmed",
+            "status": status,
+            "reason": reason,
         }
         self.notify()
 

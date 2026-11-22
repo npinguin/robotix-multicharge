@@ -111,6 +111,13 @@ async def websocket_update_settings(
                 options={**entry.options, "configuration": updated},
             )
     except (ValueError, TypeError, KeyError):
+        runtime.record_settings_action(
+            msg["scope"], msg["target_id"], msg.get("action", "save"),
+            msg["changes"], configuration_revision(runtime.configuration),
+            status="rejected", reason="SETTINGS_VALIDATION_OR_SAFETY_HOLD",
+        )
+        if not await runtime.persist_control_state():
+            runtime._settings_action["reason"] = "SETTINGS_AUDIT_PERSISTENCE_UNAVAILABLE"
         connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT,
                               "Settings rejected; verify fields, permissions and charging state")
         return
