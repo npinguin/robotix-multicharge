@@ -18,6 +18,15 @@ class PackageTest(unittest.TestCase):
             list(obj), ["domain", "name", *sorted(set(obj) - {"domain", "name"})]
         )
 
+    def test_guided_five_step_onboarding_is_not_a_one_page_form(self):
+        source = (COMPONENT / "config_flow.py").read_text(encoding="utf8")
+        for step in ("user", "charger", "asset", "sources", "verify"):
+            self.assertIn("async_step_" + step, source)
+        self.assertIn("self._draft = validate_configuration(trial)", source)
+        self.assertIn('user_input.get("confirm") is not True', source)
+        self.assertIn('data={"source": "ui", "configuration": cfg}', source)
+        self.assertNotIn("services.async_call(", source)
+
     def test_native_five_view_frontend_is_bundled(self):
         source = (COMPONENT / "frontend" / "robotix-multicharge.js").read_text(
             encoding="utf8"

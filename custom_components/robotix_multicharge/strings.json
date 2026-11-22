@@ -3,9 +3,64 @@
     "step": {
       "user": {
         "title": "Robotix MultiCharge",
-        "description": "Set up your charging site. Charger control is not available in this development version.",
+        "description": "Step 1/5 — Define your charging site and a conservative configured group budget. No physical charging is enabled.",
         "data": {
-          "name": "Charging site name"
+          "name": "Charging site name",
+          "max_parallel": "Maximum simultaneous charging points",
+          "max_power_kw": "Configured group power ceiling (kW; hardware verification required)"
+        }
+      },
+      "charger": {
+        "title": "Step 2/5 — Charging points",
+        "description": "Add one physical charging point at a time, or Finish to continue. No control will be activated.",
+        "data": {
+          "action": "Add or finish",
+          "name": "Charger name",
+          "kind": "Qualified control type",
+          "rated_power_kw": "Rated power (kW)",
+          "phase_count": "Phases (if known)",
+          "min_current_a": "Minimum supported current (A)",
+          "max_current_a": "Maximum supported current (A)",
+          "connected_entity": "Physical connection sensor",
+          "power_entity": "Actual power sensor",
+          "energy_entity": "Energy meter",
+          "control_entity": "Command entity (saved only; not activated)",
+          "add_another": "Add another charger"
+        }
+      },
+      "asset": {
+        "title": "Step 3/5 — Chargeable assets",
+        "description": "Add a vehicle or rechargeable asset. SoC is optional when explicit kWh or duration is entered.",
+        "data": {
+          "action": "Add or finish",
+          "name": "Asset name",
+          "kind": "Asset kind",
+          "soc_entity": "Battery % source (optional)",
+          "capacity_kwh": "Usable battery capacity (kWh)",
+          "target_soc": "Target battery %",
+          "requested_kwh": "Explicit requested kWh",
+          "requested_duration_minutes": "Requested duration (minutes)",
+          "ready_by": "Ready by (timezone-aware)",
+          "charge_efficiency": "Verified charging efficiency",
+          "max_charge_kw": "Asset charging limit (kW)",
+          "priority": "Priority (0–100)",
+          "add_another": "Add another asset"
+        }
+      },
+      "sources": {
+        "title": "Step 4/5 — Sources & assignments",
+        "description": "Select optional qualified sources and explicitly assign assets to chargers. Missing critical bindings never imply unlimited power.",
+        "data": {
+          "price_entity": "Effective price interval source",
+          "solar_entity": "Available solar power interval source",
+          "binding_entity": "Binding available charging power envelope"
+        }
+      },
+      "verify": {
+        "title": "Step 5/5 — Verify",
+        "description": "{summary} Confirm only after checking equipment and source names. This completes configuration, not physical commissioning.",
+        "data": {
+          "confirm": "I have reviewed the configuration"
         }
       }
     },
@@ -15,7 +70,8 @@
       "configuration_updated": "YAML configuration updated."
     },
     "error": {
-      "invalid_config": "Invalid configuration."
+      "invalid_config": "Invalid configuration.",
+      "verification_required": "Review and confirm this configuration before saving."
     }
   },
   "options": {
