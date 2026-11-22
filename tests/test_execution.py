@@ -705,7 +705,7 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stopped["status"], "confirmed")
         self.assertTrue(rt.executor.capabilities()["evse"]["start_allowed"])
 
-    async def test_start_rejects_unverified_other_charger_even_at_zero_power(self):
+    async def test_unknown_external_switch_reserves_possible_parallel_slot(self):
         rt, sources, services = rig()
         rt.configuration["chargers"].append({
             "id": "other", "name": "Another charger", "kind": "on_off",
@@ -716,7 +716,7 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         })
         sources["sensor.other_power"] = state(0, "W")
         outcome = await rt.executor.execute("evse", "start")
-        self.assertEqual(outcome["reason"], "OTHER_CHARGER_OWNER_OR_STATE_UNKNOWN")
+        self.assertEqual(outcome["reason"], "MAX_PARALLEL_REACHED")
         self.assertEqual(services.calls, [])
 
     async def test_explicit_zero_demand_or_unverified_phases_blocks_real_start(self):

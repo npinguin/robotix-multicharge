@@ -524,17 +524,23 @@ class NativeSwitchExecutor:
             # exclude an idle external Charger from the occupied budget.
             # A measured external load is conservatively reserved at rated
             # power even without access to the provider's native switch.
-            if state is None and power.value <= STOP_POWER_KW:
-                if other.get("control_owner") == "multicharge":
-                    return "OTHER_CHARGER_OWNER_OR_STATE_UNKNOWN"
-                continue
+            unknown_external_state = (
+                state is None
+                and other.get("control_owner") != "multicharge"
+            )
+            if state is None and not unknown_external_state:
+                return "OTHER_CHARGER_OWNER_OR_STATE_UNKNOWN"
+            # Another independently controlled charger may start at any time
+            # without exposing its switch. Reserve its full rated capacity
+            # even when measured power is currently zero. Known measured
+            # higher draw always wins over nominal.
             externally_powered = (
                 other.get("control_owner") != "multicharge"
                 and power.value > STOP_POWER_KW
             )
             is_active = (
                 (state is not None and state.state == "on")
-                or externally_powered
+                or externally_powered or unknown_external_state
             )
             if is_active:
                 occupied += 1
@@ -551,9 +557,9 @@ class NativeSwitchExecutor:
                                         * len(other["phase_ids"]) / 1000)
                     else:
                         amps = other["max_current_a"]
-                        reserved += other["rated_power_kw"]
+                        reserved += max(power.value, other["rated_power_kw"])
                 else:
-                    reserved += other["rated_power_kw"]
+                    reserved += max(power.value, other["rated_power_kw"])
                 if ctl.get("phase_limits_a") or other.get("circuit_id"):
                     if amps is None or not other.get("phase_ids"):
                         return "OTHER_CHARGER_PHASES_UNVERIFIED"
