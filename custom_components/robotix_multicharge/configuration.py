@@ -208,6 +208,8 @@ def validate_configuration(value):
         if source.get("circuit_id"):
             charger["circuit_id"] = _text(source["circuit_id"], "charger.circuit_id")
         if owner == "multicharge" and source["kind"] == "variable_current":
+            if not ctl.get("phase_limits_a"):
+                raise ValueError("charger: commissioned variable current requires verified site phase limits")
             if not all(key in charger for key in (
                 "phase_count", "phase_ids", "voltage_v", "current_step_a",
                 "min_current_a", "max_current_a", "circuit_id", "circuit_limit_a"
@@ -226,6 +228,12 @@ def validate_configuration(value):
                 raise ValueError("charger: verified phase wiring and voltage required")
             if source["kind"] == "on_off" and not charger.get("fixed_current_a"):
                 raise ValueError("charger: on/off current required for phase protection")
+            if (source["kind"] == "on_off"
+                    and charger.get("fixed_current_a") is not None
+                    and charger["fixed_current_a"] * charger["voltage_v"]
+                    * len(charger["phase_ids"]) + 1e-9
+                    < charger["rated_power_kw"] * 1000):
+                raise ValueError("charger: phase current understates nominal electrical load")
         for key in ("control_entity", "connected_entity", "power_entity", "energy_entity",
                     "current_control_entity", "current_readback_entity"):
             if source.get(key):

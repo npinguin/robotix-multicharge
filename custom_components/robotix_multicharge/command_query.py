@@ -16,7 +16,8 @@ from .const import DOMAIN
 @websocket_api.websocket_command({
     vol.Required("type"): "robotix_multicharge/command",
     vol.Required("charger_id"): str,
-    vol.Required("action"): vol.In(("start", "stop")),
+    vol.Required("action"): vol.In(("start", "stop", "set_current")),
+    vol.Optional("current_a"): vol.Coerce(float),
     vol.Optional("request_id"): str,
 })
 @websocket_api.async_response
@@ -33,7 +34,8 @@ async def websocket_charge_command(
         return
     result = await runtimes[0].executor.execute(
         msg["charger_id"], msg["action"],
-        request_id=msg.get("request_id"), context=connection.context(msg)
+        request_id=msg.get("request_id"), context=connection.context(msg),
+        current_a=msg.get("current_a")
     )
     connection.send_result(msg["id"], result)
 

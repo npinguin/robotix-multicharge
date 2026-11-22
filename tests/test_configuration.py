@@ -149,6 +149,7 @@ class ConfigurationTests(unittest.TestCase):
     def test_owned_adjustable_charger_requires_verified_distinct_readback(self):
         cfg = default_configuration()
         cfg["assets"] = [{"id": "car", "name": "Car", "requested_kwh": 2}]
+        cfg["controller"]["phase_limits_a"] = {"L1": 16, "L2": 16, "L3": 16}
         c = {"id": "drive", "name": "Drive", "kind": "variable_current",
              "rated_power_kw": 11, "asset": "car", "control_owner": "multicharge",
              "control_entity": "switch.drive", "connected_entity": "binary_sensor.plug",

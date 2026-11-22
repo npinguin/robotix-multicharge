@@ -57,13 +57,18 @@ class NativeServices:
             if "sensor.actual_current" in self.sources:
                 self.sources["sensor.actual_current"].state = str(data["value"])
                 self.sources["sensor.actual_current"].last_updated = datetime.now(timezone.utc)
+                self.sources["sensor.actual_power"].state = str(
+                    round(float(data["value"]) * 230)
+                )
+                self.sources["sensor.actual_power"].last_updated = datetime.now(timezone.utc)
             return
         if self.reconcile_observations:
             entity = data["entity_id"]
             self.sources[entity].state = "on" if service == "turn_on" else "off"
             self.sources[entity].last_updated = datetime.now(timezone.utc)
             self.sources["sensor.actual_power"].state = (
-                "1600" if service == "turn_on" else "0"
+                ("1380" if "sensor.actual_current" in self.sources else "1600")
+                if service == "turn_on" else "0"
             )
             self.sources["sensor.actual_power"].last_updated = datetime.now(timezone.utc)
 
@@ -103,6 +108,39 @@ def rig(*, owner="multicharge", commissioned=True, group_kw=4.0,
 
 
 class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
+
+    async def test_automatic_quarter_applies_only_physically_confirmed_plan(self):
+        rt, states, services = rig(mode="Automatic")
+        at = datetime.now(timezone.utc)
+        quarter = at.replace(minute=(at.minute // 15) * 15, second=0, microsecond=0)
+        for source in states.values():
+            source.last_updated = quarter + timedelta(seconds=1)
+        rt.refresh(quarter)
+        self.assertTrue(rt.assessment.plan.slots)
+        await rt.executor.advance_plan(quarter)
+        self.assertEqual([x[1] for x in services.calls], ["turn_on"])
+        accepted = rt.executor.accepted_slots()
+        self.assertEqual(len(accepted), 1)
+        self.assertIsNotNone(list(accepted.values())[0]["revision"])
+        view = rt.read_plan(quarter, quarter + timedelta(minutes=15))
+        self.assertEqual(view["slots"][0]["accepted_power_kw"], 2)
+        await rt.executor.advance_plan(quarter)
+        self.assertEqual(len(services.calls), 1)
+        rt.configuration["controller"]["mode"] = "Off"
+        await rt.executor.supervise()
+        self.assertEqual(services.calls[-1][1], "turn_off")
+
+    async def test_economy_solar_without_sources_never_auto_start(self):
+        for mode in ("Economy", "Solar"):
+            rt, states, services = rig(mode=mode)
+            at = datetime.now(timezone.utc)
+            quarter = at.replace(minute=(at.minute // 15) * 15, second=0, microsecond=0)
+            for source in states.values():
+                source.last_updated = quarter + timedelta(seconds=1)
+            rt.refresh(quarter)
+            await rt.executor.advance_plan(quarter)
+            self.assertEqual(services.calls, [])
+            self.assertFalse(rt.executor.accepted_slots())
 
     async def test_verified_adjustable_native_setpoint_and_physical_start(self):
         rt, states, services = rig(group_kw=7.5)

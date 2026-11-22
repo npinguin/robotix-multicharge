@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from math import isfinite
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -221,7 +222,8 @@ class NativeSwitchExecutor:
         """Reject a claimed adjustable capability until native source metadata agrees."""
         if charger.get("kind") != "variable_current":
             return "CHARGER_NOT_ADJUSTABLE", None
-        if not isinstance(current, (float, int)) or isinstance(current, bool):
+        if (not isinstance(current, (float, int)) or isinstance(current, bool)
+                or not isfinite(current)):
             return "CURRENT_SETPOINT_REQUIRED", None
         lo, hi, step = (charger.get("min_current_a"), charger.get("max_current_a"),
                         charger.get("current_step_a"))
@@ -347,8 +349,14 @@ class NativeSwitchExecutor:
     def _current_confirmed(self, charger, current, requested_at):
         reading = number(self.runtime.hass, charger.get("current_readback_entity"),
                          "current", datetime.now(timezone.utc))
+        watts = number(self.runtime.hass, charger.get("power_entity"), "power",
+                       datetime.now(timezone.utc))
+        target_kw = current * charger["voltage_v"] * len(charger["phase_ids"]) / 1000
         return (reading.quality == "ok" and reading.observed_at is not None
                 and reading.observed_at >= requested_at
+                and watts.quality == "ok" and watts.observed_at is not None
+                and watts.observed_at >= requested_at
+                and START_POWER_KW < watts.value <= target_kw * 1.10 + 0.01
                 and abs(reading.value - current) <= max(0.25,
                     charger.get("current_step_a", 1) / 2))
 
@@ -545,7 +553,8 @@ class NativeSwitchExecutor:
                         if due is None:
                             continue
                         resolved = due.isoformat()
-                if self._completed.get(asset["id"]) == resolved:
+                if (asset["id"] in self._completed
+                        and self._completed[asset["id"]] == resolved):
                     continue
                 result = await self.execute(
                     uid, "start", current_a=slot.current_a, plan_slot=slot,
@@ -624,7 +633,7 @@ class NativeSwitchExecutor:
                 no_plan = is_auto and (
                     accepted is None or accepted["end"] <= at and not in_grace
                 )
-                unowned = is_auto and accepted is None and not in_grace
+                unowned = is_auto and accepted is None
                 wrong_mode = mode == "Off" or (is_auto and (no_plan or unowned))
                 if mode == "Force Charge" and accepted is not None:
                     wrong_mode = True
@@ -810,7 +819,6 @@ class NativeSwitchExecutor:
                 if charger_id in self._quarantine:
                     return result("rejected", "PREVIOUS_COMMAND_UNCONFIRMED")
                 if plan_slot is not None:
-                    assessment = self.runtime.assessment
                     if (self._grants.get(charger_id) != plan_slot
                             or not plan_slot.start <= at < plan_slot.end
                             or plan_slot.charger_uid != charger_id
