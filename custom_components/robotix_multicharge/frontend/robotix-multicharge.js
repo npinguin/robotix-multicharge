@@ -878,7 +878,12 @@ class RobotixMultiChargeCard extends HTMLElement {
   settings(container){
     const d=this._data,c=d.configuration||{},ctl=c.controller||{};
     this.title(container,"Settings");
-    if(d.configuration_managed_by_yaml)mcPair(container,"Configuration","YAML · read-only; edit Home Assistant YAML and restart");
+    if(d.configuration_managed_by_yaml)mcPair(
+      container,"Configuration",
+      d.configuration_managed_by_json?
+        "JSON · read-only; edit your MultiCharge JSON and restart":
+        "YAML · read-only; edit Home Assistant YAML and restart"
+    );
 
     this.configure(container);
     this.feedback(container);
