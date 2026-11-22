@@ -111,6 +111,21 @@ class EvidenceTests(unittest.TestCase):
         self.assertIsNone(binding(bad, "sensor.binding", NOW)[0])
         self.assertIsNone(binding(obj, "sensor.binding", NOW + timedelta(hours=2))[0])
 
+    def test_price_slot_cannot_outlive_source_validity(self):
+        row = {
+            "start": NOW.isoformat(),
+            "end": (NOW + timedelta(hours=2)).isoformat(),
+            "value": 0.12,
+        }
+        obj = hass({"sensor.price": state(
+            "ready", kind="effective_eur_kwh",
+            valid_until=(NOW + timedelta(minutes=30)).isoformat(),
+            intervals=[row],
+        )})
+        slots, reason = intervals(obj, "sensor.price", "price", NOW)
+        self.assertEqual(slots, ())
+        self.assertEqual(reason, "INTERVAL_EXCEEDS_VALIDITY")
+
     def test_overlapping_solar_and_expiry_rejected(self):
         row = {
             "start": NOW.isoformat(),

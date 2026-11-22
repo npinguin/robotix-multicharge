@@ -66,6 +66,17 @@ class PlannerTests(unittest.TestCase):
                     len([s for s in result.plan.slots if s.start == slot]), n
                 )
 
+    def test_unchanged_slots_keep_plan_revision_across_minute_refresh(self):
+        ctl, chargers = build()
+        desired = [demand(0, kwh=1)]
+        first = compile_plan(ctl, chargers, desired, NOW)
+        after = compile_plan(
+            ctl, chargers, desired, NOW + timedelta(minutes=1)
+        )
+        self.assertEqual(first.plan.slots, after.plan.slots)
+        self.assertEqual(first.plan.revision, after.plan.revision)
+        self.assertNotEqual(first.plan.generated_at, after.plan.generated_at)
+
     def test_explicit_priority_wins_early_capacity(self):
         ctl, chargers = build(2, limit=4)
         result = compile_plan(

@@ -119,6 +119,8 @@ def intervals(hass, entity_id: str | None, kind: str, now: datetime):
         for item in raw:
             start, end = _date(item["start"]), _date(item["end"])
             value = float(item["value"])
+            if end > expires:
+                return (), "INTERVAL_EXCEEDS_VALIDITY"
             if not isfinite(value):
                 raise ValueError("invalid interval")
             if kind == "price":
@@ -136,8 +138,9 @@ def intervals(hass, entity_id: str | None, kind: str, now: datetime):
 def binding(hass, entity_id: str | None, now: datetime):
     """Verify an externally owned *binding* site power envelope or fail closed.
 
-    Only signed, explicitly selected, fresh limits with non-overlapping
-    time-covered slots qualify. An advisory signal is NOT execution authority.
+    Only explicitly selected, fresh, revisioned limits with non-overlapping
+    time-covered slots qualify. Source binding is not a cryptographic
+    signature or permission to actuate; execution has a separate gate.
     """
     obj, evidence = _state(hass, entity_id, now, timedelta(minutes=20))
     if obj is None:

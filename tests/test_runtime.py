@@ -120,6 +120,20 @@ class RuntimeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             rt.read_plan(NOW, NOW + timedelta(hours=1), charger_id="not-real")
 
+    def test_selected_site_capacity_never_silently_ignored(self):
+        cfg = sample()
+        cfg["controller"]["site_power_entity"] = "sensor.available"
+        readings = {
+            "sensor.soc": state("50", "%"),
+            "binary_sensor.cable": state("on"),
+        }
+        rt = MultiChargeRuntime(
+            SimpleNamespace(states=SimpleNamespace(get=readings.get)), cfg
+        )
+        rt.refresh(NOW)
+        self.assertEqual(rt.assessment.plan.slots, ())
+        self.assertEqual(rt.excluded["controller"], "BINDING_CAPACITY_UNAVAILABLE")
+
     def test_selected_but_unavailable_ems_never_becomes_unlimited(self):
         cfg = sample()
         cfg["controller"]["binding_entity"] = "sensor.supervision"

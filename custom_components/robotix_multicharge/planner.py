@@ -228,7 +228,7 @@ def compile_plan(
 
     allocations.sort(key=lambda s: (s.start, s.charger_uid))
     signature = "|".join((
-        controller.uid, mode, at.isoformat(),
+        controller.uid, mode,
         *(
             f"{s.charger_uid}:{s.start.isoformat()}:{s.power_kw}"
             for s in allocations

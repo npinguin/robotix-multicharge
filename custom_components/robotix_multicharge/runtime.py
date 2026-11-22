@@ -109,9 +109,14 @@ class MultiChargeRuntime:
         )
         external_binding = None
         binding_quality = "NOT_CONFIGURED"
-        if setting.get("binding_entity"):
+        # Never ignore the pre-existing site_power_entity configuration:
+        # it must meet the same versioned binding envelope semantics.
+        capacity_source = setting.get("binding_entity") or setting.get(
+            "site_power_entity"
+        )
+        if capacity_source:
             external_binding, binding_quality = binding(
-                self.hass, setting["binding_entity"], at
+                self.hass, capacity_source, at
             )
             if external_binding is None:
                 # A selected but missing/invalid capacity supervisor is
