@@ -8,7 +8,8 @@ function mcTr(value){
 function mcOwnerColor(kind,id,configuration,palette){
   const rows=kind==="charger"?configuration.chargers:configuration.assets;
   const found=(rows||[]).find(x=>x.id===id);
-  return found&&palette&&palette[found.plan_color]||mcIdentityColor(kind+":"+id);
+  return found?.plan_color&&palette?.[found.plan_color]||
+    "var(--secondary-text-color,#757d87)";
 }
 
 const MC_MODE_SELECT={
@@ -96,13 +97,6 @@ function mcSVG(tag, attrs, text) {
 }
 
 
-const MC_ID_COLORS=["#3779b9","#a86340","#32816e","#9568b4","#ae842d",
-                    "#487b97","#ae6187","#647fbd","#768b38","#915f55"];
-function mcIdentityColor(id){
-  let hash=2166136261;
-  for(const ch of String(id)){hash=Math.imul(hash^ch.charCodeAt(0),16777619)>>>0;}
-  return MC_ID_COLORS[hash%MC_ID_COLORS.length];
-}
 function mcPlanName(slot,configuration,labels){
   const charger=(configuration.chargers||[]).find(c=>c.id===slot.charger_id);
   const asset=(configuration.assets||[]).find(a=>a.id===slot.asset_id);

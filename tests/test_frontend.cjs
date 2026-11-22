@@ -75,6 +75,11 @@ async function main(){
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(commands.length>0);
   assert.equal(commands[0].type,"robotix_multicharge/get_plan");
+  assert.ok(!require("node:fs").readFileSync(
+    require("node:path").join(__dirname,
+      "../custom_components/robotix_multicharge/frontend/robotix-multicharge.js"),
+    "utf8").includes("mcIdentityColor"),
+    "plan colors only use the owning Charger or ChargeableAsset preference");
   assert.ok(content(card.shadowRoot).includes("Family car"));
   assert.ok(content(card.shadowRoot).includes("2.30 kW"));
   find(card.shadowRoot,"button","Charging Plan").click();
