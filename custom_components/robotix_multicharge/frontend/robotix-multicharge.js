@@ -73,6 +73,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._error="";
     this._last=0;
     this._loading=false;
+    this._commandBusy=false;
+    this._commandFeedback={};
   }
   setConfig(config){this._cardConfig=config||{};this.render();}
   getCardSize(){return 10;}
@@ -95,6 +97,29 @@ class RobotixMultiChargeCard extends HTMLElement {
       this._data=null;
       this._last=Date.now();
     }finally{this._loading=false;this.render();}
+  }
+  async command(charger,action){
+    if(this._commandBusy||!this._hass)return;
+    this._commandBusy=true;
+    this._commandFeedback[charger]={status:"requested",reason:"Submitting physical command…"};
+    this.render();
+    try {
+      const outcome=await this._hass.callWS({
+        type:"robotix_multicharge/command",
+        charger_id:charger,action,
+        request_id:crypto.randomUUID()
+      });
+      this._commandFeedback[charger]=outcome;
+      if(outcome.status==="confirmed"){
+        this._last=0;
+        await this.load();
+      }
+    }catch(error){
+      this._commandFeedback[charger]={
+        status:"rejected",
+        reason:"COMMAND_REQUEST_FAILED: "+String(error.message||error)
+      };
+    }finally{this._commandBusy=false;this.render();}
   }
   title(container,label){
     container.append(mcEl("h2","",label));
@@ -137,7 +162,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(this._tab==="Chargeable Assets")this.assets(shell);
       if(this._tab==="Chargers")this.chargers(shell);
       if(this._tab==="Settings")this.settings(shell);
-      this.notice(shell,"Development mode: plans are proposals only. Physical charging commands are disabled until qualified hardware commissioning.",false);
+      this.notice(shell,"Planning is advisory. Manual on/off commands require exclusive ownership, physical commissioning and independent measured readback. Other modes and variable-current execution remain unavailable.",false);
     }
     root.append(shell);
   }
@@ -297,8 +322,33 @@ class RobotixMultiChargeCard extends HTMLElement {
         mcPair(detail,"Phases",c.phase_count||"Unverified");
         mcPair(detail,"Current range",c.min_current_a&&c.max_current_a?c.min_current_a+"–"+c.max_current_a+" A":"Not supported/verified");
         mcPair(detail,"Source state",obs.power_kw?(obs.power_kw.quality+" · "+obs.power_kw.reason):"Unknown");
-        mcPair(detail,"Command outcome","No authorized physical executor");
+        const actual=(d.command_outcomes||{})[c.id]||{};
+        mcPair(detail,"Command outcome",actual.status||"No command issued");
+        if(actual.reason)mcPair(detail,"Reason",actual.reason);
+        if(actual.readback_at)mcPair(detail,"Measured confirmation",mcTime(actual.readback_at,d.timezone));
         this.configure(detail);card.append(detail);
+      }
+      const capability=(d.command_capabilities||{})[c.id]||{};
+      const outcome=this._commandFeedback[c.id]||(d.command_outcomes||{})[c.id];
+      const controls=mcEl("div","controls");
+      if(capability.start_allowed){
+        const start=mcButton("Start charging",()=>this.command(c.id,"start"));
+        start.disabled=this._commandBusy;
+        controls.append(start);
+      }
+      if(capability.stop_allowed){
+        const stop=mcButton("Stop charging",()=>this.command(c.id,"stop"));
+        stop.disabled=this._commandBusy;
+        controls.append(stop);
+      }
+      if(controls.children.length)card.append(controls);
+      if(!capability.start_allowed && capability.reason)
+        card.append(mcEl("p","muted small","Start unavailable: "+capability.reason));
+      if(outcome){
+        const bad=outcome.status==="rejected"||outcome.status==="execution_unknown";
+        const status=mcEl("p","small"+(bad?" error":""),outcome.status+" — "+outcome.reason);
+        status.setAttribute("role",bad?"alert":"status");
+        card.append(status);
       }
       container.append(card);
     }
@@ -307,11 +357,11 @@ class RobotixMultiChargeCard extends HTMLElement {
   settings(container){
     const d=this._data,c=d.configuration||{},ctl=c.controller||{};
     this.title(container,"Settings");
-    this.notice(container,"Existing configuration is managed through Home Assistant Options Flow or YAML import. UI edits and hardware control are not commissioned.",false);
+    this.notice(container,"Settings are managed through the native Home Assistant Options Flow or YAML. Manual physical control requires a separately approved single-writer cutover and commissioning.",false);
     const data={
       "Charging site":"Site: "+(ctl.name||"not configured")+" · Parallel chargers: "+(ctl.max_parallel||"not set"),
       "Sources & bindings":"Chargers: "+(c.chargers||[]).length+" · Assets: "+(c.assets||[]).length+" · Source bindings are selected explicitly",
-      "Charging strategy":"Current proposal mode: "+(ctl.mode||"Off")+". No physical activation.",
+      "Charging strategy":"Current mode: "+(ctl.mode||"Off")+". Only qualified manual on/off Force Charge has an executable START command; the other modes remain advisory.",
       "Safety & limits":"Configured group limit: "+(ctl.max_power_kw===undefined?"unqualified":ctl.max_power_kw+" kW")+". Optional external binding must be fresh.",
       "Integrations":"External Energy, Mobility, Planning, Finance and Notifications are optional; no mandatory provider.",
       "Advanced & YAML":"Expert YAML uses the same validated configuration schema. YAML-owned entries must be edited in YAML."
