@@ -50,7 +50,7 @@ import json
 import pathlib
 import sys
 from homeassistant.components.diagnostics import async_redact_data
-from homeassistant import __version__ as ha_version
+from homeassistant.const import __version__ as ha_version
 from custom_components.robotix_multicharge import (
     config_flow, plan_query, command_query, sensor, button, select,
     number, datetime, text, binary_sensor, diagnostics, frontend,
