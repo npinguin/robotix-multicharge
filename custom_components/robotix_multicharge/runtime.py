@@ -1,7 +1,8 @@
 """Source-neutral HA planning runtime and the guarded one-writer command owner.
 
-Planning never authorizes a physical command. Explicit manual on/off requests
-use the native executor, with distinct source observations and command outcomes.
+Planning alone never authorizes a physical command. Manual and quarter-slot
+requests share the one guarded native executor with independent observations,
+bounded history and explicit verified command outcomes.
 """
 
 from __future__ import annotations

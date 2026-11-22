@@ -18,7 +18,7 @@ The planned 15-minute Today/Tomorrow chart needs one bounded, read-only query on
 
 Use native lightweight HA summary entities and Recorder for measured history. Do not replicate the planner or persist whole future timelines as large frequently rewritten sensor attributes.
 
-**Status:** the `dev` source now implements explicitly selected HA observations, a bounded admin-only `robotix_multicharge/get_plan` read query and deterministic **proposed-only** 15-minute planning. It now implements source-tested guarded native switch/current commands, qualified quarter-hour automatic plan admission, separate accepted-slot evidence and native HA Store replay protection. It does NOT establish exclusive writer ownership on a live EVSE, qualify actual running HA hardware, completely reconcile measured sessions or close native Settings/UX and release gates.
+**Status:** `dev` has qualified source observations, a bounded admin-only plan/history query, source-tested 15-minute proposed/accepted/Recorder history, guarded physical switch/current commands and all six strategy execution paths, native HA Store restart intent holds, completed measured session receipts with narrowly qualified tariff costs, temporary guest expiry, native stop/sensors and an admin-validated Config Entry settings editor. This does **not** establish exclusive control of a real EVSE, actual HA/browser/hardware acceptance, end-to-end session recovery/permissions, UC01–UC29 completion or any release gate.
 
 ## Contract-first implementer specification — candidate, not yet public API
 
