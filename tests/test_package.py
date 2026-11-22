@@ -11,6 +11,13 @@ COMPONENT = ROOT / "custom_components" / "robotix_multicharge"
 
 
 class PackageTest(unittest.TestCase):
+    def test_manifest_key_order_for_hassfest(self):
+        text = (COMPONENT / "manifest.json").read_text(encoding="utf8")
+        obj = json.loads(text)
+        self.assertEqual(
+            list(obj), ["domain", "name", *sorted(set(obj) - {"domain", "name"})]
+        )
+
     def test_manifest_is_standalone(self):
         m = json.loads((COMPONENT / "manifest.json").read_text(encoding="utf8"))
         self.assertEqual(m["domain"], "robotix_multicharge")
