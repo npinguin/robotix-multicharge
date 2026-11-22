@@ -15,7 +15,7 @@ from .contracts import PowerEnvelope, PowerLimitSlot, PriceSlot
 
 @dataclass(frozen=True)
 class Evidence:
-    value: float | bool | None
+    value: float | bool | str | None
     quality: str
     observed_at: datetime | None
     reason: str
@@ -97,6 +97,33 @@ def connection(hass, entity_id: str | None, now: datetime) -> Evidence:
         return Evidence(None, "invalid", evidence.observed_at, "CONNECTION_AMBIGUOUS")
     return Evidence(value, "ok", evidence.observed_at, "OK")
 
+
+
+def session_status(hass, entity_id: str | None, now: datetime) -> Evidence:
+    """Read independent source session state without treating it as charging power.
+
+    A native session flag is informational: active does not prove cable,
+    identity, meter delivery or authority to issue an EVSE command.
+    """
+    obj, evidence = _state(hass, entity_id, now, timedelta(minutes=30))
+    if obj is None:
+        return evidence
+    domain = entity_id.split(".", 1)[0]
+    value = str(obj.state).strip().lower()
+    if domain == "binary_sensor":
+        labels = {"on": "active", "off": "inactive"}
+    elif domain == "sensor":
+        labels = {
+            "charging": "charging", "active": "active",
+            "paused": "paused", "idle": "idle",
+            "stopped": "stopped", "completed": "completed",
+            "inactive": "inactive",
+        }
+    else:
+        labels = {}
+    if value not in labels:
+        return Evidence(None, "invalid", evidence.observed_at, "SESSION_STATUS_AMBIGUOUS")
+    return Evidence(labels[value], "ok", evidence.observed_at, "OK")
 
 def intervals(hass, entity_id: str | None, kind: str, now: datetime):
     """Accept only a versioned, source-qualified series of real interval data.
