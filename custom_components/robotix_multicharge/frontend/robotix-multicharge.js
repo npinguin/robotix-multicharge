@@ -356,9 +356,15 @@ class RobotixMultiChargeCard extends HTMLElement {
     const count=Math.max(1,Math.ceil((until-from)/900000));
     const width=820, x0=105, yRows=[28,54,80,106], height=14;
     const scene=mcEl("div");
-    const shown=chargers.filter(item=>!this._filter ||
-      this._filter==="charger:"+item.id ||
-      this._filter.startsWith("asset:")&&item.asset===this._filter.slice(6));
+    const shown=chargers.filter(item=>{
+      if(!this._filter)return true;
+      if(this._filter==="charger:"+item.id)return true;
+      if(!this._filter.startsWith("asset:"))return false;
+      const assetId=this._filter.slice(6);
+      return item.asset===assetId ||
+        [...rows,...forecast,...measured].some(s=>
+          s.charger_id===item.id&&s.asset_id===assetId);
+    });
     const values=[["proposed_power_kw",rows,"Proposed"],
       ["accepted_power_kw",rows,"Physically accepted"],
       ["actual_power_kw",measured,"Measured physical"],
@@ -371,7 +377,13 @@ class RobotixMultiChargeCard extends HTMLElement {
       const hasData=activeRows.length||previewRows.length||actualRows.length;
       const card=mcEl("section","plan-lane");
       const label=mcEl("div","row");
-      const vehicleLabel=selected?selected.name:"No vehicle selected";
+      const historicalAssetId=this._filter.startsWith("asset:")?
+        this._filter.slice(6):null;
+      const pastOnly=historicalAssetId&&charger.asset!==historicalAssetId;
+      const historicAsset=cars.find(a=>a.id===historicalAssetId);
+      const vehicleLabel=pastOnly?
+        (historicAsset?historicAsset.name:historicalAssetId)+" (historical)":
+        selected?selected.name:"No vehicle selected";
       const source=(d.observations||{}).chargers?.[charger.id]?.connected;
       const plugged=source&&source.quality==="ok"?
         source.value?"Connected — identity not implied":"Disconnected":"Connection unknown";
