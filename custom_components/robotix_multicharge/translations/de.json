@@ -1,0 +1,433 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Ladestandort",
+        "description": "Schritt 1/5 – Standort und sichere Ladegrenzen festlegen. Kein physischer Ladevorgang wird aktiviert.",
+        "data": {
+          "name": "Name",
+          "max_parallel": "Gleichzeitige Ladepunkte",
+          "max_power_kw": "Maximale Ladeleistung (kW)",
+          "phase_limits_a": "Phasengrenzen (A)"
+        }
+      },
+      "charger": {
+        "title": "Ladepunkte",
+        "description": "Schritt 2/5 – Ladepunkte hinzufügen. Steuerung bleibt deaktiviert.",
+        "data": {
+          "action": "Aktion",
+          "name": "Name",
+          "kind": "Typ",
+          "rated_power_kw": "Nennleistung (kW)",
+          "phase_count": "Phasenanzahl",
+          "min_current_a": "Mindeststrom (A)",
+          "max_current_a": "Maximalstrom (A)",
+          "connected_entity": "Verbindungssensor",
+          "power_entity": "Leistungssensor",
+          "energy_entity": "Energiezähler",
+          "control_entity": "Schaltentität",
+          "add_another": "Weiteren hinzufügen",
+          "phase_ids": "Verdrahtete Phasen",
+          "voltage_v": "Spannung (V)",
+          "current_step_a": "Stromschritt (A)",
+          "fixed_current_a": "Fester Strom (A)",
+          "circuit_id": "Stromkreis-ID",
+          "circuit_limit_a": "Stromkreisgrenze (A)",
+          "current_control_entity": "Stromsollwert (number)",
+          "current_readback_entity": "Gemessener Strom (A)"
+        }
+      },
+      "asset": {
+        "title": "Lade-Assets",
+        "description": "Schritt 3/5 – Wiederaufladbare Assets anlegen. Batteriestand ist bei festgelegter Energie oder Dauer optional.",
+        "data": {
+          "action": "Aktion",
+          "name": "Name",
+          "kind": "Typ",
+          "soc_entity": "Batteriestand-Sensor",
+          "capacity_kwh": "Batteriekapazität (kWh)",
+          "target_soc": "Ziel-Ladestand (%)",
+          "requested_kwh": "Gewünschte Energie (kWh)",
+          "requested_duration_minutes": "Ladedauer (Minuten)",
+          "ready_by": "Bereit bis",
+          "charge_efficiency": "Ladewirkungsgrad",
+          "max_charge_kw": "Maximale Ladeleistung des Assets (kW)",
+          "priority": "Priorität",
+          "add_another": "Weiteren hinzufügen",
+          "ready_by_repeat": "Wiederholung",
+          "temporary": "Temporärer Gast",
+          "expires_at": "Ablauf des Gasts",
+          "expected_connection_at": "Voraussichtliche Verbindung"
+        }
+      },
+      "sources": {
+        "title": "Quellen und Zuordnung",
+        "description": "Schritt 4/5 – Messquellen wählen und Assets Ladepunkten zuordnen. Fehlende Quellen bedeuten keine unbegrenzte Leistung.",
+        "data": {
+          "price_entity": "Preisquelle",
+          "solar_entity": "Solarquelle",
+          "binding_entity": "Leistungsgrenzquelle"
+        }
+      },
+      "verify": {
+        "title": "Überprüfen",
+        "description": "{summary} Quellen und Geräte prüfen. Die Einrichtung aktiviert keine physische Steuerung.",
+        "data": {
+          "confirm": "Konfiguration bestätigen"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Robotix MultiCharge ist bereits eingerichtet.",
+      "configuration_conflict": "Es besteht bereits eine UI-Konfiguration. Vor YAML-Nutzung entfernen.",
+      "configuration_updated": "YAML-Konfiguration aktualisiert."
+    },
+    "error": {
+      "invalid_config": "Ungültige Konfiguration.",
+      "verification_required": "Konfiguration vor dem Speichern prüfen und bestätigen."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "menu_options": {
+          "controller": "Ladestandort",
+          "asset": "Lade-Asset",
+          "charger": "Ladepunkt",
+          "display": "Dashboardkarte"
+        }
+      },
+      "controller": {
+        "title": "Ladestandort",
+        "data": {
+          "name": "Name",
+          "max_parallel": "Gleichzeitige Ladepunkte",
+          "max_power_kw": "Maximale Ladeleistung (kW)",
+          "mode": "Lademodus",
+          "price_entity": "Preisquelle",
+          "solar_entity": "Solarquelle",
+          "binding_entity": "Leistungsgrenzquelle",
+          "phase_limits_a": "Phasengrenzen (A)",
+          "plan_label_mode": "Planbeschriftung",
+          "plan_color_by": "Farbe nach",
+          "show_indicative_forecast": "Prognose anzeigen"
+        }
+      },
+      "asset": {
+        "title": "Lade-Asset",
+        "description": "Bestehende ID zum Bearbeiten oder Löschen verwenden.",
+        "data": {
+          "action": "Aktion",
+          "id": "Stabile ID",
+          "name": "Name",
+          "kind": "Typ",
+          "soc_entity": "Batteriestand-Sensor",
+          "capacity_kwh": "Batteriekapazität (kWh)",
+          "target_soc": "Ziel-Ladestand (%)",
+          "max_charge_kw": "Maximale Ladeleistung des Assets (kW)",
+          "requested_kwh": "Gewünschte Energie (kWh)",
+          "requested_duration_minutes": "Ladedauer (Minuten)",
+          "ready_by": "Bereit bis",
+          "charge_efficiency": "Ladewirkungsgrad",
+          "priority": "Priorität",
+          "ready_by_repeat": "Wiederholung",
+          "temporary": "Temporärer Gast",
+          "expires_at": "Ablauf des Gasts",
+          "expected_connection_at": "Voraussichtliche Verbindung"
+        }
+      },
+      "charger": {
+        "title": "Ladepunkt",
+        "description": "MultiCharge erst nach überprüfter exklusiver Steuerungsübergabe wählen. Vor Inbetriebnahme Leistungsrückmeldung und elektrische Grenzen prüfen.",
+        "data": {
+          "action": "Aktion",
+          "id": "Stabile ID",
+          "name": "Name",
+          "kind": "Typ",
+          "rated_power_kw": "Nennleistung (kW)",
+          "asset": "Lade-Asset",
+          "control_entity": "Schaltentität",
+          "connected_entity": "Verbindungssensor",
+          "power_entity": "Leistungssensor",
+          "energy_entity": "Energiezähler",
+          "phase_count": "Phasenanzahl",
+          "min_current_a": "Mindeststrom (A)",
+          "max_current_a": "Maximalstrom (A)",
+          "control_owner": "Steuerungsinhaber",
+          "physical_commissioned": "Inbetriebnahme bestätigt",
+          "phase_ids": "Verdrahtete Phasen",
+          "voltage_v": "Spannung (V)",
+          "current_step_a": "Stromschritt (A)",
+          "fixed_current_a": "Fester Strom (A)",
+          "circuit_id": "Stromkreis-ID",
+          "circuit_limit_a": "Stromkreisgrenze (A)",
+          "current_control_entity": "Stromsollwert (number)",
+          "current_readback_entity": "Gemessener Strom (A)"
+        }
+      },
+      "display": {
+        "title": "Dashboardkarte",
+        "description": "Optionale Ansicht. Die Integration funktioniert auch ohne Karte.",
+        "data": {
+          "enable_ux": "Dashboardkarte aktivieren"
+        }
+      }
+    },
+    "abort": {
+      "yaml_managed": "Konfiguration wird über YAML verwaltet. YAML ändern und Home Assistant neu starten."
+    },
+    "error": {
+      "invalid_config": "Ungültige Konfiguration."
+    }
+  },
+  "entity": {
+    "select": {
+      "plan_label_mode": {
+        "name": "Planbeschriftung",
+        "state": {
+          "vehicle": "Asset",
+          "charger": "Ladepunkt",
+          "both": "Beide"
+        }
+      },
+      "plan_color_by": {
+        "name": "Farbe nach",
+        "state": {
+          "vehicle": "Asset",
+          "charger": "Ladepunkt"
+        }
+      },
+      "show_indicative_forecast": {
+        "name": "Prognose",
+        "state": {
+          "on": "Anzeigen",
+          "off": "Ausblenden"
+        }
+      },
+      "mode": {
+        "name": "Lademodus",
+        "state": {
+          "automatic": "Automatisch",
+          "solar": "Solar",
+          "economy": "Sparmodus",
+          "ready_by": "Bereit bis",
+          "force_charge": "Sofort laden",
+          "off": "Aus"
+        }
+      },
+      "plan_color": {
+        "name": "Planfarbe",
+        "state": {
+          "blue": "Blau",
+          "orange": "Orange",
+          "green": "Grün",
+          "purple": "Lila",
+          "gold": "Gold",
+          "teal": "Blaugrün",
+          "pink": "Rosa",
+          "indigo": "Indigo",
+          "olive": "Oliv",
+          "brown": "Braun",
+          "coral": "Koralle",
+          "slate": "Schiefer",
+          "violet": "Violett",
+          "lime": "Limette",
+          "salmon": "Lachs",
+          "cyan": "Cyan",
+          "wine": "Weinrot",
+          "forest": "Waldgrün",
+          "peach": "Pfirsich",
+          "lavender": "Lavendel",
+          "turquoise": "Türkis",
+          "rust": "Rost",
+          "navy": "Marineblau",
+          "moss": "Moosgrün"
+        }
+      },
+      "selected_vehicle": {
+        "name": "Lade-Asset",
+        "state": {
+          "none": "Kein Asset"
+        }
+      },
+      "ready_by_repeat": {
+        "name": "Wiederholung",
+        "state": {
+          "none": "Keine",
+          "daily": "Täglich",
+          "weekly": "Wöchentlich"
+        }
+      },
+      "kind": {
+        "name": "Assettyp",
+        "state": {
+          "car": "Auto",
+          "bicycle": "Fahrrad",
+          "motorcycle": "Motorrad",
+          "scooter": "Roller",
+          "other": "Sonstiges"
+        }
+      }
+    },
+    "number": {
+      "target_soc": {
+        "name": "Ziel"
+      },
+      "requested_kwh": {
+        "name": "Energie"
+      },
+      "requested_duration_minutes": {
+        "name": "Dauer"
+      },
+      "priority": {
+        "name": "Priorität"
+      },
+      "max_charge_kw": {
+        "name": "Max. Ladeleistung"
+      },
+      "max_parallel": {
+        "name": "Gleichzeitige Ladepunkte"
+      },
+      "max_power_kw": {
+        "name": "Standortleistungsgrenze"
+      },
+      "capacity_kwh": {
+        "name": "Batteriekapazität"
+      },
+      "charge_efficiency": {
+        "name": "Ladewirkungsgrad"
+      }
+    },
+    "datetime": {
+      "ready_by": {
+        "name": "Bereit bis"
+      },
+      "expected_connection_at": {
+        "name": "Verbindung erwartet"
+      },
+      "expires_at": {
+        "name": "Gast bis"
+      }
+    },
+    "sensor": {
+      "readiness": {
+        "name": "Bereitschaft",
+        "state": {
+          "manual_controls_available": "Verfügbar",
+          "not_commissioned": "Nicht bereit",
+          "physical_readback_confirmed": "Bereit",
+          "readback_stale": "Keine Rückmeldung",
+          "unavailable": "Nicht verfügbar",
+          "source_observed": "Verbunden",
+          "demand_configured": "Konfiguriert",
+          "needs_input": "Ziel festlegen"
+        }
+      },
+      "plan_status": {
+        "name": "Ladeplan",
+        "state": {
+          "proposed": "Geplant",
+          "accepted": "Bestätigt",
+          "unavailable": "Nicht verfügbar"
+        }
+      },
+      "actual_power": {
+        "name": "Effektive Ladeleistung"
+      },
+      "battery_level": {
+        "name": "Batterie"
+      },
+      "connection": {
+        "name": "Verbindung"
+      },
+      "session_energy": {
+        "name": "Sitzungsenergie"
+      },
+      "command_status": {
+        "name": "Befehl",
+        "state": {
+          "not_requested": "Keine Aktion",
+          "requested": "Ausstehend",
+          "confirmed": "Bestätigt",
+          "rejected": "Abgelehnt",
+          "execution_unknown": "Unbekannt"
+        }
+      },
+      "last_session_energy": {
+        "name": "Letzte Ladung"
+      },
+      "charging_mode": {
+        "name": "Lademodus"
+      },
+      "settings_revision": {
+        "name": "Einstellungsversion"
+      },
+      "connected_chargers": {
+        "name": "Verbundene Ladepunkte"
+      },
+      "charging_chargers": {
+        "name": "Ladende Ladepunkte"
+      },
+      "action_health": {
+        "name": "Ladestatus",
+        "state": {
+          "hold": "Gesperrt",
+          "unconfirmed": "Unbekannt",
+          "pending": "Ausstehend",
+          "rejected": "Abgelehnt",
+          "confirmed": "Bestätigt",
+          "idle": "Bereit"
+        }
+      },
+      "last_physical_action": {
+        "name": "Letzte Ladeaktion",
+        "state": {
+          "start": "Start",
+          "stop": "Stopp",
+          "set_current": "Strom",
+          "none": "Keine"
+        }
+      },
+      "last_settings_action": {
+        "name": "Letzte Änderung",
+        "state": {
+          "save": "Speichern",
+          "create": "Hinzufügen",
+          "delete": "Entfernen",
+          "none": "Keine"
+        }
+      },
+      "selected_vehicle": {
+        "name": "Zugeordnetes Asset"
+      },
+      "charging_intention": {
+        "name": "Ladeziel",
+        "state": {
+          "energy": "Energie",
+          "duration": "Dauer",
+          "target_soc": "Batterieziel",
+          "unconfigured": "Ziel festlegen"
+        }
+      },
+      "confirmed_current_setpoint": {
+        "name": "Stromgrenze"
+      },
+      "actual_current": {
+        "name": "Gemessener Strom"
+      }
+    },
+    "text": {
+      "name": {
+        "name": "Name"
+      }
+    },
+    "binary_sensor": {
+      "plugged": {
+        "name": "Kabel verbunden"
+      },
+      "charging": {
+        "name": "Lädt"
+      }
+    }
+  }
+}
