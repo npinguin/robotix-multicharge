@@ -35,6 +35,38 @@ On `dev`, native Site → Charger → Asset → Sources → Verify setup and the
 
 The stable core concepts are `ChargeableAsset`, `Charger` and `ChargeController`. A physical device stays owned by its native Home Assistant integration; MultiCharge only represents the logical charging role.
 
+## Community HACS TEST installation and closing-iteration evidence
+
+Robotix MultiCharge is a **single MIT-licensed community integration**. It installs
+from source; no precompiled runtime, paid Robotix services or separate mirror.
+
+After a `TEST` prerelease is published, open HACS in Home Assistant, add
+`https://github.com/npinguin/robotix-multicharge` as a **custom Integration
+repository**, enable prerelease/beta versions where applicable, and install
+the explicitly selected `v0.1.0` TEST version. Restart Home Assistant, then
+open **Settings → Devices & services → Add integration → Robotix MultiCharge**.
+The source ZIP attached to GitHub Releases has the same runtime files and a
+SHA256 sidecar; HACS normally installs from the matching immutable tag.
+
+During testing, the native Charger device exposes current connection and
+physical readback. Select the actual vehicle and use **Confirm connected
+vehicle** after each real connection, then use real modes/commands and observe
+independent physical readback. This is not a demo or simulation path.
+Never let MultiCharge and another integration both command the same EVSE.
+Select and verify one physical writer in the advanced Charger configuration,
+with tested phase/circuit ceilings, input evidence and STOP behavior.
+
+For each unexpected result, open the integration in **Settings → Devices &
+services**, select **Download diagnostics**, and capture the relevant Home
+Assistant debug log and reproducible user steps. The diagnostics export
+contains planner outcomes, source quality, current-session identity,
+command/readback receipts and qualified charging history, with aliased local
+identifiers. Inspect private diagnostics and logs before sharing publicly.
+Record the issue, exact TEST version, mode, selected hardware, expected versus
+observed result and diagnostics in the existing MultiCharge Issue #1/PR #2
+workflow. A green source CI or prerelease publication is not proof of successful
+physical Wessels acceptance.
+
 ## Development and documentation
 
 - [Architecture, UI and ownership](docs/ARCHITECTURE.md)
