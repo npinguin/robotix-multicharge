@@ -65,7 +65,10 @@ async def websocket_get_plan(
         )
         entry = hass.config_entries.async_get_entry(entry_id)
         result["configuration_managed_by_yaml"] = bool(
-            entry is not None and entry.data.get("source") == "yaml"
+            entry is not None and entry.data.get("source") in ("yaml", "json")
+        )
+        result["configuration_managed_by_json"] = bool(
+            entry is not None and entry.data.get("source") == "json"
         )
         result["actual_slots"] = actual
         result["actual_history_quality"] = quality
