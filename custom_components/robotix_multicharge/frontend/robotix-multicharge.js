@@ -132,7 +132,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._day="today";
     this._filter="";
     this._open="";
-    this._settingsOpen="Charging site";
+    this._settingsOpen="";
     this._data=null;
     this._error="";
     this._last=0;
@@ -1004,7 +1004,7 @@ class RobotixMultiChargeCard extends HTMLElement {
           detail.append(mcEl("p","muted small",
             "Path: /config/packages/multicharge.yaml (with HA packages enabled)"));
           detail.append(mcEl("pre","config-code",
-            "homeassistant:\\n  packages: !include_dir_named packages"));
+            "homeassistant:\n  packages: !include_dir_named packages"));
         }
         group.append(detail);
       }
