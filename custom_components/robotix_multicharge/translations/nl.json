@@ -190,7 +190,7 @@
       },
       "yaml": {
         "title": "MultiCharge — YAML-configuratie",
-        "description": "Bewerk de volledige configuratie of pas onderdelen aan. Eerst valideren en beoordelen; geen fysieke laadcommando's.",
+        "description": "Bewerk de volledige configuratie of pas onderdelen aan. Eerst valideren en beoordelen; geen fysieke laadcommando's. {note}",
         "data": {
           "mode": "Bijwerkmodus",
           "yaml_text": "MultiCharge-configuratie (YAML/JSON)"
