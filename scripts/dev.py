@@ -50,6 +50,7 @@ def check() -> None:
         "custom_components", "tests", "scripts")
     run("node", "--check",
         "custom_components/robotix_multicharge/frontend/robotix-multicharge.js")
+    run("node", "tests/test_frontend.cjs")
     test()
 
 
