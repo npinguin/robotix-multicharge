@@ -80,7 +80,7 @@ from source; no precompiled runtime, paid Robotix services or separate mirror.
 After a `TEST` prerelease is published, open HACS in Home Assistant, add
 `https://github.com/npinguin/robotix-multicharge` as a **custom Integration
 repository**, enable prerelease/beta versions where applicable, and install
-the explicitly selected `v0.1.0` TEST version. Restart Home Assistant, then
+the explicitly selected `v0.1.1` TEST patch once published. Restart Home Assistant, then
 open **Settings → Devices & services → Add integration → Robotix MultiCharge**.
 The source ZIP attached to GitHub Releases has the same runtime files and a
 SHA256 sidecar; HACS normally installs from the matching immutable tag.
