@@ -24,6 +24,26 @@ from multicharge_configuration_tests.configuration import (  # noqa: E402 - impo
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_plan_display_preferences_cannot_change_physical_runtime(self):
+        from multicharge_configuration_tests.configuration import (
+            is_plan_presentation_only_change, apply_settings_change,
+        )
+        original = validate_configuration(default_configuration())
+        visual = apply_settings_change(
+            original, "controller", "home", {
+                "plan_label_mode": "charger",
+                "plan_color_by": "charger",
+                "show_indicative_forecast": False,
+            }
+        )
+        self.assertTrue(is_plan_presentation_only_change(original, visual))
+        self.assertFalse(is_plan_presentation_only_change(original, original))
+        physical = apply_settings_change(
+            visual, "controller", "home", {"mode": "Economy"}
+        )
+        self.assertFalse(is_plan_presentation_only_change(visual, physical))
+        self.assertFalse(is_plan_presentation_only_change(original, physical))
+
     def test_default_is_valid(self):
         self.assertEqual(validate_configuration(default_configuration())["controller"]["id"], "home")
 

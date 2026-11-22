@@ -396,3 +396,18 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
         else:
             target[name] = value
     return validate_configuration(cfg)
+
+
+def is_plan_presentation_only_change(before, after):
+    """Allow card display settings without unloading any active physical writer."""
+    if before == after:
+        return False
+    if (before.get("assets") != after.get("assets")
+            or before.get("chargers") != after.get("chargers")):
+        return False
+    allowed = frozenset((
+        "plan_label_mode", "plan_color_by", "show_indicative_forecast"
+    ))
+    old = {k: v for k, v in before["controller"].items() if k not in allowed}
+    new = {k: v for k, v in after["controller"].items() if k not in allowed}
+    return old == new

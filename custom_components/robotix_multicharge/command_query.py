@@ -9,7 +9,10 @@ from __future__ import annotations
 import voluptuous as vol
 from datetime import datetime, timezone
 
-from .configuration import apply_settings_change, configuration_revision
+from .configuration import (
+    apply_settings_change, configuration_revision,
+    is_plan_presentation_only_change,
+)
 from .source_evidence import number
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
@@ -81,24 +84,32 @@ async def websocket_update_settings(
         async with runtime.executor._lock:
             if msg["expected_revision"] != configuration_revision(runtime.configuration):
                 raise ValueError("Settings changed elsewhere; refresh before saving")
-            # Never change binding, mode or logical assignment while a
-            # potentially live owned charger is active or unobservable.
-            for charger in runtime.configuration["chargers"]:
-                if (charger.get("control_owner") != "multicharge"
-                        or charger.get("physical_commissioned") is not True):
-                    continue
-                state = runtime.executor._switch(hass, charger.get("control_entity"))
-                power = number(hass, charger.get("power_entity"), "power",
-                               datetime.now(timezone.utc))
-                if (state is None or state.state != "off"
-                        or power.quality != "ok" or power.value > 0.05):
-                    raise ValueError(
-                        "Stop and verify all owned charging equipment before editing"
-                    )
             updated = apply_settings_change(
                 runtime.configuration, msg["scope"], msg["target_id"],
                 msg["changes"], msg.get("action", "save"),
             )
+            # A color/label/forecast visibility choice must not require
+            # stopping a live EVSE. All physical/scheduling changes retain
+            # strict idle/readback admission before Config Entry reload.
+            if not is_plan_presentation_only_change(
+                runtime.configuration, updated
+            ):
+                for charger in runtime.configuration["chargers"]:
+                    if (charger.get("control_owner") != "multicharge"
+                            or charger.get("physical_commissioned") is not True):
+                        continue
+                    state = runtime.executor._switch(
+                        hass, charger.get("control_entity")
+                    )
+                    power = number(
+                        hass, charger.get("power_entity"), "power",
+                        datetime.now(timezone.utc)
+                    )
+                    if (state is None or state.state != "off"
+                            or power.quality != "ok" or power.value > 0.05):
+                        raise ValueError(
+                            "Stop and verify owned charging equipment before editing"
+                        )
             next_revision = configuration_revision(updated)
             runtime.record_settings_action(
                 msg["scope"], msg["target_id"], msg.get("action", "save"),

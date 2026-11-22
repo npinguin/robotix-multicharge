@@ -20,7 +20,10 @@ from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .configuration import effective_configuration, validate_configuration
+from .configuration import (
+    effective_configuration, validate_configuration,
+    is_plan_presentation_only_change,
+)
 from .const import DOMAIN
 from .runtime import MultiChargeRuntime
 from .plan_query import register_plan_query
@@ -36,6 +39,19 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
 
     Failures are reported; no second config store or silent change ignoring.
     """
+    existing = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if existing is not None:
+        try:
+            changed = effective_configuration(entry)
+        except (KeyError, ValueError):
+            _LOGGER.error("MultiCharge updated configuration failed validation")
+            return
+        if is_plan_presentation_only_change(existing.configuration, changed):
+            # Visual-only choices are runtime values, not structural devices.
+            # Reload would call shutdown/STOP on actively charging equipment.
+            existing.configuration = changed
+            existing.refresh()
+            return
     if not await hass.config_entries.async_reload(entry.entry_id):
         _LOGGER.error("MultiCharge options changed but safe integration reload failed")
 
