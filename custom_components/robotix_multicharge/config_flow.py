@@ -298,7 +298,7 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
 
-class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
+class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
     """UI-owned settings; YAML entries remain read-only until explicit migration."""
 
     def _current(self):
