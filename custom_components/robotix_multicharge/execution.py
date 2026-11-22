@@ -10,7 +10,7 @@ import asyncio
 import logging
 from hashlib import sha256
 from json import dumps
-from math import isfinite
+from math import floor, isfinite
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -340,6 +340,25 @@ class NativeSwitchExecutor:
             return "RATED_CHARGER_POWER_EXCEEDED", None
         return None, round(kw, 6)
 
+
+    def _highest_safe_current(self, charger, at):
+        """Force Charge means fastest *qualified safe* current, not a blind max."""
+        minimum = charger.get("min_current_a")
+        maximum = charger.get("max_current_a")
+        step = charger.get("current_step_a")
+        if not all(isinstance(x, (float, int)) and x > 0
+                   for x in (minimum, maximum, step)):
+            return None
+        count = floor((maximum - minimum) / step + 1e-9)
+        for index in range(count, -1, -1):
+            candidate = round(minimum + index * step, 6)
+            reason, kw = self._requested_current(charger, candidate, at)
+            if reason is None and self._physical_budget(
+                charger, at, kw, candidate
+            ) is None:
+                return candidate
+        return None
+
     def _physical_budget(self, charger, at, kw, current):
         """Conservative site, phase and circuit budget across all configured sources."""
         cfg = self.runtime.configuration
@@ -434,7 +453,8 @@ class NativeSwitchExecutor:
                 and reading.observed_at >= requested_at
                 and watts.quality == "ok" and watts.observed_at is not None
                 and watts.observed_at >= requested_at
-                and START_POWER_KW < watts.value <= target_kw * 1.10 + 0.01
+                and max(START_POWER_KW, target_kw * 0.80 - 0.01)
+                    <= watts.value <= target_kw * 1.10 + 0.01
                 and abs(reading.value - current) <= max(0.25,
                     charger.get("current_step_a", 1) / 2))
 
@@ -827,7 +847,10 @@ class NativeSwitchExecutor:
             return None
         if power.observed_at < requested_at:
             return None
-        if action == "start" and power.value <= START_POWER_KW:
+        if action == "start" and (
+            power.value <= START_POWER_KW
+            or power.value > charger["rated_power_kw"] * 1.10
+        ):
             return None
         if action == "stop" and power.value > STOP_POWER_KW:
             return None
@@ -879,7 +902,9 @@ class NativeSwitchExecutor:
             if action in ("start", "set_current"):
                 if charger["kind"] == "variable_current":
                     if current_a is None and action == "start" and plan_slot is None:
-                        current_a = charger["min_current_a"]
+                        current_a = self._highest_safe_current(charger, at)
+                        if current_a is None:
+                            return result("rejected", "NO_SAFE_ADJUSTABLE_CURRENT")
                     if plan_slot is not None and action == "start":
                         current_a = plan_slot.current_a
                     problem, requested_kw = self._requested_current(charger, current_a, at)

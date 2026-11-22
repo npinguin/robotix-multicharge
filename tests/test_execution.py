@@ -67,8 +67,9 @@ class NativeServices:
             self.sources[entity].state = "on" if service == "turn_on" else "off"
             self.sources[entity].last_updated = datetime.now(timezone.utc)
             self.sources["sensor.actual_power"].state = (
-                ("1380" if "sensor.actual_current" in self.sources else "1600")
-                if service == "turn_on" else "0"
+                str(round(float(self.sources["sensor.actual_current"].state) * 230))
+                if service == "turn_on" and "sensor.actual_current" in self.sources
+                else "1600" if service == "turn_on" else "0"
             )
             self.sources["sensor.actual_power"].last_updated = datetime.now(timezone.utc)
 
@@ -165,6 +166,26 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(services.calls[-1][:2], ("number", "set_value"))
         self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 8)
         self.assertEqual((await rt.executor.execute("evse", "stop"))["status"], "confirmed")
+
+    async def test_force_charge_selects_highest_safe_verified_current(self):
+        rt, states, services = rig(group_kw=3)
+        rt.configuration["controller"]["phase_limits_a"] = {"L1": 12}
+        rt.configuration["chargers"][0].update(
+            kind="variable_current", rated_power_kw=3.7,
+            phase_ids=["L1"], voltage_v=230,
+            min_current_a=6, max_current_a=16, current_step_a=1,
+            circuit_id="drive", circuit_limit_a=14,
+            current_control_entity="number.charge_limit",
+            current_readback_entity="sensor.actual_current",
+        )
+        entity = state(6, "A")
+        entity.attributes.update(min=6, max=16, step=1)
+        states["number.charge_limit"] = entity
+        states["sensor.actual_current"] = state(0, "A")
+        outcome = await rt.executor.execute("evse", "start")
+        self.assertEqual(outcome["status"], "confirmed")
+        self.assertEqual(services.calls[0][2]["value"], 12)
+        self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 12)
 
     async def test_invalid_adjustable_current_is_rejected_without_physical_write(self):
         rt, states, services = rig(group_kw=7.5)
