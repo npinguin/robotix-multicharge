@@ -96,6 +96,12 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
                 cfg["controller"]["max_power_kw"] = user_input["max_power_kw"]
             else:
                 cfg["controller"].pop("max_power_kw", None)
+            cfg["controller"]["mode"] = user_input["mode"]
+            for key in ("price_entity", "solar_entity"):
+                if user_input.get(key):
+                    cfg["controller"][key] = user_input[key]
+                else:
+                    cfg["controller"].pop(key, None)
             result = self._saved(cfg)
             if result is not None:
                 return result
@@ -106,6 +112,14 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
                 vol.Required("max_parallel", default=cfg["controller"]["max_parallel"]):
                     vol.All(vol.Coerce(int), vol.Range(min=1, max=16)),
                 vol.Optional("max_power_kw"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
+                vol.Required("mode", default=cfg["controller"].get("mode", "Off")):
+                    vol.In(["Automatic", "Solar", "Economy", "Ready By", "Force Charge", "Off"]),
+                vol.Optional("price_entity"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional("solar_entity"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
             }),
             errors={"base": "invalid_config"} if user_input else {},
         )
@@ -121,8 +135,11 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
                 cfg["assets"] = [a for a in cfg["assets"] if a["id"] != uid]
                 result = self._saved(cfg)
             else:
-                asset = {"id": uid, "name": user_input["name"], "kind": user_input["kind"]}
-                for field in ("soc_entity", "capacity_kwh", "target_soc", "max_charge_kw"):
+                asset = next((dict(a) for a in cfg["assets"] if a["id"] == uid), {})
+                asset.update({"id": uid, "name": user_input["name"], "kind": user_input["kind"]})
+                for field in ("soc_entity", "capacity_kwh", "target_soc", "max_charge_kw",
+                              "requested_kwh", "requested_duration_minutes",
+                              "ready_by", "charge_efficiency", "priority"):
                     if user_input.get(field) is not None and user_input.get(field) != "":
                         asset[field] = user_input[field]
                 cfg["assets"] = [a for a in cfg["assets"] if a["id"] != uid] + [asset]
@@ -144,6 +161,15 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
                 vol.Optional("capacity_kwh"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
                 vol.Optional("target_soc"): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
                 vol.Optional("max_charge_kw"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
+                vol.Optional("requested_kwh"): vol.All(vol.Coerce(float), vol.Range(min=0)),
+                vol.Optional("requested_duration_minutes"): vol.All(
+                    vol.Coerce(int), vol.Range(min=1)
+                ),
+                vol.Optional("ready_by"): selector.DateTimeSelector(),
+                vol.Optional("charge_efficiency"): vol.All(
+                    vol.Coerce(float), vol.Range(min=0.01, max=1)
+                ),
+                vol.Optional("priority"): vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
             }),
             errors={"base": "invalid_config"} if user_input else {},
         )
@@ -159,9 +185,10 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
                 cfg["chargers"] = [c for c in cfg["chargers"] if c["id"] != uid]
                 result = self._saved(cfg)
             else:
-                charger = {"id": uid, "name": user_input.get("name"),
-                           "kind": user_input["kind"],
-                           "rated_power_kw": user_input.get("rated_power_kw")}
+                charger = next((dict(c) for c in cfg["chargers"] if c["id"] == uid), {})
+                charger.update({"id": uid, "name": user_input.get("name"),
+                                "kind": user_input["kind"],
+                                "rated_power_kw": user_input.get("rated_power_kw")})
                 for field in ("asset", "control_entity", "connected_entity", "power_entity",
                               "energy_entity", "phase_count", "min_current_a", "max_current_a"):
                     if user_input.get(field) is not None and user_input.get(field) != "":

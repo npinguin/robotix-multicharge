@@ -32,7 +32,10 @@
         "data": {
           "name": "Name",
           "max_parallel": "Simultaneous chargers",
-          "max_power_kw": "Maximum charging power (kW)"
+          "max_power_kw": "Maximum charging power (kW)",
+          "mode": "Charging mode (read-only plan, no physical control)",
+          "price_entity": "Effective price interval source",
+          "solar_entity": "Qualified solar available-power interval source"
         }
       },
       "asset": {
@@ -46,12 +49,17 @@
           "soc_entity": "Battery level entity",
           "capacity_kwh": "Battery capacity (kWh)",
           "target_soc": "Target battery level (%)",
-          "max_charge_kw": "Maximum charging power (kW)"
+          "max_charge_kw": "Maximum charging power (kW)",
+          "requested_kwh": "Explicit requested grid energy (kWh)",
+          "requested_duration_minutes": "Explicit requested charging duration (minutes)",
+          "ready_by": "Ready By (date/time including timezone)",
+          "charge_efficiency": "Known charging efficiency (0–1)",
+          "priority": "Priority (0–100)"
         }
       },
       "charger": {
         "title": "Charger",
-        "description": "Add or edit a charger without enabling physical control.",
+        "description": "Add or edit a charger; physical commands remain disabled.",
         "data": {
           "action": "Action",
           "id": "Stable ID (optional for new charger)",

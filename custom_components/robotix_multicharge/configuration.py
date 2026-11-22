@@ -6,6 +6,7 @@ This module never reads Home Assistant state or sends physical commands.
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime
 from math import isfinite
 from re import fullmatch
 
@@ -52,16 +53,19 @@ def validate_configuration(value):
     _allowed(value, ("controller", "assets", "chargers"), "configuration")
     ctl = value.get("controller")
     _allowed(ctl, ("id", "name", "max_parallel", "max_power_kw",
-                   "price_entity", "site_power_entity"), "controller")
+                   "price_entity", "site_power_entity", "solar_entity", "mode"), "controller")
     cid = _text(ctl.get("id", "home"), "controller.id")
     parallel = ctl.get("max_parallel", 1)
     if isinstance(parallel, bool) or not isinstance(parallel, int) or parallel < 1:
         raise ValueError("controller.max_parallel: expected positive integer")
+    mode = ctl.get("mode", "Off")
+    if mode not in ("Automatic", "Solar", "Economy", "Ready By", "Force Charge", "Off"):
+        raise ValueError("controller.mode: unsupported charging mode")
     controller = {"id": cid, "name": _text(ctl.get("name"), "controller.name"),
-                  "max_parallel": parallel}
+                  "max_parallel": parallel, "mode": mode}
     if ctl.get("max_power_kw") is not None:
         controller["max_power_kw"] = _number(ctl["max_power_kw"], "controller.max_power_kw")
-    for key in ("price_entity", "site_power_entity"):
+    for key in ("price_entity", "site_power_entity", "solar_entity"):
         if ctl.get(key):
             controller[key] = _entity(ctl[key], "controller." + key)
     ChargeController(uid=cid, name=controller["name"],
@@ -73,7 +77,9 @@ def validate_configuration(value):
         raise ValueError("assets: expected list")
     for source in value.get("assets", []):
         _allowed(source, ("id", "name", "kind", "soc_entity",
-                          "capacity_kwh", "target_soc", "max_charge_kw"), "asset")
+                          "capacity_kwh", "target_soc", "max_charge_kw",
+                          "requested_kwh", "requested_duration_minutes", "ready_by",
+                          "charge_efficiency", "priority"), "asset")
         uid = _text(source.get("id"), "asset.id")
         if uid in ids:
             raise ValueError("asset.id: duplicate")
@@ -87,6 +93,36 @@ def validate_configuration(value):
                 asset[key] = _number(source[key], "asset." + key)
         if source.get("target_soc") is not None:
             asset["target_soc"] = _number(source["target_soc"], "asset.target_soc", zero=True)
+        if source.get("requested_kwh") is not None:
+            asset["requested_kwh"] = _number(
+                source["requested_kwh"], "asset.requested_kwh", zero=True
+            )
+        if source.get("requested_duration_minutes") is not None:
+            minutes = source["requested_duration_minutes"]
+            if isinstance(minutes, bool) or not isinstance(minutes, int) or minutes <= 0:
+                raise ValueError("asset.requested_duration_minutes: positive integer required")
+            asset["requested_duration_minutes"] = minutes
+        if "requested_kwh" in asset and "requested_duration_minutes" in asset:
+            raise ValueError("asset: choose kWh or minutes, not both")
+        if source.get("priority") is not None:
+            priority = source["priority"]
+            if isinstance(priority, bool) or not isinstance(priority, int) or not 0 <= priority <= 100:
+                raise ValueError("asset.priority: expected integer 0..100")
+            asset["priority"] = priority
+        if source.get("charge_efficiency") is not None:
+            efficiency = _number(source["charge_efficiency"], "asset.charge_efficiency")
+            if efficiency > 1:
+                raise ValueError("asset.charge_efficiency: expected >0 and <=1")
+            asset["charge_efficiency"] = efficiency
+        if source.get("ready_by") is not None:
+            ready = _text(source["ready_by"], "asset.ready_by")
+            try:
+                parsed = datetime.fromisoformat(ready.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError("asset.ready_by: expected ISO-8601 timestamp") from exc
+            if parsed.tzinfo is None or parsed.utcoffset() is None:
+                raise ValueError("asset.ready_by: explicit timezone required")
+            asset["ready_by"] = parsed.isoformat()
         ChargeableAsset(uid=uid, name=asset["name"], kind=asset["kind"],
                         usable_capacity_kwh=asset.get("capacity_kwh"),
                         target_soc_pct=asset.get("target_soc"),
