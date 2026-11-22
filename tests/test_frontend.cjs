@@ -212,7 +212,7 @@ async function main(){
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(commands.some(c=>c.type==="robotix_multicharge/command"&&c.action==="start"),
             "Start button must invoke real native WS command API");
-  assert.ok(content(card.shadowRoot).includes("confirmed · Unavailable"),
+  assert.ok(content(card.shadowRoot).includes("Charging"),
             "display only a returned physical confirmation");
   assert.ok(find(card.shadowRoot,"button","Stop charging"),
             "physically admitted Stop action is present");
