@@ -175,6 +175,23 @@ def validate_configuration(value):
     assignments = [c["asset"] for c in chargers if "asset" in c]
     if len(assignments) != len(set(assignments)):
         raise ValueError("asset assigned to more than one charger")
+
+    # Each exact physical charger input/command must be attributable to one
+    # logical Charger. Shared raw entities cannot silently create duplicate
+    # command owners, occupancy or kWh attribution inside MultiCharge.
+    physical_sources = {}
+    for charger in chargers:
+        for role in (
+            "control_entity", "connected_entity", "power_entity", "energy_entity"
+        ):
+            entity = charger.get(role)
+            if not entity:
+                continue
+            previous = physical_sources.setdefault(entity, (charger["id"], role))
+            if previous != (charger["id"], role):
+                raise ValueError(
+                    f"charger.{role}: entity also bound as {previous[0]}.{previous[1]}"
+                )
     return {"controller": controller, "assets": assets, "chargers": chargers}
 
 

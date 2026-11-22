@@ -83,6 +83,28 @@ class ConfigurationTests(unittest.TestCase):
             options = {"configuration": default_configuration("Edited via UI")}
         self.assertEqual(effective_configuration(Entry())["controller"]["name"], "Edited via UI")
 
+    def test_two_chargers_cannot_share_a_physical_writer(self):
+        cfg = default_configuration()
+        cfg["chargers"] = [
+            {"id": "white", "name": "White", "kind": "on_off",
+             "rated_power_kw": 7, "control_entity": "switch.garage"},
+            {"id": "black", "name": "Black", "kind": "on_off",
+             "rated_power_kw": 7, "control_entity": "switch.garage"},
+        ]
+        with self.assertRaises(ValueError):
+            validate_configuration(cfg)
+
+    def test_two_chargers_cannot_double_count_one_energy_meter(self):
+        cfg = default_configuration()
+        cfg["chargers"] = [
+            {"id": "white", "name": "White", "kind": "on_off",
+             "rated_power_kw": 7, "energy_entity": "sensor.energy"},
+            {"id": "black", "name": "Black", "kind": "on_off",
+             "rated_power_kw": 7, "energy_entity": "sensor.energy"},
+        ]
+        with self.assertRaises(ValueError):
+            validate_configuration(cfg)
+
     def test_binding_source_is_explicitly_preserved(self):
         cfg = default_configuration()
         cfg["controller"]["binding_entity"] = "sensor.site_envelope"
