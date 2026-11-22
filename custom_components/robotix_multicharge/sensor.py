@@ -53,6 +53,14 @@ async def async_setup_entry(
         if charger.get("energy_entity"):
             entities.append(_LogicalSessionEnergySensor(charger, runtime))
             entities.append(_LastSessionEnergySensor(charger, runtime))
+    # Localized native sensor titles and states, without altering unique IDs
+    # or the stable machine values consumed by existing HA automations.
+    names = {"readiness":"readiness","plan_status":"plan_status","power":"actual_power","soc":"battery_level","connected":"connection","session_energy":"session_energy","command_status":"command_status","last_session_energy":"last_session_energy","mode":"charging_mode","configuration_revision":"settings_revision","connected_chargers":"connected_chargers","charging_chargers":"charging_chargers","action_health":"action_health","last_action":"last_physical_action","last_settings_action":"last_settings_action","selected_vehicle":"selected_vehicle","intent":"charging_intention","confirmed_current":"confirmed_current_setpoint","actual_current":"actual_current"}
+    for entity in entities:
+        key = names.get(entity.unique_id.rsplit(":", 1)[-1])
+        if key is not None:
+            entity._attr_translation_key = key
+            entity._attr_name = None
     async_add_entities(entities)
 
 

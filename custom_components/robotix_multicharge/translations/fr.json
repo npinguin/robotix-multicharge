@@ -111,6 +111,127 @@
       "expires_at": {
         "name": "Invité valable jusqu’à"
       }
+    },
+    "sensor": {
+      "readiness": {
+        "name": "Prêt",
+        "state": {
+          "manual_controls_available": "Disponible",
+          "not_commissioned": "Non prêt",
+          "physical_readback_confirmed": "Prêt",
+          "readback_stale": "Sans mise à jour",
+          "unavailable": "Indisponible",
+          "source_observed": "Connecté",
+          "demand_configured": "Configuré",
+          "needs_input": "Définir une cible"
+        }
+      },
+      "plan_status": {
+        "name": "Plan de charge",
+        "state": {
+          "proposed": "Planifié",
+          "accepted": "Accepté",
+          "unavailable": "Indisponible"
+        }
+      },
+      "actual_power": {
+        "name": "Puissance"
+      },
+      "battery_level": {
+        "name": "Batterie"
+      },
+      "connection": {
+        "name": "Connexion",
+        "state": {
+          "True": "Connecté",
+          "False": "Déconnecté",
+          "true": "Connecté",
+          "false": "Déconnecté"
+        }
+      },
+      "session_energy": {
+        "name": "Énergie de session"
+      },
+      "command_status": {
+        "name": "Commande",
+        "state": {
+          "not_requested": "Aucune action",
+          "requested": "En cours",
+          "confirmed": "Confirmé",
+          "rejected": "Refusé",
+          "execution_unknown": "Inconnu"
+        }
+      },
+      "last_session_energy": {
+        "name": "Dernière charge"
+      },
+      "charging_mode": {
+        "name": "Mode de charge",
+        "state": {
+          "Automatic": "Automatique",
+          "Solar": "Solaire",
+          "Economy": "Économique",
+          "Ready By": "Prêt pour",
+          "Force Charge": "Charge immédiate",
+          "Off": "Arrêt"
+        }
+      },
+      "settings_revision": {
+        "name": "Version des réglages"
+      },
+      "connected_chargers": {
+        "name": "Bornes connectées"
+      },
+      "charging_chargers": {
+        "name": "Bornes en charge"
+      },
+      "action_health": {
+        "name": "État de charge",
+        "state": {
+          "hold": "Suspendu",
+          "unconfirmed": "Inconnu",
+          "pending": "En cours",
+          "rejected": "Refusé",
+          "confirmed": "Confirmé",
+          "idle": "Inactif"
+        }
+      },
+      "last_physical_action": {
+        "name": "Dernière commande",
+        "state": {
+          "start": "Démarrer",
+          "stop": "Arrêter",
+          "set_current": "Courant",
+          "none": "Aucune"
+        }
+      },
+      "last_settings_action": {
+        "name": "Dernière modification",
+        "state": {
+          "save": "Enregistrer",
+          "create": "Ajouter",
+          "delete": "Supprimer",
+          "none": "Aucune"
+        }
+      },
+      "selected_vehicle": {
+        "name": "Véhicule"
+      },
+      "charging_intention": {
+        "name": "Besoin de charge",
+        "state": {
+          "energy": "Énergie",
+          "duration": "Durée",
+          "target_soc": "Cible batterie",
+          "unconfigured": "Définir une cible"
+        }
+      },
+      "confirmed_current_setpoint": {
+        "name": "Limite de courant"
+      },
+      "actual_current": {
+        "name": "Courant mesuré"
+      }
     }
   }
 }

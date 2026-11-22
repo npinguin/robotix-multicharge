@@ -292,6 +292,127 @@
       "expires_at": {
         "name": "Guest until"
       }
+    },
+    "sensor": {
+      "readiness": {
+        "name": "Ready",
+        "state": {
+          "manual_controls_available": "Available",
+          "not_commissioned": "Not ready",
+          "physical_readback_confirmed": "Ready",
+          "readback_stale": "No update",
+          "unavailable": "Unavailable",
+          "source_observed": "Connected",
+          "demand_configured": "Configured",
+          "needs_input": "Set goal"
+        }
+      },
+      "plan_status": {
+        "name": "Plan",
+        "state": {
+          "proposed": "Planned",
+          "accepted": "Accepted",
+          "unavailable": "Unavailable"
+        }
+      },
+      "actual_power": {
+        "name": "Power"
+      },
+      "battery_level": {
+        "name": "Battery"
+      },
+      "connection": {
+        "name": "Connection",
+        "state": {
+          "True": "Connected",
+          "False": "Disconnected",
+          "true": "Connected",
+          "false": "Disconnected"
+        }
+      },
+      "session_energy": {
+        "name": "Session energy"
+      },
+      "command_status": {
+        "name": "Command",
+        "state": {
+          "not_requested": "No action",
+          "requested": "Pending",
+          "confirmed": "Confirmed",
+          "rejected": "Rejected",
+          "execution_unknown": "Unknown"
+        }
+      },
+      "last_session_energy": {
+        "name": "Last charge"
+      },
+      "charging_mode": {
+        "name": "Charging mode",
+        "state": {
+          "Automatic": "Automatic",
+          "Solar": "Solar",
+          "Economy": "Economy",
+          "Ready By": "Ready by",
+          "Force Charge": "Charge now",
+          "Off": "Off"
+        }
+      },
+      "settings_revision": {
+        "name": "Settings revision"
+      },
+      "connected_chargers": {
+        "name": "Connected chargers"
+      },
+      "charging_chargers": {
+        "name": "Charging chargers"
+      },
+      "action_health": {
+        "name": "Charging status",
+        "state": {
+          "hold": "On hold",
+          "unconfirmed": "Unknown",
+          "pending": "Pending",
+          "rejected": "Rejected",
+          "confirmed": "Confirmed",
+          "idle": "Idle"
+        }
+      },
+      "last_physical_action": {
+        "name": "Last charge action",
+        "state": {
+          "start": "Start",
+          "stop": "Stop",
+          "set_current": "Current",
+          "none": "None"
+        }
+      },
+      "last_settings_action": {
+        "name": "Last change",
+        "state": {
+          "save": "Save",
+          "create": "Add",
+          "delete": "Remove",
+          "none": "None"
+        }
+      },
+      "selected_vehicle": {
+        "name": "Selected vehicle"
+      },
+      "charging_intention": {
+        "name": "Charging goal",
+        "state": {
+          "energy": "Energy",
+          "duration": "Duration",
+          "target_soc": "Battery target",
+          "unconfigured": "Set goal"
+        }
+      },
+      "confirmed_current_setpoint": {
+        "name": "Current limit"
+      },
+      "actual_current": {
+        "name": "Actual current"
+      }
     }
   }
 }
