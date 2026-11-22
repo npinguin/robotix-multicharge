@@ -416,19 +416,17 @@ class NativeSwitchExecutor:
             # unknown meter delta keeps the earlier in-flight safety hold.
             session = self._sessions.get(uid)
             self._archive_session(uid, observed_at, reason)
-            if session is not None and session.get("asset_id") is not None:
+            if session is not None:
                 receipt = self._session_history[-1] if self._session_history else None
-                asset = next((
-                    a for a in self.runtime.configuration["assets"]
-                    if a["id"] == session["asset_id"]
-                ), None)
-                if (receipt is not None and asset is not None
-                        and receipt["charger_id"] == uid
-                        and receipt.get("intent_key") == session.get("intent_key")
+                hold_key = session.get("asset_id") or f"charger:{uid}"
+                expected = session.get("intent_key") if session.get("asset_id") else None
+                if (receipt is not None and receipt["charger_id"] == uid
+                        and receipt.get("asset_id") == session.get("asset_id")
+                        and receipt.get("intent_key") == expected
                         and receipt.get("physical_stop_confirmed") is True
-                        and (asset.get("requested_kwh") is None
+                        and (session.get("requested_kwh") is None
                              or receipt.get("actual_energy_kwh") is not None)):
-                    self._inflight.pop(session["asset_id"], None)
+                    self._inflight.pop(hold_key, None)
             self._quarantine.discard(uid)
             self._sessions.pop(uid, None)
             self._accepted.pop(uid, None)
@@ -464,6 +462,15 @@ class NativeSwitchExecutor:
         asset = next(
             (a for a in cfg["assets"] if a["id"] == charger.get("asset")), None
         )
+        # A previously issued, possibly interrupted manual Force START is
+        # unresolved across HA restarts. It may not silently replay merely
+        # because the charger now reports "off" or the car reconnects.
+        if not planned and (
+            (asset is not None and asset["id"] in self._inflight)
+            or (manual_request is not None
+                and f"charger:{charger['id']}" in self._inflight)
+        ):
+            return "UNRESOLVED_PREVIOUS_CHARGE_INTENT"
         if manual_request is not None:
             if planned or charger.get("asset") is not None:
                 return "MANUAL_ONE_OFF_REQUIRES_UNASSIGNED_CHARGER"
@@ -1352,6 +1359,39 @@ class NativeSwitchExecutor:
                 )
                 if reason:
                     return result("rejected", reason)
+                if plan_slot is None:
+                    # Automatic START already stores its own intent before
+                    # entering execute(). Manual/one-off START must obey the
+                    # *same* durable admission boundary before any HA service.
+                    asset = next((
+                        row for row in cfg["assets"]
+                        if row["id"] == charger.get("asset")
+                    ), None)
+                    if asset is not None:
+                        due = datetime.fromisoformat(asset["ready_by"]) if (
+                            asset.get("ready_by")
+                        ) else None
+                        if due is not None and asset.get(
+                            "ready_by_repeat", "none"
+                        ) != "none":
+                            due, issue = resolve_recurring_ready_by(
+                                due, at, asset["ready_by_repeat"],
+                                self.runtime.hass.config.time_zone,
+                            )
+                            if due is None:
+                                return result("rejected", issue)
+                        hold_key = asset["id"]
+                        hold_intent = self._intent_key(asset, charger, due)
+                    else:
+                        hold_key = f"charger:{charger_id}"
+                        hold_intent = sha256(dumps({
+                            "charger": charger_id, "one_off": manual_request,
+                        }, sort_keys=True).encode()).hexdigest()
+                    self._inflight[hold_key] = hold_intent
+                    if not await self.runtime.persist_control_state():
+                        self._inflight.pop(hold_key, None)
+                        self._persistence_verified = False
+                        return result("rejected", "MANUAL_INTENT_NOT_PERSISTED")
             elif state.state == "off":
                 power = number(self.runtime.hass, charger.get("power_entity"),
                                "power", at)
