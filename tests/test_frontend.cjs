@@ -71,8 +71,25 @@ async function main(){
   const commands=[];
   const card=new Card();
   card.setConfig({});
-  card.hass={callWS:async request=>{commands.push(request);return fixture;}};
+  card.hass={user:{is_admin:true},states:{},callWS:async request=>{commands.push(request);return fixture;}};
   await new Promise(resolve=>setImmediate(resolve));
+  const resident=new Card();
+  const residentCommands=[];
+  resident.setConfig({});
+  resident.hass={user:{is_admin:false},states:{},
+    callWS:async request=>{residentCommands.push(request);return fixture;}};
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(residentCommands[0].type,"robotix_multicharge/get_plan",
+    "resident reads same canonical authenticated dashboard");
+  assert.ok(content(resident.shadowRoot).includes("Family car"),
+    "resident can see actual source-backed dashboard");
+  find(resident.shadowRoot,"button","Settings").click();
+  assert.ok(content(resident.shadowRoot).includes("Charging site"),
+    "resident can inspect settings without admin writes");
+  assert.ok(!find(resident.shadowRoot,"a"),
+    "resident has no admin configuration navigation");
+  assert.ok(!find(resident.shadowRoot,"button","Edit"),
+    "resident cannot invoke owning HA settings controls");
   assert.ok(commands.length>0);
   assert.equal(commands[0].type,"robotix_multicharge/get_plan");
   assert.ok(!require("node:fs").readFileSync(
