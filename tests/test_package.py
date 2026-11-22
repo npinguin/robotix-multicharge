@@ -72,7 +72,7 @@ class PackageTest(unittest.TestCase):
             path = COMPONENT / "brand" / name
             payload = path.read_bytes()
             with self.subTest(asset=name):
-                self.assertEqual(payload[:8], b"\\x89PNG\\r\\n\\x1a\\n")
+                self.assertEqual(payload[:8], b"\x89PNG\r\n\x1a\n")
                 self.assertEqual(payload[12:16], b"IHDR")
                 width = int.from_bytes(payload[16:20], "big")
                 height = int.from_bytes(payload[20:24], "big")
