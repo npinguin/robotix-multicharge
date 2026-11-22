@@ -1,4 +1,4 @@
-"""Safe native HA STOP buttons, never an unqualified START automation."""
+"""Native guarded charging STOP, Pause/Resume and plug identity controls."""
 from __future__ import annotations
 
 from homeassistant.components.button import ButtonEntity
@@ -20,10 +20,11 @@ async def async_setup_entry(
         for charger in runtime.configuration["chargers"]
         if charger.get("connected_entity")
     ] + [
-        _SafeStopButton(charger, runtime)
+        action(charger, runtime)
         for charger in runtime.configuration["chargers"]
         if charger.get("control_owner") == "multicharge"
         and charger.get("physical_commissioned") is True
+        for action in (_SafeStopButton, _PauseButton, _ResumeButton)
     ])
 
 
@@ -49,6 +50,56 @@ class _SafeStopButton(ButtonEntity):
         if outcome["status"] != "confirmed":
             raise RuntimeError(
                 "MultiCharge STOP not physically confirmed: " + outcome["reason"]
+            )
+
+
+class _AdminChargeActionButton(_SafeStopButton):
+    """A native HA button must not bypass the admin-only command WebSocket."""
+
+    async def _require_admin_context(self):
+        actor = getattr(self.context, "user_id", None)
+        user = await self.hass.auth.async_get_user(actor) if actor else None
+        if user is None or not user.is_admin:
+            raise RuntimeError("This charging action requires an HA administrator")
+
+
+class _PauseButton(_AdminChargeActionButton):
+    """Durable operator hold plus independently verified physical STOP."""
+    _attr_icon = "mdi:pause-circle-outline"
+
+    def __init__(self, charger, runtime):
+        super().__init__(charger, runtime)
+        self._attr_name = "Pause charging"
+        self._attr_unique_id = f"{DOMAIN}:charger:{charger['id']}:pause"
+
+    async def async_press(self) -> None:
+        await self._require_admin_context()
+        outcome = await self.runtime.executor.execute(
+            self._charger_id, "pause", context=self.context
+        )
+        if outcome["status"] != "confirmed":
+            raise RuntimeError(
+                "MultiCharge Pause not confirmed: " + outcome["reason"]
+            )
+
+
+class _ResumeButton(_AdminChargeActionButton):
+    """Release user hold; never issues an automatic physical START."""
+    _attr_icon = "mdi:play-circle-outline"
+
+    def __init__(self, charger, runtime):
+        super().__init__(charger, runtime)
+        self._attr_name = "Resume charging"
+        self._attr_unique_id = f"{DOMAIN}:charger:{charger['id']}:resume"
+
+    async def async_press(self) -> None:
+        await self._require_admin_context()
+        outcome = await self.runtime.executor.execute(
+            self._charger_id, "resume", context=self.context
+        )
+        if outcome["status"] != "confirmed":
+            raise RuntimeError(
+                "MultiCharge Resume not confirmed: " + outcome["reason"]
             )
 
 

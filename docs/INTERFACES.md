@@ -18,7 +18,7 @@ The planned 15-minute Today/Tomorrow chart needs one bounded, read-only query on
 
 Use native lightweight HA summary entities and Recorder for measured history. Do not replicate the planner or persist whole future timelines as large frequently rewritten sensor attributes.
 
-**Status:** `dev` has qualified source observations, a bounded admin-only plan/history query, source-tested 15-minute proposed/accepted/Recorder history, guarded physical switch/current commands and all six strategy execution paths, native HA Store restart intent holds, completed measured session receipts with narrowly qualified tariff costs, temporary guest expiry, native stop/sensors and an admin-validated Config Entry settings editor. This does **not** establish exclusive control of a real EVSE, actual HA/browser/hardware acceptance, end-to-end session recovery/permissions, UC01–UC29 completion or any release gate.
+**Status:** `dev` has qualified source observations, an authenticated, bounded read-only plan/history query, source-tested 15-minute proposed/accepted/Recorder history, guarded physical switch/current commands and all six strategy execution paths, native HA Store restart intent holds, completed measured session receipts with narrowly qualified tariff costs, temporary guest expiry, native stop/sensors and an admin-validated Config Entry settings editor. This does **not** establish exclusive control of a real EVSE, actual HA/browser/hardware acceptance, end-to-end session recovery/permissions, UC01–UC29 completion or any release gate.
 
 ## Contract-first implementer specification — candidate, not yet public API
 
@@ -49,6 +49,21 @@ The existing `domain.py`, `contracts.py` and `interfaces.py` are Python sketches
 | `PlanConsumer` | Pure read-only, authenticated, version/capability negotiation and bounded filtering, no command method masquerading as plan subscription |
 
 Six public user modes: **Automatic, Solar, Economy, Ready By, Force Charge, Off**. Each has explicit backend eligibility and fallback/unavailable reason; Force Charge does not bypass any protection or binding power cap.
+
+**Current `dev` action extension (candidate, not an independent service):**
+`robotix_multicharge/command` accepts `pause` and `resume` in addition
+to guarded `start`/`stop`/`set_current`. All use the same admin
+WebSocket and single source-backed executor. Pause stores a per-Charger
+control hold before physical STOP, only confirms after actual low-power
+readback, persists over restart and removes both firm and indicative
+scheduling for that Charger. Resume requires a verified physically idle
+Charger and persistence, only removes the hold and **never sends START**.
+The native Charger Pause/Resume buttons check HA administrator context;
+native safe STOP remains independently available. No new role or
+additional planner is introduced. The optional Charger `session_entity`
+is a read-only source observation and is **not** authorization,
+cable identity, power or energy evidence.
+
 
 ### Native HA contracts for independently installed consumers
 

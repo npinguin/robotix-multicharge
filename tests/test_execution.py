@@ -111,6 +111,192 @@ def rig(*, owner="multicharge", commissioned=True, group_kw=4.0,
 
 
 class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_manual_force_start_is_durably_held_across_restart(self):
+        rt, states, services = rig()
+        class MemoryStore:
+            def __init__(self):
+                self.data = None
+            async def async_save(self, payload):
+                self.data = payload
+
+        store = MemoryStore()
+        rt.attach_control_store(store, None)
+        started = await rt.executor.execute("evse", "start")
+        self.assertEqual(started["status"], "confirmed")
+        self.assertIn("car", store.data["inflight"])
+        restarted = MultiChargeRuntime(rt.hass, rt.configuration)
+        restarted.attach_control_store(store, store.data)
+        self.assertIn("car", restarted.executor._inflight)
+        # A restart cannot reuse previous connection identity as evidence.
+        self.assertEqual(
+            restarted.executor.confirm_current_connection("evse")["status"],
+            "confirmed",
+        )
+        before = len(services.calls)
+        states["switch.evse_control"].state = "off"
+        states["sensor.actual_power"].state = "0"
+        states["sensor.actual_power"].last_updated = datetime.now(timezone.utc)
+        blocked = await restarted.executor.execute("evse", "start")
+        self.assertEqual(blocked["reason"], "UNRESOLVED_PREVIOUS_CHARGE_INTENT")
+        self.assertEqual(len(services.calls), before)
+
+    async def test_manual_force_start_fails_closed_when_intent_persistence_fails(self):
+        rt, sources, services = rig()
+        class RejectingStore:
+            async def async_save(self, payload):
+                raise OSError("storage unavailable")
+        rt.attach_control_store(RejectingStore(), None)
+        result = await rt.executor.execute("evse", "start")
+        self.assertEqual(result["reason"], "MANUAL_INTENT_NOT_PERSISTED")
+        self.assertEqual(result["status"], "rejected")
+        self.assertEqual(services.calls, [])
+        self.assertFalse(rt.executor._persistence_verified)
+
+    async def test_charger_only_manual_intent_is_durable_until_measured_stop(self):
+        rt, sources, services = rig()
+        rt.configuration["chargers"][0].pop("asset")
+        rt.refresh()
+        before = rt.executor.export_state()["inflight"]
+        self.assertEqual(before, {})
+        started = await rt.executor.execute(
+            "evse", "start", manual_request={"energy_kwh": 2.0}
+        )
+        self.assertEqual(started["status"], "confirmed")
+        key = "charger:evse"
+        self.assertIn(key, rt.executor.export_state()["inflight"])
+        restored = MultiChargeRuntime(rt.hass, rt.configuration)
+        restored.executor.restore_state(rt.executor.export_state())
+        self.assertIn(key, restored.executor._inflight)
+        sources["sensor.meter"].state = "6"
+        sources["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        self.assertEqual((await rt.executor.execute("evse", "stop"))["status"],
+                         "confirmed")
+        self.assertNotIn(key, rt.executor.export_state()["inflight"])
+        self.assertEqual(rt.executor.completed_sessions()[-1]["actual_energy_kwh"],
+                         1.0)
+
+    async def test_pause_persists_hold_and_resume_never_starts_hardware(self):
+        rt, sources, services = rig()
+        outcome = await rt.executor.execute("evse", "pause")
+        self.assertEqual(outcome["status"], "confirmed")
+        self.assertTrue(rt.executor.capabilities()["evse"]["paused"])
+        self.assertEqual(
+            (await rt.executor.execute("evse", "start"))["reason"],
+            "USER_PAUSED",
+        )
+        stored = rt.executor.export_state()
+        self.assertEqual(stored["paused"], ["evse"])
+        other, other_sources, other_services = rig()
+        other.executor.restore_state(stored)
+        self.assertTrue(other.executor.capabilities()["evse"]["paused"])
+        self.assertEqual(other.executor.capabilities()["evse"]["start_allowed"], False)
+        self.assertEqual(other_services.calls, [])
+        resumed = await other.executor.execute("evse", "resume")
+        self.assertEqual(resumed["status"], "confirmed")
+        self.assertEqual(resumed["reason"], "PAUSE_RELEASED_NO_PHYSICAL_START")
+        self.assertEqual(other_services.calls, [], "Resume must never energize")
+        self.assertEqual(other.executor.export_state()["paused"], [])
+        self.assertEqual(
+            (await other.executor.execute("evse", "start"))["status"],
+            "confirmed",
+        )
+
+    async def test_pause_physically_stops_and_preserves_measured_remaining_need(self):
+        rt, sources, services = rig()
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"],
+                         "confirmed")
+        sources["sensor.meter"].state = "5.4"
+        sources["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        paused = await rt.executor.execute("evse", "pause")
+        self.assertEqual(paused["status"], "confirmed")
+        self.assertEqual(sources["switch.evse_control"].state, "off")
+        self.assertEqual(rt.executor.completed_sessions()[-1]["actual_energy_kwh"], 0.4)
+        self.assertEqual(rt.executor.measured_intent_usage(
+            rt.configuration["assets"][0], rt.configuration["chargers"][0],
+            None)["energy_kwh"], 0.4)
+        self.assertEqual((await rt.executor.execute("evse", "resume"))["status"],
+                         "confirmed")
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"],
+                         "confirmed")
+        self.assertAlmostEqual(
+            rt.executor.session_snapshot()["evse"]["requested_kwh"], 0.6
+        )
+
+    async def test_failed_pause_stop_keeps_durable_hold_and_blocks_resume(self):
+        rt, sources, services = rig()
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"],
+                         "confirmed")
+        services.fail = True
+        unknown = await rt.executor.execute("evse", "pause")
+        self.assertEqual(unknown["status"], "execution_unknown")
+        self.assertEqual(rt.executor.export_state()["paused"], ["evse"])
+        self.assertEqual(
+            (await rt.executor.execute("evse", "resume"))["reason"],
+            "UNCONFIRMED_SESSION_CANNOT_RESUME",
+        )
+        before = len(services.calls)
+        self.assertEqual(
+            (await rt.executor.execute("evse", "start"))["status"], "rejected"
+        )
+        self.assertEqual(len(services.calls), before)
+
+    async def test_pause_does_not_confirm_while_power_remains_high(self):
+        """Switch OFF alone is never physical Pause / STOP readback."""
+        rt, sources, services = rig()
+        started = await rt.executor.execute("evse", "start")
+        self.assertEqual(started["status"], "confirmed")
+        self.assertEqual(sources["switch.evse_control"].state, "on")
+
+        async def switch_off_but_power_stays(domain, service, data, *,
+                                            blocking, context):
+            services.calls.append((domain, service, dict(data), blocking, context))
+            self.assertEqual((domain, service), ("switch", "turn_off"))
+            source = sources["switch.evse_control"]
+            source.state = "off"
+            source.last_updated = datetime.now(timezone.utc)
+            # Independent physical meter still indicates an energized EVSE.
+            power = sources["sensor.actual_power"]
+            power.state = "1600"
+            power.last_updated = datetime.now(timezone.utc)
+
+        services.async_call = switch_off_but_power_stays
+        paused = await rt.executor.execute(
+            "evse", "pause", readback_seconds=0.05
+        )
+        self.assertEqual(paused["status"], "execution_unknown")
+        self.assertIn("PHYSICAL_READBACK_TIMEOUT", paused["reason"])
+        self.assertEqual(rt.executor.export_state()["paused"], ["evse"])
+        self.assertIn("evse", rt.executor._quarantine)
+        self.assertEqual(
+            (await rt.executor.execute("evse", "resume"))["status"], "rejected"
+        )
+        self.assertTrue(
+            any(action == "turn_off" for _, action, *_ in services.calls)
+        )
+
+    async def test_confirmed_stop_reconciles_inflight_only_when_energy_measured(self):
+        rt, sources, services = rig()
+        charger = rt.configuration["chargers"][0]
+        asset = rt.configuration["assets"][0]
+        key = rt.executor._intent_key(asset, charger, None)
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"],
+                         "confirmed")
+        rt.executor._inflight[asset["id"]] = key
+        sources["sensor.meter"].state = "5.2"
+        sources["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        self.assertEqual((await rt.executor.execute("evse", "stop"))["status"],
+                         "confirmed")
+        self.assertNotIn(asset["id"], rt.executor._inflight)
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"],
+                         "confirmed")
+        rt.executor._inflight[asset["id"]] = key
+        sources["sensor.meter"].state = "unknown"
+        sources["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        self.assertEqual((await rt.executor.execute("evse", "stop"))["status"],
+                         "confirmed")
+        self.assertIn(asset["id"], rt.executor._inflight,
+                      "Unmeasured energy must not permit automatic replay")
+
     async def test_verified_vehicle_energy_follows_asset_not_charger(self):
         rt, states, services = rig()
         asset = rt.configuration["assets"][0]
@@ -832,7 +1018,14 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         sources["sensor.actual_power"].last_updated = datetime.now(timezone.utc)
         stopped = await rt.executor.execute("evse", "stop")
         self.assertEqual(stopped["status"], "confirmed")
-        self.assertTrue(rt.executor.capabilities()["evse"]["start_allowed"])
+        # There was no confirmed START/session meter baseline before the
+        # timeout. Even an independently confirmed STOP cannot establish how
+        # much energy the earlier uncertain request actually delivered.
+        self.assertFalse(rt.executor.capabilities()["evse"]["start_allowed"])
+        self.assertEqual(
+            rt.executor.capabilities()["evse"]["reason"],
+            "UNRESOLVED_PREVIOUS_CHARGE_INTENT",
+        )
 
     async def test_unknown_external_switch_reserves_possible_parallel_slot(self):
         rt, sources, services = rig()

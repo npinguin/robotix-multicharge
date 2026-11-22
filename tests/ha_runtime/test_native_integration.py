@@ -27,6 +27,121 @@ from custom_components.robotix_multicharge.const import DOMAIN
 from custom_components.robotix_multicharge.diagnostics import async_get_config_entry_diagnostics
 
 
+def test_expert_reimport_rejects_live_writer_before_entry_mutation():
+    from types import SimpleNamespace
+    from datetime import datetime, timezone
+    from custom_components.robotix_multicharge.config_flow import (
+        _assert_safe_expert_import,
+    )
+    old = validate_configuration({
+        "controller": {
+            "id": "site", "name": "Sample", "mode": "Off",
+            "max_parallel": 1, "max_power_kw": 3,
+        },
+        "assets": [],
+        "chargers": [{
+            "id": "charger", "name": "Charged point",
+            "kind": "on_off", "rated_power_kw": 0.5,
+            "control_entity": "switch.charger",
+            "connected_entity": "binary_sensor.cable",
+            "power_entity": "sensor.charger_power",
+            "control_owner": "multicharge",
+            "physical_commissioned": True,
+        }],
+    })
+    revised = validate_configuration({
+        **old, "controller": {**old["controller"], "max_power_kw": 4},
+    })
+    now = datetime.now(timezone.utc)
+    states = {
+        "switch.charger": SimpleNamespace(state="on"),
+        "sensor.charger_power": SimpleNamespace(
+            state="300", attributes={"unit_of_measurement": "W"},
+            last_updated=now,
+        ),
+    }
+    executor = SimpleNamespace(
+        _sessions={}, _start_pending=set(), _quarantine=set(),
+        _inflight={}, _persistence_verified=True,
+        _switch=lambda h, key: h.states.get(key),
+    )
+    runtime = SimpleNamespace(
+        configuration=old, executor=executor,
+        hass=SimpleNamespace(states=SimpleNamespace(get=states.get)),
+    )
+    with pytest.raises(ValueError, match="VERIFIED_IDLE"):
+        _assert_safe_expert_import(runtime, revised)
+    states["switch.charger"].state = "off"
+    states["sensor.charger_power"].state = "0"
+    _assert_safe_expert_import(runtime, revised)
+    executor._sessions["charger"] = {"asset_id": None}
+    with pytest.raises(ValueError, match="VERIFIED_IDLE"):
+        _assert_safe_expert_import(runtime, revised)
+    executor._sessions.clear()
+    states["switch.charger"].state = "on"
+    with pytest.raises(ValueError, match="VERIFIED_IDLE"):
+        _assert_safe_expert_import(runtime, old, source_changed=True)
+    # Presentation-only updates reuse the existing in-place path.
+    _assert_safe_expert_import(runtime, validate_configuration({
+        **old,
+        "controller": {**old["controller"], "name": "Renamed"},
+    }))
+    # A switch owned by an existing EXTERNAL integration cannot silently
+    # become MultiCharge's writer while still energized.
+    external = validate_configuration({
+        **old, "chargers": [{
+            **old["chargers"][0],
+            "control_owner": "external", "physical_commissioned": False,
+        }],
+    })
+    runtime.configuration = external
+    states["switch.charger"].state = "on"
+    with pytest.raises(ValueError, match="VERIFIED_IDLE"):
+        _assert_safe_expert_import(runtime, old)
+    states["switch.charger"].state = "off"
+    states["sensor.charger_power"].state = "300"
+    with pytest.raises(ValueError, match="VERIFIED_IDLE"):
+        _assert_safe_expert_import(runtime, old)
+    states["sensor.charger_power"].state = "0"
+    _assert_safe_expert_import(runtime, old)
+    # An unclosed prior command is not an idle physical session even when
+    # measured zero and switch OFF happen to be present.
+    executor._inflight["asset"] = "unreconciled"
+    with pytest.raises(ValueError, match="RECONCILED_CONTROL_STATE"):
+        _assert_safe_expert_import(runtime, old)
+    executor._inflight.clear()
+    executor._persistence_verified = False
+    with pytest.raises(ValueError, match="RECONCILED_CONTROL_STATE"):
+        _assert_safe_expert_import(runtime, old)
+
+
+@pytest.mark.asyncio
+async def test_native_pause_resume_never_bypass_admin_authorization():
+    """Admin-only native buttons may not turn a resident into a charger owner."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from custom_components.robotix_multicharge.button import (
+        _AdminChargeActionButton,
+    )
+
+    fake = SimpleNamespace(
+        context=SimpleNamespace(user_id="resident"),
+        hass=SimpleNamespace(auth=SimpleNamespace(
+            async_get_user=AsyncMock(
+                return_value=SimpleNamespace(is_admin=False)
+            )
+        )),
+    )
+    with pytest.raises(RuntimeError, match="administrator"):
+        await _AdminChargeActionButton._require_admin_context(fake)
+    fake.context.user_id = None
+    with pytest.raises(RuntimeError, match="administrator"):
+        await _AdminChargeActionButton._require_admin_context(fake)
+    fake.context.user_id = "admin"
+    fake.hass.auth.async_get_user.return_value = SimpleNamespace(is_admin=True)
+    await _AdminChargeActionButton._require_admin_context(fake)
+
+
 @pytest.mark.asyncio
 async def test_native_setup_registry_diagnostics_and_unload(hass: HomeAssistant):
     # Real copied custom integration under a standard HA config path.
@@ -49,6 +164,7 @@ async def test_native_setup_registry_diagnostics_and_unload(hass: HomeAssistant)
             "rated_power_kw": 3.6, "asset": "asset",
             "connected_entity": "binary_sensor.native_connected",
             "power_entity": "sensor.native_power",
+            "session_entity": "sensor.native_session",
             "control_owner": "external",
         }],
     })
@@ -76,6 +192,16 @@ async def test_native_setup_registry_diagnostics_and_unload(hass: HomeAssistant)
     assert diagnostic["schema_major"] == 1
     assert len(diagnostic["chargers"]) == 1
     assert diagnostic["integration"]["active"] is True
+    hass.states.async_set("sensor.native_session", "charging")
+    await hass.async_block_till_done()
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    # A real native state event must trigger the existing HA subscription;
+    # the test must not manually refresh to manufacture its readback.
+    session = runtime.observations["chargers"]["charger"]["session"]
+    assert session.value == "charging"
+    assert session.quality == "ok"
+    assert runtime.executor.capabilities()["charger"]["start_allowed"] is False
+    # A provider session observation is never permission to command equipment.
     assert "Local name" not in str(diagnostic)
     assert "sensor.native_power" not in str(diagnostic)
     assert await hass.config_entries.async_unload(entry.entry_id)
@@ -134,7 +260,7 @@ async def test_minimal_native_setup_then_yaml_takes_over_same_entry(hass: HomeAs
     assert wizard["step_id"] == "user"
     # All site electrical limits may be absent.
     wizard = await hass.config_entries.flow.async_configure(
-        wizard["flow_id"], {"name": "Wessels Home", "max_parallel": 1}
+        wizard["flow_id"], {"name": "Home charging", "max_parallel": 1}
     )
     assert wizard["step_id"] == "charger"
     # Exactly name + physical command entity are required to add a charger.
@@ -210,16 +336,16 @@ async def test_expert_json_include_skips_wizard_and_reuses_entry(hass: HomeAssis
     json_file = folder / "multicharge.json"
     yaml_file = folder / "configuration.yaml"
     expert = {
-        "Controller": {"ID": "home", "Name": "Wessels Home"},
+        "Controller": {"ID": "home", "Name": "Home charging"},
         "Charger": [{
             "Name": "Garage White",
             "Charging-Session-sensor": "sensor.white_session",
             "Charging-startstop-entity": "switch.white_control",
             "Charging-amp-entity": "number.white_amps",
-            "ChargingAsset": "Audi Q8",
+            "ChargingAsset": "Family car",
         }],
         "ChargingAsset": [{
-            "Name": "Audi Q8",
+            "Name": "Family car",
             "Asset type": "Véhicule",
             "Vehicle-Charging-startstop-entity": "switch.audi_charge",
             "Vehicle-Charging-amp-entity": "number.audi_amps",
@@ -263,6 +389,9 @@ async def test_expert_json_include_skips_wizard_and_reuses_entry(hass: HomeAssis
     # Edit the JSON and reload through the *same* import authority:
     # Config Entry and device identities survive.
     expert["Charger"][0]["Charging-Session-sensor"] = "sensor.changed_session"
+    expert["Controller"]["Mode"] = "Economy"
+    expert["Controller"]["Max-power-kW"] = 7.2
+    expert["ChargingAsset"][0]["Requested-kWh"] = 3.5
     json_file.write_text(json.dumps(expert), encoding="utf8")
     revised = await hass.async_add_executor_job(yaml_util.load_yaml, str(yaml_file))
     import_result = await hass.config_entries.flow.async_init(
@@ -278,6 +407,13 @@ async def test_expert_json_include_skips_wizard_and_reuses_entry(hass: HomeAssis
     assert entry.data["configuration"]["chargers"][0]["session_entity"] == (
         "sensor.changed_session"
     )
+    assert entry.data["configuration"]["controller"]["mode"] == "Economy"
+    assert entry.data["configuration"]["controller"]["max_power_kw"] == 7.2
+    assert entry.data["configuration"]["assets"][0]["requested_kwh"] == 3.5
+    # Reimport preserves one Config Entry without silently commissioning
+    # an EVSE or changing the existing external writer.
+    assert entry.data["configuration"]["chargers"][0]["control_owner"] == "external"
+    assert entry.data["configuration"]["chargers"][0]["physical_commissioned"] is False
     assert len(hass.config_entries.async_entries(DOMAIN)) == 1
     assert devices.async_get_device_by_identifier(
         (DOMAIN, "charger/garage_white"), entry_id

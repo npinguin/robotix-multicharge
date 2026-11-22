@@ -94,7 +94,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         return True
     try:
         source = config[DOMAIN]
-        direct_json = "Charger" in source or "ChargingAsset" in source
+        direct_json = any(key in source for key in ("Controller", "Charger", "ChargingAsset"))
         checked = normalize_expert_json(source)
     except ValueError as exc:
         _LOGGER.error("MultiCharge YAML configuration rejected: %s", exc)

@@ -101,7 +101,7 @@ def build_diagnostics(runtime, entry, captured_at=None):
             "sources": dict(obs.get("sources", {})),
             "chargers": {
                 _alias(uid): {key: _evidence(readings.get(key))
-                              for key in ("connected", "power_kw")}
+                              for key in ("connected", "power_kw", "session")}
                 for uid, readings in obs.get("chargers", {}).items()
             },
             "assets": {

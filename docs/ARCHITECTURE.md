@@ -104,6 +104,32 @@ ChargeableAsset needs + Charger capabilities
 
 The configured power budget, circuit and charger limits are binding safety constraints, not soft suggestions. Missing or stale safety-critical capacity is never treated as unlimited. A verified on/off switch cannot be represented as variable-current control. A command acknowledgment is not proof of actual physical power change.
 
+**Durable Pause/Resume (development candidate):** the existing Charger executor
+records a per-Charger user pause hold in its existing native HA control Store
+*before* attempting a physical STOP. The confirmed Pause response requires
+independent physical switch/power readback. A failed or uncertain STOP remains
+held and quarantined. Pause excludes the Charger from both firm and indicative
+plans; it cannot be auto-restarted by the next quarter. Resume requires an HA
+administrator, a qualified physically idle Charger and successful persistence;
+it **only releases the hold**. A future eligible quarter or a separately
+admitted manual START must pass the original exclusive writer and safety
+checks. The Charger native Pause/Resume buttons and the existing admin
+WebSocket use this one path. A measured, physically closed session may clear
+its former in-flight intent lock only after time-bounded receipt qualification;
+unknown delivered energy retains the hold. Stored pauses survive a normal HA
+restart, never restore a former active physical session. User journeys,
+provider failures, native permissions and real-hardware readback remain
+unqualified by source CI alone.
+
+**Expert JSON (development candidate):** direct human-readable Controller,
+Charger and ChargingAsset objects are mapped to the same canonical validated
+Config Entry and HA source-import lifecycle. Fully described electrical
+bindings are required for a Charger owned by MultiCharge; incomplete
+commissioning cannot be inferred from a default rating. Imported JSON is
+still read-only from the native settings interface. Its ownership declaration
+does not verify external writer handoff; real hardware and field safety
+qualification remain separate.
+
 The installed equipment and built-in charger protections remain authoritative. Any physical execution must remain disabled until real hardware and fail-safe behavior are qualified.
 
 ## Acceptance and tracking

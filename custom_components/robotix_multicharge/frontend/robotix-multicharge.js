@@ -28,6 +28,25 @@ const MC_REASONS={
 function mcReason(value){return mcTr(MC_REASONS[value]||"Unavailable");}
 const MC_TABS = ["Overview", "Charging Plan", "Chargeable Assets", "Chargers", "Settings"];
 const MC_SETTINGS = ["Charging site", "Sources & bindings", "Charging strategy", "Safety & limits", "Integrations", "Advanced & YAML"];
+// Pause is a persistent Charger admission hold, not a second strategy.
+for (const [locale, terms] of Object.entries({
+  nl:{"Pause charging":"Laden pauzeren","Resume charging":"Laden hervatten","Paused":"Gepauzeerd","Ready for next plan":"Klaar voor volgend laadplan"},
+  fr:{"Pause charging":"Mettre en pause","Resume charging":"Reprendre","Paused":"En pause","Ready for next plan":"Prêt pour le prochain plan"},
+  da:{"Pause charging":"Sæt opladning på pause","Resume charging":"Genoptag opladning","Paused":"Sat på pause","Ready for next plan":"Klar til næste plan"},
+  nb:{"Pause charging":"Sett lading på pause","Resume charging":"Gjenoppta lading","Paused":"Pauset","Ready for next plan":"Klar for neste plan"},
+  sv:{"Pause charging":"Pausa laddning","Resume charging":"Återuppta laddning","Paused":"Pausad","Ready for next plan":"Klar för nästa plan"},
+  de:{"Pause charging":"Laden pausieren","Resume charging":"Laden fortsetzen","Paused":"Pausiert","Ready for next plan":"Bereit für den nächsten Plan"},
+  es:{"Pause charging":"Pausar carga","Resume charging":"Reanudar carga","Paused":"En pausa","Ready for next plan":"Listo para el próximo plan"}
+}))Object.assign(MC_TEXT[locale],terms);
+for(const [locale,translations] of Object.entries({
+  nl:{"Configure in Home Assistant":"Configureren in Home Assistant","Selected":"Geselecteerd"},
+  fr:{"Configure in Home Assistant":"Configurer dans Home Assistant","Selected":"Sélectionné"},
+  da:{"Configure in Home Assistant":"Konfigurer i Home Assistant","Selected":"Valgt"},
+  nb:{"Configure in Home Assistant":"Konfigurer i Home Assistant","Selected":"Valgt"},
+  sv:{"Configure in Home Assistant":"Konfigurera i Home Assistant","Selected":"Vald"},
+  de:{"Configure in Home Assistant":"In Home Assistant konfigurieren","Selected":"Ausgewählt"},
+  es:{"Configure in Home Assistant":"Configurar en Home Assistant","Selected":"Seleccionado"}
+}))Object.assign(MC_TEXT[locale],translations);
 const MC_MODES = ["Automatic", "Solar", "Economy", "Ready By", "Force Charge", "Off"];
 const MC_STYLE = [
   ":host{display:block;color:var(--primary-text-color,#20252b);font:inherit}",
@@ -352,7 +371,7 @@ class RobotixMultiChargeCard extends HTMLElement {
   }
   configure(container){
     if(!this.canManage())return;
-    const link=mcEl("a","action","Home Assistant");
+    const link=mcEl("a","action",mcTr("Configure in Home Assistant"));
     link.href="/config/integrations/integration/robotix_multicharge";
     link.setAttribute("aria-label",mcTr("Home Assistant"));
     container.append(link);
@@ -435,7 +454,6 @@ class RobotixMultiChargeCard extends HTMLElement {
     if(reasons.length)next.append(mcEl("p","muted small",reasons.map(([key,val])=>key+": "+mcReason(val)).slice(0,4).join(" · ")));
     container.append(next);
   }
-  settingsSelect(_container,name){this._tab="Settings";this._settingsOpen=name;this.render();}
   plan(container){
     const d=this._data,c=d.configuration||{},controller=c.controller||{};
     const cars=c.assets||[],chargers=c.chargers||[];
@@ -841,6 +859,16 @@ class RobotixMultiChargeCard extends HTMLElement {
         stop.disabled=this._commandBusy;
         controls.append(stop);
       }
+      if(this.canManage()&&capability.pause_allowed){
+        const pause=mcButton(mcTr("Pause charging"),()=>this.command(c.id,"pause"));
+        pause.disabled=this._commandBusy;
+        controls.append(pause);
+      }
+      if(this.canManage()&&capability.resume_allowed){
+        const resume=mcButton(mcTr("Resume charging"),()=>this.command(c.id,"resume"));
+        resume.disabled=this._commandBusy;
+        controls.append(resume);
+      }
       if(controls.children.length)card.append(controls);
       if(this.canManage()&&!c.asset&&capability.manual_one_off_allowed){
         const oneOff=mcEl("section","card");
@@ -866,14 +894,21 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(outcome){
         const bad=outcome.status==="rejected"||outcome.status==="execution_unknown";
         const label=bad?mcReason(outcome.reason):outcome.status==="confirmed"?
-          (outcome.action==="stop"?"Stopped":"Charging"):"Pending";
+          (outcome.action==="stop"?"Stopped":
+           outcome.action==="pause"?mcTr("Paused"):
+           outcome.action==="resume"?mcTr("Ready for next plan"):"Charging"):"Pending";
         const status=mcEl("p","small"+(bad?" error":""),label);
         status.setAttribute("role",bad?"alert":"status");
         card.append(status);
       }
       container.append(card);
     }
-    if(this.canEditSettings())container.append(mcButton("Add charger",()=>this.settingsSelect(container,"Sources & bindings")));
+    if(this.canEditSettings()){
+      const add=mcEl("a","action",mcTr("Add charger"));
+      add.href="/config/integrations/integration/robotix_multicharge";
+      add.setAttribute("aria-label",mcTr("Add charger"));
+      container.append(add);
+    }
   }
   settings(container){
     const d=this._data,c=d.configuration||{},ctl=c.controller||{};
@@ -890,7 +925,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     for(const title of MC_SETTINGS){
       const group=mcEl("section","card"),open=title===this._settingsOpen;
       const row=mcEl("div","row");
-      row.append(mcEl("h3","",title),mcButton(open?"Close":this.canEditSettings()?"Edit":"Details",()=>{
+      row.append(mcEl("h3","",title),mcButton(open?"Close":"Details",()=>{
         this._settingsOpen=open?"":title;this.render();
       }));
       group.append(row);
@@ -898,6 +933,12 @@ class RobotixMultiChargeCard extends HTMLElement {
         const detail=mcEl("div","details");
         if(title==="Charging site"){
           mcPair(detail,"Site name",ctl.name);
+          if(this.canEditSettings()&&this.ownerEntity("controller",ctl.id,"name")){
+            const rename=mcEl("div","row");
+            rename.append(mcEl("span","",mcTr("Site name")),
+              mcButton("Edit",()=>this.openNative("controller",ctl.id,"name")));
+            detail.append(rename);
+          }
           for(const field of ["max_parallel","max_power_kw"]){
             if(!this.canEditSettings()||!this.ownerEntity("controller",ctl.id,field))continue;
             const item=mcEl("div","row");
@@ -916,6 +957,14 @@ class RobotixMultiChargeCard extends HTMLElement {
           }
           detail.append(options);
           if(!this.canEditSettings())mcPair(detail,"Charging mode",ctl.mode||"Unknown");
+        }else if(title==="Sources & bindings"){
+          for(const [field,label] of [
+            ["price_entity","Tariff"],["solar_entity","Solar"],
+            ["binding_entity","Capacity"]
+          ]){
+            mcPair(detail,label,ctl[field]?mcTr("Selected"):mcTr("Not set"));
+          }
+          this.configure(detail);
         }else if(title==="Integrations"){
           mcPair(detail,"Tariff",mcReason((d.observations||{}).sources?.tariff_quality));
           mcPair(detail,"Solar",mcReason((d.observations||{}).sources?.solar_quality));
@@ -923,6 +972,19 @@ class RobotixMultiChargeCard extends HTMLElement {
         }else if(title==="Safety & limits"){
           mcPair(detail,"Maximum group kW",ctl.max_power_kw===undefined?
             "Unknown":ctl.max_power_kw+" kW");
+          for(const [field,label] of [
+            ["max_power_kw","Maximum group kW"],
+            ["max_parallel","Parallel chargers"]
+          ]){
+            if(!this.canEditSettings()||!this.ownerEntity("controller",ctl.id,field))continue;
+            const setting=mcEl("div","row");
+            setting.append(mcEl("span","",mcTr(label)),
+              mcButton("Edit",()=>this.openNative("controller",ctl.id,field)));
+            detail.append(setting);
+          }
+          const phases=Object.entries(ctl.phase_limits_a||{});
+          mcPair(detail,"Electrical limits",
+            phases.length?phases.map(([id,amps])=>id+": "+amps+" A").join(" · "):mcTr("Not set"));
           this.configure(detail);
         }else{
           this.configure(detail);

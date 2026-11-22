@@ -15,7 +15,7 @@ from .contracts import ChargeDemand, PowerEnvelope
 from .configuration import configuration_revision, PLAN_COLORS
 from .domain import ChargeController, Charger
 from .planner import compile_plan, resolve_recurring_ready_by
-from .source_evidence import Evidence, binding, connection, intervals, number
+from .source_evidence import Evidence, binding, connection, intervals, number, session_status
 from .execution import NativeSwitchExecutor
 
 _LOGGER = logging.getLogger(__name__)
@@ -162,14 +162,19 @@ class MultiChargeRuntime:
             )
             cable = connection(self.hass, raw.get("connected_entity"), at)
             power = number(self.hass, raw.get("power_entity"), "power", at)
+            session = session_status(self.hass, raw.get("session_entity"), at)
             self.observations["chargers"][uid] = {
-                "connected": cable, "power_kw": power
+                "connected": cable, "power_kw": power, "session": session,
             }
             if cable.value is not True and cable.value is not False or cable.quality != "ok":
                 self.excluded[uid] = "CONNECTION_UNCONFIRMED"
                 self.forecast_excluded[uid] = "CONNECTION_UNCONFIRMED"
                 continue
             disconnected = cable.value is False
+            if uid in self.executor._paused:
+                self.excluded[uid] = "USER_PAUSED"
+                self.forecast_excluded[uid] = "USER_PAUSED"
+                continue
             asset = assets.get(raw.get("asset"))
             if asset is None:
                 self.excluded[uid] = (
@@ -372,16 +377,20 @@ class MultiChargeRuntime:
             outcomes.values(),
             key=lambda row: (row.get("requested_at") or "", row.get("request_id") or ""),
         )
+        pending = any(
+            r.get("status") in ("requested", "accepted_unconfirmed")
+            for r in actions
+        )
         unresolved_restart = (
             not self.executor._persistence_verified or bool(
-                self.executor._inflight
-                and not self.executor.session_snapshot()
+                self.executor._inflight and not self.executor.session_snapshot()
+                and not pending
             )
         )
         command_status = (
             "hold" if unresolved_restart
             else "unconfirmed" if any(r.get("status") == "execution_unknown" for r in actions)
-            else "pending" if any(r.get("status") == "requested" for r in actions)
+            else "pending" if pending
             else "rejected" if any(r.get("status") == "rejected" for r in actions)
             else "confirmed" if actions else "idle"
         )

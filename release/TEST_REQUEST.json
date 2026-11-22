@@ -1,8 +1,8 @@
 {
   "status": "AUTHORIZED_FOR_TEST",
   "distribution": "open_source_community",
-  "expected_tag": "v0.1.2",
+  "expected_tag": "v0.1.3",
   "precompile": false,
-  "qualification_scope": "HACS source integrity, target Home Assistant import, native runtime and field closing iteration",
-  "limitations": "Not a field-qualified STABLE release; 29 user journeys and representative mixed hardware/readback/restart/rollback require installed Home Assistant evidence."
+  "qualification_scope": "Community HACS source integrity, installed Home Assistant 2026.11.2 smoke, native runtime/configuration lifecycle, and incremental user-facing TEST of expert JSON, durable Pause/Resume and verified STOP; no live physical writer handoff",
+  "limitations": "TEST only, not field-qualified STABLE. Real five-view browser acceptance, actual provider/EVSE readback, exclusive ownership migration, 1/2/4/10 mixed physical Chargers and installed upgrade/restart/rollback remain unqualified; no live site cutover."
 }

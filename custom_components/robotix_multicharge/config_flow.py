@@ -1,15 +1,21 @@
-"""Guided native setup and one-authority expert YAML import."""
+"""Guided native setup and one-authority expert JSON/YAML import."""
 
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime, timezone
 from re import sub
 
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.helpers import selector
 
-from .configuration import default_configuration, validate_configuration
+from .configuration import (
+    default_configuration, is_plan_presentation_only_change,
+    validate_configuration,
+)
+from .source_evidence import number
+from .execution import stop_power_limit
 from .const import DOMAIN, NAME
 
 
@@ -28,6 +34,49 @@ def _phase_limits(raw):
                 (entry.split(":", 1) for entry in entries)}
     except (ValueError, TypeError) as exc:
         raise ValueError("Use L1:16,L2:16,L3:16") from exc
+
+
+def _assert_safe_expert_import(runtime, updated, *, source_changed=False):
+    """Refuse structural import while any affected writer cannot prove idle.
+
+    Inspect BOTH the currently installed writer and proposed owner/wiring.
+    A new MultiCharge owner cannot take control of an externally active EVSE.
+    No import may consume unresolved stored commands as if they were idle.
+    """
+    current = runtime.configuration
+    if (not source_changed and (
+            updated == current
+            or is_plan_presentation_only_change(current, updated))):
+        return
+    executor = runtime.executor
+    if (not executor._persistence_verified or executor._inflight
+            or executor._start_pending or executor._quarantine):
+        raise ValueError("EXPERT_IMPORT_REQUIRES_RECONCILED_CONTROL_STATE")
+    before = {item["id"]: item for item in current["chargers"]}
+    after = {item["id"]: item for item in updated["chargers"]}
+    now = datetime.now(timezone.utc)
+    for uid in before.keys() | after.keys():
+        old = before.get(uid)
+        proposed = after.get(uid)
+        checked = [
+            row for row in (old, proposed)
+            if row and row.get("control_owner") == "multicharge"
+            and row.get("physical_commissioned") is True
+        ]
+        if not checked:
+            continue
+        if uid in executor._sessions:
+            raise ValueError("EXPERT_IMPORT_REQUIRES_VERIFIED_IDLE_CHARGERS")
+        for charger in checked:
+            switch = executor._switch(
+                runtime.hass, charger.get("control_entity")
+            )
+            power = number(
+                runtime.hass, charger.get("power_entity"), "power", now
+            )
+            if (switch is None or switch.state != "off" or power.quality != "ok"
+                    or power.value > stop_power_limit(charger)):
+                raise ValueError("EXPERT_IMPORT_REQUIRES_VERIFIED_IDLE_CHARGERS")
 
 
 class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -419,6 +468,28 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # the HA Config Entry: this preserves its entry ID, logical devices,
             # registry identities, Recorder history and physical replay store.
             entry = entries[0]
+            existing_runtime = self.hass.data.get(DOMAIN, {}).get(entry.entry_id)
+            if existing_runtime is not None:
+                _assert_safe_expert_import(
+                    existing_runtime, cfg,
+                    source_changed=entry.data.get("source") != expert_format,
+                )
+            elif entry.data.get("configuration") != cfg or (
+                    entry.data.get("source") != expert_format):
+                # An unloaded Config Entry cannot prove that any formerly or
+                # newly owned commissioned EVSE is physically idle. Refuse a
+                # structural import rather than mutating its command owner.
+                old_chargers = entry.data.get("configuration", {}).get(
+                    "chargers", []
+                )
+                if any(
+                    row.get("control_owner") == "multicharge"
+                    and row.get("physical_commissioned") is True
+                    for row in [*old_chargers, *cfg["chargers"]]
+                ):
+                    raise ValueError(
+                        "EXPERT_IMPORT_REQUIRES_LOADED_VERIFIED_CHARGERS"
+                    )
             next_data = {"source": expert_format, "configuration": cfg}
             next_options = {
                 key: value for key, value in entry.options.items()

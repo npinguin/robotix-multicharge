@@ -28,41 +28,41 @@ class ConfigurationTests(unittest.TestCase):
     def test_direct_expert_json_normalizes_charger_and_vehicle_without_wizard(self):
         """Owner's JSON fields are the complete input, not internal YAML keys."""
         data = {
-            "Controller": {"Name": "Wessels Home", "ID": "home"},
+            "Controller": {"Name": "Sample home", "ID": "home"},
             "Charger": [
-                {"Name": "Garage White",
+                {"Name": "Garage A",
                  "Charging-Session-sensor": "sensor.white_session",
                  "Charging-startstop-entity": "switch.white_charge",
                  "Charging-amp-entity": "number.white_limit",
-                 "ChargingAsset": "Audi Q8"},
-                {"Name": "Peblar Outside",
+                 "ChargingAsset": "Family car"},
+                {"Name": "Outdoor charger",
                  "Charging-startstop-entity": "switch.peblar_charge"},
             ],
             "ChargingAsset": [
-                {"Name": "Audi Q8", "Asset type": "Véhicule",
-                 "Vehicle-Charging-startstop-entity": "switch.audi_charge",
-                 "Vehicle-Charging-amp-entity": "number.audi_limit",
-                 "Vehicle-soc-sensor": "sensor.audi_soc"},
+                {"Name": "Family car", "Asset type": "Véhicule",
+                 "Vehicle-Charging-startstop-entity": "switch.family_charge",
+                 "Vehicle-Charging-amp-entity": "number.family_limit",
+                 "Vehicle-soc-sensor": "sensor.family_soc"},
                 {"Name": "Guest", "Asset type": "bicycle"},
             ],
         }
         cfg = normalize_expert_json(data)
-        self.assertEqual(cfg["controller"]["name"], "Wessels Home")
+        self.assertEqual(cfg["controller"]["name"], "Sample home")
         self.assertEqual(cfg["controller"]["mode"], "Off")
         self.assertEqual(cfg["controller"]["id"], "home")
         self.assertNotIn("max_power_kw", cfg["controller"])
         self.assertEqual(len(cfg["chargers"]), 2)
-        self.assertEqual(cfg["chargers"][0]["id"], "garage_white")
-        self.assertEqual(cfg["chargers"][0]["asset"], "audi_q8")
+        self.assertEqual(cfg["chargers"][0]["id"], "garage_a")
+        self.assertEqual(cfg["chargers"][0]["asset"], "family_car")
         self.assertEqual(cfg["chargers"][0]["session_entity"], "sensor.white_session")
         self.assertEqual(cfg["chargers"][0]["control_entity"], "switch.white_charge")
         self.assertEqual(cfg["chargers"][0]["current_control_entity"], "number.white_limit")
         self.assertEqual(cfg["chargers"][0]["control_owner"], "external")
         self.assertFalse(cfg["chargers"][0]["physical_commissioned"])
         self.assertEqual(cfg["assets"][0]["kind"], "car")
-        self.assertEqual(cfg["assets"][0]["soc_entity"], "sensor.audi_soc")
-        self.assertEqual(cfg["assets"][0]["vehicle_control_entity"], "switch.audi_charge")
-        self.assertEqual(cfg["assets"][0]["vehicle_current_entity"], "number.audi_limit")
+        self.assertEqual(cfg["assets"][0]["soc_entity"], "sensor.family_soc")
+        self.assertEqual(cfg["assets"][0]["vehicle_control_entity"], "switch.family_charge")
+        self.assertEqual(cfg["assets"][0]["vehicle_current_entity"], "number.family_limit")
         self.assertEqual(cfg["assets"][1]["kind"], "bicycle")
         self.assertNotIn("vehicle_control_entity", cfg["assets"][1])
         self.assertEqual(cfg, validate_configuration(cfg))
@@ -71,7 +71,7 @@ class ConfigurationTests(unittest.TestCase):
         cfg = normalize_expert_json({
             "Charger": {"Name": "Utility Plug",
                         "Charging-startstop-entity": "switch.utility"},
-            "ChargingAsset": {"Name": "Mercedes GLA", "Asset type": "Véhicule"},
+            "ChargingAsset": {"Name": "Second car", "Asset type": "Véhicule"},
         })
         self.assertEqual(len(cfg["chargers"]), 1)
         self.assertEqual(len(cfg["assets"]), 1)
@@ -80,7 +80,7 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(cfg["controller"]["mode"], "Off")
 
     def test_expert_json_rejects_unknown_keys_and_invalid_entity_domains(self):
-        sample = {"Charger": [{"Name": "Garage White",
+        sample = {"Charger": [{"Name": "Garage A",
                               "Charging-startstop-entity": "switch.white"}]}
         for field, value in (
             ("Charging-Session-sensor", "number.not_a_sensor"),
@@ -123,6 +123,142 @@ class ConfigurationTests(unittest.TestCase):
             effective_configuration(Entry())["chargers"][0]["name"], "White"
         )
         self.assertEqual(effective_configuration(Entry())["controller"]["mode"], "Off")
+
+    def test_expert_json_can_prepare_full_charge_intent_and_site_budget(self):
+        config = normalize_expert_json({
+            "Controller": {
+                "Name": "Home charging", "Mode": "Ready By",
+                "Max-parallel": 2, "Max-power-kW": 7.0,
+                "Phase-limits-A": {"L1": 20},
+                "Plan-label-mode": "both",
+                "Plan-color-by": "charger", "Show-indicative-forecast": True,
+            },
+            "ChargingAsset": {
+                "ID": "car", "Name": "Car", "Asset type": "car",
+                "Requested-kWh": 4.0, "Ready-by": "2026-11-30T08:00:00+01:00",
+                "Ready-by-repeat": "daily", "Priority": 5,
+                "Plan-color": "violet", "Target-SoC-percent": 80.0,
+                "Usable-capacity-kWh": 14.0, "Charging-efficiency": 0.9,
+                "Expected-connection-at": "2026-11-29T17:00:00+01:00",
+            },
+            "Charger": {
+                "ID": "plug", "Name": "Plug", "Control-kind": "on_off",
+                "Charging-startstop-entity": "switch.garage_plug",
+                "Charging-connected-sensor": "binary_sensor.garage_connected",
+                "Charging-power-sensor": "sensor.garage_power",
+                "Charging-energy-sensor": "sensor.garage_energy",
+                "Rated-power-kW": 0.5, "Phase-count": 1,
+                "Phase-IDs": ["L1"], "Voltage-V": 230.0,
+                "Fixed-current-A": 3.0, "Circuit-ID": "garage",
+                "Circuit-limit-A": 10.0,
+                "Control-owner": "multicharge",
+                "Physical-commissioned": False,
+                "ChargingAsset": "Car",
+            },
+        })
+        self.assertEqual(config, validate_configuration(config))
+        self.assertEqual(config["controller"]["mode"], "Ready By")
+        self.assertEqual(config["controller"]["phase_limits_a"], {"L1": 20.0})
+        self.assertEqual(config["controller"]["plan_color_by"], "charger")
+        self.assertEqual(config["chargers"][0]["control_owner"], "multicharge")
+        self.assertFalse(config["chargers"][0]["physical_commissioned"])
+        self.assertEqual(config["chargers"][0]["asset"], "car")
+        self.assertEqual(config["assets"][0]["requested_kwh"], 4.0)
+        self.assertEqual(config["assets"][0]["ready_by_repeat"], "daily")
+
+    def test_expert_json_variable_current_needs_verified_independent_readback(self):
+        configured = {
+            "Controller": {
+                "Name": "Home", "Mode": "Automatic", "Max-power-kW": 12,
+                "Phase-limits-A": {"L1": 24, "L2": 24, "L3": 24},
+            },
+            "Charger": {
+                "Name": "Wallbox", "Control-owner": "multicharge",
+                "Physical-commissioned": True,
+                "Control-kind": "variable_current",
+                "Rated-power-kW": 11, "Phase-count": 3,
+                "Phase-IDs": ["L1", "L2", "L3"], "Voltage-V": 230,
+                "Min-current-A": 6, "Max-current-A": 16,
+                "Current-step-A": 1,
+                "Circuit-ID": "garage", "Circuit-limit-A": 20,
+                "Charging-startstop-entity": "switch.wallbox",
+                "Charging-amp-entity": "number.wallbox_target",
+                "Charging-current-readback-sensor": "sensor.wallbox_current",
+                "Charging-connected-sensor": "binary_sensor.wallbox_cable",
+                "Charging-power-sensor": "sensor.wallbox_power",
+            },
+        }
+        cfg = normalize_expert_json(configured)
+        self.assertEqual(cfg["chargers"][0]["kind"], "variable_current")
+        self.assertTrue(cfg["chargers"][0]["physical_commissioned"])
+        self.assertEqual(cfg["chargers"][0]["current_readback_entity"],
+                         "sensor.wallbox_current")
+        from copy import deepcopy
+        without_readback = deepcopy(configured)
+        without_readback["Charger"].pop("Charging-current-readback-sensor")
+        with self.assertRaisesRegex(ValueError, "readback"):
+            normalize_expert_json(without_readback)
+        duplicate_readback = deepcopy(configured)
+        duplicate_readback["Charger"]["Charging-current-readback-sensor"] = (
+            "number.wallbox_target"
+        )
+        with self.assertRaisesRegex(ValueError, "expected sensor"):
+            normalize_expert_json(duplicate_readback)
+
+    def test_expert_json_cannot_claim_commissioning_without_complete_evidence(self):
+        safe = {
+            "Controller": {"Name": "Home"},
+            "Charger": {
+                "Name": "Plug",
+                "Charging-startstop-entity": "switch.plug",
+            },
+        }
+        self.assertEqual(normalize_expert_json(safe)["controller"]["mode"], "Off")
+        self.assertEqual(normalize_expert_json(safe)["chargers"][0]["control_owner"],
+                         "external")
+        from copy import deepcopy
+        unsafe = deepcopy(safe)
+        unsafe["Charger"]["Control-owner"] = "multicharge"
+        unsafe["Charger"]["Physical-commissioned"] = True
+        with self.assertRaisesRegex(ValueError, "requires verified"):
+            normalize_expert_json(unsafe)
+        unsafe = deepcopy(safe)
+        unsafe["Charger"]["Physical-commissioned"] = True
+        with self.assertRaisesRegex(ValueError, "commissioning requires"):
+            normalize_expert_json(unsafe)
+        unsafe = deepcopy(safe)
+        unsafe["Controller"]["Mode"] = "Force Charge"
+        self.assertEqual(normalize_expert_json(unsafe)["chargers"][0]["control_owner"],
+                         "external")
+        unsafe = deepcopy(safe)
+        unsafe["Controller"]["Phase-limits-A"] = {"L5": 16}
+        with self.assertRaisesRegex(ValueError, "phase_limits_a"):
+            normalize_expert_json(unsafe)
+
+    def test_controller_only_expert_json_is_a_valid_empty_site(self):
+        configured = normalize_expert_json({
+            "Controller": {"ID": "home", "Name": "Home only", "Mode": "Off"},
+        })
+        self.assertEqual(configured["controller"]["name"], "Home only")
+        self.assertEqual(configured["assets"], [])
+        self.assertEqual(configured["chargers"], [])
+
+    def test_expert_json_rejects_ambiguous_vehicle_names_and_non_numeric_limits(self):
+        template = {
+            "Charger": {
+                "Name": "Plug", "Charging-startstop-entity": "switch.plug"
+            },
+            "ChargingAsset": [
+                {"ID": "vehicle_1", "Name": "Duplicate"},
+                {"ID": "vehicle_2", "Name": "Duplicate"},
+            ],
+        }
+        with self.assertRaisesRegex(ValueError, "ambiguous"):
+            normalize_expert_json(template)
+        template["ChargingAsset"][1]["Name"] = "Other"
+        template["Charger"]["Rated-power-kW"] = "several"
+        with self.assertRaisesRegex(ValueError, "expected a number"):
+            normalize_expert_json(template)
 
     def test_idle_only_vehicle_rebind_is_in_place_not_physical_reload(self):
         from multicharge_configuration_tests.configuration import (

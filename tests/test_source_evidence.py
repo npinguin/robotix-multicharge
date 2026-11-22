@@ -20,7 +20,7 @@ for name in ("contracts", "source_evidence"):
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
 
-from multicharge_source_test.source_evidence import binding, connection, intervals, number  # noqa: E402 - imported after isolated pure-module bootstrap
+from multicharge_source_test.source_evidence import binding, connection, intervals, number, session_status  # noqa: E402 - imported after isolated pure-module bootstrap
 
 NOW = datetime(2026, 11, 22, 12, tzinfo=timezone.utc)
 
@@ -81,6 +81,29 @@ class EvidenceTests(unittest.TestCase):
         self.assertIsNone(connection(obj, "switch.plug", NOW).value)
         self.assertTrue(connection(obj, "binary_sensor.cable", NOW).value)
         self.assertTrue(connection(obj, "sensor.cable", NOW).value)
+
+    def test_session_status_is_only_read_only_source_evidence(self):
+        obj = hass({
+            "sensor.session": state("Charging"),
+            "binary_sensor.session": state("on"),
+            "sensor.invalid": state("1"),
+            "sensor.stale": state(
+                "paused", observed=NOW - timedelta(hours=1)
+            ),
+        })
+        self.assertEqual(session_status(obj, "sensor.session", NOW).value,
+                         "charging")
+        self.assertEqual(session_status(obj, "binary_sensor.session", NOW).value,
+                         "active")
+        self.assertIsNone(session_status(obj, "sensor.invalid", NOW).value)
+        self.assertEqual(session_status(obj, "sensor.invalid", NOW).quality,
+                         "invalid")
+        self.assertEqual(session_status(obj, "sensor.stale", NOW).quality,
+                         "stale")
+        self.assertEqual(session_status(obj, None, NOW).quality, "unknown")
+        # Session-active is not physical cable identity, measured energy or
+        # a permission to actuate a provider-owned EVSE.
+        self.assertIsNone(connection(obj, "sensor.session", NOW).value)
 
     def test_price_requires_explicit_effective_basis(self):
         slots = [{
