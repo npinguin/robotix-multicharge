@@ -84,6 +84,9 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     register_command_query(hass)
     register_settings_query(hass)
     register_frontend(hass)
+    # An imported YAML-owned entry must never silently replay a historic
+    # persisted configuration if its authoritative YAML was removed.
+    hass.data[f"{DOMAIN}_yaml_present"] = DOMAIN in config
     if DOMAIN not in config:
         return True
     try:
@@ -99,6 +102,10 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Expose only truthful configuration-status entities in this bootstrap."""
+    if (entry.data.get("source") == "yaml"
+            and not hass.data.get(f"{DOMAIN}_yaml_present", False)):
+        _LOGGER.error("MultiCharge YAML source missing; previous settings are NOT resumed")
+        return False
     try:
         cfg = effective_configuration(entry)
     except (ValueError, KeyError) as exc:
