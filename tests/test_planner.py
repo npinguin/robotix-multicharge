@@ -51,8 +51,7 @@ def demand(i, kwh=1.0, priority=1, deadline=None):
 
 class PlannerTests(unittest.TestCase):
     def test_indicative_slots_use_residual_capacity_without_changing_firm_slots(self):
-        from multicharge_planner_tests.contracts import ChargeDemand
-        controller, chargers = build(n=2, power=4.0)
+        controller, chargers = build(n=2, power=4.0, limit=4.0)
         at = NOW
         live = compile_plan(controller, chargers, [
             ChargeDemand(asset_uid="car0", charger_uid="c0",

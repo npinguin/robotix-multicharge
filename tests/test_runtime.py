@@ -241,6 +241,57 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(rt.assessment.plan.slots, ())
         self.assertEqual(rt.excluded["drive"], "TEMPORARY_ASSET_EXPIRED")
 
+    def test_unplugged_vehicle_is_indicative_only_never_in_executable_plan(self):
+        cfg = sample()
+        cfg["controller"]["max_power_kw"] = 4.0
+        data = {
+            "sensor.soc": state("50", "%"),
+            "binary_sensor.cable": state("off"),
+            "sensor.power": state("0", "W"),
+        }
+        rt = MultiChargeRuntime(
+            SimpleNamespace(states=SimpleNamespace(get=data.get)), cfg
+        )
+        rt.refresh(NOW)
+        self.assertFalse(rt.assessment.plan.slots)
+        self.assertTrue(rt.forecast_assessment.plan.slots)
+        view = rt.read_plan(NOW, NOW + timedelta(hours=2))
+        self.assertEqual(view["slots"], [])
+        self.assertTrue(view["forecast_slots"])
+        self.assertEqual(view["forecast_slots"][0]["status"], "indicative_only")
+        self.assertFalse(view["forecast_slots"][0]["may_execute"])
+        self.assertFalse(view["forecast_slots"][0]["reserves_capacity"])
+        self.assertEqual(view["forecast_assumptions"]["drive"]["assumption"],
+                         "IF_CONNECTED_NOW")
+        data["binary_sensor.cable"].state = "unavailable"
+        rt.refresh(NOW)
+        self.assertFalse(rt.forecast_assessment)
+        self.assertEqual(rt.forecast_excluded["drive"], "CONNECTION_UNCONFIRMED")
+
+    def test_forecast_expected_connection_time_and_off_mode(self):
+        cfg = sample()
+        cfg["controller"]["max_power_kw"] = 4.0
+        cfg["assets"][0]["expected_connection_at"] = (
+            NOW + timedelta(hours=1)).isoformat()
+        data = {
+            "sensor.soc": state("50", "%"),
+            "binary_sensor.cable": state("off"),
+            "sensor.power": state("0", "W"),
+        }
+        rt = MultiChargeRuntime(
+            SimpleNamespace(states=SimpleNamespace(get=data.get)), cfg
+        )
+        rt.refresh(NOW)
+        self.assertTrue(rt.forecast_assessment.plan.slots)
+        self.assertTrue(all(
+            s.start >= NOW + timedelta(hours=1)
+            for s in rt.forecast_assessment.plan.slots
+        ))
+        cfg["controller"]["mode"] = "Off"
+        rt.refresh(NOW)
+        self.assertEqual(rt.forecast_assessment.plan.slots, ())
+        self.assertFalse(rt.assessment.plan.slots)
+
     def test_no_connection_never_proposes_charging(self):
         cfg = sample()
         rt = MultiChargeRuntime(SimpleNamespace(

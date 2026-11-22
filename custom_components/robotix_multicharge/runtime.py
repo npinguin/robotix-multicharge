@@ -36,6 +36,9 @@ class MultiChargeRuntime:
         self.hass = hass
         self.configuration = configuration
         self.assessment = None
+        self.forecast_assessment = None
+        self.forecast_assumptions = {}
+        self.forecast_excluded = {}
         self.observations = {"chargers": {}, "assets": {}, "sources": {}}
         self.excluded = {}
         self.price_slots = ()
@@ -130,6 +133,10 @@ class MultiChargeRuntime:
         assets = {a["id"]: a for a in cfg["assets"]}
         chargers = {}
         demands = []
+        indicative_demands = []
+        self.forecast_assessment = None
+        self.forecast_assumptions = {}
+        self.forecast_excluded = {}
         self.observations = {"chargers": {}, "assets": {}, "sources": {}}
         self.excluded = {}
         # Observe every logical asset, including unassigned assets and explicit
@@ -158,14 +165,17 @@ class MultiChargeRuntime:
             self.observations["chargers"][uid] = {
                 "connected": cable, "power_kw": power
             }
-            if cable.value is not True or cable.quality != "ok":
-                self.excluded[uid] = (
-                    "DISCONNECTED" if cable.value is False else "CONNECTION_UNCONFIRMED"
-                )
+            if cable.value is not True and cable.value is not False or cable.quality != "ok":
+                self.excluded[uid] = "CONNECTION_UNCONFIRMED"
+                self.forecast_excluded[uid] = "CONNECTION_UNCONFIRMED"
                 continue
+            disconnected = cable.value is False
             asset = assets.get(raw.get("asset"))
             if asset is None:
-                self.excluded[uid] = "NO_CHARGEABLE_ASSET"
+                self.excluded[uid] = (
+                    "DISCONNECTED" if disconnected else "NO_CHARGEABLE_ASSET"
+                )
+                self.forecast_excluded[uid] = "NO_ASSIGNED_ASSET"
                 continue
             if (asset.get("temporary")
                     and datetime.fromisoformat(asset["expires_at"]) <= at):
@@ -201,13 +211,38 @@ class MultiChargeRuntime:
             if (self.executor.intent_completed(asset, raw, deadline)
                     and (amount is not None or minutes is not None)):
                 amount, minutes = 0.0, None
-            demands.append(ChargeDemand(
+            assumed_arrival = (
+                datetime.fromisoformat(asset["expected_connection_at"])
+                if disconnected and asset.get("expected_connection_at") else None
+            )
+            request = ChargeDemand(
                 asset_uid=asset["id"], charger_uid=uid,
                 remaining_grid_kwh=amount, ready_by=deadline,
                 priority=asset.get("priority", 0),
                 remaining_duration_minutes=minutes,
                 max_power_kw=asset.get("max_charge_kw"),
-            ))
+                not_before=max(at, assumed_arrival)
+                if disconnected and assumed_arrival else None,
+            )
+            if disconnected:
+                self.excluded[uid] = "DISCONNECTED"
+                indicative_demands.append(request)
+                self.forecast_assumptions[uid] = {
+                    "asset_id": asset["id"], "charger_id": uid,
+                    "assumption": (
+                        "USER_EXPECTED_CONNECTION_TIME" if assumed_arrival
+                        else "IF_CONNECTED_NOW"
+                    ),
+                    "assumed_connection_at": (
+                        max(at, assumed_arrival).isoformat()
+                        if assumed_arrival else at.isoformat()
+                    ),
+                    "physically_connected": False,
+                    "may_execute": False,
+                    "reserves_capacity": False,
+                }
+            else:
+                demands.append(request)
         tariff, tariff_quality = intervals(
             self.hass, setting.get("price_entity"), "price", at
         )
@@ -252,9 +287,21 @@ class MultiChargeRuntime:
                 tariffs={uid: tariff for uid in chargers}, solar=solar,
                 binding=external_binding,
             )
+            if indicative_demands and setting.get("show_indicative_forecast", True):
+                # The real plan is complete FIRST; forecast slots only consume
+                # leftover group, phase, circuit and parallel capacity.
+                self.forecast_assessment = compile_plan(
+                    controller, chargers, indicative_demands, at,
+                    mode=setting["mode"],
+                    tariffs={uid: tariff for uid in chargers}, solar=solar,
+                    binding=external_binding,
+                    reserved_slots=self.assessment.plan.slots,
+                )
         except (ValueError, TypeError, OverflowError) as exc:
             _LOGGER.warning("MultiCharge proposal unavailable: %s", exc)
             self.assessment = None
+            self.forecast_assessment = None
+            self.forecast_excluded["controller"] = "INVALID_PLANNING_INPUT"
             self.excluded["controller"] = "INVALID_PLANNING_INPUT"
         self.notify()
 
@@ -309,6 +356,11 @@ class MultiChargeRuntime:
             return {"status": "unavailable", "reason": "INVALID_PLANNING_INPUT"}
         return {
             "status": assessment.plan.status,
+            "forecast_status": (
+                self.forecast_assessment.plan.status
+                if self.forecast_assessment else "not_available"
+            ),
+            "forecast_assumptions": dict(self.forecast_assumptions),
             "live": self.live_state(),
             "revision": assessment.plan.revision,
             "generated_at": assessment.plan.generated_at.isoformat(),
@@ -406,6 +458,32 @@ class MultiChargeRuntime:
             match["accepted_power_kw"] = accepted["power_kw"]
             match["accepted_current_a"] = accepted["current_a"]
         slots.sort(key=lambda row: (row["start"], row["charger_id"]))
+        forecast_slots = []
+        if self.forecast_assessment is not None:
+            for forecast in self.forecast_assessment.plan.slots:
+                if forecast.start >= last or forecast.end <= first:
+                    continue
+                if charger_id is not None and charger_id != forecast.charger_uid:
+                    continue
+                if asset_id is not None and asset_id != forecast.asset_uid:
+                    continue
+                forecast_slots.append({
+                    "charger_id": forecast.charger_uid,
+                    "asset_id": forecast.asset_uid,
+                    "start": forecast.start.isoformat(),
+                    "end": forecast.end.isoformat(),
+                    "indicative_power_kw": forecast.power_kw,
+                    "indicative_current_a": forecast.current_a,
+                    "indicative_energy_kwh": round(
+                        forecast.power_kw * (
+                            forecast.end - forecast.start
+                        ).total_seconds() / 3600, 6
+                    ),
+                    "status": "indicative_only",
+                    "may_execute": False,
+                    "reserves_capacity": False,
+                    "assumption": self.forecast_assumptions[forecast.charger_uid]["assumption"],
+                })
         history = [
             receipt for receipt in self.executor.completed_sessions()
             if datetime.fromisoformat(receipt["started_at"]) < last
@@ -440,6 +518,21 @@ class MultiChargeRuntime:
             "strategy_by_charger": dict(assessment.strategy) if assessment else {},
             "reasons": {**self.excluded, **assessment.reasons} if assessment else dict(self.excluded),
             "slots": slots,
+            "forecast_slots": forecast_slots,
+            "forecast_status": (
+                self.forecast_assessment.plan.status
+                if self.forecast_assessment else "not_available"
+            ),
+            "forecast_assumptions": {
+                uid: dict(meta) for uid, meta in self.forecast_assumptions.items()
+                if (charger_id is None or uid == charger_id)
+                and (asset_id is None or meta["asset_id"] == asset_id)
+            },
+            "forecast_reasons": {
+                **self.forecast_excluded,
+                **(self.forecast_assessment.reasons
+                   if self.forecast_assessment else {}),
+            },
             "command_outcomes": self.executor.snapshot(),
             "command_capabilities": self.executor.capabilities(),
             "active_sessions": self.executor.session_snapshot(),
