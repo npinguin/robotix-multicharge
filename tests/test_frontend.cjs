@@ -90,6 +90,33 @@ async function main(){
   assert.ok(find(card.shadowRoot,"a"),"setting opens real HA integration settings");
   assert.ok(!find(card.shadowRoot,"button","Start charging"),
             "uncommissioned hardware cannot gain optimistic action");
-  console.log("MultiCharge source-only five-view interactions PASS (not HA browser acceptance)");
+  fixture.command_capabilities={drive:{start_allowed:true,stop_allowed:true,reason:"READY"}};
+  card._hass.callWS=async request=>{
+    commands.push(request);
+    if(request.type==="robotix_multicharge/command"){
+      return {
+        charger_id:request.charger_id,action:request.action,
+        status:"confirmed",reason:"INDEPENDENT_POWER_READBACK",
+        readback_at:new Date().toISOString(),measured_power_kw:request.action==="start"?1.6:0
+      };
+    }
+    return fixture;
+  };
+  card._tab="Chargers";card._last=0;
+  await card.load();
+  assert.ok(find(card.shadowRoot,"button","Start charging"));
+  find(card.shadowRoot,"button","Start charging").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(commands.some(c=>c.type==="robotix_multicharge/command"&&c.action==="start"),
+            "Start button must invoke real native WS command API");
+  assert.ok(content(card.shadowRoot).includes("confirmed — INDEPENDENT_POWER_READBACK"),
+            "display only a returned physical confirmation");
+  assert.ok(find(card.shadowRoot,"button","Stop charging"),
+            "physically admitted Stop action is present");
+  find(card.shadowRoot,"button","Stop charging").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(commands.some(c=>c.type==="robotix_multicharge/command"&&c.action==="stop"),
+            "Stop button must invoke real native WS command API");
+  console.log("MultiCharge source-only five-view and native-command wiring PASS (not HA browser acceptance)");
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});
