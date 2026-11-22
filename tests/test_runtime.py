@@ -75,7 +75,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(result["schema_major"], 1)
         self.assertEqual(result["observations"]["chargers"][
             next(iter(result["observations"]["chargers"]))
-        ]["power_kw"]["quality"], "unknown")
+        ]["power_kw"]["quality"], "unavailable")
         self.assertIn("source", rendered)
         for sensitive in ("Private test home", "Personal vehicle",
                           "sensor.soc", "sensor.power", "binary_sensor.cable",
