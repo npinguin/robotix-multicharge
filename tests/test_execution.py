@@ -333,7 +333,7 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         states["sensor.meter"].state = "6.2"
         states["sensor.meter"].last_updated = datetime.now(timezone.utc)
         reject = await rt.executor.execute("evse", "start")
-        self.assertEqual(reject["reason"], "UNRESOLVED_PREVIOUS_CHARGE_INTENT")
+        self.assertEqual(reject["reason"], "ASSET_MEASURED_PROGRESS_UNAVAILABLE")
         self.assertEqual([x[1] for x in services.calls], ["turn_on", "turn_off"])
 
     async def test_charger_only_measured_kwh_stops_and_keeps_asset_unattributed(self):
