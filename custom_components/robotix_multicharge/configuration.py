@@ -523,10 +523,10 @@ def is_in_place_runtime_preference_change(before, after):
     return structure(before) == structure(after)
 
 
-# User-facing expert JSON is a view onto the existing canonical validator.
-# It does not introduce a separate planner, state store or physical writer.
+# Expert JSON is only an adapter to the existing canonical Config Entry validator.
+# Every command remains subject to the executor's physical admission/readback.
 def normalize_expert_json(value):
-    """Validate direct Charger/ChargingAsset JSON, without the setup wizard."""
+    """Map human-readable direct JSON to one validated configuration authority."""
     if not isinstance(value, dict):
         raise ValueError("expert JSON: expected object")
     if "Charger" not in value and "ChargingAsset" not in value:
@@ -553,32 +553,42 @@ def normalize_expert_json(value):
         return selected
 
     controller = value.get("Controller") or {}
-    _allowed(controller, ("ID", "Name", "Max-parallel", "Max-power-kW",
-                          "Price-entity", "Solar-entity", "Power-envelope-entity"),
-             "Controller")
+    _allowed(controller, (
+        "ID", "Name", "Mode", "Max-parallel", "Max-power-kW",
+        "Phase-limits-A", "Price-entity", "Solar-entity",
+        "Power-envelope-entity", "Plan-label-mode", "Plan-color-by",
+        "Show-indicative-forecast",
+    ), "Controller")
     cfg = default_configuration(controller.get("Name") or "Home charging")
     ctl = cfg["controller"]
     if controller.get("ID"):
         ctl["id"] = _text(controller["ID"], "Controller.ID")
-    if controller.get("Max-parallel") is not None:
-        ctl["max_parallel"] = controller["Max-parallel"]
-    if controller.get("Max-power-kW") is not None:
-        ctl["max_power_kw"] = controller["Max-power-kW"]
-    for key, target in (("Price-entity", "price_entity"),
-                        ("Solar-entity", "solar_entity"),
-                        ("Power-envelope-entity", "binding_entity")):
+    for key, field in (
+        ("Mode", "mode"), ("Max-parallel", "max_parallel"),
+        ("Max-power-kW", "max_power_kw"), ("Phase-limits-A", "phase_limits_a"),
+        ("Plan-label-mode", "plan_label_mode"), ("Plan-color-by", "plan_color_by"),
+        ("Show-indicative-forecast", "show_indicative_forecast"),
+    ):
+        if key in controller:
+            ctl[field] = controller[key]
+    for key, field in (
+        ("Price-entity", "price_entity"), ("Solar-entity", "solar_entity"),
+        ("Power-envelope-entity", "binding_entity"),
+    ):
         selected = entity(controller, key, ("sensor",))
         if selected is not None:
-            ctl[target] = selected
-    # A JSON import never commands equipment or commissions a charger.
-    ctl["mode"] = "Off"
+            ctl[field] = selected
 
     asset_ids = {}
     for source in rows("ChargingAsset"):
-        _allowed(source, ("ID", "Name", "Asset type",
-                          "Vehicle-Charging-startstop-entity",
-                          "Vehicle-Charging-amp-entity", "Vehicle-soc-sensor"),
-                 "ChargingAsset")
+        _allowed(source, (
+            "ID", "Name", "Asset type", "Vehicle-Charging-startstop-entity",
+            "Vehicle-Charging-amp-entity", "Vehicle-soc-sensor",
+            "Usable-capacity-kWh", "Target-SoC-percent", "Max-charge-kW",
+            "Requested-kWh", "Requested-duration-minutes", "Ready-by",
+            "Ready-by-repeat", "Charging-efficiency", "Priority",
+            "Temporary", "Expires-at", "Expected-connection-at", "Plan-color",
+        ), "ChargingAsset")
         name = _text(source.get("Name"), "ChargingAsset.Name")
         uid = _text(source.get("ID") or _slug(name), "ChargingAsset.ID")
         kind = source.get("Asset type", "Véhicule")
@@ -588,34 +598,60 @@ def normalize_expert_json(value):
         if kind not in kinds:
             raise ValueError("ChargingAsset.Asset type: unsupported kind")
         asset = {"id": uid, "name": name, "kind": kinds[kind]}
-        for key, target, domains in (
+        for key, field, domains in (
             ("Vehicle-Charging-startstop-entity", "vehicle_control_entity", ("switch",)),
             ("Vehicle-Charging-amp-entity", "vehicle_current_entity", ("number",)),
             ("Vehicle-soc-sensor", "soc_entity", ("sensor",)),
         ):
             selected = entity(source, key, domains)
             if selected is not None:
-                asset[target] = selected
+                asset[field] = selected
+        for key, field in (
+            ("Usable-capacity-kWh", "capacity_kwh"),
+            ("Target-SoC-percent", "target_soc"),
+            ("Max-charge-kW", "max_charge_kw"),
+            ("Requested-kWh", "requested_kwh"),
+            ("Requested-duration-minutes", "requested_duration_minutes"),
+            ("Ready-by", "ready_by"), ("Ready-by-repeat", "ready_by_repeat"),
+            ("Charging-efficiency", "charge_efficiency"),
+            ("Priority", "priority"), ("Temporary", "temporary"),
+            ("Expires-at", "expires_at"),
+            ("Expected-connection-at", "expected_connection_at"),
+            ("Plan-color", "plan_color"),
+        ):
+            if key in source:
+                asset[field] = source[key]
         cfg["assets"].append(asset)
-        asset_ids[uid] = uid
-        asset_ids[name] = uid
+        for identity in (uid, name):
+            if identity in asset_ids and asset_ids[identity] != uid:
+                raise ValueError("ChargingAsset: ambiguous name or ID")
+            asset_ids[identity] = uid
 
     for source in rows("Charger"):
-        _allowed(source, ("ID", "Name", "Charging-Session-sensor",
-                          "Charging-startstop-entity", "Charging-amp-entity",
-                          "Charging-power-sensor", "Charging-energy-sensor",
-                          "Charging-connected-sensor", "Rated-power-kW",
-                          "ChargingAsset"), "Charger")
+        _allowed(source, (
+            "ID", "Name", "Charging-Session-sensor",
+            "Charging-startstop-entity", "Charging-amp-entity",
+            "Charging-current-readback-sensor", "Charging-power-sensor",
+            "Charging-energy-sensor", "Charging-connected-sensor",
+            "Rated-power-kW", "ChargingAsset", "Control-kind",
+            "Control-owner", "Physical-commissioned", "Phase-count",
+            "Phase-IDs", "Voltage-V", "Min-current-A", "Max-current-A",
+            "Current-step-A", "Fixed-current-A", "Circuit-ID",
+            "Circuit-limit-A", "Plan-color",
+        ), "Charger")
         name = _text(source.get("Name"), "Charger.Name")
         uid = _text(source.get("ID") or _slug(name), "Charger.ID")
         charger = {
-            "id": uid, "name": name, "kind": "on_off",
+            "id": uid, "name": name,
+            "kind": source.get("Control-kind", "on_off"),
             "rated_power_kw": source.get("Rated-power-kW", 3.6),
-            "control_owner": "external", "physical_commissioned": False,
+            "control_owner": source.get("Control-owner", "external"),
+            "physical_commissioned": source.get("Physical-commissioned", False),
         }
-        for key, target, domains, required in (
+        for key, field, domains, required in (
             ("Charging-startstop-entity", "control_entity", ("switch",), True),
             ("Charging-amp-entity", "current_control_entity", ("number",), False),
+            ("Charging-current-readback-sensor", "current_readback_entity", ("sensor",), False),
             ("Charging-Session-sensor", "session_entity",
              ("sensor", "binary_sensor"), False),
             ("Charging-power-sensor", "power_entity", ("sensor",), False),
@@ -625,15 +661,48 @@ def normalize_expert_json(value):
         ):
             selected = entity(source, key, domains, required)
             if selected is not None:
-                charger[target] = selected
+                charger[field] = selected
+        for key, field in (
+            ("Phase-count", "phase_count"), ("Phase-IDs", "phase_ids"),
+            ("Voltage-V", "voltage_v"), ("Min-current-A", "min_current_a"),
+            ("Max-current-A", "max_current_a"), ("Current-step-A", "current_step_a"),
+            ("Fixed-current-A", "fixed_current_a"), ("Circuit-ID", "circuit_id"),
+            ("Circuit-limit-A", "circuit_limit_a"), ("Plan-color", "plan_color"),
+        ):
+            if key in source:
+                charger[field] = source[key]
         selected = source.get("ChargingAsset")
         if selected:
             if selected not in asset_ids:
                 raise ValueError("Charger.ChargingAsset: unknown ChargingAsset")
             charger["asset"] = asset_ids[selected]
+
+        # The expert route must not turn a guessed 3.6 kW default into
+        # electrical commissioning. An owned charger needs explicit measured
+        # limits and independent readback, even if commissioning is still false.
+        if charger["control_owner"] == "multicharge":
+            required_controller = ("Max-power-kW", "Phase-limits-A")
+            required_charger = (
+                "Rated-power-kW", "Phase-count", "Phase-IDs", "Voltage-V",
+                "Circuit-ID", "Circuit-limit-A", "Charging-connected-sensor",
+                "Charging-power-sensor",
+            )
+            missing = [key for key in required_controller if key not in controller]
+            missing += [key for key in required_charger if key not in source]
+            if charger["kind"] == "on_off" and "Fixed-current-A" not in source:
+                missing.append("Fixed-current-A")
+            if charger["kind"] == "variable_current":
+                missing += [key for key in (
+                    "Charging-amp-entity", "Charging-current-readback-sensor",
+                    "Min-current-A", "Max-current-A", "Current-step-A",
+                ) if key not in source]
+            if missing:
+                raise ValueError(
+                    "Charger: owned physical control requires verified "
+                    "configuration for " + ", ".join(missing)
+                )
         cfg["chargers"].append(charger)
     return validate_configuration(cfg)
-
 
 def _slug(name):
     """Use the same stable ID policy as the existing HA beginner wizard."""
