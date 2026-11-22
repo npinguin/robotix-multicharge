@@ -44,9 +44,10 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="already_configured")
         if user_input is not None:
             try:
-                self._draft = default_configuration(user_input["name"])
-                self._draft["controller"]["max_parallel"] = user_input["max_parallel"]
-                self._draft["controller"]["max_power_kw"] = user_input["max_power_kw"]
+                self._draft = default_configuration(user_input.get("name") or "Home charging")
+                self._draft["controller"]["max_parallel"] = int(user_input.get("max_parallel", 1))
+                if user_input.get("max_power_kw") is not None:
+                    self._draft["controller"]["max_power_kw"] = user_input["max_power_kw"]
                 self._draft["controller"]["mode"] = "Off"
                 if user_input.get("phase_limits_a"):
                     self._draft["controller"]["phase_limits_a"] = _phase_limits(
@@ -62,44 +63,55 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     def _site_schema():
+        # Explicit box widgets, never implicit range sliders in HA forms.
+        # The unverified electrical ceiling is genuinely optional.
         return vol.Schema({
-            vol.Required("name", default="Home charging"): str,
-            vol.Required("max_parallel", default=1):
-                vol.All(vol.Coerce(int), vol.Range(min=1, max=16)),
-            vol.Required("max_power_kw", default=3.6):
-                vol.All(vol.Coerce(float), vol.Range(min=0.01)),
+            vol.Optional("name", default="Home charging"): str,
+            vol.Optional("max_parallel", default=1): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=16, step=1, mode=selector.NumberSelectorMode.BOX
+                )
+            ),
+            vol.Optional("max_power_kw"): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0.01, max=1000, step=0.1,
+                    mode=selector.NumberSelectorMode.BOX
+                )
+            ),
             vol.Optional("phase_limits_a"): str,
         })
 
     async def async_step_charger(self, user_input=None):
+        """Basic connection first. All metering/electrical proof is optional here."""
         if user_input is not None:
             try:
                 if user_input["action"] == "add":
-                    uid = _id(user_input["name"])
+                    name = (user_input.get("name") or "").strip()
+                    control = user_input.get("control_entity")
+                    if not name or not control:
+                        raise ValueError("charger name and command entity required to add")
+                    uid = _id(name)
                     if not uid or any(c["id"] == uid for c in self._draft["chargers"]):
                         raise ValueError("charger identity must be unique")
+                    # Safe setup defaults are planning assumptions, never electrical proof.
                     charger = {
-                        "id": uid,
-                        "name": user_input["name"],
-                        "kind": user_input["kind"],
-                        "rated_power_kw": user_input["rated_power_kw"],
+                        "id": uid, "name": name, "kind": "on_off",
+                        "rated_power_kw": 3.6, "control_entity": control,
+                        "control_owner": "external", "physical_commissioned": False,
                     }
-                    for key in ("phase_count", "min_current_a", "max_current_a",
-                                "connected_entity", "power_entity", "energy_entity",
-                                "control_entity", "voltage_v", "current_step_a",
-                                "fixed_current_a", "circuit_id", "circuit_limit_a",
-                                "current_control_entity", "current_readback_entity"):
-                        if user_input.get(key) is not None:
-                            charger[key] = user_input[key]
-                    if user_input.get("phase_ids"):
-                        charger["phase_ids"] = _phases(user_input["phase_ids"])
                     trial = deepcopy(self._draft)
                     trial["chargers"].append(charger)
-                    validate_configuration(trial)
-                    self._draft = trial
-                    if user_input["add_another"]:
-                        return self.async_show_form(step_id="charger",
-                                                    data_schema=self._charger_schema())
+                    self._draft = validate_configuration(trial)
+                    self._advanced_charger_id = uid
+                    self._add_another_after_details = bool(
+                        user_input.get("add_another", False)
+                    )
+                    if user_input.get("configure_details"):
+                        return await self.async_step_charger_details()
+                    if self._add_another_after_details:
+                        return self.async_show_form(
+                            step_id="charger", data_schema=self._charger_schema()
+                        )
                 return await self.async_step_asset()
             except (KeyError, ValueError):
                 return self.async_show_form(
@@ -110,25 +122,60 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     def _charger_schema():
+        # Name and command are mandatory only *when adding*: on Finish the
+        # same form must allow users to leave them blank.
         return vol.Schema({
             vol.Required("action", default="add"): vol.In(["add", "finish"]),
             vol.Optional("name"): str,
-            vol.Required("kind", default="on_off"): vol.In(["on_off", "variable_current"]),
-            vol.Optional("rated_power_kw"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
-            vol.Optional("phase_count"): vol.In([1, 2, 3]),
-            vol.Optional("min_current_a"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
-            vol.Optional("max_current_a"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
-            vol.Optional("phase_ids"): str,
-            vol.Optional("voltage_v"): vol.All(vol.Coerce(float), vol.Range(min=200, max=260)),
-            vol.Optional("current_step_a"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
-            vol.Optional("fixed_current_a"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
-            vol.Optional("circuit_id"): str,
-            vol.Optional("circuit_limit_a"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
-            vol.Optional("current_control_entity"): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="number")
+            vol.Optional("control_entity"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="switch")
             ),
-            vol.Optional("current_readback_entity"): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor")
+            vol.Optional("configure_details", default=False): bool,
+            vol.Optional("add_another", default=False): bool,
+        })
+
+    async def _after_charger_details(self):
+        if self._add_another_after_details:
+            return self.async_show_form(
+                step_id="charger", data_schema=self._charger_schema()
+            )
+        return await self.async_step_asset()
+
+    async def async_step_charger_details(self, user_input=None):
+        """Optional technical sources: never required for read-only setup."""
+        if user_input is not None:
+            try:
+                trial = deepcopy(self._draft)
+                charger = next(
+                    c for c in trial["chargers"] if c["id"] == self._advanced_charger_id
+                )
+                for field in ("kind", "rated_power_kw", "connected_entity",
+                              "power_entity", "energy_entity"):
+                    if user_input.get(field) is not None:
+                        charger[field] = user_input[field]
+                self._draft = validate_configuration(trial)
+                if user_input.get("configure_electrical"):
+                    return await self.async_step_charger_electrical()
+                return await self._after_charger_details()
+            except (KeyError, ValueError, StopIteration):
+                return self.async_show_form(
+                    step_id="charger_details", data_schema=self._charger_details_schema(),
+                    errors={"base": "invalid_config"},
+                )
+        return self.async_show_form(
+            step_id="charger_details", data_schema=self._charger_details_schema()
+        )
+
+    @staticmethod
+    def _charger_details_schema():
+        return vol.Schema({
+            vol.Optional("kind", default="on_off"):
+                vol.In(["on_off", "variable_current"]),
+            vol.Optional("rated_power_kw", default=3.6): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0.01, max=1000, step=0.1,
+                    mode=selector.NumberSelectorMode.BOX
+                )
             ),
             vol.Optional("connected_entity"): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain=["binary_sensor", "sensor"])
@@ -139,10 +186,83 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Optional("energy_entity"): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
-            vol.Optional("control_entity"): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=["switch", "number"])
+            vol.Optional("configure_electrical", default=False): bool,
+        })
+
+    async def async_step_charger_electrical(self, user_input=None):
+        """Optional wiring/current proof. No actuation gets commissioned here."""
+        if user_input is not None:
+            try:
+                trial = deepcopy(self._draft)
+                charger = next(
+                    c for c in trial["chargers"] if c["id"] == self._advanced_charger_id
+                )
+                for field in ("phase_count", "min_current_a", "max_current_a",
+                              "voltage_v", "current_step_a", "fixed_current_a",
+                              "circuit_id", "circuit_limit_a",
+                              "current_control_entity", "current_readback_entity"):
+                    if user_input.get(field) is not None:
+                        charger[field] = user_input[field]
+                if user_input.get("phase_ids"):
+                    charger["phase_ids"] = _phases(user_input["phase_ids"])
+                self._draft = validate_configuration(trial)
+                return await self._after_charger_details()
+            except (KeyError, ValueError, StopIteration):
+                return self.async_show_form(
+                    step_id="charger_electrical", data_schema=self._charger_electrical_schema(),
+                    errors={"base": "invalid_config"},
+                )
+        return self.async_show_form(
+            step_id="charger_electrical", data_schema=self._charger_electrical_schema()
+        )
+
+    @staticmethod
+    def _charger_electrical_schema():
+        return vol.Schema({
+            vol.Optional("phase_count"): vol.In([1, 2, 3]),
+            vol.Optional("phase_ids"): str,
+            vol.Optional("voltage_v"): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=200, max=260, step=1, mode=selector.NumberSelectorMode.BOX
+                )
             ),
-            vol.Required("add_another", default=False): bool,
+            vol.Optional("min_current_a"): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0.01, max=1000, step=0.1,
+                    mode=selector.NumberSelectorMode.BOX
+                )
+            ),
+            vol.Optional("max_current_a"): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0.01, max=1000, step=0.1,
+                    mode=selector.NumberSelectorMode.BOX
+                )
+            ),
+            vol.Optional("current_step_a"): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0.01, max=100, step=0.1,
+                    mode=selector.NumberSelectorMode.BOX
+                )
+            ),
+            vol.Optional("fixed_current_a"): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0.01, max=1000, step=0.1,
+                    mode=selector.NumberSelectorMode.BOX
+                )
+            ),
+            vol.Optional("circuit_id"): str,
+            vol.Optional("circuit_limit_a"): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0.01, max=1000, step=0.1,
+                    mode=selector.NumberSelectorMode.BOX
+                )
+            ),
+            vol.Optional("current_control_entity"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="number")
+            ),
+            vol.Optional("current_readback_entity"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
         })
 
     async def async_step_asset(self, user_input=None):
@@ -271,7 +391,7 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         cfg = self._draft
         return {"summary": (
             f"{len(cfg['chargers'])} charging points, {len(cfg['assets'])} assets, "
-            f"{cfg['controller']['max_power_kw']} kW configured group ceiling. "
+            f"{cfg['controller'].get('max_power_kw', 'not set')} kW configured group ceiling. "
             "Charging remains physically disabled until separately commissioned."
         )}
 
