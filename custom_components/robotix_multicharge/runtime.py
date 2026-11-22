@@ -15,7 +15,7 @@ from .contracts import ChargeDemand, PowerEnvelope
 from .configuration import configuration_revision, PLAN_COLORS
 from .domain import ChargeController, Charger
 from .planner import compile_plan, resolve_recurring_ready_by
-from .source_evidence import Evidence, binding, connection, intervals, number
+from .source_evidence import Evidence, binding, connection, intervals, number, session_status
 from .execution import NativeSwitchExecutor
 
 _LOGGER = logging.getLogger(__name__)
@@ -162,8 +162,9 @@ class MultiChargeRuntime:
             )
             cable = connection(self.hass, raw.get("connected_entity"), at)
             power = number(self.hass, raw.get("power_entity"), "power", at)
+            session = session_status(self.hass, raw.get("session_entity"), at)
             self.observations["chargers"][uid] = {
-                "connected": cable, "power_kw": power
+                "connected": cable, "power_kw": power, "session": session,
             }
             if cable.value is not True and cable.value is not False or cable.quality != "ok":
                 self.excluded[uid] = "CONNECTION_UNCONFIRMED"
