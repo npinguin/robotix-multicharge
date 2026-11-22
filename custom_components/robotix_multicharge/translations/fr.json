@@ -76,6 +76,16 @@
           "daily": "Chaque jour",
           "weekly": "Chaque semaine"
         }
+      },
+      "kind": {
+        "name": "Type de véhicule",
+        "state": {
+          "car": "Voiture",
+          "bicycle": "Vélo",
+          "motorcycle": "Moto",
+          "scooter": "Scooter",
+          "other": "Autre"
+        }
       }
     },
     "number": {
@@ -99,6 +109,12 @@
       },
       "max_power_kw": {
         "name": "Puissance max. du site"
+      },
+      "capacity_kwh": {
+        "name": "Capacité batterie"
+      },
+      "charge_efficiency": {
+        "name": "Rendement de charge"
       }
     },
     "datetime": {
@@ -231,6 +247,11 @@
       },
       "actual_current": {
         "name": "Courant mesuré"
+      }
+    },
+    "text": {
+      "name": {
+        "name": "Nom"
       }
     }
   }

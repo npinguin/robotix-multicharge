@@ -17,6 +17,8 @@ FIELDS = {
     "requested_duration_minutes": (0, 1440, 15, "min"),
     "priority": (0, 100, 1, None),
     "max_charge_kw": (0.1, 100, 0.1, "kW"),
+    "capacity_kwh": (0.1, 1000, 0.1, "kWh"),
+    "charge_efficiency": (0.01, 1, 0.01, None),
 }
 
 async def async_setup_entry(

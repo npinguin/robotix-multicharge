@@ -81,21 +81,26 @@ async def websocket_get_plan(
                 for field in ("plan_label_mode", "plan_color_by",
                               "show_indicative_forecast", "mode")
             } | {
+                "name": native_entity("text", "controller",
+                                      cfg["controller"]["id"], "name"),
+            } | {
                 field: native_entity("number", "controller",
                                      cfg["controller"]["id"], field)
                 for field in ("max_parallel", "max_power_kw")
             },
             "assets": {
                 row["id"]: {
+                    "name": native_entity("text", "asset", row["id"], "name"),
                     **{
                         field: native_select("asset", row["id"], field)
-                        for field in ("plan_color", "ready_by_repeat")
+                        for field in ("plan_color", "ready_by_repeat", "kind")
                     },
                     **{
                         field: native_entity("number", "asset", row["id"], field)
                         for field in ("target_soc", "requested_kwh",
                                       "requested_duration_minutes", "priority",
-                                      "max_charge_kw")
+                                      "max_charge_kw", "capacity_kwh",
+                                      "charge_efficiency")
                     },
                     **{
                         field: native_entity("datetime", "asset", row["id"], field)
@@ -107,8 +112,11 @@ async def websocket_get_plan(
             },
             "chargers": {
                 row["id"]: {
-                    field: native_select("charger", row["id"], field)
-                    for field in ("plan_color", "asset")
+                    "name": native_entity("text", "charger", row["id"], "name"),
+                    **{
+                        field: native_select("charger", row["id"], field)
+                        for field in ("plan_color", "asset")
+                    },
                 }
                 for row in cfg["chargers"]
             },

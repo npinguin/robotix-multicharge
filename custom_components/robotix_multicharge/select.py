@@ -31,6 +31,7 @@ async def async_setup_entry(
     for asset in choices["assets"]:
         entities.append(_OwnedSelect(entry, runtime, "asset", asset, "plan_color"))
         entities.append(_OwnedSelect(entry, runtime, "asset", asset, "ready_by_repeat"))
+        entities.append(_OwnedSelect(entry, runtime, "asset", asset, "kind"))
     for charger in choices["chargers"]:
         entities.append(_OwnedSelect(entry, runtime, "charger", charger, "plan_color"))
         entities.append(_OwnedSelect(entry, runtime, "charger", charger, "asset"))
@@ -89,6 +90,8 @@ class _OwnedSelect(SelectEntity):
             return list(MODES)
         if self.field == "ready_by_repeat":
             return ["none", "daily", "weekly"]
+        if self.field == "kind":
+            return ["car", "bicycle", "motorcycle", "scooter", "other"]
         # The selected Charger owns the ONLY editable assignment relationship.
         # User-facing select options are names, not opaque vehicle IDs.
         assets = self.runtime.configuration["assets"]

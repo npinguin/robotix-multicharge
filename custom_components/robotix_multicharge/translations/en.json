@@ -257,6 +257,16 @@
           "daily": "Daily",
           "weekly": "Weekly"
         }
+      },
+      "kind": {
+        "name": "Vehicle type",
+        "state": {
+          "car": "Car",
+          "bicycle": "Bicycle",
+          "motorcycle": "Motorcycle",
+          "scooter": "Scooter",
+          "other": "Other"
+        }
       }
     },
     "number": {
@@ -280,6 +290,12 @@
       },
       "max_power_kw": {
         "name": "Site power limit"
+      },
+      "capacity_kwh": {
+        "name": "Battery capacity"
+      },
+      "charge_efficiency": {
+        "name": "Charging efficiency"
       }
     },
     "datetime": {
@@ -412,6 +428,11 @@
       },
       "actual_current": {
         "name": "Actual current"
+      }
+    },
+    "text": {
+      "name": {
+        "name": "Name"
       }
     }
   }

@@ -76,6 +76,16 @@
           "daily": "Dagelijks",
           "weekly": "Wekelijks"
         }
+      },
+      "kind": {
+        "name": "Voertuigtype",
+        "state": {
+          "car": "Auto",
+          "bicycle": "Fiets",
+          "motorcycle": "Motor",
+          "scooter": "Scooter",
+          "other": "Overig"
+        }
       }
     },
     "number": {
@@ -99,6 +109,12 @@
       },
       "max_power_kw": {
         "name": "Max. locatievermogen"
+      },
+      "capacity_kwh": {
+        "name": "Batterijcapaciteit"
+      },
+      "charge_efficiency": {
+        "name": "Laadrendement"
       }
     },
     "datetime": {
@@ -231,6 +247,11 @@
       },
       "actual_current": {
         "name": "Gemeten stroom"
+      }
+    },
+    "text": {
+      "name": {
+        "name": "Naam"
       }
     }
   }
