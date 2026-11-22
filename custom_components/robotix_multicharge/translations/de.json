@@ -259,7 +259,7 @@
         }
       },
       "kind": {
-        "name": "Assettyp",
+        "name": "Lade-Assettyp",
         "state": {
           "car": "Auto",
           "bicycle": "Fahrrad",
@@ -398,7 +398,7 @@
         }
       },
       "selected_vehicle": {
-        "name": "Zugeordnetes Asset"
+        "name": "Lade-Asset"
       },
       "charging_intention": {
         "name": "Ladeziel",

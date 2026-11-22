@@ -245,7 +245,7 @@
         }
       },
       "selected_vehicle": {
-        "name": "Activo seleccionado",
+        "name": "Activo de carga",
         "state": {
           "none": "Sin activo"
         }
@@ -398,7 +398,7 @@
         }
       },
       "selected_vehicle": {
-        "name": "Activo asignado"
+        "name": "Activo de carga"
       },
       "charging_intention": {
         "name": "Objetivo de carga",

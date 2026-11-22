@@ -186,7 +186,7 @@
       "plan_label_mode": {
         "name": "Planvisning",
         "state": {
-          "vehicle": "Køretøj",
+          "vehicle": "Enhed",
           "charger": "Lader",
           "both": "Begge"
         }
@@ -194,7 +194,7 @@
       "plan_color_by": {
         "name": "Farve efter",
         "state": {
-          "vehicle": "Køretøj",
+          "vehicle": "Enhed",
           "charger": "Lader"
         }
       },
@@ -246,7 +246,7 @@
         }
       },
       "selected_vehicle": {
-        "name": "Valgt køretøj",
+        "name": "Ladeenhed",
         "state": {
           "none": "Intet køretøj"
         }
@@ -266,7 +266,8 @@
           "motorcycle": "Motorcycle",
           "scooter": "Scooter",
           "other": "Other"
-        }
+        },
+        "name": "Type ladeenhed"
       }
     },
     "number": {
@@ -332,7 +333,7 @@
         }
       },
       "actual_power": {
-        "name": "Aktuel effekt"
+        "name": "Effektiv ladeeffekt"
       },
       "battery_level": {
         "name": "Batteriniveau"
@@ -398,7 +399,7 @@
         }
       },
       "selected_vehicle": {
-        "name": "Valgt køretøj"
+        "name": "Ladeenhed"
       },
       "charging_intention": {
         "name": "Ladebehov",

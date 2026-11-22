@@ -186,7 +186,7 @@
       "plan_label_mode": {
         "name": "Planvisning",
         "state": {
-          "vehicle": "Fordon",
+          "vehicle": "Objekt",
           "charger": "Laddare",
           "both": "Båda"
         }
@@ -194,7 +194,7 @@
       "plan_color_by": {
         "name": "Färg efter",
         "state": {
-          "vehicle": "Fordon",
+          "vehicle": "Objekt",
           "charger": "Laddare"
         }
       },
@@ -246,7 +246,7 @@
         }
       },
       "selected_vehicle": {
-        "name": "Valt fordon",
+        "name": "Laddningsobjekt",
         "state": {
           "none": "Inget fordon"
         }
@@ -266,7 +266,8 @@
           "motorcycle": "Motorcycle",
           "scooter": "Scooter",
           "other": "Other"
-        }
+        },
+        "name": "Typ av laddningsobjekt"
       }
     },
     "number": {
@@ -332,7 +333,7 @@
         }
       },
       "actual_power": {
-        "name": "Aktuell effekt"
+        "name": "Effektiv laddeffekt"
       },
       "battery_level": {
         "name": "Batterinivå"
@@ -398,7 +399,7 @@
         }
       },
       "selected_vehicle": {
-        "name": "Valt fordon"
+        "name": "Laddningsobjekt"
       },
       "charging_intention": {
         "name": "Laddbehov",

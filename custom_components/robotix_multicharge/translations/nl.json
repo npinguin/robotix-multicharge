@@ -186,7 +186,7 @@
       "plan_label_mode": {
         "name": "Planlabels",
         "state": {
-          "vehicle": "Voertuig",
+          "vehicle": "Asset",
           "charger": "Laadpaal",
           "both": "Beide"
         }
@@ -194,7 +194,7 @@
       "plan_color_by": {
         "name": "Kleur per",
         "state": {
-          "vehicle": "Voertuig",
+          "vehicle": "Asset",
           "charger": "Laadpaal"
         }
       },
@@ -246,7 +246,7 @@
         }
       },
       "selected_vehicle": {
-        "name": "Voertuig",
+        "name": "Laadasset",
         "state": {
           "none": "Geen voertuig"
         }
@@ -260,7 +260,7 @@
         }
       },
       "kind": {
-        "name": "Voertuigtype",
+        "name": "Type laadasset",
         "state": {
           "car": "Auto",
           "bicycle": "Fiets",
@@ -333,7 +333,7 @@
         }
       },
       "actual_power": {
-        "name": "Vermogen"
+        "name": "Effectief laadvermogen"
       },
       "battery_level": {
         "name": "Batterij"
@@ -399,7 +399,7 @@
         }
       },
       "selected_vehicle": {
-        "name": "Voertuig"
+        "name": "Laadasset"
       },
       "charging_intention": {
         "name": "Laadbehoefte",

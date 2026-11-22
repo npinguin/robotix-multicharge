@@ -67,6 +67,44 @@ class PackageTest(unittest.TestCase):
             json.loads((COMPONENT / "translations/en.json").read_text(encoding="utf8")),
         )
 
+    def test_eight_locales_preserve_all_native_entity_keys(self):
+        reference = json.loads((COMPONENT / "strings.json").read_text(encoding="utf8"))
+        for lang in ("en", "nl", "fr", "da", "nb", "sv", "de", "es"):
+            with self.subTest(language=lang):
+                translated = json.loads(
+                    (COMPONENT / "translations" / (lang + ".json")).read_text(
+                        encoding="utf8"
+                    )
+                )
+                for platform, entities in reference["entity"].items():
+                    self.assertEqual(
+                        set(entities), set(translated["entity"][platform])
+                    )
+                    for uid, original in entities.items():
+                        item = translated["entity"][platform][uid]
+                        self.assertTrue(item.get("name"))
+                        self.assertEqual(
+                            set(original.get("state", {})),
+                            set(item.get("state", {}))
+                        )
+                        self.assertTrue(all(item.get("state", {}).values()))
+                self.assertEqual(
+                    translated["entity"]["select"]["kind"]["state"].keys(),
+                    reference["entity"]["select"]["kind"]["state"].keys()
+                )
+
+    def test_effective_power_is_owner_projection_not_second_meter(self):
+        runtime = (COMPONENT / "runtime.py").read_text(encoding="utf8")
+        sensor = (COMPONENT / "sensor.py").read_text(encoding="utf8")
+        self.assertIn('"effective_power_kw"', runtime)
+        self.assertIn('"CHARGING_SESSION_UNCONFIRMED"', runtime)
+        self.assertIn('sessions = self.executor.session_snapshot()', runtime)
+        self.assertIn('self.observations["chargers"]', runtime)
+        self.assertIn(
+            '_LogicalEvidenceSensor("asset", asset, runtime, "power")', sensor
+        )
+        self.assertNotIn('effective_power_entity', runtime)
+
     def test_one_physical_writer_no_bypass_in_setup_sensors_or_gui(self):
         for name in ("__init__.py", "sensor.py", "config_flow.py", "runtime.py",
                      "command_query.py"):

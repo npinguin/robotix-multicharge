@@ -185,7 +185,7 @@
       "plan_label_mode": {
         "name": "Plan labels",
         "state": {
-          "vehicle": "Vehicle",
+          "vehicle": "Asset",
           "charger": "Charger",
           "both": "Both"
         }
@@ -193,7 +193,7 @@
       "plan_color_by": {
         "name": "Color by",
         "state": {
-          "vehicle": "Vehicle",
+          "vehicle": "Asset",
           "charger": "Charger"
         }
       },
@@ -245,7 +245,7 @@
         }
       },
       "selected_vehicle": {
-        "name": "Vehicle",
+        "name": "Charging asset",
         "state": {
           "none": "No vehicle"
         }
@@ -259,7 +259,7 @@
         }
       },
       "kind": {
-        "name": "Vehicle type",
+        "name": "Asset type",
         "state": {
           "car": "Car",
           "bicycle": "Bicycle",
@@ -332,7 +332,7 @@
         }
       },
       "actual_power": {
-        "name": "Power"
+        "name": "Effective charging power"
       },
       "battery_level": {
         "name": "Battery"
@@ -398,7 +398,7 @@
         }
       },
       "selected_vehicle": {
-        "name": "Selected vehicle"
+        "name": "Charging asset"
       },
       "charging_intention": {
         "name": "Charging goal",
