@@ -40,7 +40,13 @@ class PackageTest(unittest.TestCase):
             self.assertIn(title, source)
         self.assertIn("robotix-multicharge-card", source)
         self.assertIn('type:"robotix_multicharge/get_plan"', source)
-        self.assertNotIn("hass.callService", source)
+        # Only registered MultiCharge preference selects are invoked via HA.
+        # Physical switch/number services must remain behind the executor.
+        self.assertIn('this._hass.callService("select","select_option"', source)
+        self.assertNotIn('this._hass.callService("switch"', source)
+        self.assertNotIn('this._hass.callService("number"', source)
+        self.assertNotIn('this._hass.callService("button"', source)
+        self.assertIn("this.ownerEntity(scope,uid,field)", source)
         self.assertNotIn(".innerHTML", source)
 
     def test_plan_query_is_importable_with_declared_ha_dependencies(self):
