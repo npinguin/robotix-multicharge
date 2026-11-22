@@ -96,12 +96,15 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     except ValueError as exc:
         _LOGGER.error("MultiCharge YAML configuration rejected: %s", exc)
         return False
-    await hass.config_entries.flow.async_init(
+    # Defer the import until HA has finished the component setup lock.
+    # Awaiting an import which itself sets up this integration can deadlock
+    # startup. The one native Config Entry remains the only authority.
+    hass.async_create_task(hass.config_entries.flow.async_init(
         DOMAIN,
         context={"source": config_entries.SOURCE_IMPORT,
                  "expert_format": "json" if direct_json else "yaml"},
-        data=checked
-    )
+        data=checked,
+    ))
     return True
 
 
