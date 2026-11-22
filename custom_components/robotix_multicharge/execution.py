@@ -55,6 +55,8 @@ class NativeSwitchExecutor:
                 reason = "PHYSICAL_COMMISSIONING_REQUIRED"
             elif self._switch(self.runtime.hass, charger["control_entity"]) is None:
                 reason = "NATIVE_SWITCH_UNAVAILABLE"
+            elif self._switch(self.runtime.hass, charger["control_entity"]).state == "on":
+                reason = "SWITCH_ALREADY_ON"
             else:
                 reason = self._admit_start(charger, at)
             stop_allowed = (
@@ -91,7 +93,10 @@ class NativeSwitchExecutor:
             self._quarantine.add(uid)
         if status == "confirmed" and action == "stop":
             self._quarantine.discard(uid)
-        self.runtime.notify()
+        if status == "confirmed":
+            self.runtime.refresh()
+        else:
+            self.runtime.notify()
         return result
 
     @staticmethod
@@ -152,6 +157,20 @@ class NativeSwitchExecutor:
         if reserved > cap + 1e-9:
             return "SITE_CAPACITY_EXCEEDED"
         return None
+
+    async def _protective_stop(self, charger, context):
+        """Best-effort real STOP on an unconfirmed START, never claim it succeeded."""
+        try:
+            await self.runtime.hass.services.async_call(
+                "switch", "turn_off",
+                {"entity_id": charger["control_entity"]},
+                blocking=True, context=context
+            )
+            return True
+        except Exception:
+            _LOGGER.exception("Protective STOP could not be delivered for %s",
+                              charger["id"])
+            return False
 
     def _readback(self, charger, action, requested_at):
         switch = self._switch(self.runtime.hass, charger["control_entity"])
@@ -229,11 +248,20 @@ class NativeSwitchExecutor:
                     "switch", "turn_on" if action == "start" else "turn_off",
                     {"entity_id": entity}, blocking=True, context=context
                 )
+            except asyncio.CancelledError:
+                if action == "start":
+                    await self._protective_stop(charger, context)
+                result("execution_unknown", "COMMAND_CANCELLED_DURING_SERVICE",
+                       service_sent=True)
+                raise
             except Exception as exc:
                 _LOGGER.exception("Native charge %s service failed for %s",
                                   action, charger_id)
+                protective = (await self._protective_stop(charger, context)
+                              if action == "start" else False)
                 return result("execution_unknown",
-                              "NATIVE_SERVICE_EXCEPTION:" + type(exc).__name__,
+                              "NATIVE_SERVICE_EXCEPTION:" + type(exc).__name__
+                              + (";PROTECTIVE_STOP_SENT" if protective else ";PROTECTIVE_STOP_UNCONFIRMED"),
                               service_sent=True)
             self._publish(charger_id, request_id, action,
                           "accepted_unconfirmed", "AWAITING_PHYSICAL_READBACK",
@@ -253,11 +281,18 @@ class NativeSwitchExecutor:
                 if remaining <= 0:
                     _LOGGER.error("Native charge %s not confirmed for %s",
                                   action, charger_id)
+                    protective = (await self._protective_stop(charger, context)
+                                  if action == "start" else False)
                     return result("execution_unknown",
-                                  "PHYSICAL_READBACK_TIMEOUT", service_sent=True)
+                                  "PHYSICAL_READBACK_TIMEOUT"
+                                  + (";PROTECTIVE_STOP_SENT" if protective else
+                                     ";PROTECTIVE_STOP_UNCONFIRMED" if action == "start" else ""),
+                                  service_sent=True)
                 try:
                     await asyncio.sleep(min(0.5, remaining))
                 except asyncio.CancelledError:
+                    if action == "start":
+                        await self._protective_stop(charger, context)
                     result("execution_unknown", "COMMAND_CANCELLED_AWAITING_READBACK",
                            service_sent=True)
                     raise
