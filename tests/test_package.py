@@ -45,7 +45,9 @@ class PackageTest(unittest.TestCase):
         self.assertIn('this._hass.callService("select","select_option"', source)
         self.assertNotIn('this._hass.callService("switch"', source)
         self.assertNotIn('this._hass.callService("number"', source)
-        self.assertNotIn('this._hass.callService("button"', source)
+        # The owner-scoped vehicle-confirmation button carries no actuation.
+        self.assertIn('this._hass.callService("button","press"', source)
+        self.assertIn('this.ownerEntity(scope,uid,field)', source)
         self.assertIn("this.ownerEntity(scope,uid,field)", source)
         self.assertNotIn(".innerHTML", source)
 
