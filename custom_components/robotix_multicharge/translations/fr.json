@@ -421,6 +421,14 @@
       "name": {
         "name": "Nom"
       }
+    },
+    "binary_sensor": {
+      "plugged": {
+        "name": "Câble branché"
+      },
+      "charging": {
+        "name": "En charge"
+      }
     }
   }
 }

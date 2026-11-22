@@ -420,6 +420,14 @@
       "name": {
         "name": "Name"
       }
+    },
+    "binary_sensor": {
+      "plugged": {
+        "name": "Cable connected"
+      },
+      "charging": {
+        "name": "Charging"
+      }
     }
   }
 }

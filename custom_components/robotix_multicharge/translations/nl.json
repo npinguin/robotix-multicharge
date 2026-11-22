@@ -421,6 +421,14 @@
       "name": {
         "name": "Naam"
       }
+    },
+    "binary_sensor": {
+      "plugged": {
+        "name": "Kabel aangesloten"
+      },
+      "charging": {
+        "name": "Laden"
+      }
     }
   }
 }

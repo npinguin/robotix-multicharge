@@ -206,6 +206,9 @@ class _LogicalEvidenceSensor(_NativeMultiChargeSensor):
         self._attr_unique_id = (
             f"{DOMAIN}:{kind}:{data['id']}:{property_name}"
         )
+        if property_name == "connected":
+            self._attr_entity_category = EntityCategory.DIAGNOSTIC
+            self._attr_entity_registry_enabled_default = False
         if property_name == "power":
             self._attr_device_class = SensorDeviceClass.POWER
             self._attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
@@ -420,7 +423,10 @@ class _ControllerLiveSensor(_NativeMultiChargeSensor):
                 "measured_power_kw": action.get("measured_power_kw") if action else None,
             })
         else:
-            self._attr_native_value = live[self.field]
+            self._attr_native_value = (
+                live[self.field].lower().replace(" ", "_")
+                if self.field == "mode" else live[self.field]
+            )
         if self.field == "configuration_revision":
             ctl = self.runtime.configuration["controller"]
             self._attr_extra_state_attributes.update({
