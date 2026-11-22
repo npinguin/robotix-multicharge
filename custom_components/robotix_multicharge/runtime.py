@@ -9,10 +9,10 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-from .contracts import ChargeDemand
+from .contracts import ChargeDemand, PowerEnvelope
 from .domain import ChargeController, Charger
 from .planner import compile_plan
-from .source_evidence import connection, intervals, number
+from .source_evidence import binding, connection, intervals, number
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -107,13 +107,29 @@ class MultiChargeRuntime:
         solar, solar_quality = intervals(
             self.hass, setting.get("solar_entity"), "solar", at
         )
+        external_binding = None
+        binding_quality = "NOT_CONFIGURED"
+        if setting.get("binding_entity"):
+            external_binding, binding_quality = binding(
+                self.hass, setting["binding_entity"], at
+            )
+            if external_binding is None:
+                # A selected but missing/invalid capacity supervisor is
+                # restrictive, NEVER equivalent to no optional supervisor.
+                external_binding = PowerEnvelope(
+                    "unavailable", "no-grant", at, at + timedelta(hours=48),
+                    "binding", (),
+                )
+                self.excluded["controller"] = "BINDING_CAPACITY_UNAVAILABLE"
         self.observations["sources"] = {
-            "tariff_quality": tariff_quality, "solar_quality": solar_quality
+            "tariff_quality": tariff_quality, "solar_quality": solar_quality,
+            "binding_quality": binding_quality,
         }
         try:
             self.assessment = compile_plan(
                 controller, chargers, demands, at, mode=setting["mode"],
                 tariffs={uid: tariff for uid in chargers}, solar=solar,
+                binding=external_binding,
             )
         except (ValueError, TypeError, OverflowError) as exc:
             _LOGGER.warning("MultiCharge proposal unavailable: %s", exc)

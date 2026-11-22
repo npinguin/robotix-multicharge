@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from math import isfinite
 
-from .contracts import PowerLimitSlot, PriceSlot
+from .contracts import PowerEnvelope, PowerLimitSlot, PriceSlot
 
 
 @dataclass(frozen=True)
@@ -131,3 +131,40 @@ def intervals(hass, entity_id: str | None, kind: str, now: datetime):
         return tuple(slots), "OK"
     except (KeyError, TypeError, ValueError, OverflowError):
         return (), "INTERVAL_PAYLOAD_INVALID"
+
+
+def binding(hass, entity_id: str | None, now: datetime):
+    """Verify an externally owned *binding* site power envelope or fail closed.
+
+    Only signed, explicitly selected, fresh limits with non-overlapping
+    time-covered slots qualify. An advisory signal is NOT execution authority.
+    """
+    obj, evidence = _state(hass, entity_id, now, timedelta(minutes=20))
+    if obj is None:
+        return None, evidence.reason
+    a = obj.attributes
+    if a.get("kind") != "binding_power_envelope" or a.get("authority") != "binding":
+        return None, "ENVELOPE_AUTHORITY_UNVERIFIED"
+    try:
+        issued_at = _date(a["issued_at"])
+        valid_until = _date(a["valid_until"])
+        if issued_at > now or valid_until <= now:
+            return None, "ENVELOPE_EXPIRED_OR_FUTURE"
+        provider = a["provider_id"]
+        revision = a["revision"]
+        raw = a["intervals"]
+        if not isinstance(raw, list) or len(raw) > 256:
+            return None, "ENVELOPE_PAYLOAD_INVALID"
+        slots = []
+        for item in raw:
+            slots.append(PowerLimitSlot(
+                _date(item["start"]), _date(item["end"]),
+                float(item["max_charging_kw"]),
+            ))
+        slots.sort(key=lambda s: s.start)
+        envelope = PowerEnvelope(
+            provider, revision, issued_at, valid_until, "binding", tuple(slots)
+        )
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None, "ENVELOPE_PAYLOAD_INVALID"
+    return envelope, "OK"

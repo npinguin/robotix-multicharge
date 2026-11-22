@@ -20,7 +20,7 @@ for name in ("contracts", "source_evidence"):
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
 
-from multicharge_source_test.source_evidence import connection, intervals, number
+from multicharge_source_test.source_evidence import binding, connection, intervals, number
 
 NOW = datetime(2026, 11, 22, 12, tzinfo=timezone.utc)
 
@@ -88,6 +88,28 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(status, "OK")
         self.assertEqual(accepted[0].effective_eur_per_kwh, -0.1)
         self.assertEqual(intervals(obj, "sensor.spot", "price", NOW)[0], ())
+
+    def test_binding_requires_fresh_authoritative_intervals(self):
+        attrs = {
+            "kind": "binding_power_envelope", "authority": "binding",
+            "provider_id": "site-energy", "revision": "r17",
+            "issued_at": NOW.isoformat(),
+            "valid_until": (NOW + timedelta(hours=1)).isoformat(),
+            "intervals": [{
+                "start": NOW.isoformat(),
+                "end": (NOW + timedelta(minutes=15)).isoformat(),
+                "max_charging_kw": 0,
+            }],
+        }
+        obj = hass({"sensor.binding": state("active", **attrs)})
+        envelope, status = binding(obj, "sensor.binding", NOW)
+        self.assertEqual(status, "OK")
+        self.assertEqual(envelope.slots[0].max_charging_kw, 0)
+        bad = hass({"sensor.binding": state(
+            "active", **{**attrs, "authority": "advisory"}
+        )})
+        self.assertIsNone(binding(bad, "sensor.binding", NOW)[0])
+        self.assertIsNone(binding(obj, "sensor.binding", NOW + timedelta(hours=2))[0])
 
     def test_overlapping_solar_and_expiry_rejected(self):
         row = {

@@ -120,6 +120,21 @@ class RuntimeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             rt.read_plan(NOW, NOW + timedelta(hours=1), charger_id="not-real")
 
+    def test_selected_but_unavailable_ems_never_becomes_unlimited(self):
+        cfg = sample()
+        cfg["controller"]["binding_entity"] = "sensor.supervision"
+        # The runtime works on already-validated structured configuration.
+        data = {
+            "sensor.soc": state("50", "%"),
+            "binary_sensor.cable": state("on"),
+        }
+        rt = MultiChargeRuntime(
+            SimpleNamespace(states=SimpleNamespace(get=data.get)), cfg
+        )
+        rt.refresh(NOW)
+        self.assertEqual(rt.assessment.plan.slots, ())
+        self.assertEqual(rt.excluded["controller"], "BINDING_CAPACITY_UNAVAILABLE")
+
     def test_no_silent_energization_after_unload(self):
         rt = MultiChargeRuntime(None, sample())
         events = []
