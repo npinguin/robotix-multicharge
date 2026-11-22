@@ -447,9 +447,10 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(a.temporary)card.append(mcEl("p","small",mcTr("Guest")+" · "+mcTime(a.expires_at,d.timezone)));
       container.append(card);
     }
-    if(!assets.length)this.notice(container,"No data",false);
+    if(!assets.length&&chargers.length)this.notice(container,"No vehicles",false);
     const next=mcEl("div","card");next.append(mcEl("h3","","Next action"));
     next.append(mcEl("p","",!chargers.length?"Configure a charger to begin":d.status==="unavailable"?"Not ready":"Plan"));
+    if(!chargers.length)this.configure(next);
     const reasons=Object.entries(d.reasons||{}).filter(([key,val])=>val!=="PROPOSED");
     if(reasons.length)next.append(mcEl("p","muted small",reasons.map(([key,val])=>key+": "+mcReason(val)).slice(0,4).join(" · ")));
     container.append(next);
