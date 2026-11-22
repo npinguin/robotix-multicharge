@@ -454,7 +454,6 @@ class RobotixMultiChargeCard extends HTMLElement {
     if(reasons.length)next.append(mcEl("p","muted small",reasons.map(([key,val])=>key+": "+mcReason(val)).slice(0,4).join(" · ")));
     container.append(next);
   }
-  settingsSelect(_container,name){this._tab="Settings";this._settingsOpen=name;this.render();}
   plan(container){
     const d=this._data,c=d.configuration||{},controller=c.controller||{};
     const cars=c.assets||[],chargers=c.chargers||[];
