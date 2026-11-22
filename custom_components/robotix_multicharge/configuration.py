@@ -367,7 +367,13 @@ def validate_configuration(value):
 
 
 def effective_configuration(entry):
-    """Only config-entry data/options own runtime structure, never a YAML shadow."""
+    """One authority: imported YAML overrides any historic UI options.
+
+    The native Config Entry, its ID and its HA device/recorder history remain
+    in place when an installed UI configuration switches to expert YAML.
+    """
+    if entry.data.get("source") == "yaml":
+        return validate_configuration(deepcopy(entry.data["configuration"]))
     return validate_configuration(deepcopy(
         entry.options.get("configuration", entry.data["configuration"])
     ))

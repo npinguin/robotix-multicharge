@@ -3,70 +3,55 @@
     "step": {
       "user": {
         "title": "Ladestandort",
-        "description": "Schritt 1/5 – Standort und sichere Ladegrenzen festlegen. Kein physischer Ladevorgang wird aktiviert.",
+        "description": "Schritt 1/5 — Ladestandort benennen; elektrische Grenzwerte sind bei der Einrichtung optional.",
         "data": {
-          "name": "Name",
-          "max_parallel": "Gleichzeitige Ladepunkte",
-          "max_power_kw": "Maximale Ladeleistung (kW)",
-          "phase_limits_a": "Phasengrenzen (A)"
+          "name": "Name (optional)",
+          "max_parallel": "Gleichzeitige Ladepunkte (optional)",
+          "max_power_kw": "Maximale Ladeleistung (kW) (optional)",
+          "phase_limits_a": "Phasengrenzen (A) (optional)"
         }
       },
       "charger": {
         "title": "Ladepunkte",
-        "description": "Schritt 2/5 – Ladepunkte hinzufügen. Steuerung bleibt deaktiviert.",
+        "description": "Schritt 2/5 — Ladepunkt mit Name und Schalter hinzufügen oder fertigstellen. Messwerte und Verdrahtung sind optional; Steuerung bleibt aus.",
         "data": {
           "action": "Aktion",
-          "name": "Name",
-          "kind": "Typ",
-          "rated_power_kw": "Nennleistung (kW)",
-          "phase_count": "Phasenanzahl",
-          "min_current_a": "Mindeststrom (A)",
-          "max_current_a": "Maximalstrom (A)",
-          "connected_entity": "Verbindungssensor",
-          "power_entity": "Leistungssensor",
-          "energy_entity": "Energiezähler",
-          "control_entity": "Schaltentität",
-          "add_another": "Weiteren hinzufügen",
-          "phase_ids": "Verdrahtete Phasen",
-          "voltage_v": "Spannung (V)",
-          "current_step_a": "Stromschritt (A)",
-          "fixed_current_a": "Fester Strom (A)",
-          "circuit_id": "Stromkreis-ID",
-          "circuit_limit_a": "Stromkreisgrenze (A)",
-          "current_control_entity": "Stromsollwert (number)",
-          "current_readback_entity": "Gemessener Strom (A)"
+          "name": "Name (beim Hinzufügen erforderlich)",
+          "control_entity": "Schaltentität (beim Hinzufügen erforderlich)",
+          "configure_details": "Weitere Einstellungen (optional)",
+          "add_another": "Weiteren hinzufügen"
         }
       },
       "asset": {
         "title": "Lade-Assets",
-        "description": "Schritt 3/5 – Wiederaufladbare Assets anlegen. Batteriestand ist bei festgelegter Energie oder Dauer optional.",
+        "description": "Schritt 3/5 — Bei Bedarf Lade-Assets hinzufügen oder fortfahren.",
         "data": {
           "action": "Aktion",
-          "name": "Name",
-          "kind": "Typ",
-          "soc_entity": "Batteriestand-Sensor",
-          "capacity_kwh": "Batteriekapazität (kWh)",
-          "target_soc": "Ziel-Ladestand (%)",
-          "requested_kwh": "Gewünschte Energie (kWh)",
-          "requested_duration_minutes": "Ladedauer (Minuten)",
-          "ready_by": "Bereit bis",
-          "charge_efficiency": "Ladewirkungsgrad",
-          "max_charge_kw": "Maximale Ladeleistung des Assets (kW)",
-          "priority": "Priorität",
+          "name": "Name (beim Hinzufügen erforderlich)",
+          "kind": "Typ (optional)",
+          "soc_entity": "Batteriestand-Sensor (optional)",
+          "capacity_kwh": "Batteriekapazität (kWh) (optional)",
+          "target_soc": "Ziel-Ladestand (%) (optional)",
+          "requested_kwh": "Gewünschte Energie (kWh) (optional)",
+          "requested_duration_minutes": "Ladedauer (Minuten) (optional)",
+          "ready_by": "Bereit bis (optional)",
+          "charge_efficiency": "Ladewirkungsgrad (optional)",
+          "max_charge_kw": "Maximale Ladeleistung des Assets (kW) (optional)",
+          "priority": "Priorität (optional)",
           "add_another": "Weiteren hinzufügen",
-          "ready_by_repeat": "Wiederholung",
-          "temporary": "Temporärer Gast",
-          "expires_at": "Ablauf des Gasts",
-          "expected_connection_at": "Voraussichtliche Verbindung"
+          "ready_by_repeat": "Wiederholung (optional)",
+          "temporary": "Temporärer Gast (optional)",
+          "expires_at": "Ablauf des Gasts (optional)",
+          "expected_connection_at": "Voraussichtliche Verbindung (optional)"
         }
       },
       "sources": {
         "title": "Quellen und Zuordnung",
-        "description": "Schritt 4/5 – Messquellen wählen und Assets Ladepunkten zuordnen. Fehlende Quellen bedeuten keine unbegrenzte Leistung.",
+        "description": "Schritt 4/5 — Quellen und Zuordnungen sind optional. Fehlende Nachweise bleiben unbekannt.",
         "data": {
-          "price_entity": "Preisquelle",
-          "solar_entity": "Solarquelle",
-          "binding_entity": "Leistungsgrenzquelle"
+          "price_entity": "Preisquelle (optional)",
+          "solar_entity": "Solarquelle (optional)",
+          "binding_entity": "Leistungsgrenzquelle (optional)"
         }
       },
       "verify": {
@@ -74,6 +59,35 @@
         "description": "{summary} Quellen und Geräte prüfen. Die Einrichtung aktiviert keine physische Steuerung.",
         "data": {
           "confirm": "Konfiguration bestätigen"
+        }
+      },
+      "charger_details": {
+        "title": "Schritt 2/5 — Optionale Messwerte",
+        "description": "Nur verfügbare Quellen angeben. Physische Steuerung bleibt deaktiviert.",
+        "data": {
+          "kind": "Typ (optional)",
+          "rated_power_kw": "Nennleistung (kW) (optional)",
+          "connected_entity": "Verbindungssensor (optional)",
+          "power_entity": "Leistungssensor (optional)",
+          "energy_entity": "Energiezähler (optional)",
+          "configure_electrical": "Elektrische Details konfigurieren (optional)"
+        }
+      },
+      "charger_electrical": {
+        "title": "Schritt 2/5 — Optionale elektrische Details",
+        "description": "Nur verifizierte Ströme, Phasen und Verdrahtung eingeben. Kann später erfolgen.",
+        "data": {
+          "phase_count": "Phasenanzahl (optional)",
+          "phase_ids": "Verdrahtete Phasen (optional)",
+          "voltage_v": "Spannung (V) (optional)",
+          "min_current_a": "Mindeststrom (A) (optional)",
+          "max_current_a": "Maximalstrom (A) (optional)",
+          "current_step_a": "Stromschritt (A) (optional)",
+          "fixed_current_a": "Fester Strom (A) (optional)",
+          "circuit_id": "Stromkreis-ID (optional)",
+          "circuit_limit_a": "Stromkreisgrenze (A) (optional)",
+          "current_control_entity": "Stromsollwert (number) (optional)",
+          "current_readback_entity": "Gemessener Strom (A) (optional)"
         }
       }
     },
@@ -102,12 +116,12 @@
         "data": {
           "name": "Name",
           "max_parallel": "Gleichzeitige Ladepunkte",
-          "max_power_kw": "Maximale Ladeleistung (kW)",
+          "max_power_kw": "Maximale Ladeleistung (kW) (optional)",
           "mode": "Lademodus",
-          "price_entity": "Preisquelle",
-          "solar_entity": "Solarquelle",
-          "binding_entity": "Leistungsgrenzquelle",
-          "phase_limits_a": "Phasengrenzen (A)",
+          "price_entity": "Preisquelle (optional)",
+          "solar_entity": "Solarquelle (optional)",
+          "binding_entity": "Leistungsgrenzquelle (optional)",
+          "phase_limits_a": "Phasengrenzen (A) (optional)",
           "plan_label_mode": "Planbeschriftung",
           "plan_color_by": "Farbe nach",
           "show_indicative_forecast": "Prognose anzeigen"

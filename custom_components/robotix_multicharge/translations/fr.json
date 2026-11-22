@@ -3,70 +3,55 @@
     "step": {
       "user": {
         "title": "Site de recharge",
-        "description": "Site de recharge",
+        "description": "Étape 1/5 — Nommez le site de recharge; toutes les limites électriques sont facultatives.",
         "data": {
-          "name": "Nom",
-          "max_parallel": "Nombre",
-          "max_power_kw": "Puissance",
-          "phase_limits_a": "Phases"
+          "name": "Nom (facultatif)",
+          "max_parallel": "Nombre (facultatif)",
+          "max_power_kw": "Puissance (facultatif)",
+          "phase_limits_a": "Phases (facultatif)"
         }
       },
       "charger": {
         "title": "Borne",
-        "description": "Borne",
+        "description": "Étape 2/5 — Ajoutez une borne avec nom et interrupteur, ou terminez. Mesures et câblage facultatifs; commande inactive.",
         "data": {
           "action": "Action",
-          "name": "Nom",
-          "kind": "Type",
-          "rated_power_kw": "Puissance",
-          "phase_count": "Phases",
-          "min_current_a": "Courant",
-          "max_current_a": "Courant",
-          "connected_entity": "Connexion",
-          "power_entity": "Puissance",
-          "energy_entity": "Compteur d’énergie",
-          "control_entity": "Courant",
-          "add_another": "Action",
-          "phase_ids": "Phases",
-          "voltage_v": "Puissance",
-          "current_step_a": "Courant",
-          "fixed_current_a": "Courant",
-          "circuit_id": "Nombre",
-          "circuit_limit_a": "Courant",
-          "current_control_entity": "Courant",
-          "current_readback_entity": "Courant"
+          "name": "Nom (obligatoire pour ajouter)",
+          "control_entity": "Courant (obligatoire pour ajouter)",
+          "configure_details": "Autres paramètres (facultatif)",
+          "add_another": "Action"
         }
       },
       "asset": {
         "title": "Véhicule",
-        "description": "Véhicule",
+        "description": "Étape 3/5 — Ajoutez des actifs si nécessaire, ou continuez.",
         "data": {
           "action": "Action",
-          "name": "Nom",
-          "kind": "Type",
-          "soc_entity": "Batterie",
-          "capacity_kwh": "Batterie",
-          "target_soc": "Cible",
-          "requested_kwh": "Puissance",
-          "requested_duration_minutes": "Durée",
-          "ready_by": "Prêt pour",
-          "charge_efficiency": "Puissance",
-          "max_charge_kw": "Puissance",
-          "priority": "Priorité",
+          "name": "Nom (obligatoire pour ajouter)",
+          "kind": "Type (facultatif)",
+          "soc_entity": "Batterie (facultatif)",
+          "capacity_kwh": "Batterie (facultatif)",
+          "target_soc": "Cible (facultatif)",
+          "requested_kwh": "Puissance (facultatif)",
+          "requested_duration_minutes": "Durée (facultatif)",
+          "ready_by": "Prêt pour (facultatif)",
+          "charge_efficiency": "Puissance (facultatif)",
+          "max_charge_kw": "Puissance (facultatif)",
+          "priority": "Priorité (facultatif)",
           "add_another": "Action",
-          "ready_by_repeat": "Répéter",
-          "temporary": "Invité",
-          "expires_at": "Expiration",
-          "expected_connection_at": "Connexion prévue"
+          "ready_by_repeat": "Répéter (facultatif)",
+          "temporary": "Invité (facultatif)",
+          "expires_at": "Expiration (facultatif)",
+          "expected_connection_at": "Connexion prévue (facultatif)"
         }
       },
       "sources": {
         "title": "Sources",
-        "description": "Sources",
+        "description": "Étape 4/5 — Sources et affectations facultatives. Les données manquantes restent inconnues.",
         "data": {
-          "price_entity": "Tarif",
-          "solar_entity": "Solaire",
-          "binding_entity": "Puissance"
+          "price_entity": "Tarif (facultatif)",
+          "solar_entity": "Solaire (facultatif)",
+          "binding_entity": "Puissance (facultatif)"
         }
       },
       "verify": {
@@ -74,6 +59,35 @@
         "description": "Vérification",
         "data": {
           "confirm": "Vérification"
+        }
+      },
+      "charger_details": {
+        "title": "Étape 2/5 — Mesures facultatives",
+        "description": "Ajoutez uniquement les sources disponibles. La commande physique reste inactive.",
+        "data": {
+          "kind": "Type (facultatif)",
+          "rated_power_kw": "Puissance (facultatif)",
+          "connected_entity": "Connexion (facultatif)",
+          "power_entity": "Puissance (facultatif)",
+          "energy_entity": "Compteur d’énergie (facultatif)",
+          "configure_electrical": "Configurer les détails électriques (facultatif)"
+        }
+      },
+      "charger_electrical": {
+        "title": "Étape 2/5 — Détails électriques facultatifs",
+        "description": "Saisissez uniquement les courants, phases et câblages vérifiés. Peut attendre.",
+        "data": {
+          "phase_count": "Phases (facultatif)",
+          "phase_ids": "Phases (facultatif)",
+          "voltage_v": "Puissance (facultatif)",
+          "min_current_a": "Courant (facultatif)",
+          "max_current_a": "Courant (facultatif)",
+          "current_step_a": "Courant (facultatif)",
+          "fixed_current_a": "Courant (facultatif)",
+          "circuit_id": "Nombre (facultatif)",
+          "circuit_limit_a": "Courant (facultatif)",
+          "current_control_entity": "Courant (facultatif)",
+          "current_readback_entity": "Courant (facultatif)"
         }
       }
     },
@@ -103,12 +117,12 @@
         "data": {
           "name": "Nom",
           "max_parallel": "Nombre",
-          "max_power_kw": "Puissance",
+          "max_power_kw": "Puissance (facultatif)",
           "mode": "Mode de charge",
-          "price_entity": "Tarif",
-          "solar_entity": "Solaire",
-          "binding_entity": "Puissance",
-          "phase_limits_a": "Phases",
+          "price_entity": "Tarif (facultatif)",
+          "solar_entity": "Solaire (facultatif)",
+          "binding_entity": "Puissance (facultatif)",
+          "phase_limits_a": "Phases (facultatif)",
           "plan_label_mode": "Affichage du plan",
           "plan_color_by": "Couleur par",
           "show_indicative_forecast": "Prévision"

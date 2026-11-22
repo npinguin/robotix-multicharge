@@ -27,14 +27,14 @@ async def websocket_get_plan(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
 ) -> None:
     """Only qualified read-only plan data. Never accept a charger command."""
-    configured = list(hass.data.get(DOMAIN, {}).values())
-    runtime = next(
+    configured = list(hass.data.get(DOMAIN, {}).items())
+    selected = next(
         (
-            row for row in configured
+            (entry_id, row) for entry_id, row in configured
             if msg.get("controller_id") in (None, row.configuration["controller"]["id"])
         ), None,
     )
-    if runtime is None:
+    if selected is None:
         connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND,
                               "Unknown charging Controller")
         return
@@ -53,6 +53,7 @@ async def websocket_get_plan(
             end = datetime.fromisoformat(msg["end"].replace("Z", "+00:00"))
         else:
             raise ValueError("day or start/end required")
+        entry_id, runtime = selected
         result = runtime.read_plan(
             start, end,
             charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
@@ -61,6 +62,10 @@ async def websocket_get_plan(
             hass, runtime.configuration, start, end,
             charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
             session_receipts=runtime.executor.completed_sessions(),
+        )
+        entry = hass.config_entries.async_get_entry(entry_id)
+        result["configuration_managed_by_yaml"] = bool(
+            entry is not None and entry.data.get("source") == "yaml"
         )
         result["actual_slots"] = actual
         result["actual_history_quality"] = quality

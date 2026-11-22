@@ -288,6 +288,19 @@ class ConfigurationTests(unittest.TestCase):
             options = {"configuration": default_configuration("Edited via UI")}
         self.assertEqual(effective_configuration(Entry())["controller"]["name"], "Edited via UI")
 
+    def test_yaml_import_overrides_old_ui_options_and_preserves_truth(self):
+        class Entry:
+            data = {"source": "yaml", "configuration": default_configuration("Expert YAML")}
+            options = {"configuration": default_configuration("Old wizard"),
+                       "enable_ux": True}
+        self.assertEqual(
+            effective_configuration(Entry())["controller"]["name"],
+            "Expert YAML",
+        )
+        # Switching to YAML must never resurrect stale wizard preferences.
+        Entry.options["configuration"]["controller"]["mode"] = "Force Charge"
+        self.assertEqual(effective_configuration(Entry())["controller"]["mode"], "Off")
+
     def test_two_chargers_cannot_share_a_physical_writer(self):
         cfg = default_configuration()
         cfg["chargers"] = [

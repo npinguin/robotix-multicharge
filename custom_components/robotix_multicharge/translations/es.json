@@ -3,70 +3,55 @@
     "step": {
       "user": {
         "title": "Instalación de carga",
-        "description": "Paso 1/5: configurar el lugar y los límites seguros. No se activa la carga física.",
+        "description": "Paso 1/5 — Nombre la instalación; los límites eléctricos son opcionales al configurarla.",
         "data": {
-          "name": "Nombre",
-          "max_parallel": "Puntos de carga simultáneos",
-          "max_power_kw": "Potencia máxima (kW)",
-          "phase_limits_a": "Límites de fase (A)"
+          "name": "Nombre (opcional)",
+          "max_parallel": "Puntos de carga simultáneos (opcional)",
+          "max_power_kw": "Potencia máxima (kW) (opcional)",
+          "phase_limits_a": "Límites de fase (A) (opcional)"
         }
       },
       "charger": {
         "title": "Puntos de carga",
-        "description": "Paso 2/5: añadir puntos de carga. El control sigue desactivado.",
+        "description": "Paso 2/5 — Añada cargador con nombre y conmutador, o finalice. Mediciones y cableado opcionales; control desactivado.",
         "data": {
           "action": "Acción",
-          "name": "Nombre",
-          "kind": "Tipo",
-          "rated_power_kw": "Potencia nominal (kW)",
-          "phase_count": "Número de fases",
-          "min_current_a": "Corriente mínima (A)",
-          "max_current_a": "Corriente máxima (A)",
-          "connected_entity": "Sensor de conexión",
-          "power_entity": "Sensor de potencia",
-          "energy_entity": "Contador de energía",
-          "control_entity": "Entidad de control",
-          "add_another": "Añadir otro",
-          "phase_ids": "Fases cableadas",
-          "voltage_v": "Tensión (V)",
-          "current_step_a": "Paso de corriente (A)",
-          "fixed_current_a": "Corriente fija (A)",
-          "circuit_id": "ID de circuito",
-          "circuit_limit_a": "Límite del circuito (A)",
-          "current_control_entity": "Consigna de corriente (number)",
-          "current_readback_entity": "Corriente medida (A)"
+          "name": "Nombre (obligatorio para añadir)",
+          "control_entity": "Entidad de control (obligatorio para añadir)",
+          "configure_details": "Más ajustes (opcional)",
+          "add_another": "Añadir otro"
         }
       },
       "asset": {
         "title": "Activos de carga",
-        "description": "Paso 3/5: añadir activos recargables. El nivel de batería es opcional si se indica energía o duración.",
+        "description": "Paso 3/5 — Añada activos de carga si los necesita, o continúe.",
         "data": {
           "action": "Acción",
-          "name": "Nombre",
-          "kind": "Tipo",
-          "soc_entity": "Sensor de batería",
-          "capacity_kwh": "Capacidad de batería (kWh)",
-          "target_soc": "Batería objetivo (%)",
-          "requested_kwh": "Energía solicitada (kWh)",
-          "requested_duration_minutes": "Duración (minutos)",
-          "ready_by": "Listo para",
-          "charge_efficiency": "Eficiencia de carga",
-          "max_charge_kw": "Potencia máxima del activo (kW)",
-          "priority": "Prioridad",
+          "name": "Nombre (obligatorio para añadir)",
+          "kind": "Tipo (opcional)",
+          "soc_entity": "Sensor de batería (opcional)",
+          "capacity_kwh": "Capacidad de batería (kWh) (opcional)",
+          "target_soc": "Batería objetivo (%) (opcional)",
+          "requested_kwh": "Energía solicitada (kWh) (opcional)",
+          "requested_duration_minutes": "Duración (minutos) (opcional)",
+          "ready_by": "Listo para (opcional)",
+          "charge_efficiency": "Eficiencia de carga (opcional)",
+          "max_charge_kw": "Potencia máxima del activo (kW) (opcional)",
+          "priority": "Prioridad (opcional)",
           "add_another": "Añadir otro",
-          "ready_by_repeat": "Repetición",
-          "temporary": "Invitado temporal",
-          "expires_at": "Caducidad del invitado",
-          "expected_connection_at": "Conexión prevista"
+          "ready_by_repeat": "Repetición (opcional)",
+          "temporary": "Invitado temporal (opcional)",
+          "expires_at": "Caducidad del invitado (opcional)",
+          "expected_connection_at": "Conexión prevista (opcional)"
         }
       },
       "sources": {
         "title": "Fuentes y asignación",
-        "description": "Paso 4/5: elegir fuentes de medida y asignar activos. Sin datos no se supone potencia ilimitada.",
+        "description": "Paso 4/5 — Fuentes y asignaciones opcionales. Los datos ausentes siguen desconocidos.",
         "data": {
-          "price_entity": "Fuente de precios",
-          "solar_entity": "Fuente solar",
-          "binding_entity": "Fuente de límite de potencia"
+          "price_entity": "Fuente de precios (opcional)",
+          "solar_entity": "Fuente solar (opcional)",
+          "binding_entity": "Fuente de límite de potencia (opcional)"
         }
       },
       "verify": {
@@ -74,6 +59,35 @@
         "description": "{summary} Verificar las fuentes y los dispositivos. La configuración no activa el control físico.",
         "data": {
           "confirm": "Confirmar configuración"
+        }
+      },
+      "charger_details": {
+        "title": "Paso 2/5 — Mediciones opcionales",
+        "description": "Añada solo fuentes disponibles. El control físico sigue desactivado.",
+        "data": {
+          "kind": "Tipo (opcional)",
+          "rated_power_kw": "Potencia nominal (kW) (opcional)",
+          "connected_entity": "Sensor de conexión (opcional)",
+          "power_entity": "Sensor de potencia (opcional)",
+          "energy_entity": "Contador de energía (opcional)",
+          "configure_electrical": "Configurar detalles eléctricos (opcional)"
+        }
+      },
+      "charger_electrical": {
+        "title": "Paso 2/5 — Detalles eléctricos opcionales",
+        "description": "Introduzca solo corrientes, fases y cableado verificados. Puede hacerlo después.",
+        "data": {
+          "phase_count": "Número de fases (opcional)",
+          "phase_ids": "Fases cableadas (opcional)",
+          "voltage_v": "Tensión (V) (opcional)",
+          "min_current_a": "Corriente mínima (A) (opcional)",
+          "max_current_a": "Corriente máxima (A) (opcional)",
+          "current_step_a": "Paso de corriente (A) (opcional)",
+          "fixed_current_a": "Corriente fija (A) (opcional)",
+          "circuit_id": "ID de circuito (opcional)",
+          "circuit_limit_a": "Límite del circuito (A) (opcional)",
+          "current_control_entity": "Consigna de corriente (number) (opcional)",
+          "current_readback_entity": "Corriente medida (A) (opcional)"
         }
       }
     },
@@ -102,12 +116,12 @@
         "data": {
           "name": "Nombre",
           "max_parallel": "Puntos de carga simultáneos",
-          "max_power_kw": "Potencia máxima (kW)",
+          "max_power_kw": "Potencia máxima (kW) (opcional)",
           "mode": "Modo de carga",
-          "price_entity": "Fuente de precios",
-          "solar_entity": "Fuente solar",
-          "binding_entity": "Fuente de límite de potencia",
-          "phase_limits_a": "Límites de fase (A)",
+          "price_entity": "Fuente de precios (opcional)",
+          "solar_entity": "Fuente solar (opcional)",
+          "binding_entity": "Fuente de límite de potencia (opcional)",
+          "phase_limits_a": "Límites de fase (A) (opcional)",
           "plan_label_mode": "Etiquetas del plan",
           "plan_color_by": "Color por",
           "show_indicative_forecast": "Mostrar previsión"

@@ -90,6 +90,19 @@ async function main(){
     "resident has no admin configuration navigation");
   assert.ok(!find(resident.shadowRoot,"button","Edit"),
     "resident cannot invoke owning HA settings controls");
+  // Imported YAML is the only settings authority, even for HA admins.
+  // Monitoring and qualified physical commands remain separate concerns.
+  const yamlCard=new Card();
+  yamlCard.setConfig({});
+  yamlCard.hass={user:{is_admin:true},states:{},
+    callWS:async request=>({...fixture,configuration_managed_by_yaml:true})};
+  await new Promise(resolve=>setImmediate(resolve));
+  yamlCard._tab="Settings";yamlCard.render();
+  assert.ok(content(yamlCard.shadowRoot).includes("YAML · read-only"),
+    "YAML-managed settings clearly disclose their authority");
+  assert.ok(!find(yamlCard.shadowRoot,"button","Edit"),
+    "YAML-managed configuration must not advertise writable settings");
+
   assert.ok(commands.length>0);
   assert.equal(commands[0].type,"robotix_multicharge/get_plan");
   assert.ok(!require("node:fs").readFileSync(

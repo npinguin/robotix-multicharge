@@ -65,6 +65,48 @@ class PackageTest(unittest.TestCase):
         self.assertIn('@websocket_api.websocket_command({', read)
         self.assertEqual(writes.count("@websocket_api.require_admin"), 2)
 
+    def test_local_robotix_brand_is_packaged_as_real_pngs(self):
+        """HA 2026.3+ and Marketplace use native local integration branding."""
+        for name, size in (("icon.png", 256), ("icon@2x.png", 512),
+                           ("logo.png", 256), ("logo@2x.png", 512)):
+            path = COMPONENT / "brand" / name
+            payload = path.read_bytes()
+            with self.subTest(asset=name):
+                self.assertEqual(payload[:8], b"\x89PNG\r\n\x1a\n")
+                self.assertEqual(payload[12:16], b"IHDR")
+                width = int.from_bytes(payload[16:20], "big")
+                height = int.from_bytes(payload[20:24], "big")
+                self.assertGreaterEqual(width, size)
+                self.assertGreaterEqual(height, size)
+
+    def test_optional_native_setup_and_yaml_takeover_contract(self):
+        wizard = (COMPONENT / "config_flow.py").read_text(encoding="utf8")
+        for name in ("charger", "charger_details", "charger_electrical",
+                     "asset", "sources", "verify"):
+            self.assertIn("async_step_" + name, wizard)
+        self.assertIn('vol.Optional("control_entity")', wizard)
+        self.assertIn('user_input.get("control_entity")', wizard)
+        self.assertIn('selector.NumberSelectorMode.BOX', wizard)
+        self.assertIn('data=next_data, options=next_options', wizard)
+        self.assertIn('if key != "configuration"', wizard)
+        self.assertIn('entry.entry_id not in self.hass.data.get(DOMAIN, {})', wizard)
+        cards = (COMPONENT / "frontend" / "robotix-multicharge.js").read_text(
+            encoding="utf8"
+        )
+        self.assertIn("configuration_managed_by_yaml", cards)
+        self.assertIn("canEditSettings()", cards)
+        for language in ("en", "nl", "fr", "da", "nb", "sv", "de", "es"):
+            t = json.loads((COMPONENT / "translations" / (language + ".json")).read_text(
+                encoding="utf8"
+            ))
+            for step in ("charger_details", "charger_electrical"):
+                self.assertTrue(t["config"]["step"][step]["title"])
+                self.assertTrue(t["config"]["step"][step]["description"])
+            self.assertEqual(
+                set(t["config"]["step"]["charger"]["data"]),
+                {"action", "name", "control_entity", "configure_details", "add_another"}
+            )
+
     def test_manifest_is_standalone(self):
         m = json.loads((COMPONENT / "manifest.json").read_text(encoding="utf8"))
         self.assertEqual(m["domain"], "robotix_multicharge")
