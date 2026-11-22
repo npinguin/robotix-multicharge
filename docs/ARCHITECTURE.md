@@ -99,3 +99,47 @@ The installed equipment and built-in charger protections remain authoritative. A
 The [functional use case matrix and qualification checklist](https://github.com/npinguin/robotix-multicharge/issues/1) are maintained in one issue. Include 1/2/4/10 charger scenarios; no-SoC, missing price and meter sources; time zones/DST; deadline feasibility; unsafe or rejected commands; real readback; configuration persistence; and HA restart/unload/rollback.
 
 This document describes public implementation boundaries, not confidential project integration plans. Do not mark source CI, mock screens or an unqualified package Feature Complete.
+
+## Fixed five-tab UX — approved no-drift implementation specification
+
+**Visual reference:** owner-approved five-screen presentation in the 2026-11-22 conversation. It is the design acceptance target, not permission to create a new layout. Target **≥99% fidelity** to the approved appearance; it is NOT measured or achieved yet. Engineers without the earlier conversation use the explicit screen anatomy below, then capture the original illustrated reference before any quantified claim. Real screenshots, equal seeded data and owner review determine final acceptance.
+
+**Exactly these five tabs in this order:** **Overview → Charging Plan → Chargeable Assets → Chargers → Settings**. One self-contained frontend experience included with the community integration, enabled by default for ordinary HA frontend installations with a supported opt-out. No sixth product screen, alternative dashboard, redundant scheduler or external frontend dependency. Native HA devices/entities also remain independently usable in ordinary dashboards.
+
+| Tab | Visible screen anatomy in the approved order | Required interaction |
+| --- | --- | --- |
+| **Overview** | Site title + mode badge; one row of **three compact equal KPIs**: active chargers, total **actual** power in kW, qualified current price/currency per kWh; stacked compact chargeable-asset rows with icon, actual battery→target or unknown/manual demand, progress, status badge, Ready By and charger; divider; **Next action** with one clear recommendation/attention | Show **Automatic, Solar, Economy, Ready By, Force Charge, Off** as daily modes. An unqualified mode is visibly unavailable with reason, never silently selectable |
+| **Charging Plan** | Title; **Today/Tomorrow** segmented switch; **All chargers / individual Charger/Asset** selector; a full-width readable power-vs-time chart; **Planned** blue bars, **Actual** green bars, optional **Price** amber line and legible legend; divider; **Next planned session** and **Reason** | True 15-minute backend intervals with real local timezone/DST (92/96/100 slots/day). Show proposed vs accepted, physical actuals for elapsed intervals only, readiness/deadline and potential shortfall. Price/PV/available capacity overlays are optional; no invented future actuals |
+| **Chargeable Assets** | Title + configured count; stacked expandable asset cards; name/icon and connection/readiness; two-column **Battery, Target, Ready By, Charger**; compact rows **Charging priority** and **Battery data** with provenance/freshness; **+ Add asset** | Edit/remove, choose qualified SoC source, or explicit requested kWh/duration if unavailable. Assignment does not prove physical connection |
+| **Chargers** | Title + configured count; stacked charger cards; name and status badge; two-column **Actual power**, **Control type**; assigned asset and **Details** | Detail shows exact source, confirmed control capabilities, 1/3-phase and current bounds, last requested/accepted/confirmed outcome and real physical readback. Unqualified controls remain disabled |
+| **Settings** | Title + setup badge; six items in this **exact** order: **Charging site**, **Sources & bindings**, **Charging strategy**, **Safety & limits**, **Integrations**, **Advanced & YAML** | Beginner wizard **Site → Charger → Asset → Sources → Verify**; inline selectors/validation, advanced progressive disclosure; optional expert YAML import to the same validated configuration authority |
+
+**Visual rules:** compact rounded HA-theme cards, consistent density and spacing, readable units and headings, restrained badges, simple meaningful icons and accessible colors/legends. First-view attention and action before low-level diagnostics. No giant hero, multi-step unrelated dialogs, banners or expert-only material on beginner home screen. One bundled lightweight frontend implementation; no extra framework or frontend-owned planner.
+
+**Screenshot acceptance matrix:** fixed populated fixture (2 assets/3 chargers), empty fresh install, unknown/stale source, missing price, infeasible deadline, pending/unknown command; mobile **390×844**, tablet **1024×768**, desktop **1600×900**; light/dark. Inspect scrolling, focus, touch, axes and labels, true card order, conditional states, actual readback, error presentation. Capture original approved reference and the real HA rendering in the same state and viewport. Changes to this screen contract require owner approval recorded in existing Issue #1 BEFORE changing the implementation.
+
+## Native logical devices — no historical facades
+
+One stable logical HA Device Registry identity per product Controller/Charger/ChargeableAsset ID; native source devices retain their identifiers, entity registry entries and Recorder history. Never duplicate original physical devices or copy provider entities/controls into a new logical device. No legacy EVSC entity aliases or bridge sensors, no semantic parentage with HA \`via_device\`. Source observations only update runtime values; structural changes require explicit validated configuration revisions.
+
+| Logical device | Canonical specialist properties/actions at Feature Complete | Excluded |
+| --- | --- | --- |
+| **ChargeController** | Readiness/reason, mode/capability, actual combined kW, binding available-capacity/quality, plan status/revision/next activity and safe strategy/stop action | Whole-house PV/grid duplicate, secondary energy planner, 48-hour forecast dumped into sensor attributes |
+| **Charger** | Connection **observed** vs assignment, verified capabilities and limits, actual kW/session kWh/readback/quality, authorized command status and safe physical actions | Reparented vendor device, raw source command copies, second active EVSE writer |
+| **ChargeableAsset** | Stable identity, source/SoC/provenance/quality, target, remaining kWh **or** duration, Ready By, priority, feasibility/shortfall and selected charger | Second OEM truth, climate/security/comfort controls or a competing vehicle identity |
+
+Normal HA sensors/selects/buttons must be independently usable in user dashboards and automations, with current values and safe role-based admission. A single \`Readiness\` diagnostic is a valid canonical property; the current constant \`not_commissioned\` is development-only and must become true runtime evidence. No permanent placeholders, unqualified control buttons or silently renamed unique IDs.
+
+## Implementation and release gates
+
+**G1 Contract first:** for every UC01–UC29, specify one owner, stable identity, canonical input/source quality, public read/write surface, failure behavior and executable test. Versioned generic HA interface; no duplicate sources, command writers, schedules, ledgers or UX inferencing.
+
+**G2 Complete functionality in this dev batch:** guided HA setup + optional YAML parity, validated sources, targets/deadlines/priority, six qualified strategies, one group planner (1/2/4/10 chargers), true physical control/readback, persistence, canonical logical entities, one bounded read-only chart query and the above exact five-tab frontend.
+
+**G3 Targeted tests during coding:** negative safety/ownership, different phase/current limits, 23/25-hour days, missing/partial prices, signed PV/net, source staleness, no-SoC, source rebind, event storms/duplicate commands, command timeout, restart/unload, identity/history and headless operation.
+
+**G4 Feature Complete before full qualification:** all 29 scenarios, five rendered UX tabs and source/negative/permission behavior complete with no open agreed functional debt. Green syntax/unit tests do not meet G4.
+
+**G5 Qualify exact candidate:** HACS/Hassfest, actual HA setup/reload/unload/upgrades/rollback, frontend browser screenshots at the three viewports, provider interoperability, owner-safe physical commissioning and explicit release permission. Public HACS TEST must follow the validated exact-\`main\` governance path. Keep the existing Draft PR on \`dev\` for the ongoing agreed batch.
+
+**Present status (2026-11-22):** only config scaffolding, candidate dataclasses and a constant readiness entity are implemented. No real planner, native five-tab UX, chart, source reader or physical executor. This specification is an acceptance target, not shipped capability.

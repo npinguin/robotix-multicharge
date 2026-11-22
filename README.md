@@ -26,9 +26,9 @@ The planned everyday experience has five sections:
 | View | Purpose |
 | --- | --- |
 | **Overview** | What is charging, what comes next and what needs attention |
+| **Charging Plan** | Today/tomorrow 15-minute timeline: proposed/accepted charging, actual power, deadline and optional energy/price context |
 | **Chargeable Assets** | Battery level, target, deadline, priority and remaining need |
 | **Chargers** | Connection, power, actual state, active assignment and safe controls |
-| **Charging Plan** | Today/tomorrow 15-minute timeline: proposed/accepted charging, actual power, deadline and optional energy/price context |
 | **Settings** | Guided source selection, limits, diagnostics and expert YAML import |
 
 The first guided setup, YAML import parser and read-only logical setup entities exist in development but have **not passed actual Home Assistant runtime qualification**. A complete, beginner-friendly setup and a single bundled charging-plan timeline card are in scope, not yet operational. Both UI and optional YAML must use one validation model; no competing YAML automation engine is planned. Physical device identities remain with their native Home Assistant integrations.
