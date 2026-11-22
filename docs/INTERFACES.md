@@ -18,7 +18,7 @@ The planned 15-minute Today/Tomorrow chart needs one bounded, read-only query on
 
 Use native lightweight HA summary entities and Recorder for measured history. Do not replicate the planner or persist whole future timelines as large frequently rewritten sensor attributes.
 
-**Status:** contract shape is a development target. Native HA binding, planner, chart, actuator and hardware acceptance are not yet implemented or qualified. See [functional use cases](https://github.com/npinguin/robotix-multicharge/issues/1).
+**Status:** the `dev` source now implements explicitly selected HA observations, a bounded admin-only `robotix_multicharge/get_plan` read query and deterministic **proposed-only** 15-minute planning. It does **not** implement plan acceptance, physical command execution/readback, complete source/provider qualification, actual charge-session history, the five-tab frontend or the full native Home Assistant lifecycle qualification. See [functional use cases](https://github.com/npinguin/robotix-multicharge/issues/1).
 
 ## Contract-first implementer specification — candidate, not yet public API
 
@@ -42,7 +42,7 @@ The existing `domain.py`, `contracts.py` and `interfaces.py` are Python sketches
 | `ChargeableAsset` / `AssetObservation` | Stable identity, explicitly selected source identity, fresh/stale/unknown, provenance (OEM/manual/qualified estimate), actual SoC separate from target and estimated; connection and assignment separate |
 | `ChargeDemand` | **kWh XOR duration** with zero demand distinct from unavailable; user strategy, source/revision, one-off and recurring Ready By, timezone/resolved occurrence, priority, feasibility and shortage |
 | `Charger` / `ChargerObservation` | Exact source, actual connection/charging/power/energy with coverage and source quality; on/off or verified current range and phase/circuit capability, owner/effective command admission |
-| `PriceSlot` / `PriceProvider` | Period and validated source/quality/coverage; effective price basis vs spot price; allow negative values and distinct tariffs per Charger |
+| `PriceSlot` / `PriceProvider` | Explicit ISO-4217 currency, period, provenance and verified source/quality/coverage; effective price basis vs spot price; allow negative prices and distinct qualified tariffs per Charger; reject mixed currencies in one Charger plan |
 | `PowerEnvelope` | Revision/issued/validity, binding/advisory, **complete applicable time and phase slots**, explicit zero hold, site/circuit/charger cap, stale/missing/fail-safe behavior. Current `current()` validity check must never imply unrestricted grant without a matching qualified slot |
 | `ChargePlan` / `PlannedChargeSlot` | Deterministic UTC quarter boundaries and HA-local display offset, per-asset/Charger revision/slot, proposed vs accepted vs unavailable, forecast-only value and coverage, feasibility/deadline/shortfall; actual data never taken from plan |
 | `ChargeActuator` / `CommandOutcome` | START/STOP/Off and valid setpoint only for confirmed capability; owner/actor/resource/request ID, permission, idempotency and conflicting pending/unknown blocking. Current `confirmed` timestamp is insufficient: require correlated, independent physical source observation reaching requested outcome |
