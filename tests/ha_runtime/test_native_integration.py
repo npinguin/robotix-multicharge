@@ -470,6 +470,7 @@ async def test_native_yaml_options_review_save_and_recorder_identity(hass: HomeA
     )
     assert opts["step_id"] == "yaml"
     assert opts["errors"]["base"] == "invalid_config"
+    assert "duplicate YAML key" in opts["description_placeholders"]["note"]
     assert entry.data["configuration"] == initial
     assert not entry.options.get("configuration")
 
