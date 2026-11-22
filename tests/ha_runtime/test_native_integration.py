@@ -62,6 +62,7 @@ def test_expert_reimport_rejects_live_writer_before_entry_mutation():
     }
     executor = SimpleNamespace(
         _sessions={}, _start_pending=set(), _quarantine=set(),
+        _inflight={}, _persistence_verified=True,
         _switch=lambda h, key: h.states.get(key),
     )
     runtime = SimpleNamespace(
@@ -85,6 +86,33 @@ def test_expert_reimport_rejects_live_writer_before_entry_mutation():
         **old,
         "controller": {**old["controller"], "name": "Renamed"},
     }))
+    # A switch owned by an existing EXTERNAL integration cannot silently
+    # become MultiCharge's writer while still energized.
+    external = validate_configuration({
+        **old, "chargers": [{
+            **old["chargers"][0],
+            "control_owner": "external", "physical_commissioned": False,
+        }],
+    })
+    runtime.configuration = external
+    states["switch.charger"].state = "on"
+    with pytest.raises(ValueError, match="VERIFIED_IDLE"):
+        _assert_safe_expert_import(runtime, old)
+    states["switch.charger"].state = "off"
+    states["sensor.charger_power"].state = "300"
+    with pytest.raises(ValueError, match="VERIFIED_IDLE"):
+        _assert_safe_expert_import(runtime, old)
+    states["sensor.charger_power"].state = "0"
+    _assert_safe_expert_import(runtime, old)
+    # An unclosed prior command is not an idle physical session even when
+    # measured zero and switch OFF happen to be present.
+    executor._inflight["asset"] = "unreconciled"
+    with pytest.raises(ValueError, match="RECONCILED_CONTROL_STATE"):
+        _assert_safe_expert_import(runtime, old)
+    executor._inflight.clear()
+    executor._persistence_verified = False
+    with pytest.raises(ValueError, match="RECONCILED_CONTROL_STATE"):
+        _assert_safe_expert_import(runtime, old)
 
 
 @pytest.mark.asyncio
