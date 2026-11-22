@@ -115,7 +115,7 @@ class NativeSwitchExecutor:
     def _intent_key(self, asset, charger, occurrence):
         """Stable one-intent fingerprint; mutable SoC readings are never identity."""
         data = {
-            "asset": asset["id"], "charger": charger["id"],
+            "asset": asset["id"],
             "requested_kwh": asset.get("requested_kwh"),
             "duration": asset.get("requested_duration_minutes"),
             "target_soc": asset.get("target_soc"),
@@ -129,6 +129,41 @@ class NativeSwitchExecutor:
             ) else occurrence,
         }
         return sha256(dumps(data, sort_keys=True).encode()).hexdigest()
+
+    def measured_intent_usage(self, asset, charger, occurrence, at=None):
+        """Measured progress follows the Asset's intent, never its former EVSE."""
+        now = at or datetime.now(timezone.utc)
+        key = self._intent_key(asset, charger, occurrence)
+        energy, duration = 0.0, 0.0
+        for receipt in self._session_history:
+            if (receipt.get("intent_key") != key
+                    or receipt.get("asset_id") != asset["id"]):
+                continue
+            if receipt.get("physical_stop_confirmed") is not True:
+                return {"energy_kwh": None, "duration_minutes": None}
+            duration += receipt["duration_minutes"]
+            value = receipt.get("actual_energy_kwh")
+            if asset.get("requested_kwh") is not None:
+                if value is None:
+                    return {"energy_kwh": None, "duration_minutes": None}
+                energy += value
+        for uid, session in self._sessions.items():
+            if (session.get("asset_id") != asset["id"]
+                    or session.get("intent_key") != key):
+                continue
+            duration += max(0, (now - session["started_at"]).total_seconds() / 60)
+            if asset.get("requested_kwh") is not None:
+                source = next((c.get("energy_entity") for c in
+                               self.runtime.configuration["chargers"]
+                               if c["id"] == uid), None)
+                if source is None or session.get("starting_energy_kwh") is None:
+                    return {"energy_kwh": None, "duration_minutes": None}
+                sample = number(self.runtime.hass, source, "energy", now)
+                if sample.quality != "ok" or sample.value < session["starting_energy_kwh"] - 0.00001:
+                    return {"energy_kwh": None, "duration_minutes": None}
+                energy += max(0, sample.value - session["starting_energy_kwh"])
+        return {"energy_kwh": round(energy, 6),
+                "duration_minutes": round(duration, 4)}
 
     def intent_completed(self, asset, charger, deadline):
         key = self._intent_key(asset, charger, deadline)
@@ -177,6 +212,8 @@ class NativeSwitchExecutor:
                         or (row["asset_id"] is not None
                             and not isinstance(row["asset_id"], str))):
                     raise ValueError("invalid session identity")
+                if row.get("intent_key") is not None and not isinstance(row["intent_key"], str):
+                    raise ValueError("invalid receipt intent")
                 amount = row.get("actual_energy_kwh")
                 if amount is not None and (
                     type(amount) not in (int, float)
@@ -260,6 +297,7 @@ class NativeSwitchExecutor:
                 currency = matching[0].currency
         self._session_history.append({
             "charger_id": charger_id, "asset_id": session["asset_id"],
+            "intent_key": session.get("intent_key"),
             "started_at": begun.isoformat(), "ended_at": end.isoformat(),
             "duration_minutes": round((end - begun).total_seconds() / 60, 3),
             "actual_energy_kwh": delivered,
@@ -409,6 +447,25 @@ class NativeSwitchExecutor:
                 return "TEMPORARY_ASSET_EXPIRED"
             amount = asset.get("requested_kwh")
             duration = asset.get("requested_duration_minutes")
+        if manual_request is None and (amount is not None or duration is not None):
+            raw_due = asset.get("ready_by")
+            due = datetime.fromisoformat(raw_due) if raw_due else None
+            if due is not None and asset.get("ready_by_repeat", "none") != "none":
+                due, error = resolve_recurring_ready_by(
+                    due, at, asset["ready_by_repeat"],
+                    self.runtime.hass.config.time_zone,
+                )
+                if due is None:
+                    return error
+            progress = self.measured_intent_usage(asset, charger, due, at)
+            if amount is not None:
+                if progress["energy_kwh"] is None:
+                    return "ASSET_MEASURED_PROGRESS_UNAVAILABLE"
+                amount = max(0, amount - progress["energy_kwh"])
+            if duration is not None:
+                if progress["duration_minutes"] is None:
+                    return "ASSET_DURATION_PROGRESS_UNAVAILABLE"
+                duration = max(0, duration - progress["duration_minutes"])
         if charger.get("phase_count") not in (1, 2, 3):
             return "PHYSICAL_PHASES_UNVERIFIED"
         requested_kw = charger["rated_power_kw"]
@@ -740,6 +797,28 @@ class NativeSwitchExecutor:
             manual_request.get("duration_minutes") if manual_request is not None
             else asset.get("requested_duration_minutes")
         )
+        intent_key = None
+        if asset is not None:
+            raw_due = asset.get("ready_by")
+            due = datetime.fromisoformat(raw_due) if raw_due else None
+            if due is not None and asset.get("ready_by_repeat", "none") != "none":
+                due, error = resolve_recurring_ready_by(
+                    due, now, asset["ready_by_repeat"],
+                    self.runtime.hass.config.time_zone,
+                )
+                if due is None:
+                    return error
+            intent_key = self._intent_key(asset, charger, due)
+            if explicit_energy is not None or duration is not None:
+                progress = self.measured_intent_usage(asset, charger, due, now)
+                if explicit_energy is not None:
+                    if progress["energy_kwh"] is None:
+                        return "ASSET_MEASURED_PROGRESS_UNAVAILABLE"
+                    explicit_energy = max(0, explicit_energy - progress["energy_kwh"])
+                if duration is not None:
+                    if progress["duration_minutes"] is None:
+                        return "ASSET_DURATION_PROGRESS_UNAVAILABLE"
+                    duration = max(0, duration - progress["duration_minutes"])
         soc_target = (
             asset.get("target_soc")
             if asset is not None and explicit_energy is None and duration is None
@@ -774,6 +853,7 @@ class NativeSwitchExecutor:
             end = min(end, due)
         self._sessions[charger["id"]] = {
             "asset_id": asset["id"] if asset is not None else None,
+            "intent_key": intent_key,
             "started_at": now,
             "hard_stop_at": end,
             "requested_kwh": explicit_energy,

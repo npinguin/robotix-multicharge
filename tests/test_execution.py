@@ -111,6 +111,45 @@ def rig(*, owner="multicharge", commissioned=True, group_kw=4.0,
 
 
 class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_verified_vehicle_energy_follows_asset_not_charger(self):
+        rt, states, services = rig()
+        asset = rt.configuration["assets"][0]
+        asset["requested_kwh"] = 2.0
+        charger = rt.configuration["chargers"][0]
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"],
+                         "confirmed")
+        states["sensor.meter"].state = "5.8"
+        states["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        self.assertEqual((await rt.executor.execute("evse", "stop"))["status"],
+                         "confirmed")
+        receipt = rt.executor.completed_sessions()[0]
+        self.assertEqual(receipt["actual_energy_kwh"], 0.8)
+        another = {**charger, "id": "replacement"}
+        self.assertEqual(rt.executor._intent_key(asset, charger, None),
+                         rt.executor._intent_key(asset, another, None))
+        self.assertEqual(rt.executor.measured_intent_usage(
+            asset, another, None)["energy_kwh"], 0.8)
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"],
+                         "confirmed")
+        self.assertAlmostEqual(
+            rt.executor.session_snapshot()["evse"]["requested_kwh"], 1.2
+        )
+
+    async def test_unknown_prior_measured_energy_blocks_incorrect_replay(self):
+        rt, states, services = rig()
+        rt.configuration["assets"][0]["requested_kwh"] = 2.0
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"],
+                         "confirmed")
+        states["sensor.meter"].state = "unavailable"
+        states["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        self.assertEqual((await rt.executor.execute("evse", "stop"))["status"],
+                         "confirmed")
+        states["sensor.meter"].state = "6.2"
+        states["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        reject = await rt.executor.execute("evse", "start")
+        self.assertEqual(reject["reason"], "ASSET_MEASURED_PROGRESS_UNAVAILABLE")
+        self.assertEqual([x[1] for x in services.calls], ["turn_on", "turn_off"])
+
     async def test_charger_only_measured_kwh_stops_and_keeps_asset_unattributed(self):
         rt, sources, services = rig()
         rt.configuration["chargers"][0].pop("asset")

@@ -208,9 +208,20 @@ class MultiChargeRuntime:
                 if deadline is None:
                     self.excluded[uid] = reason
                     continue
-            if (self.executor.intent_completed(asset, raw, deadline)
-                    and (amount is not None or minutes is not None)):
-                amount, minutes = 0.0, None
+            if amount is not None or minutes is not None:
+                progress = self.executor.measured_intent_usage(asset, raw, deadline, at)
+                if amount is not None:
+                    if progress["energy_kwh"] is None:
+                        self.excluded[uid] = "ASSET_MEASURED_PROGRESS_UNAVAILABLE"
+                        continue
+                    amount = max(0, amount - progress["energy_kwh"])
+                if minutes is not None:
+                    if progress["duration_minutes"] is None:
+                        self.excluded[uid] = "ASSET_DURATION_PROGRESS_UNAVAILABLE"
+                        continue
+                    minutes = max(0, minutes - progress["duration_minutes"])
+                if self.executor.intent_completed(asset, raw, deadline):
+                    amount, minutes = 0.0, None
             assumed_arrival = (
                 datetime.fromisoformat(asset["expected_connection_at"])
                 if disconnected and asset.get("expected_connection_at") else None
