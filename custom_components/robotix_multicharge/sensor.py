@@ -28,15 +28,22 @@ async def async_setup_entry(
         _LogicalReadinessSensor("charger", row, runtime) for row in cfg["chargers"]
     )
     entities.append(_PlanStatusSensor(cfg["controller"], runtime))
+    for field in ("mode", "configuration_revision", "connected_chargers",
+                  "charging_chargers", "action_health", "last_action"):
+        entities.append(_ControllerLiveSensor(cfg["controller"], runtime, field))
     entities.append(
         _LogicalEvidenceSensor("controller", cfg["controller"], runtime, "power")
     )
     for asset in cfg["assets"]:
         entities.append(_LogicalEvidenceSensor("asset", asset, runtime, "soc"))
+        entities.append(_AssetIntentSensor(asset, runtime))
     for charger in cfg["chargers"]:
         entities.append(_LogicalEvidenceSensor("charger", charger, runtime, "power"))
         entities.append(_LogicalEvidenceSensor("charger", charger, runtime, "connected"))
         entities.append(_CommandStatusSensor(charger, runtime))
+        entities.append(_ChargerAssignmentSensor(charger, runtime))
+        if charger.get("kind") == "variable_current":
+            entities.append(_ChargerCurrentSensor(charger, runtime))
         if charger.get("energy_entity"):
             entities.append(_LogicalSessionEnergySensor(charger, runtime))
             entities.append(_LastSessionEnergySensor(charger, runtime))
@@ -327,4 +334,171 @@ class _LastSessionEnergySensor(_NativeMultiChargeSensor):
             "cost": last["cost"] if last else None,
             "currency": last["currency"] if last else None,
             "cost_quality": last["cost_quality"] if last else "unknown",
+        }
+
+
+
+class _ControllerLiveSensor(_NativeMultiChargeSensor):
+    """Controller-level HA status, sourced from the same live native evidence."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, controller: dict, runtime, field: str) -> None:
+        super().__init__("controller", controller, runtime)
+        self.field = field
+        self._attr_name = {
+            "mode": "Charging mode",
+            "configuration_revision": "Settings revision",
+            "connected_chargers": "Connected chargers",
+            "charging_chargers": "Charging chargers",
+            "action_health": "Action health",
+            "last_action": "Last action",
+        }[field]
+        self._attr_unique_id = f"{DOMAIN}:controller:{controller['id']}:{field}"
+        self._update_value()
+
+    def _update_value(self):
+        live = self.runtime.live_state()
+        self._attr_extra_state_attributes = {
+            "quality": (
+                live["connection_quality"] if self.field == "connected_chargers"
+                else live["power_quality"] if self.field == "charging_chargers"
+                else "configured" if self.field in ("mode", "configuration_revision")
+                else "observed" if live["last_action"] is not None else "not_requested"
+            ),
+        }
+        if self.field == "last_action":
+            action = live["last_action"]
+            self._attr_native_value = action["action"] if action else "none"
+            self._attr_extra_state_attributes.update({
+                "charger_id": action.get("charger_id") if action else None,
+                "status": action.get("status") if action else None,
+                "reason": action.get("reason") if action else None,
+                "requested_at": action.get("requested_at") if action else None,
+                "readback_at": action.get("readback_at") if action else None,
+                "request_id": action.get("request_id") if action else None,
+                "measured_power_kw": action.get("measured_power_kw") if action else None,
+            })
+        else:
+            self._attr_native_value = live[self.field]
+        if self.field == "action_health":
+            self._attr_extra_state_attributes.update({
+                "confirmed_count": sum(
+                    r.get("status") == "confirmed"
+                    for r in live["command_outcomes"].values()
+                ),
+                "pending_count": sum(
+                    r.get("status") == "requested"
+                    for r in live["command_outcomes"].values()
+                ),
+                "unconfirmed_count": sum(
+                    r.get("status") == "execution_unknown"
+                    for r in live["command_outcomes"].values()
+                ),
+                "last_charger_id": (
+                    live["last_action"]["charger_id"]
+                    if live["last_action"] is not None else None
+                ),
+            })
+
+
+class _ChargerAssignmentSensor(_NativeMultiChargeSensor):
+    """Authoritative saved assignment; NEVER implies an identified plugged car."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, charger: dict, runtime) -> None:
+        super().__init__("charger", charger, runtime)
+        self._attr_name = "Selected vehicle"
+        self._attr_unique_id = f"{DOMAIN}:charger:{charger['id']}:selected_vehicle"
+        self._update_value()
+
+    def _update_value(self):
+        current = next(
+            (c for c in self.runtime.configuration["chargers"]
+             if c["id"] == self.data["id"]), self.data
+        )
+        self._attr_native_value = current.get("asset") or "none"
+        connected = self.runtime.observations.get("chargers", {}).get(
+            self.data["id"], {}
+        ).get("connected")
+        self._attr_extra_state_attributes = {
+            "association": "saved_preference_not_vehicle_proof",
+            "connection": (
+                "connected" if connected.value is True else "disconnected"
+                if connected.value is False else "unknown"
+            ) if connected is not None and connected.quality == "ok" else "unknown",
+            "connection_quality": connected.quality if connected else "unknown",
+        }
+
+
+class _AssetIntentSensor(_NativeMultiChargeSensor):
+    """Asset-owned charging needs, unchanged when a physical Charger is reselected."""
+
+    def __init__(self, asset: dict, runtime) -> None:
+        super().__init__("asset", asset, runtime)
+        self._attr_name = "Charging intention"
+        self._attr_unique_id = f"{DOMAIN}:asset:{asset['id']}:intent"
+        self._update_value()
+
+    def _update_value(self):
+        current = next(
+            (a for a in self.runtime.configuration["assets"]
+             if a["id"] == self.data["id"]), self.data
+        )
+        assigned = next(
+            (c["id"] for c in self.runtime.configuration["chargers"]
+             if c.get("asset") == current["id"]), None
+        )
+        if current.get("requested_kwh") is not None:
+            status = "energy"
+        elif current.get("requested_duration_minutes") is not None:
+            status = "duration"
+        elif current.get("target_soc") is not None:
+            status = "target_soc"
+        else:
+            status = "unconfigured"
+        self._attr_native_value = status
+        self._attr_extra_state_attributes = {
+            "selected_charger_id": assigned,
+            "requested_kwh": current.get("requested_kwh"),
+            "requested_duration_minutes": current.get("requested_duration_minutes"),
+            "target_soc": current.get("target_soc"),
+            "ready_by": current.get("ready_by"),
+            "priority": current.get("priority", 0),
+            "temporary": current.get("temporary", False),
+            "expires_at": current.get("expires_at"),
+            "connection_verified": False,  # saved assignment is not plug identity
+        }
+
+
+class _ChargerCurrentSensor(_NativeMultiChargeSensor):
+    """Session setpoint and physically measured ampere are different facts."""
+
+    _attr_native_unit_of_measurement = "A"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, charger: dict, runtime) -> None:
+        super().__init__("charger", charger, runtime)
+        self._attr_name = "Confirmed current setpoint"
+        self._attr_unique_id = f"{DOMAIN}:charger:{charger['id']}:confirmed_current"
+        self._update_value()
+
+    def _update_value(self):
+        session = self.runtime.executor.session_snapshot().get(self.data["id"])
+        self._attr_native_value = session.get("target_current_a") if session else None
+        source_id = self.data.get("current_readback_entity")
+        from .source_evidence import number
+        from datetime import datetime, timezone
+        measured = number(
+            self.runtime.hass, source_id, "current",
+            datetime.now(timezone.utc),
+        )
+        self._attr_extra_state_attributes = {
+            "measured_current_a": measured.value if measured.quality == "ok" else None,
+            "readback_quality": measured.quality,
+            "readback_at": measured.observed_at.isoformat()
+            if measured.observed_at is not None else None,
+            "source_entity_id": source_id,
+            "session_confirmed": session is not None,
         }

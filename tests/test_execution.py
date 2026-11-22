@@ -475,6 +475,24 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
                               asset_id="car")
         self.assertEqual(result["completed_sessions"][0]["asset_id"], "car")
 
+    async def test_controller_action_projection_updates_on_requested_and_confirmed(self):
+        rt, _, services = rig()
+        observed = []
+        rt.subscribe(lambda: observed.append(rt.live_state()))
+        confirmed = await rt.executor.execute("evse", "start")
+        self.assertEqual(confirmed["status"], "confirmed")
+        self.assertGreaterEqual(len(observed), 2)
+        self.assertEqual(observed[0]["action_health"], "pending")
+        self.assertEqual(observed[0]["last_action"]["action"], "start")
+        self.assertEqual(observed[-1]["action_health"], "confirmed")
+        self.assertEqual(observed[-1]["charging_chargers"], 1)
+        self.assertEqual(observed[-1]["last_action"]["readback_at"],
+                         confirmed["readback_at"])
+        self.assertEqual(observed[-1]["last_action"]["charger_id"], "evse")
+        await rt.executor.execute("evse", "stop")
+        self.assertEqual(rt.live_state()["charging_chargers"], 0)
+        self.assertEqual(rt.live_state()["last_action"]["action"], "stop")
+
     async def test_real_on_and_off_calls_require_independent_power_confirmation(self):
         runtime, states, services = rig()
         self.assertTrue(runtime.executor.capabilities()["evse"]["start_allowed"])

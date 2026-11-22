@@ -52,6 +52,56 @@ def sample():
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_controller_live_projection_is_source_qualified_not_guessed(self):
+        cfg = sample()
+        cfg["controller"]["mode"] = "Off"
+        data = {
+            "sensor.soc": state("65", "%"),
+            "sensor.power": state("0", "W"),
+            "binary_sensor.cable": state("off"),
+        }
+        rt = MultiChargeRuntime(
+            SimpleNamespace(states=SimpleNamespace(get=data.get)), cfg
+        )
+        rt.refresh(NOW)
+        live = rt.live_state()
+        self.assertEqual(live["connected_chargers"], 0)
+        self.assertEqual(live["charging_chargers"], 0)
+        self.assertEqual(live["actual_power_kw"], 0)
+        self.assertEqual(live["mode"], "Off")
+        self.assertEqual(live["action_health"], "idle")
+        self.assertIsNone(live["last_action"])
+        self.assertEqual(rt.read_plan(NOW, NOW+timedelta(hours=1))["live"], live)
+        data["sensor.power"].state = "unavailable"
+        rt.refresh(NOW)
+        incomplete = rt.live_state()
+        self.assertIsNone(incomplete["charging_chargers"])
+        self.assertIsNone(incomplete["actual_power_kw"])
+        self.assertEqual(incomplete["power_quality"], "unknown")
+        self.assertEqual(incomplete["connected_chargers"], 0)
+
+    def test_multiple_chargers_unknown_connection_must_not_fake_aggregate_count(self):
+        cfg = sample()
+        cfg["chargers"].append({
+            "id": "other", "name": "Other", "kind": "on_off",
+            "rated_power_kw": 1.5, "connected_entity": "binary_sensor.other",
+            "power_entity": "sensor.other_power",
+        })
+        data = {
+            "sensor.soc": state("65", "%"),
+            "sensor.power": state("2300", "W"),
+            "binary_sensor.cable": state("on"),
+            "sensor.other_power": state("0", "W"),
+        }
+        rt = MultiChargeRuntime(
+            SimpleNamespace(states=SimpleNamespace(get=data.get)), cfg
+        )
+        rt.refresh(NOW)
+        live = rt.live_state()
+        self.assertIsNone(live["connected_chargers"])
+        self.assertEqual(live["charging_chargers"], 1)
+        self.assertEqual(live["actual_power_kw"], 2.3)
+
     def test_real_source_soc_produces_read_only_plan(self):
         data = {
             "sensor.soc": state("50", "%"),

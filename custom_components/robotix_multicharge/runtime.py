@@ -221,12 +221,50 @@ class MultiChargeRuntime:
             self.excluded["controller"] = "INVALID_PLANNING_INPUT"
         self.notify()
 
+    def live_state(self):
+        """Near-real-time controller projection from native source and command evidence.
+
+        All counts are unknown if any required physical source is unavailable.
+        Never count an unknown or unplugged charger as zero measured power.
+        """
+        chargers = self.configuration["chargers"]
+        observations = self.observations.get("chargers", {})
+        cables = [observations.get(c["id"], {}).get("connected") for c in chargers]
+        powers = [observations.get(c["id"], {}).get("power_kw") for c in chargers]
+        cable_ok = all(item is not None and item.quality == "ok" for item in cables)
+        power_ok = all(item is not None and item.quality == "ok" for item in powers)
+        outcomes = self.executor.snapshot()
+        actions = sorted(
+            outcomes.values(),
+            key=lambda row: (row.get("requested_at") or "", row.get("request_id") or ""),
+        )
+        command_status = (
+            "unconfirmed" if any(r.get("status") == "execution_unknown" for r in actions)
+            else "pending" if any(r.get("status") == "requested" for r in actions)
+            else "rejected" if any(r.get("status") == "rejected" for r in actions)
+            else "confirmed" if actions else "idle"
+        )
+        return {
+            "configured_chargers": len(chargers),
+            "connected_chargers": sum(int(e.value is True) for e in cables) if cable_ok else None,
+            "charging_chargers": sum(int(e.value > 0.05) for e in powers) if power_ok else None,
+            "actual_power_kw": round(sum(e.value for e in powers), 6) if power_ok else None,
+            "connection_quality": "ok" if cable_ok else "unknown",
+            "power_quality": "ok" if power_ok else "unknown",
+            "mode": self.configuration["controller"]["mode"],
+            "configuration_revision": configuration_revision(self.configuration),
+            "last_action": dict(actions[-1]) if actions else None,
+            "action_health": command_status,
+            "command_outcomes": outcomes,
+        }
+
     def summary(self):
         assessment = self.assessment
         if assessment is None:
             return {"status": "unavailable", "reason": "INVALID_PLANNING_INPUT"}
         return {
             "status": assessment.plan.status,
+            "live": self.live_state(),
             "revision": assessment.plan.revision,
             "generated_at": assessment.plan.generated_at.isoformat(),
             "reason_by_charger": {**self.excluded, **assessment.reasons},
@@ -332,6 +370,7 @@ class MultiChargeRuntime:
         ]
         return {
             "schema_major": 1,
+            "live": self.live_state(),
             "configuration_revision": configuration_revision(self.configuration),
             "controller_id": self.configuration["controller"]["id"],
             "revision": assessment.plan.revision if assessment else None,
