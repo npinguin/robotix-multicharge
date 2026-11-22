@@ -915,6 +915,21 @@ class NativeSwitchExecutor:
             if action == "set_current":
                 if state.state != "on" or charger_id not in self._sessions:
                     return result("rejected", "CURRENT_CHANGE_REQUIRES_OWNED_SESSION")
+                if charger_id in self._quarantine:
+                    return result("rejected", "PREVIOUS_COMMAND_UNCONFIRMED")
+                if self._session_stop_reason(charger, at) is not None:
+                    return result("rejected", "ACTIVE_SESSION_NOT_SAFE_FOR_MODULATION")
+                mode = cfg["controller"]["mode"]
+                previous_current = self._sessions[charger_id].get("target_current_a")
+                if mode != "Force Charge":
+                    if mode not in ("Automatic", "Solar", "Economy", "Ready By"):
+                        return result("rejected", "MODE_REQUIRES_PHYSICAL_STOP")
+                    granted = self._grants.get(charger_id)
+                    if (previous_current is None
+                            or (current_a > previous_current + 1e-6
+                                and (granted is None or granted.current_a is None
+                                     or current_a > granted.current_a + 1e-6))):
+                        return result("rejected", "CURRENT_INCREASE_REQUIRES_ACCEPTED_SLOT")
                 cable = connection(self.runtime.hass, charger.get("connected_entity"), at)
                 if cable.quality != "ok" or cable.value is not True:
                     return result("rejected", "PHYSICAL_CONNECTION_UNVERIFIED")

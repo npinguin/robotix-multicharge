@@ -317,6 +317,55 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(denied["reason"], "SITE_PHASE_CURRENT_EXCEEDED")
         self.assertFalse(services.calls)
 
+
+    async def test_binding_reduction_modulates_qualified_current_without_unsafe_stop(self):
+        rt, states, services = rig(group_kw=4)
+        rt.configuration["controller"]["phase_limits_a"] = {"L1": 16}
+        rt.configuration["chargers"][0].update(
+            kind="variable_current", rated_power_kw=3.7,
+            phase_ids=["L1"], voltage_v=230,
+            min_current_a=6, max_current_a=16, current_step_a=1,
+            circuit_id="drive", circuit_limit_a=16,
+            current_control_entity="number.charge_limit",
+            current_readback_entity="sensor.actual_current",
+        )
+        entity = state(6, "A")
+        entity.attributes.update(min=6, max=16, step=1)
+        states["number.charge_limit"] = entity
+        states["sensor.actual_current"] = state(0, "A")
+        started = await rt.executor.execute("evse", "start")
+        self.assertEqual(started["status"], "confirmed")
+        self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 16)
+        rt.configuration["controller"]["max_power_kw"] = 2.3
+        await rt.executor.supervise()
+        self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 10)
+        self.assertEqual(services.calls[-1][:2], ("number", "set_value"))
+        self.assertEqual(services.calls[-1][2]["value"], 10)
+
+    async def test_auto_mode_cannot_bypass_accepted_plan_with_manual_current_increase(self):
+        rt, states, services = rig(group_kw=4)
+        rt.configuration["controller"]["phase_limits_a"] = {"L1": 16}
+        rt.configuration["chargers"][0].update(
+            kind="variable_current", rated_power_kw=3.7,
+            phase_ids=["L1"], voltage_v=230,
+            min_current_a=6, max_current_a=16, current_step_a=1,
+            circuit_id="drive", circuit_limit_a=16,
+            current_control_entity="number.charge_limit",
+            current_readback_entity="sensor.actual_current",
+        )
+        entity = state(6, "A")
+        entity.attributes.update(min=6, max=16, step=1)
+        states["number.charge_limit"] = entity
+        states["sensor.actual_current"] = state(0, "A")
+        self.assertEqual((await rt.executor.execute(
+            "evse", "start", current_a=6
+        ))["status"], "confirmed")
+        rt.configuration["controller"]["mode"] = "Automatic"
+        before = len(services.calls)
+        denied = await rt.executor.execute("evse", "set_current", current_a=16)
+        self.assertEqual(denied["reason"], "CURRENT_INCREASE_REQUIRES_ACCEPTED_SLOT")
+        self.assertEqual(len(services.calls), before)
+
     async def test_invalid_adjustable_current_is_rejected_without_physical_write(self):
         rt, states, services = rig(group_kw=7.5)
         rt.configuration["chargers"][0].update(
