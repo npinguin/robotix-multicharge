@@ -43,7 +43,7 @@ const fixture={
   },
   plan_palette:{pink:"#B05D81",green:"#32816E",blue:"#3779B9"},
   preference_entities:{
-    controller:{mode:"select.site_mode",plan_label_mode:"select.site_labels",
+    controller:{name:"text.site_name",mode:"select.site_mode",plan_label_mode:"select.site_labels",
                 plan_color_by:"select.site_colors",
                 show_indicative_forecast:"select.site_forecast"},
     assets:{car:{plan_color:"select.car_color",target_soc:"number.car_target",
@@ -207,14 +207,35 @@ async function main(){
   assert.ok(commands.some(c=>c.type==="robotix_multicharge/command"&&
     c.action==="resume"&&c.charger_id==="drive"));
   fixture.command_capabilities={};
+  card.render();
+  const addCharger=find(card.shadowRoot,"a","Add charger");
+  assert.ok(addCharger&&addCharger.href==="/config/integrations/integration/robotix_multicharge",
+    "Add Charger routes to the one native HA setup");
   find(card.shadowRoot,"button","Settings").click();
   for(const name of ["Charging site","Sources & bindings","Charging strategy",
                      "Safety & limits","Integrations","Advanced & YAML"]){
     assert.ok(content(card.shadowRoot).includes(name),name);
   }
-  assert.ok(find(card.shadowRoot,"a"),"setting opens real HA integration settings");
+  assert.ok(find(card.shadowRoot,"a"),"Settings open real HA integration configuration");
+  assert.ok(find(card.shadowRoot,"button","Details"),
+            "Settings groups disclose details instead of an inert edit action");
+  card.dispatchEvent=event=>{card._lastMoreInfo=event;return true;};
+  find(card.shadowRoot,"button","Details").click();
+  assert.ok(content(card.shadowRoot).includes("Site name"));
+  const siteEdit=find(card.shadowRoot,"button","Edit");
+  assert.ok(siteEdit,"Site name exposes its native HA text editor");
+  siteEdit.click();
+  assert.equal(card._lastMoreInfo?.detail?.entityId,"text.site_name");
+  card._settingsOpen="Safety & limits";card.render();
+  assert.ok(content(card.shadowRoot).includes("Electrical limits"),
+    "Safety Settings show the configured electrical limits");
   assert.ok(find(card.shadowRoot,"button","Edit"),
-            "Site controls use native HA Number entities");
+    "Site power limits are editable through native Number entities");
+  card._settingsOpen="Sources & bindings";card.render();
+  assert.ok(content(card.shadowRoot).includes("Tariff"),
+    "Source bindings disclose real configured source presence");
+  assert.ok(find(card.shadowRoot,"a"),
+    "Advanced source mappings open the existing HA configuration");
   const nativeCalls=[];
   card._hass.callService=async(domain,action,args)=>{
     nativeCalls.push({domain,action,args});
