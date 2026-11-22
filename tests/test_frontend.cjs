@@ -15,7 +15,7 @@ global.HTMLElement=Element;
 global.customElements={get:(n)=>registry.get(n),define:(n,c)=>registry.set(n,c)};
 global.window={};
 global.document={
-  createElement:(tag)=>new Element(tag),
+  createElement:(tag)=>registry.has(tag)?new (registry.get(tag))():new Element(tag),
   createElementNS:(_ns,tag)=>new Element(tag),
   createTextNode:(text)=>{const n=new Element("#text");n.textContent=text;return n;}
 };
