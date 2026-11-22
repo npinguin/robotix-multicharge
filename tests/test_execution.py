@@ -68,7 +68,7 @@ def rig(*, owner="multicharge", commissioned=True, group_kw=4.0,
         "assets": [{"id": "car", "name": "Car", "kind": "car",
                     "requested_kwh": 1.0}],
         "chargers": [{"id": "evse", "name": "EVSE", "kind": "on_off",
-                      "rated_power_kw": 2.0, "asset": "car",
+                      "rated_power_kw": 2.0, "phase_count": 1, "asset": "car",
                       "control_entity": "switch.evse_control",
                       "power_entity": "sensor.actual_power",
                       "connected_entity": "binary_sensor.cable",
@@ -226,6 +226,21 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcome = await rt.executor.execute("evse", "start")
         self.assertEqual(outcome["reason"], "OTHER_CHARGER_OWNER_OR_STATE_UNKNOWN")
         self.assertEqual(services.calls, [])
+
+    async def test_explicit_zero_demand_or_unverified_phases_blocks_real_start(self):
+        rt, _, services = rig()
+        rt.configuration["assets"][0]["requested_kwh"] = 0
+        self.assertEqual(
+            (await rt.executor.execute("evse", "start"))["reason"],
+            "TARGET_ALREADY_MET",
+        )
+        rt, _, services = rig()
+        rt.configuration["chargers"][0].pop("phase_count")
+        self.assertEqual(
+            (await rt.executor.execute("evse", "start"))["reason"],
+            "PHYSICAL_PHASES_UNVERIFIED",
+        )
+        self.assertFalse(services.calls)
 
     async def test_unload_never_allows_new_commands(self):
         rt, _, services = rig()
