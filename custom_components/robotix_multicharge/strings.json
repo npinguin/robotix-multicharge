@@ -54,7 +54,9 @@
           "max_charge_kw": "Asset charging limit (kW)",
           "priority": "Priority (0–100)",
           "add_another": "Add another asset",
-          "ready_by_repeat": "Repeat Ready By (none/daily/weekly, site time zone)"
+          "ready_by_repeat": "Repeat Ready By (none/daily/weekly, site time zone)",
+          "temporary": "Temporary guest (requires an expiry)",
+          "expires_at": "Guest expiry date/time with timezone"
         }
       },
       "sources": {
@@ -124,7 +126,9 @@
           "ready_by": "Ready By (date/time including timezone)",
           "charge_efficiency": "Known charging efficiency (0–1)",
           "priority": "Priority (0–100)",
-          "ready_by_repeat": "Repeat Ready By (none/daily/weekly, site time zone)"
+          "ready_by_repeat": "Repeat Ready By (none/daily/weekly, site time zone)",
+          "temporary": "Temporary guest",
+          "expires_at": "Guest expiry date/time with timezone"
         }
       },
       "charger": {

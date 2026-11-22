@@ -265,6 +265,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       const charger=chargers.find(x=>x.asset===a.id);
       card.append(mcEl("h3","",a.name),mcEl("p","muted",mcValue(observed.soc,"%")+" battery · Target "+(a.target_soc===undefined?"not set":a.target_soc+"%")));
       card.append(mcEl("p","small","Ready by "+mcTime(a.ready_by,d.timezone)+" · "+(charger?charger.name:"No charger assigned")));
+      if(a.temporary)card.append(mcEl("p","small","Temporary guest until "+mcTime(a.expires_at,d.timezone)));
       container.append(card);
     }
     if(!assets.length)this.notice(container,"No assets configured. Add one through Settings.",false);
@@ -405,12 +406,14 @@ class RobotixMultiChargeCard extends HTMLElement {
         const duration=this.field(detail,"Requested minutes",a.requested_duration_minutes,"number");
         const priority=this.field(detail,"Charging priority",a.priority||0,"number");
         const ready=this.field(detail,"Ready By ISO time",a.ready_by);
+        const expiry=a.temporary?this.field(detail,"Guest expiry ISO time",a.expires_at):null;
         detail.append(mcButton("Save asset",()=>this.saveSettings("asset",a.id,{
           target_soc:target.value===""?null:Number(target.value),
           requested_kwh:energy.value===""?null:Number(energy.value),
           requested_duration_minutes:duration.value===""?null:Number(duration.value),
           priority:Number(priority.value),
-          ready_by:ready.value||null
+          ready_by:ready.value||null,
+          ...(expiry?{expires_at:expiry.value.trim()}: {})
         })));
         this.configure(detail);card.append(detail);
       }
@@ -421,10 +424,16 @@ class RobotixMultiChargeCard extends HTMLElement {
       const name=this.field(form,"Asset name","","text");
       const kind=this.field(form,"Asset type","car",null,[["car","Car"],["bicycle","Bicycle"],["other","Other"]]);
       const energy=this.field(form,"Requested energy (kWh)","", "number");
+      const temporary=this.field(form,"Temporary guest","yes",null,
+        [["yes","Yes — temporary guest"],["no","No — permanent asset"]]);
+      const expiry=this.field(form,"Guest expiry ISO time","", "text");
       form.append(mcButton("Create asset",()=>{
         const id=name.value.trim().toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"");
         const changes={name:name.value.trim(),kind:kind.value};
         if(energy.value!=="")changes.requested_kwh=Number(energy.value);
+        if(temporary.value==="yes"){
+          changes.temporary=true;changes.expires_at=expiry.value.trim();
+        }
         this.saveSettings("asset",id,changes,"create");
       }));
       container.append(form);
