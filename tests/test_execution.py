@@ -240,6 +240,40 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(len(services.calls), before)
 
+    async def test_pause_does_not_confirm_while_power_remains_high(self):
+        """Switch OFF alone is never physical Pause / STOP readback."""
+        rt, sources, services = rig()
+        started = await rt.executor.execute("evse", "start")
+        self.assertEqual(started["status"], "confirmed")
+        self.assertEqual(sources["switch.evse_control"].state, "on")
+
+        async def switch_off_but_power_stays(domain, service, data, *,
+                                            blocking, context):
+            services.calls.append((domain, service, dict(data), blocking, context))
+            self.assertEqual((domain, service), ("switch", "turn_off"))
+            source = sources["switch.evse_control"]
+            source.state = "off"
+            source.last_updated = datetime.now(timezone.utc)
+            # Independent physical meter still indicates an energized EVSE.
+            power = sources["sensor.actual_power"]
+            power.state = "1600"
+            power.last_updated = datetime.now(timezone.utc)
+
+        services.async_call = switch_off_but_power_stays
+        paused = await rt.executor.execute(
+            "evse", "pause", readback_seconds=0.05
+        )
+        self.assertEqual(paused["status"], "execution_unknown")
+        self.assertIn("PHYSICAL_READBACK_TIMEOUT", paused["reason"])
+        self.assertEqual(rt.executor.export_state()["paused"], ["evse"])
+        self.assertIn("evse", rt.executor._quarantine)
+        self.assertEqual(
+            (await rt.executor.execute("evse", "resume"))["status"], "rejected"
+        )
+        self.assertTrue(
+            any(action == "turn_off" for _, action, *_ in services.calls)
+        )
+
     async def test_confirmed_stop_reconciles_inflight_only_when_energy_measured(self):
         rt, sources, services = rig()
         charger = rt.configuration["chargers"][0]
