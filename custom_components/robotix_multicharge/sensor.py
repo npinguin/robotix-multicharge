@@ -366,14 +366,22 @@ class _ControllerLiveSensor(_NativeMultiChargeSensor):
 
     def _update_value(self):
         live = self.runtime.live_state()
-        self._attr_extra_state_attributes = {
-            "quality": (
-                live["connection_quality"] if self.field == "connected_chargers"
-                else live["power_quality"] if self.field == "charging_chargers"
-                else "configured" if self.field in ("mode", "configuration_revision")
-                else "observed" if live["last_action"] is not None else "not_requested"
-            ),
-        }
+        if self.field == "connected_chargers":
+            quality = live["connection_quality"]
+        elif self.field == "charging_chargers":
+            quality = live["power_quality"]
+        elif self.field in ("mode", "configuration_revision"):
+            quality = "configured"
+        elif self.field == "last_settings_action":
+            quality = ("observed" if live["settings_action"] is not None
+                       else "not_requested")
+        elif self.field == "action_health" and live["action_health"] in (
+            "hold", "unconfirmed"
+        ):
+            quality = "unconfirmed"
+        else:
+            quality = "observed" if live["last_action"] is not None else "not_requested"
+        self._attr_extra_state_attributes = {"quality": quality}
         if self.field == "last_settings_action":
             setting = live["settings_action"]
             self._attr_native_value = setting["action"] if setting else "none"
