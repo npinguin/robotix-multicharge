@@ -412,7 +412,12 @@ class RobotixMultiChargeCard extends HTMLElement {
             const x=x0+slotIndex*width/count;
             const isForecast=key==="indicative_power_kw";
             const isMeasured=key==="actual_power_kw";
-            const tint=isMeasured?"#757d87":color;
+            const proven=isMeasured &&
+              item.asset_provenance==="confirmed_closed_session"&&item.asset_id;
+            const entityColor=mcIdentityColor(colorBy==="charger"?
+              "charger:"+charger.id:"vehicle:"+(item.asset_id||"unattributed"));
+            const tint=isMeasured&&!proven&&colorBy==="vehicle"?
+              "#757d87":entityColor;
             const rect=mcSVG("rect",{
               x,y:y+7-barHeight,
               width:Math.max(1,width/count-0.35),
@@ -423,7 +428,8 @@ class RobotixMultiChargeCard extends HTMLElement {
               "stroke-width":isForecast?1.4:0,
               "stroke-dasharray":isForecast?"3 2":"none"
             });
-            const name=isMeasured?charger.name+" · physical (vehicle attribution unverified)":
+            const name=isMeasured&&!proven?
+              charger.name+" · physical (vehicle attribution unverified)":
               mcPlanName(item,c,labelMode);
             const caveat=isForecast?" · hypothetical, no reserved capacity":
               isMeasured?" · independent Recorder source":"";

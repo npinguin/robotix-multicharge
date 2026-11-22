@@ -110,6 +110,22 @@ def rig(*, owner="multicharge", commissioned=True, group_kw=4.0,
 
 class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
 
+    async def test_indicative_unplugged_vehicle_never_reaches_physical_writer(self):
+        rt, states, services = rig(mode="Automatic")
+        states["binary_sensor.cable"].state = "off"
+        at = datetime.now(timezone.utc)
+        quarter = at.replace(minute=(at.minute // 15) * 15,
+                             second=0, microsecond=0)
+        for sample in states.values():
+            sample.last_updated = quarter + timedelta(seconds=1)
+        rt.refresh(quarter)
+        self.assertFalse(rt.assessment.plan.slots)
+        self.assertTrue(rt.forecast_assessment.plan.slots)
+        await rt.executor.advance_plan(quarter)
+        self.assertEqual(services.calls, [])
+        self.assertFalse(rt.executor.accepted_slots())
+        self.assertEqual(rt.executor.session_snapshot(), {})
+
     async def test_automatic_quarter_applies_only_physically_confirmed_plan(self):
         rt, states, services = rig(mode="Automatic")
         at = datetime.now(timezone.utc)
