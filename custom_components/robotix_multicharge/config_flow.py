@@ -1,15 +1,21 @@
-"""Guided native setup and one-authority expert YAML import."""
+"""Guided native setup and one-authority expert JSON/YAML import."""
 
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime, timezone
 from re import sub
 
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.helpers import selector
 
-from .configuration import default_configuration, validate_configuration
+from .configuration import (
+    default_configuration, is_plan_presentation_only_change,
+    validate_configuration,
+)
+from .source_evidence import number
+from .execution import stop_power_limit
 from .const import DOMAIN, NAME
 
 
@@ -28,6 +34,35 @@ def _phase_limits(raw):
                 (entry.split(":", 1) for entry in entries)}
     except (ValueError, TypeError) as exc:
         raise ValueError("Use L1:16,L2:16,L3:16") from exc
+
+
+def _assert_safe_expert_import(runtime, updated, *, source_changed=False):
+    """Reject a structural/source-owner reimport before mutating a live entry.
+
+    Global import/reload is not a normal idle-only vehicle reassignment. It
+    must never silently STOP an unrelated active EVSE or change its command
+    owner while the old runtime is still physically executing.
+    """
+    current = runtime.configuration
+    if (not source_changed and (
+            updated == current
+            or is_plan_presentation_only_change(current, updated))):
+        return
+    executor = runtime.executor
+    now = datetime.now(timezone.utc)
+    for charger in current["chargers"]:
+        if (charger.get("control_owner") != "multicharge"
+                or charger.get("physical_commissioned") is not True):
+            continue
+        uid = charger["id"]
+        if (uid in executor._sessions or uid in executor._start_pending
+                or uid in executor._quarantine):
+            raise ValueError("EXPERT_IMPORT_REQUIRES_VERIFIED_IDLE_CHARGERS")
+        switch = executor._switch(runtime.hass, charger.get("control_entity"))
+        power = number(runtime.hass, charger.get("power_entity"), "power", now)
+        if (switch is None or switch.state != "off" or power.quality != "ok"
+                or power.value > stop_power_limit(charger)):
+            raise ValueError("EXPERT_IMPORT_REQUIRES_VERIFIED_IDLE_CHARGERS")
 
 
 class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -419,6 +454,12 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # the HA Config Entry: this preserves its entry ID, logical devices,
             # registry identities, Recorder history and physical replay store.
             entry = entries[0]
+            existing_runtime = self.hass.data.get(DOMAIN, {}).get(entry.entry_id)
+            if existing_runtime is not None:
+                _assert_safe_expert_import(
+                    existing_runtime, cfg,
+                    source_changed=entry.data.get("source") != expert_format,
+                )
             next_data = {"source": expert_format, "configuration": cfg}
             next_options = {
                 key: value for key, value in entry.options.items()
