@@ -167,7 +167,7 @@ async def test_minimal_native_setup_then_yaml_takes_over_same_entry(hass: HomeAs
     })
     # Reproduce the next boot after Home Assistant has loaded the YAML
     # package: the imported source must be present before an entry can run.
-    hass.data[f"{DOMAIN}_yaml_present"] = True
+    hass.data[f"{DOMAIN}_source_present"] = True
     hass.config_entries.async_update_entry(
         entry, options={"configuration": entry.data["configuration"],
                         "enable_ux": True}
