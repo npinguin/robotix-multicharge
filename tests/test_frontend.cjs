@@ -212,6 +212,7 @@ async function main(){
   assert.ok(addCharger&&addCharger.href==="/config/integrations/integration/robotix_multicharge",
     "Add Charger routes to the one native HA setup");
   find(card.shadowRoot,"button","Settings").click();
+  card._settingsOpen="";card.render();
   for(const name of ["Charging site","Sources & bindings","Charging strategy",
                      "Safety & limits","Integrations","Advanced & YAML"]){
     assert.ok(content(card.shadowRoot).includes(name),name);
