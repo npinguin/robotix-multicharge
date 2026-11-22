@@ -105,6 +105,13 @@ class ConfigurationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_configuration(cfg)
 
+    def test_conflicting_power_sources_fail_closed(self):
+        cfg = default_configuration()
+        cfg["controller"]["site_power_entity"] = "sensor.site_power"
+        cfg["controller"]["binding_entity"] = "sensor.energy_envelope"
+        with self.assertRaisesRegex(ValueError, "one authoritative"):
+            validate_configuration(cfg)
+
     def test_binding_source_is_explicitly_preserved(self):
         cfg = default_configuration()
         cfg["controller"]["binding_entity"] = "sensor.site_envelope"

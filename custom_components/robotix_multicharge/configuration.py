@@ -66,6 +66,8 @@ def validate_configuration(value):
                   "max_parallel": parallel, "mode": mode}
     if ctl.get("max_power_kw") is not None:
         controller["max_power_kw"] = _number(ctl["max_power_kw"], "controller.max_power_kw")
+    if ctl.get("binding_entity") and ctl.get("site_power_entity"):
+        raise ValueError("controller: select one authoritative capacity binding source")
     for key in ("price_entity", "site_power_entity", "solar_entity", "binding_entity"):
         if ctl.get(key):
             controller[key] = _entity(ctl[key], "controller." + key)
