@@ -1,4 +1,4 @@
-"""Admin-authorized native HA WebSocket read-only 48h charge plan query."""
+"""Authenticated resident-readable HA WebSocket 48h charge plan query."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from .const import DOMAIN
 from .history import read_actual_history
 
 
-@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "robotix_multicharge/get_plan",
     vol.Optional("controller_id"): str,
