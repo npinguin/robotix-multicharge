@@ -145,7 +145,8 @@ async function main(){
       if(body.yaml_text){
         if(body.yaml_text.includes("INVALID"))
           return {type:"form",flow_id:"flow-1",step_id:"yaml",
-            errors:{base:"invalid_config"}};
+            errors:{base:"invalid_config"},
+            description_placeholders:{note:"Validation: duplicate YAML key"}};
         return {type:"form",flow_id:"flow-1",step_id:"yaml_review",
           description_placeholders:{summary:"Chargers: Add outside\nWriter unchanged"},
           data_schema:[]};
@@ -185,6 +186,8 @@ async function main(){
   assert.equal(editorCard._yamlFlow.step_id,"yaml");
   assert.ok(content(editorCard.shadowRoot).includes("YAML rejected"),
     "Backend YAML validation failure must remain visible without saving");
+  assert.ok(content(editorCard.shadowRoot).includes("duplicate YAML key"),
+    "Show actionable server validation, not only a generic failure");
   editorCard._yamlText=initialYaml;
   editorCard.render();
   find(editorCard.shadowRoot,"button","Continue / review").click();
