@@ -10,6 +10,7 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
+from .history import read_native_history
 
 
 @websocket_api.require_admin
@@ -61,6 +62,16 @@ async def websocket_get_plan(
         connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT,
                               "Invalid plan scope, filter or interval")
         return
+    # Recorder stores real physical history. Proposals are never copied into
+    # measured slots and absent Recorder data is explicitly unavailable.
+    selected_chargers = [
+        charger for charger in runtime.configuration["chargers"]
+        if (msg.get("charger_id") in (None, charger["id"])
+            and msg.get("asset_id") in (None, charger.get("asset")))
+    ]
+    result["measured_history"] = await read_native_history(
+        hass, selected_chargers, start, end
+    )
     connection.send_result(msg["id"], result)
 
 
