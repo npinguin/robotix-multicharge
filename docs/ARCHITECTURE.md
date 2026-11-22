@@ -77,7 +77,7 @@ A single responsive, bundled timeline will be usable at ChargeController level a
 - A simple mobile view, accessible labels, readable legends and explicit unavailable/unknown states.
 - Future slots queried through one bounded, read-only plan view; measured history from native HA telemetry and Recorder. Do not rewrite 48-hour plan arrays into giant sensor attributes or compute a new plan in the chart.
 
-The source contains a deterministic **read-only** 15-minute proposal planner and a bounded admin-only native HA query. The five-tab chart, accepted/observed plan overlays, complete mode semantics and physical executor are **not implemented or HA-qualified**. Source proposals are not commissioning evidence.
+The source contains a deterministic **read-only** 15-minute proposal planner, a bounded admin-only native HA query and an optional source-tested five-tab card with a proposed-only chart. **Accepted/observed interval overlays, complete operational mode semantics, full Settings editing, native HA/browser acceptance and the physical executor are not implemented or HA-qualified.** Source proposals are not commissioning evidence.
 
 ## Planning, physical execution and safety
 
@@ -142,4 +142,4 @@ Normal HA sensors/selects/buttons must be independently usable in user dashboard
 
 **G5 Qualify exact candidate:** HACS/Hassfest, actual HA setup/reload/unload/upgrades/rollback, frontend browser screenshots at the three viewports, provider interoperability, owner-safe physical commissioning and explicit release permission. Public HACS TEST must follow the validated exact-`main` governance path. Keep the existing Draft PR on `dev` for the ongoing agreed batch.
 
-**Present status (2026-11-22):** native Config/Options/YAML structure, selected-source observations, fail-closed capacity/price evidence, deterministic read-only quarter-hour proposals, a bounded native HA plan query, and basic native logical evidence sensors exist on dev. Full native HA/runtime qualification, the five-tab UX/chart, six complete mode semantics and the guarded physical executor/readback are **still open**. Source green is not Feature Complete or a shipped HACS release.
+**Present status (2026-11-22):** native five-step wizard and Config/Options/YAML structure, source-tested five-tab card and provisional proposed-only chart, selected-source observations, fail-closed capacity/price evidence, deterministic read-only quarter-hour proposals, a bounded native HA plan query, and basic native logical evidence sensors exist on dev. Full real HA/browser UX qualification, complete actionable Settings, observed/accepted interval history, six complete physical modes and guarded physical executor/readback are **still open**. Source green is not Feature Complete or a shipped HACS release.

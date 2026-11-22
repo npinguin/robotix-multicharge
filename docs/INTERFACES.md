@@ -18,7 +18,7 @@ The planned 15-minute Today/Tomorrow chart needs one bounded, read-only query on
 
 Use native lightweight HA summary entities and Recorder for measured history. Do not replicate the planner or persist whole future timelines as large frequently rewritten sensor attributes.
 
-**Status:** the `dev` source now implements explicitly selected HA observations, a bounded admin-only `robotix_multicharge/get_plan` read query and deterministic **proposed-only** 15-minute planning. It does **not** implement plan acceptance, physical command execution/readback, complete source/provider qualification, actual charge-session history, the five-tab frontend or the full native Home Assistant lifecycle qualification. See [functional use cases](https://github.com/npinguin/robotix-multicharge/issues/1).
+**Status:** the `dev` source now implements explicitly selected HA observations, a bounded admin-only `robotix_multicharge/get_plan` read query and deterministic **proposed-only** 15-minute planning. It does **not** implement plan acceptance, physical command execution/readback, complete source/provider qualification, actual charge-session history, the fully qualified actionable five-tab experience or the full native Home Assistant lifecycle qualification. A source-tested optional card now reads proposed slots and currently qualified live observations, but its browser behavior has not been accepted in HA. See [functional use cases](https://github.com/npinguin/robotix-multicharge/issues/1).
 
 ## Contract-first implementer specification — candidate, not yet public API
 
