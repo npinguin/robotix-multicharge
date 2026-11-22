@@ -28,10 +28,19 @@ const fixture={
   end:"2026-11-23T00:00:00+01:00",status:"proposed",
   configuration:{
     controller:{id:"site",name:"Sample",mode:"Ready By",max_parallel:2,max_power_kw:7},
-    assets:[{id:"car",name:"Family car",kind:"car",target_soc:80,
+    assets:[{id:"car",name:"Family car",kind:"car",plan_color:"pink",target_soc:80,
              ready_by:"2026-11-22T18:00:00+01:00"}],
-    chargers:[{id:"drive",name:"Driveway",kind:"on_off",rated_power_kw:3.6,
+    chargers:[{id:"drive",name:"Driveway",plan_color:"green",kind:"on_off",rated_power_kw:3.6,
                asset:"car",phase_count:1}]
+  },
+  plan_palette:{pink:"#B05D81",green:"#32816E",blue:"#3779B9"},
+  preference_entities:{
+    controller:{mode:"select.site_mode",plan_label_mode:"select.site_labels",
+                plan_color_by:"select.site_colors",
+                show_indicative_forecast:"select.site_forecast"},
+    assets:{car:{plan_color:"select.car_color",target_soc:"number.car_target",
+                 ready_by:"datetime.car_ready_by",priority:"number.car_priority"}},
+    chargers:{drive:{plan_color:"select.drive_color",asset:"select.drive_vehicle"}}
   },
   observations:{
     assets:{car:{soc:{quality:"ok",value:20,reason:"OK"}}},
@@ -74,7 +83,7 @@ async function main(){
     "Plan offers the user vehicle, charger or combined labels");
   assert.ok(content(card.shadowRoot).includes("Indicative forecasting"),
     "Indication is independently configurable");
-  assert.ok(content(card.shadowRoot).includes("Measured power unavailable:"));
+  assert.ok(content(card.shadowRoot).includes("Measured power unavailable"));
   assert.ok(!content(card.shadowRoot).includes("3.6 kW actually charged"),
             "future proposal must never be presented as real charging");
   const selects=[];
@@ -100,9 +109,9 @@ async function main(){
   fixture.slots=[];
   fixture.observations.chargers.drive.connected={quality:"ok",value:false};
   card.render();
-  assert.ok(content(card.shadowRoot).includes("Indicative vehicles — not connected"),
+  assert.ok(content(card.shadowRoot).includes("Indicative · Disconnected"),
     "Disconnected asset is visible as explicitly hypothetical forecasting");
-  assert.ok(content(card.shadowRoot).includes("Not connected, not reserved"),
+  assert.ok(content(card.shadowRoot).includes("Not reserved"),
     "Forecast must never imply a power reservation");
   assert.ok(!content(card.shadowRoot).includes("3.6 kW actually charged"),
     "Disconnection forecast must not become measured charging");
@@ -127,35 +136,60 @@ async function main(){
   assert.ok(find(card.shadowRoot,"a"),"setting opens real HA integration settings");
   assert.ok(find(card.shadowRoot,"button","Save charging site"),
             "Charging site must have an actual saving control");
-  fixture.configuration_revision="config-revision-1";
-  card._hass.callWS=async request=>{
-    commands.push(request);
-    if(request.type==="robotix_multicharge/update_settings"){
-      assert.equal(request.scope,"controller");
-      assert.equal(request.expected_revision,"config-revision-1");
-      assert.equal(request.changes.mode,"Economy");
+  const nativeCalls=[];
+  card._hass.callService=async(domain,action,args)=>{
+    nativeCalls.push({domain,action,args});
+    assert.equal(domain,"select");
+    assert.equal(action,"select_option");
+    if(args.entity_id==="select.site_mode"){
+      assert.equal(args.option,"economy");
       fixture.configuration.controller.mode="Economy";
-      fixture.configuration_revision="config-revision-2";
-      return {status:"accepted_unconfirmed",expected_revision:"config-revision-2"};
+    } else if(args.entity_id==="select.car_color"){
+      fixture.configuration.assets[0].plan_color=args.option;
+    } else if(args.entity_id==="select.drive_color"){
+      fixture.configuration.chargers[0].plan_color=args.option;
     }
-    return fixture;
   };
   card._tab="Settings";card._settingsOpen="Charging strategy";card.render();
   const modeButton=find(card.shadowRoot,"button","Economy");
-  assert.ok(modeButton,"selected strategy has a real action");
+  assert.ok(modeButton,"charging mode available as an owning native HA select");
   modeButton.click();
   await new Promise(resolve=>setImmediate(resolve));
-  assert.ok(commands.some(c=>c.type==="robotix_multicharge/update_settings"&&
-    c.changes.mode==="Economy"),"native settings update is invoked");
-  assert.ok(content(card.shadowRoot).includes("Settings confirmed after Home Assistant readback."),
-    "only reloaded native configuration confirms settings changes");
+  assert.ok(nativeCalls.some(c=>c.args.entity_id==="select.site_mode"&&
+    c.args.option==="economy"),"native select owner receives strategy");
   card._tab="Chargeable Assets";card.render();
   find(card.shadowRoot,"button","Details").click();
-  assert.ok(find(card.shadowRoot,"button","Save asset"),"asset preferences have working editor");
+  assert.ok(find(card.shadowRoot,"select"),"vehicle offers a native color choice");
+  assert.ok(find(card.shadowRoot,"button","Edit"),"native vehicle settings open standard HA entity");
+  let colorSelect;
+  visit(card.shadowRoot,x=>{
+    if(x.tag==="select"&&x.attributes.id==="multicharge-plan-color")colorSelect=x;
+  });
+  assert.ok(colorSelect,"vehicle plan color shown on Vehicle");
+  colorSelect.value="blue";
+  colorSelect.events.change();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(nativeCalls.some(c=>c.args.entity_id==="select.car_color"&&
+    c.args.option==="blue"),"vehicle palette is changed through its own HA entity");
   card._tab="Chargers";card._open="";card.render();
   find(card.shadowRoot,"button","Details").click();
-  assert.ok(find(card.shadowRoot,"button","Save assignment"),
-    "chargers can rebind through the one native settings authority");
+  assert.ok(content(card.shadowRoot).includes("Plan color"));
+  let chargerColor,assignment;
+  visit(card.shadowRoot,x=>{
+    if(x.tag==="select"&&x.attributes.id==="multicharge-plan-color")chargerColor=x;
+    if(x.tag==="select"&&x.attributes.id==="multicharge-selected-vehicle")assignment=x;
+  });
+  assert.ok(chargerColor&&assignment,"charger owns color and selected vehicle");
+  chargerColor.value="pink";
+  chargerColor.events.change();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(nativeCalls.some(c=>c.args.entity_id==="select.drive_color"&&
+    c.args.option==="pink"),"charger color is a native owner setting");
+  card._hass.language="nl";card.render();
+  assert.ok(content(card.shadowRoot).includes("Laadpalen"),"Dutch card labels");
+  card._hass.language="fr";card.render();
+  assert.ok(content(card.shadowRoot).includes("Bornes"),"French card labels");
+  card._hass.language="en";card.render();
 
   assert.ok(!find(card.shadowRoot,"button","Start charging"),
             "uncommissioned hardware cannot gain optimistic action");
@@ -178,7 +212,7 @@ async function main(){
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(commands.some(c=>c.type==="robotix_multicharge/command"&&c.action==="start"),
             "Start button must invoke real native WS command API");
-  assert.ok(content(card.shadowRoot).includes("confirmed — INDEPENDENT_POWER_READBACK"),
+  assert.ok(content(card.shadowRoot).includes("confirmed · Unavailable"),
             "display only a returned physical confirmation");
   assert.ok(find(card.shadowRoot,"button","Stop charging"),
             "physically admitted Stop action is present");
