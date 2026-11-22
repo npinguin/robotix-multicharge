@@ -153,10 +153,10 @@ def validate_configuration(value):
         for key, domain in (("vehicle_control_entity", "switch"),
                             ("vehicle_current_entity", "number")):
             if source.get(key):
-                value = _entity(source[key], "asset." + key)
-                if value.split(".", 1)[0] != domain:
+                selected_entity = _entity(source[key], "asset." + key)
+                if selected_entity.split(".", 1)[0] != domain:
                     raise ValueError(f"asset.{key}: expected {domain} entity")
-                asset[key] = value
+                asset[key] = selected_entity
         for key in ("capacity_kwh", "max_charge_kw"):
             if source.get(key) is not None:
                 asset[key] = _number(source[key], "asset." + key)
