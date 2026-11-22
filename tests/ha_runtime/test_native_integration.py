@@ -134,7 +134,7 @@ async def test_minimal_native_setup_then_yaml_takes_over_same_entry(hass: HomeAs
     assert wizard["step_id"] == "user"
     # All site electrical limits may be absent.
     wizard = await hass.config_entries.flow.async_configure(
-        wizard["flow_id"], {"name": "Wessels Home", "max_parallel": 1}
+        wizard["flow_id"], {"name": "Home charging", "max_parallel": 1}
     )
     assert wizard["step_id"] == "charger"
     # Exactly name + physical command entity are required to add a charger.
@@ -210,16 +210,16 @@ async def test_expert_json_include_skips_wizard_and_reuses_entry(hass: HomeAssis
     json_file = folder / "multicharge.json"
     yaml_file = folder / "configuration.yaml"
     expert = {
-        "Controller": {"ID": "home", "Name": "Wessels Home"},
+        "Controller": {"ID": "home", "Name": "Home charging"},
         "Charger": [{
             "Name": "Garage White",
             "Charging-Session-sensor": "sensor.white_session",
             "Charging-startstop-entity": "switch.white_control",
             "Charging-amp-entity": "number.white_amps",
-            "ChargingAsset": "Audi Q8",
+            "ChargingAsset": "Family car",
         }],
         "ChargingAsset": [{
-            "Name": "Audi Q8",
+            "Name": "Family car",
             "Asset type": "Véhicule",
             "Vehicle-Charging-startstop-entity": "switch.audi_charge",
             "Vehicle-Charging-amp-entity": "number.audi_amps",
@@ -263,6 +263,9 @@ async def test_expert_json_include_skips_wizard_and_reuses_entry(hass: HomeAssis
     # Edit the JSON and reload through the *same* import authority:
     # Config Entry and device identities survive.
     expert["Charger"][0]["Charging-Session-sensor"] = "sensor.changed_session"
+    expert["Controller"]["Mode"] = "Economy"
+    expert["Controller"]["Max-power-kW"] = 7.2
+    expert["ChargingAsset"][0]["Requested-kWh"] = 3.5
     json_file.write_text(json.dumps(expert), encoding="utf8")
     revised = await hass.async_add_executor_job(yaml_util.load_yaml, str(yaml_file))
     import_result = await hass.config_entries.flow.async_init(
@@ -278,6 +281,13 @@ async def test_expert_json_include_skips_wizard_and_reuses_entry(hass: HomeAssis
     assert entry.data["configuration"]["chargers"][0]["session_entity"] == (
         "sensor.changed_session"
     )
+    assert entry.data["configuration"]["controller"]["mode"] == "Economy"
+    assert entry.data["configuration"]["controller"]["max_power_kw"] == 7.2
+    assert entry.data["configuration"]["assets"][0]["requested_kwh"] == 3.5
+    # Reimport preserves one Config Entry without silently commissioning
+    # an EVSE or changing the existing external writer.
+    assert entry.data["configuration"]["chargers"][0]["control_owner"] == "external"
+    assert entry.data["configuration"]["chargers"][0]["physical_commissioned"] is False
     assert len(hass.config_entries.async_entries(DOMAIN)) == 1
     assert devices.async_get_device_by_identifier(
         (DOMAIN, "charger/garage_white"), entry_id
