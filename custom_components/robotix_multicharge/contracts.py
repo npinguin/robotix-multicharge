@@ -87,6 +87,7 @@ class ChargeDemand:
     priority: int = 0
     remaining_duration_minutes: int | None = None
     max_power_kw: float | None = None
+    not_before: datetime | None = None
 
     def __post_init__(self) -> None:
         if not self.asset_uid.strip():
@@ -97,6 +98,8 @@ class ChargeDemand:
             raise ValueError("remaining demand must be nonnegative or unknown")
         if self.ready_by is not None:
             _time(self.ready_by)
+        if self.not_before is not None:
+            _time(self.not_before)
         if isinstance(self.priority, bool) or not isinstance(self.priority, int) or not 0 <= self.priority <= 100:
             raise ValueError("priority must be a verified integer 0..100")
         if self.max_power_kw is not None and (

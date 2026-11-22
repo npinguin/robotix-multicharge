@@ -56,7 +56,8 @@ def validate_configuration(value):
     ctl = value.get("controller")
     _allowed(ctl, ("id", "name", "max_parallel", "max_power_kw",
                    "price_entity", "site_power_entity", "solar_entity",
-                   "binding_entity", "mode", "phase_limits_a"), "controller")
+                   "binding_entity", "mode", "phase_limits_a",
+                   "plan_label_mode", "plan_color_by", "show_indicative_forecast"), "controller")
     cid = _text(ctl.get("id", "home"), "controller.id")
     parallel = ctl.get("max_parallel", 1)
     if isinstance(parallel, bool) or not isinstance(parallel, int) or parallel < 1:
@@ -64,8 +65,19 @@ def validate_configuration(value):
     mode = ctl.get("mode", "Off")
     if mode not in ("Automatic", "Solar", "Economy", "Ready By", "Force Charge", "Off"):
         raise ValueError("controller.mode: unsupported charging mode")
+    label_mode = ctl.get("plan_label_mode", "both")
+    color_by = ctl.get("plan_color_by", "vehicle")
+    show_forecast = ctl.get("show_indicative_forecast", True)
+    if label_mode not in ("vehicle", "charger", "both"):
+        raise ValueError("controller.plan_label_mode: choose vehicle/charger/both")
+    if color_by not in ("vehicle", "charger"):
+        raise ValueError("controller.plan_color_by: choose vehicle/charger")
+    if type(show_forecast) is not bool:
+        raise ValueError("controller.show_indicative_forecast: expected boolean")
     controller = {"id": cid, "name": _text(ctl.get("name"), "controller.name"),
-                  "max_parallel": parallel, "mode": mode}
+                  "max_parallel": parallel, "mode": mode,
+                  "plan_label_mode": label_mode, "plan_color_by": color_by,
+                  "show_indicative_forecast": show_forecast}
     if ctl.get("max_power_kw") is not None:
         controller["max_power_kw"] = _number(ctl["max_power_kw"], "controller.max_power_kw")
     if ctl.get("phase_limits_a") is not None:
@@ -96,7 +108,7 @@ def validate_configuration(value):
                           "capacity_kwh", "target_soc", "max_charge_kw",
                           "requested_kwh", "requested_duration_minutes", "ready_by",
                           "ready_by_repeat", "charge_efficiency", "priority",
-                          "temporary", "expires_at"), "asset")
+                          "temporary", "expires_at", "expected_connection_at", "expected_connection_at"), "asset")
         uid = _text(source.get("id"), "asset.id")
         if uid in ids:
             raise ValueError("asset.id: duplicate")
@@ -139,6 +151,15 @@ def validate_configuration(value):
             asset["expires_at"] = instant.isoformat()
         if asset.get("temporary") and "expires_at" not in asset:
             raise ValueError("asset.temporary: expiry required")
+        if source.get("expected_connection_at") is not None:
+            arrival = _text(source["expected_connection_at"], "asset.expected_connection_at")
+            try:
+                moment = datetime.fromisoformat(arrival.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError("asset.expected_connection_at: invalid ISO timestamp") from exc
+            if moment.tzinfo is None or moment.utcoffset() is None:
+                raise ValueError("asset.expected_connection_at: timezone required")
+            asset["expected_connection_at"] = moment.isoformat()
         if source.get("priority") is not None:
             priority = source["priority"]
             if isinstance(priority, bool) or not isinstance(priority, int) or not 0 <= priority <= 100:
@@ -331,12 +352,13 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
         "controller": {
             "name", "max_parallel", "max_power_kw", "phase_limits_a",
             "price_entity", "solar_entity", "binding_entity", "mode",
+            "plan_label_mode", "plan_color_by", "show_indicative_forecast",
         },
         "asset": {
             "name", "kind", "soc_entity", "capacity_kwh", "target_soc",
             "max_charge_kw", "requested_kwh", "requested_duration_minutes",
             "ready_by", "ready_by_repeat", "charge_efficiency", "priority",
-            "temporary", "expires_at",
+            "temporary", "expires_at", "expected_connection_at",
         },
         "charger": {"name", "asset"},
     }

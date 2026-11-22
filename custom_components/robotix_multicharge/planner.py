@@ -107,6 +107,7 @@ def compile_plan(
     solar: Sequence[PowerLimitSlot] | None = None,
     binding: PowerEnvelope | None = None,
     horizon_hours: int = 48,
+    reserved_slots: Sequence[PlannedChargeSlot] = (),
 ) -> PlanAssessment:
     """Calculate one deterministic, bounded, non-actuating Controller proposal.
 
@@ -149,6 +150,26 @@ def compile_plan(
     used_circuit_a: dict[datetime, dict[str, float]] = {}
     active: dict[datetime, set[str]] = {}
     seen: set[str] = set()
+    # Forecast scenarios run AFTER the live proposal: its existing physical
+    # allocations consume capacity but cannot be changed by a hypothetical EV.
+    # This is still the ONE planning engine, never a second executable plan.
+    for locked in reserved_slots:
+        start = _utc(locked.start)
+        if start not in intervals or _utc(locked.end) != start + QUARTER:
+            continue
+        owner = chargers.get(locked.charger_uid)
+        if owner is None:
+            raise ValueError("reserved charger is unknown")
+        used_kw[start] = used_kw.get(start, 0.0) + locked.power_kw
+        active.setdefault(start, set()).add(locked.charger_uid)
+        current = locked.current_a if owner.control_kind == "variable_current" else owner.fixed_current_a
+        if current is not None:
+            for phase in owner.phase_ids:
+                phases = used_phase_a.setdefault(start, {})
+                phases[phase] = phases.get(phase, 0.0) + current
+            if owner.circuit_id:
+                circuits = used_circuit_a.setdefault(start, {})
+                circuits[owner.circuit_id] = circuits.get(owner.circuit_id, 0.0) + current
     ranked = sorted(demands, key=lambda d: (
         -d.priority, _utc(d.ready_by) if d.ready_by else datetime.max.replace(
             tzinfo=timezone.utc), d.charger_uid or "", d.asset_uid,
@@ -251,7 +272,9 @@ def compile_plan(
         missing_binding = False
         for slot in intervals:
             finish = slot + QUARTER
-            if finish > deadline:
+            if (finish > deadline or
+                    demand.not_before is not None and slot < _utc(demand.not_before)):
+
                 continue
             cap = controller.max_group_power_kw
             if binding is not None:
@@ -393,6 +416,8 @@ def compile_plan(
     allocations.sort(key=lambda s: (s.start, s.charger_uid))
     signature = "|".join((
         controller.uid, mode,
+        *(f"locked:{s.charger_uid}:{s.start.isoformat()}:{s.power_kw}:{s.current_a}"
+          for s in reserved_slots),
         *(
             f"{s.charger_uid}:{s.start.isoformat()}:{s.power_kw}:{s.current_a}"
             for s in allocations

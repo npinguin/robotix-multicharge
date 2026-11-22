@@ -50,6 +50,34 @@ def demand(i, kwh=1.0, priority=1, deadline=None):
 
 
 class PlannerTests(unittest.TestCase):
+    def test_indicative_slots_use_residual_capacity_without_changing_firm_slots(self):
+        from multicharge_planner_tests.contracts import ChargeDemand
+        controller, chargers = build(n=2, power=4.0)
+        at = NOW
+        live = compile_plan(controller, chargers, [
+            ChargeDemand(asset_uid="car0", charger_uid="c0",
+                         remaining_grid_kwh=2.0, ready_by=at + timedelta(hours=2)),
+        ], at, mode="Ready By")
+        assert live.plan.slots
+        preview = compile_plan(controller, chargers, [
+            ChargeDemand(asset_uid="car1", charger_uid="c1",
+                         remaining_grid_kwh=2.0, ready_by=at + timedelta(hours=3),
+                         not_before=at + timedelta(hours=1)),
+        ], at, mode="Ready By", reserved_slots=live.plan.slots)
+        self.assertEqual(tuple(live.plan.slots),
+                         tuple(compile_plan(controller, chargers, [
+                             ChargeDemand(asset_uid="car0", charger_uid="c0",
+                                          remaining_grid_kwh=2.0,
+                                          ready_by=at + timedelta(hours=2)),
+                         ], at, mode="Ready By").plan.slots))
+        self.assertTrue(preview.plan.slots)
+        firm_kw = {s.start: s.power_kw for s in live.plan.slots}
+        for slot in preview.plan.slots:
+            self.assertGreaterEqual(slot.start, at + timedelta(hours=1))
+            self.assertLessEqual(slot.power_kw + firm_kw.get(slot.start, 0), 4.0000001)
+        self.assertFalse(set((s.charger_uid, s.start) for s in live.plan.slots) &
+                         set((s.charger_uid, s.start) for s in preview.plan.slots))
+
     def test_one_two_four_ten_chargers_with_bounded_parallel_cap(self):
         for n in (1, 2, 4, 10):
             ctl, chargers = build(n, limit=8)
