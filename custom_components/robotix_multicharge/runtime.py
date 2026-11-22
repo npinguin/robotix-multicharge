@@ -220,6 +220,11 @@ class MultiChargeRuntime:
                         self.excluded[uid] = "ASSET_DURATION_PROGRESS_UNAVAILABLE"
                         continue
                     minutes = max(0, minutes - progress["duration_minutes"])
+                    if minutes <= 0:
+                        # ChargeDemand requires strictly positive minutes.
+                        # A completed finite duration is a zero-demand plan,
+                        # never an exception that kills an HA refresh.
+                        amount, minutes = 0.0, None
                 if self.executor.intent_completed(asset, raw, deadline):
                     amount, minutes = 0.0, None
             assumed_arrival = (

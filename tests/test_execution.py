@@ -655,6 +655,10 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(rt.executor.capabilities()["evse"]["start_allowed"])
         first = await rt.executor.execute("evse", "start")
         self.assertEqual(first["status"], "confirmed")
+        # Recorder-quality energy evidence must be independently fresh after
+        # the start, or a second request correctly refuses unknown progress.
+        states["sensor.meter"].state = "5.1"
+        states["sensor.meter"].last_updated = datetime.now(timezone.utc)
         await rt.executor.execute("evse", "stop")
         # Actual external power must now consume the shared budget even if
         # its native provider has no switch entity exposed to MultiCharge.
