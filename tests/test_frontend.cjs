@@ -134,8 +134,8 @@ async function main(){
     assert.ok(content(card.shadowRoot).includes(name),name);
   }
   assert.ok(find(card.shadowRoot,"a"),"setting opens real HA integration settings");
-  assert.ok(find(card.shadowRoot,"button","Save charging site"),
-            "Charging site must have an actual saving control");
+  assert.ok(find(card.shadowRoot,"button","Edit"),
+            "Site controls use native HA Number entities");
   const nativeCalls=[];
   card._hass.callService=async(domain,action,args)=>{
     nativeCalls.push({domain,action,args});

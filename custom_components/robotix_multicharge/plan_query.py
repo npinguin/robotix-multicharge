@@ -80,6 +80,10 @@ async def websocket_get_plan(
                 field: native_select("controller", cfg["controller"]["id"], field)
                 for field in ("plan_label_mode", "plan_color_by",
                               "show_indicative_forecast", "mode")
+            } | {
+                field: native_entity("number", "controller",
+                                     cfg["controller"]["id"], field)
+                for field in ("max_parallel", "max_power_kw")
             },
             "assets": {
                 row["id"]: {
@@ -90,11 +94,13 @@ async def websocket_get_plan(
                     **{
                         field: native_entity("number", "asset", row["id"], field)
                         for field in ("target_soc", "requested_kwh",
-                                      "requested_duration_minutes", "priority")
+                                      "requested_duration_minutes", "priority",
+                                      "max_charge_kw")
                     },
                     **{
                         field: native_entity("datetime", "asset", row["id"], field)
-                        for field in ("ready_by", "expected_connection_at")
+                        for field in ("ready_by", "expected_connection_at",
+                                      "expires_at")
                     },
                 }
                 for row in cfg["assets"]

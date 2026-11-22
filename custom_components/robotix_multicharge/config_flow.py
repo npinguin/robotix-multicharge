@@ -331,7 +331,8 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
                 cfg["controller"]["max_power_kw"] = user_input["max_power_kw"]
             else:
                 cfg["controller"].pop("max_power_kw", None)
-            cfg["controller"]["mode"] = user_input["mode"]
+            if user_input.get("mode"):
+                cfg["controller"]["mode"] = user_input["mode"]
             if user_input.get("phase_limits_a"):
                 cfg["controller"]["phase_limits_a"] = _phase_limits(user_input["phase_limits_a"])
             for key in ("price_entity", "solar_entity", "binding_entity"):
@@ -352,8 +353,6 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
                 vol.Optional("phase_limits_a",
                              default=",".join(f"{p}:{x}" for p,x in
                                     cfg["controller"].get("phase_limits_a", {}).items())): str,
-                vol.Required("mode", default=cfg["controller"].get("mode", "Off")):
-                    vol.In(["Automatic", "Solar", "Economy", "Ready By", "Force Charge", "Off"]),
                 vol.Optional("price_entity"): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
                 ),
@@ -408,21 +407,11 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
                     selector.EntitySelectorConfig(domain="sensor")
                 ),
                 vol.Optional("capacity_kwh"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
-                vol.Optional("target_soc"): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
-                vol.Optional("max_charge_kw"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
-                vol.Optional("requested_kwh"): vol.All(vol.Coerce(float), vol.Range(min=0)),
-                vol.Optional("requested_duration_minutes"): vol.All(
-                    vol.Coerce(int), vol.Range(min=1)
-                ),
-                vol.Optional("ready_by"): selector.DateTimeSelector(),
-                vol.Optional("ready_by_repeat"): vol.In(["none", "daily", "weekly"]),
                 vol.Optional("temporary"): bool,
                 vol.Optional("expires_at"): str,
-                vol.Optional("expected_connection_at"): str,
                 vol.Optional("charge_efficiency"): vol.All(
                     vol.Coerce(float), vol.Range(min=0.01, max=1)
                 ),
-                vol.Optional("priority"): vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
             }),
             errors={"base": "invalid_config"} if user_input else {},
         )
@@ -471,7 +460,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
                 vol.Optional("name"): str,
                 vol.Optional("kind"): vol.In(["on_off", "variable_current"]),
                 vol.Optional("rated_power_kw"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
-                vol.Optional("asset"): vol.In([""] + [a["id"] for a in cfg["assets"]]),
+
                 vol.Optional("control_entity"): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain=["switch", "input_boolean", "number"])
                 ),

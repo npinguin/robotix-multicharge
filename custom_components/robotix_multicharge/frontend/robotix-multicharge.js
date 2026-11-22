@@ -786,62 +786,33 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(open){
         const detail=mcEl("div","details");
         if(title==="Charging site"){
-          const name=this.field(detail,"Site name",ctl.name);
-          const parallel=this.field(detail,"Parallel chargers",ctl.max_parallel,"number");
-          const power=this.field(detail,"Group power ceiling kW",ctl.max_power_kw,"number");
-          detail.append(mcButton("Save charging site",()=>this.saveSettings(
-            "controller",ctl.id,{name:name.value,max_parallel:Number(parallel.value),
-            max_power_kw:power.value===""?null:Number(power.value)}
-          )));
-        }else if(title==="Sources & bindings"){
-          const price=this.field(detail,"Effective tariff source",ctl.price_entity);
-          const solar=this.field(detail,"Solar capacity source",ctl.solar_entity);
-          const binding=this.field(detail,"Binding power envelope",ctl.binding_entity);
-          detail.append(mcButton("Save sources",()=>this.saveSettings(
-            "controller",ctl.id,{price_entity:price.value||null,
-            solar_entity:solar.value||null,binding_entity:binding.value||null}
-          )));
-
-        }else if(title==="Charging strategy"){
-          detail.append(mcEl("p","", "Selected: "+(ctl.mode||"Off")));
-          const chips=mcEl("div","chips");
-          for(const mode of MC_MODES){
-            const button=mcButton(mode,()=>this.nativeSelect("controller",ctl.id,"mode",mode));
-            button.disabled=this._settingsBusy||mode===ctl.mode||!this.ownerEntity("controller",ctl.id,"mode");
-            if(mode===ctl.mode)button.className="active";
-            chips.append(button);
+          mcPair(detail,"Site name",ctl.name);
+          for(const field of ["max_parallel","max_power_kw"]){
+            if(!this.ownerEntity("controller",ctl.id,field))continue;
+            const item=mcEl("div","row");
+            item.append(mcEl("span","",field==="max_parallel"?"Parallel chargers":"Maximum group kW"),
+              mcButton("Edit",()=>this.openNative("controller",ctl.id,field)));
+            detail.append(item);
           }
-          detail.append(chips);
-        }else if(title==="Safety & limits"){
-          const power=this.field(detail,"Maximum group kW",ctl.max_power_kw,"number");
-          const phases=this.field(detail,"Verified phase ceilings (A)",
-            Object.entries(ctl.phase_limits_a||{}).map(([key,val])=>key+":"+val).join(","));
-          detail.append(mcButton("Save electrical limits",()=>{
-            let limits=null;
-            if(phases.value.trim()){
-              limits={};
-              for(const part of phases.value.split(",")){
-                const pieces=part.trim().split(":");
-                if(pieces.length!==2||!["L1","L2","L3"].includes(pieces[0].trim().toUpperCase())){
-                  this._settingsFeedback={status:"rejected",message:"Use verified phase limits such as L1:16,L2:16,L3:16."};this.render();return;
-                }
-                limits[pieces[0].trim().toUpperCase()]=Number(pieces[1]);
-              }
-            }
-            this.saveSettings("controller",ctl.id,{
-              max_power_kw:power.value===""?null:Number(power.value),
-              phase_limits_a:limits
-            });
-          }));
-
+        }else if(title==="Charging strategy"){
+          const options=mcEl("div","chips");
+          for(const mode of MC_MODES){
+            const btn=mcButton(mode,()=>this.nativeSelect("controller",ctl.id,"mode",mode));
+            btn.disabled=this._settingsBusy||mode===ctl.mode||
+              !this.ownerEntity("controller",ctl.id,"mode");
+            if(mode===ctl.mode)btn.className="active";
+            options.append(btn);
+          }
+          detail.append(options);
         }else if(title==="Integrations"){
-
-          mcPair(detail,"Tariff",(d.observations||{}).sources?.tariff_quality||"Unknown");
-          mcPair(detail,"Solar",(d.observations||{}).sources?.solar_quality||"Unknown");
-          mcPair(detail,"Capacity",(d.observations||{}).sources?.binding_quality||"Unknown");
+          mcPair(detail,"Tariff",mcReason((d.observations||{}).sources?.tariff_quality));
+          mcPair(detail,"Solar",mcReason((d.observations||{}).sources?.solar_quality));
+          mcPair(detail,"Capacity",mcReason((d.observations||{}).sources?.binding_quality));
+        }else if(title==="Safety & limits"){
+          mcPair(detail,"Maximum group kW",ctl.max_power_kw===undefined?
+            "Unknown":ctl.max_power_kw+" kW");
           this.configure(detail);
         }else{
-
           this.configure(detail);
         }
         group.append(detail);
