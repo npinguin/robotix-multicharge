@@ -74,9 +74,42 @@ async function main(){
     "Plan offers the user vehicle, charger or combined labels");
   assert.ok(content(card.shadowRoot).includes("Indicative forecasting"),
     "Indication is independently configurable");
-  assert.ok(content(card.shadowRoot).includes("Measured interval history unavailable:"));
+  assert.ok(content(card.shadowRoot).includes("Measured power unavailable:"));
   assert.ok(!content(card.shadowRoot).includes("3.6 kW actually charged"),
             "future proposal must never be presented as real charging");
+  const selects=[];
+  visit(card.shadowRoot,x=>{
+    if(x.tag==="select")selects.push(x.attributes["aria-label"]);
+  });
+  assert.ok(selects.includes("Show labels"),"Label choice must be configurable");
+  assert.ok(selects.includes("Color by"),"Color dimension must be configurable");
+  assert.ok(selects.includes("Indicative forecasting"),
+            "Forecast visibility is explicitly configurable");
+  fixture.forecast_assumptions={
+    drive:{asset_id:"car",charger_id:"drive",
+           assumption:"IF_CONNECTED_NOW",assumed_connection_at:fixture.start}
+  };
+  fixture.forecast_slots=[{
+    charger_id:"drive",asset_id:"car",
+    start:"2026-11-22T13:00:00+01:00",
+    end:"2026-11-22T13:15:00+01:00",
+    indicative_power_kw:3.6,status:"indicative_only",
+    may_execute:false,reserves_capacity:false
+  }];
+  const firm=fixture.slots;
+  fixture.slots=[];
+  fixture.observations.chargers.drive.connected={quality:"ok",value:false};
+  card.render();
+  assert.ok(content(card.shadowRoot).includes("Indicative vehicles — not connected"),
+    "Disconnected asset is visible as explicitly hypothetical forecasting");
+  assert.ok(content(card.shadowRoot).includes("Not connected, not reserved"),
+    "Forecast must never imply a power reservation");
+  assert.ok(!content(card.shadowRoot).includes("3.6 kW actually charged"),
+    "Disconnection forecast must not become measured charging");
+  fixture.slots=firm;
+  fixture.forecast_slots=[];
+  fixture.forecast_assumptions={};
+  fixture.observations.chargers.drive.connected={quality:"ok",value:true};
   find(card.shadowRoot,"button","Tomorrow").click();
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(commands.at(-1).day,"tomorrow");

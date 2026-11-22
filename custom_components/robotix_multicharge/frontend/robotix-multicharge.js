@@ -485,10 +485,43 @@ class RobotixMultiChargeCard extends HTMLElement {
     const prices=(d.price_slots||[]).filter(p=>typeof p.price_per_kwh==="number");
     if(prices.length){
       const currencies=[...new Set(prices.map(p=>p.currency))];
-      const label=mcEl("p","muted small",
-        "Qualified tariff overlay: "+currencies.join(", ")+
-        " per kWh; source intervals are reference context, not accepted cost.");
-      container.append(label);
+      if(currencies.length===1){
+        const lo=Math.min(...prices.map(p=>p.price_per_kwh));
+        const hi=Math.max(...prices.map(p=>p.price_per_kwh));
+        const range=hi-lo||1;
+        const wrapper=mcEl("div","card");
+        wrapper.append(mcEl("h3","","Qualified tariff context · "+currencies[0]+"/kWh"));
+        const graph=mcEl("div","chart");
+        const svg=mcSVG("svg",{
+          viewBox:"0 0 960 72",style:"height:auto",
+          role:"img","aria-label":"Qualified energy tariff over actual clock intervals; not confirmed charging costs"
+        });
+        const x0=105,width=820;
+        let path="",lastSlot=-2;
+        for(let i=0;i<count;i++){
+          const tick=from+i*900000;
+          const covered=prices.filter(p=>
+            new Date(p.start).getTime()<=tick &&
+            new Date(p.end).getTime()>=tick+900000);
+          if(covered.length!==1){lastSlot=-2;continue;}
+          const x=x0+(i+0.5)*width/count;
+          const y=44-(covered[0].price_per_kwh-lo)/range*32;
+          path+=(i===lastSlot+1?" L":" M")+x.toFixed(2)+" "+y.toFixed(2);
+          lastSlot=i;
+        }
+        if(path)svg.append(mcSVG("path",{
+          d:path,fill:"none",stroke:"#bf8a22","stroke-width":2
+        }));
+        svg.append(mcSVG("text",{x:2,y:17},String(hi.toFixed(3))));
+        svg.append(mcSVG("text",{x:2,y:48},String(lo.toFixed(3))));
+        graph.append(svg);wrapper.append(graph);
+        wrapper.append(mcEl("p","muted small",
+          "Source-backed signed price: "+lo.toFixed(3)+" to "+hi.toFixed(3)+
+          " "+currencies[0]+"/kWh. Missing intervals remain gaps, not zero."));
+        container.append(wrapper);
+      }else{
+        this.notice(container,"Mixed tariff currencies; no comparable tariff overlay.",true);
+      }
     }
     if(!measured.some(row=>typeof row.actual_power_kw==="number")){
       this.notice(container,"Measured power unavailable: "+
@@ -531,6 +564,8 @@ class RobotixMultiChargeCard extends HTMLElement {
         const duration=this.field(detail,"Requested minutes",a.requested_duration_minutes,"number");
         const priority=this.field(detail,"Charging priority",a.priority||0,"number");
         const ready=this.field(detail,"Ready By ISO time",a.ready_by);
+        const arrival=this.field(detail,"Expected connection ISO time (optional)",
+          a.expected_connection_at);
         const expiry=a.temporary?this.field(detail,"Guest expiry ISO time",a.expires_at):null;
         detail.append(mcButton("Save asset",()=>this.saveSettings("asset",a.id,{
           target_soc:target.value===""?null:Number(target.value),
@@ -538,6 +573,7 @@ class RobotixMultiChargeCard extends HTMLElement {
           requested_duration_minutes:duration.value===""?null:Number(duration.value),
           priority:Number(priority.value),
           ready_by:ready.value||null,
+          expected_connection_at:arrival.value||null,
           ...(expiry?{expires_at:expiry.value.trim()}: {})
         })));
         this.configure(detail);card.append(detail);
@@ -552,10 +588,12 @@ class RobotixMultiChargeCard extends HTMLElement {
       const temporary=this.field(form,"Temporary guest","yes",null,
         [["yes","Yes — temporary guest"],["no","No — permanent asset"]]);
       const expiry=this.field(form,"Guest expiry ISO time","", "text");
+      const arrival=this.field(form,"Expected plug-in time (optional)","", "text");
       form.append(mcButton("Create asset",()=>{
         const id=name.value.trim().toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"");
         const changes={name:name.value.trim(),kind:kind.value};
         if(energy.value!=="")changes.requested_kwh=Number(energy.value);
+        if(arrival.value.trim())changes.expected_connection_at=arrival.value.trim();
         if(temporary.value==="yes"){
           changes.temporary=true;changes.expires_at=expiry.value.trim();
         }
