@@ -50,6 +50,14 @@ class NativeServices:
         self.calls.append((domain, service, dict(data), blocking, context))
         if self.fail:
             raise RuntimeError("Native HA service failed")
+        if self.reconcile_observations and domain == "number":
+            entity = data["entity_id"]
+            self.sources[entity].state = str(data["value"])
+            self.sources[entity].last_updated = datetime.now(timezone.utc)
+            if "sensor.actual_current" in self.sources:
+                self.sources["sensor.actual_current"].state = str(data["value"])
+                self.sources["sensor.actual_current"].last_updated = datetime.now(timezone.utc)
+            return
         if self.reconcile_observations:
             entity = data["entity_id"]
             self.sources[entity].state = "on" if service == "turn_on" else "off"
@@ -95,6 +103,49 @@ def rig(*, owner="multicharge", commissioned=True, group_kw=4.0,
 
 
 class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
+
+    async def test_verified_adjustable_native_setpoint_and_physical_start(self):
+        rt, states, services = rig(group_kw=7.5)
+        cfg = rt.configuration["chargers"][0]
+        cfg.update(kind="variable_current", rated_power_kw=3.7,
+                   phase_ids=["L1"], voltage_v=230,
+                   min_current_a=6, max_current_a=16, current_step_a=1,
+                   circuit_id="drive", circuit_limit_a=16,
+                   current_control_entity="number.charge_limit",
+                   current_readback_entity="sensor.actual_current")
+        number_state = state(6, "A")
+        number_state.attributes.update(min=6, max=16, step=1)
+        states["number.charge_limit"] = number_state
+        states["sensor.actual_current"] = state(0, "A")
+        rt.configuration["controller"]["phase_limits_a"] = {"L1": 16}
+        self.assertTrue(rt.executor.capabilities()["evse"]["start_allowed"])
+        started = await rt.executor.execute("evse", "start")
+        self.assertEqual(started["status"], "confirmed")
+        self.assertEqual([x[1] for x in services.calls[:2]], ["set_value", "turn_on"])
+        adjusted = await rt.executor.execute("evse", "set_current", current_a=8)
+        self.assertEqual(adjusted["status"], "confirmed")
+        self.assertEqual(services.calls[-1][:2], ("number", "set_value"))
+        self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 8)
+        self.assertEqual((await rt.executor.execute("evse", "stop"))["status"], "confirmed")
+
+    async def test_invalid_adjustable_current_is_rejected_without_physical_write(self):
+        rt, states, services = rig(group_kw=7.5)
+        rt.configuration["chargers"][0].update(
+            kind="variable_current", rated_power_kw=3.7,
+            phase_ids=["L1"], voltage_v=230,
+            min_current_a=6, max_current_a=16, current_step_a=1,
+            circuit_id="drive", circuit_limit_a=16,
+            current_control_entity="number.charge_limit",
+            current_readback_entity="sensor.actual_current",
+        )
+        entity = state(6, "A")
+        entity.attributes.update(min=6, max=16, step=1)
+        states["number.charge_limit"] = entity
+        states["sensor.actual_current"] = state(0, "A")
+        result = await rt.executor.execute("evse", "set_current", current_a=20)
+        self.assertEqual(result["status"], "rejected")
+        self.assertFalse(services.calls)
+
     async def test_real_on_and_off_calls_require_independent_power_confirmation(self):
         runtime, states, services = rig()
         self.assertTrue(runtime.executor.capabilities()["evse"]["start_allowed"])

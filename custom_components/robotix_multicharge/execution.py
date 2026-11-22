@@ -71,14 +71,10 @@ class NativeSwitchExecutor:
             elif self._switch(self.runtime.hass, charger["control_entity"]).state == "on":
                 reason = "SWITCH_ALREADY_ON"
             else:
-                if plan_slot is not None:
-                    assessment = self.runtime.assessment
-                    if (assessment is None or plan_slot not in assessment.plan.slots
-                            or not plan_slot.start <= at < plan_slot.end
-                            or plan_slot.charger_uid != charger_id):
-                        return result("rejected", "PLAN_SLOT_NOT_AUTHORIZED")
-                reason = self._admit_start(charger, at, planned=plan_slot is not None,
-                                           target_current=current_a)
+                reason = self._admit_start(charger, at, target_current=(
+                    charger.get("min_current_a")
+                    if charger["kind"] == "variable_current" else None
+                ))
             stop_allowed = (
                 not self._stopped
                 and charger.get("kind") in ("on_off", "variable_current")
@@ -273,15 +269,22 @@ class NativeSwitchExecutor:
                 return "OTHER_CHARGER_OWNER_OR_STATE_UNKNOWN"
             if state.state == "on":
                 occupied += 1
-                reserved += other["rated_power_kw"] if other["kind"] == "on_off" else max(
-                    power.value, other["rated_power_kw"])
                 amps = other.get("fixed_current_a")
                 if other["kind"] == "variable_current":
                     sensed = number(self.runtime.hass,
                                     other.get("current_readback_entity"), "current", at)
                     if sensed.quality != "ok":
                         return "OTHER_CHARGER_CURRENT_UNAVAILABLE"
-                    amps = max(sensed.value, other["max_current_a"])
+                    session = self._sessions.get(other["id"])
+                    if session and session.get("target_current_a") is not None:
+                        amps = max(sensed.value, session["target_current_a"])
+                        reserved += max(power.value, amps * other["voltage_v"]
+                                        * len(other["phase_ids"]) / 1000)
+                    else:
+                        amps = other["max_current_a"]
+                        reserved += other["rated_power_kw"]
+                else:
+                    reserved += other["rated_power_kw"]
                 if ctl.get("phase_limits_a") or other.get("circuit_id"):
                     if amps is None or not other.get("phase_ids"):
                         return "OTHER_CHARGER_PHASES_UNVERIFIED"
@@ -645,11 +648,16 @@ class NativeSwitchExecutor:
                     return result("rejected", "SWITCH_ALREADY_ON")
                 if charger_id in self._quarantine:
                     return result("rejected", "PREVIOUS_COMMAND_UNCONFIRMED")
+                if plan_slot is not None:
+                    assessment = self.runtime.assessment
+                    if (assessment is None or plan_slot not in assessment.plan.slots
+                            or not plan_slot.start <= at < plan_slot.end
+                            or plan_slot.charger_uid != charger_id
+                            or plan_slot.asset_uid != charger.get("asset")):
+                        return result("rejected", "PLAN_SLOT_NOT_AUTHORIZED")
                 reason = self._admit_start(
-                    charger, at, target_current=(
-                        charger.get("min_current_a") if charger["kind"] == "variable_current"
-                        else None
-                    ),
+                    charger, at, planned=plan_slot is not None,
+                    target_current=current_a,
                 )
                 if reason:
                     return result("rejected", reason)
@@ -719,8 +727,6 @@ class NativeSwitchExecutor:
                                   observed_at=observed.observed_at,
                                   measured_kw=observed.value,
                                   service_sent=True)
-                    if current_a is not None:
-                        self._requests[request_id]["requested_current_a"] = current_a
                     return outcome
                 remaining = deadline - asyncio.get_running_loop().time()
                 if remaining <= 0:
