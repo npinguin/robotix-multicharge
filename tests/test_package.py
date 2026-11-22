@@ -34,6 +34,14 @@ class PackageTest(unittest.TestCase):
         source = (COMPONENT / "sensor.py").read_text(encoding="utf8")
         self.assertNotIn("via_device", source)
 
+    def test_no_legacy_setup_or_alias_entities(self):
+        source = (COMPONENT / "sensor.py").read_text(encoding="utf8")
+        self.assertIn(":readiness", source)
+        self.assertNotIn("Setup status", source)
+        self.assertNotIn(":setup", source)
+        for name in ("legacy", "evsc_", "vehicle_bridge"):
+            self.assertNotIn(name, source)
+
     def test_no_legacy_runtime_import(self):
         for path in COMPONENT.glob("*.py"):
             self.assertNotIn("ev_" + "smart_charging", path.read_text(encoding="utf8"))

@@ -20,7 +20,10 @@ for name in ("domain", "contracts", "interfaces"):
     spec.loader.exec_module(module)
 
 from multicharge_test_core.domain import ChargeableAsset, Charger, ChargeController
-from multicharge_test_core.contracts import PowerEnvelope, PowerLimitSlot, PriceSlot, ChargePlan
+from multicharge_test_core.contracts import (
+    PowerEnvelope, PowerLimitSlot, PriceSlot, ChargePlan, ChargeDemand,
+    AssetObservation, ChargerObservation, CommandOutcome,
+)
 
 NOW = datetime(2026, 11, 22, 12, tzinfo=timezone.utc)
 
@@ -68,6 +71,53 @@ class ConceptsTest(unittest.TestCase):
         self.assertEqual(plan.slots, ())
         with self.assertRaises(ValueError):
             ChargePlan("home", "r1", NOW.replace(tzinfo=None), "accepted", ())
+
+
+    def test_energy_and_duration_not_conflated(self):
+        self.assertEqual(
+            ChargeDemand("asset", "charger", 4.0, NOW).remaining_grid_kwh, 4.0
+        )
+        self.assertEqual(
+            ChargeDemand("guest", None, None, NOW, remaining_duration_minutes=45)
+            .remaining_duration_minutes, 45
+        )
+        with self.assertRaises(ValueError):
+            ChargeDemand("guest", None, 4.0, NOW, remaining_duration_minutes=45)
+        with self.assertRaises(ValueError):
+            ChargeDemand("guest", None, None, NOW, remaining_duration_minutes=0)
+
+    def test_soC_source_quality_and_zero_are_explicit(self):
+        unknown = AssetObservation(asset_uid="car", soc_pct=None, observed_at=None, quality="unknown")
+        self.assertIsNone(unknown.soc_pct)
+        real_zero = AssetObservation(
+            asset_uid="car", soc_pct=0, observed_at=NOW, quality="ok", provenance="oem"
+        )
+        self.assertEqual(real_zero.soc_pct, 0)
+        with self.assertRaises(ValueError):
+            AssetObservation(asset_uid="car", soc_pct=90, observed_at=NOW, quality="ok")
+        with self.assertRaises(ValueError):
+            AssetObservation(asset_uid="car", soc_pct=101, observed_at=NOW, quality="ok", provenance="oem")
+
+    def test_physical_state_and_command_outcome_are_separate(self):
+        reading = ChargerObservation(
+            charger_uid="plug", observed_at=NOW, quality="ok",
+            connected="unknown", charging="no", actual_power_kw=0
+        )
+        self.assertEqual(reading.actual_power_kw, 0)
+        with self.assertRaises(ValueError):
+            ChargerObservation(charger_uid="plug", observed_at=NOW, quality="stale", charging="yes")
+        with self.assertRaises(ValueError):
+            ChargerObservation(charger_uid="plug", observed_at=None, quality="ok", charging="yes")
+        pending = CommandOutcome(
+            charger_uid="plug", request_id="req-1", status="accepted_unconfirmed"
+        )
+        self.assertNotEqual(pending.status, "confirmed")
+        with self.assertRaises(ValueError):
+            CommandOutcome(charger_uid="plug", request_id="req-1", status="confirmed")
+        confirmed = CommandOutcome(
+            charger_uid="plug", request_id="req-1", status="confirmed", readback_at=NOW
+        )
+        self.assertEqual(confirmed.status, "confirmed")
 
 
 if __name__ == "__main__":

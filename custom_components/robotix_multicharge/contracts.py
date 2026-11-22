@@ -78,8 +78,9 @@ class ChargeDemand:
     remaining_grid_kwh: float | None
     ready_by: datetime | None
     priority: int = 0
+    remaining_duration_minutes: int | None = None
 
-    def __post_init__(self) -> None:
+    def __post_init__ -> None:
         if not self.asset_uid.strip():
             raise ValueError("asset identity required")
         if self.remaining_grid_kwh is not None and (
@@ -88,6 +89,13 @@ class ChargeDemand:
             raise ValueError("remaining demand must be nonnegative or unknown")
         if self.ready_by is not None:
             _time(self.ready_by)
+        if self.remaining_duration_minutes is not None:
+            if (isinstance(self.remaining_duration_minutes, bool)
+                    or not isinstance(self.remaining_duration_minutes, int)
+                    or self.remaining_duration_minutes <= 0):
+                raise ValueError("duration must be positive minutes")
+            if self.remaining_grid_kwh is not None:
+                raise ValueError("choose energy or duration, not both")
 
 
 @dataclass(frozen=True)
@@ -122,3 +130,84 @@ class ChargePlan:
         _time(self.generated_at)
         if self.status not in ("proposed", "accepted", "unavailable"):
             raise ValueError("invalid plan status")
+
+# Candidate canonical evidence. These are never duplicate source HA devices.
+SourceQuality = Literal["ok", "degraded", "stale", "unknown", "unavailable", "invalid"]
+
+
+@dataclass(frozen=True, kw_only=True)
+class AssetObservation:
+    """SoC with an explicit source, quality and observation instant."""
+
+    asset_uid: str
+    soc_pct: float | None
+    observed_at: datetime | None
+    quality: SourceQuality
+    provenance: Literal["oem", "manual", "estimated", "unknown"] = "unknown"
+
+    def __post_init__(self) -> None:
+        if not self.asset_uid.strip():
+            raise ValueError("asset identity required")
+        if self.observed_at is not None:
+            _time(self.observed_at)
+        if self.soc_pct is not None and (
+            not isfinite(self.soc_pct) or not 0 <= self.soc_pct <= 100
+        ):
+            raise ValueError("SoC must be within 0..100 or unknown")
+        if self.quality == "ok" and (
+            self.soc_pct is None or self.observed_at is None
+            or self.provenance == "unknown"
+        ):
+            raise ValueError("available SoC requires measured value, time and provenance")
+
+
+@dataclass(frozen=True, kw_only=True)
+class ChargerObservation:
+    """Physical readback: a successful HA call does not establish charging."""
+
+    charger_uid: str
+    observed_at: datetime | None
+    quality: SourceQuality
+    connected: Literal["yes", "no", "unknown"] = "unknown"
+    charging: Literal["yes", "no", "unknown"] = "unknown"
+    actual_power_kw: float | None = None
+    session_energy_kwh: float | None = None
+
+    def __post_init__(self) -> None:
+        if not self.charger_uid.strip():
+            raise ValueError("charger identity required")
+        if self.observed_at is not None:
+            _time(self.observed_at)
+        for name, value in (
+            ("actual power", self.actual_power_kw),
+            ("session energy", self.session_energy_kwh),
+        ):
+            if value is not None and (not isfinite(value) or value < 0):
+                raise ValueError(f"{name} must be nonnegative finite or unknown")
+        if self.quality == "ok" and self.observed_at is None:
+            raise ValueError("qualified physical readback needs observation time")
+        if self.quality != "ok" and self.charging == "yes":
+            raise ValueError("unqualified source cannot prove charging")
+
+
+@dataclass(frozen=True, kw_only=True)
+class CommandOutcome:
+    """Distinct requested/accepted/confirmed command outcomes by request ID."""
+
+    charger_uid: str
+    request_id: str
+    status: Literal[
+        "requested", "accepted_unconfirmed", "confirmed", "rejected",
+        "execution_unknown",
+    ]
+    readback_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        if not self.charger_uid.strip() or not self.request_id.strip():
+            raise ValueError("command and charger identity required")
+        if self.readback_at is not None:
+            _time(self.readback_at)
+        if self.status == "confirmed" and self.readback_at is None:
+            raise ValueError("confirmed requires independent physical readback")
+        if self.status != "confirmed" and self.readback_at is not None:
+            raise ValueError("nonconfirmed outcome may not claim physical readback")

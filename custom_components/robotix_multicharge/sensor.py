@@ -1,7 +1,7 @@
-"""Read-only status entities on stable logical HA devices.
+"""Canonical readiness sensor on stable logical HA devices.
 
-The product has no live charging engine yet. These are explicit setup diagnostics,
-not fabricated SoC, charger readback, planning or permission to energize.
+The product has no live charging engine yet. Readiness is a permanent domain property,
+not a legacy Setup sensor or permission to energize.
 """
 
 from __future__ import annotations
@@ -19,20 +19,20 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     cfg = hass.data[DOMAIN][entry.entry_id]
-    entities = [_LogicalSetupSensor("controller", cfg["controller"])]
-    entities.extend(_LogicalSetupSensor("asset", row) for row in cfg["assets"])
-    entities.extend(_LogicalSetupSensor("charger", row) for row in cfg["chargers"])
+    entities = [_LogicalReadinessSensor("controller", cfg["controller"])]
+    entities.extend(_LogicalReadinessSensor("asset", row) for row in cfg["assets"])
+    entities.extend(_LogicalReadinessSensor("charger", row) for row in cfg["chargers"])
     async_add_entities(entities)
 
 
-class _LogicalSetupSensor(SensorEntity):
+class _LogicalReadinessSensor(SensorEntity):
     _attr_has_entity_name = True
     _attr_should_poll = False
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, kind: str, data: dict) -> None:
-        self._attr_name = "Setup status"
-        self._attr_unique_id = f"{DOMAIN}:{kind}:{data['id']}:setup"
+        self._attr_name = "Readiness"
+        self._attr_unique_id = f"{DOMAIN}:{kind}:{data['id']}:readiness"
         self._attr_native_value = "not_commissioned"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, f"{kind}/{data['id']}")},

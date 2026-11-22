@@ -5,7 +5,10 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Protocol
 
-from .contracts import ChargePlan, PowerEnvelope, PriceSlot
+from .contracts import (
+    AssetObservation, ChargePlan, ChargerObservation, CommandOutcome,
+    PowerEnvelope, PriceSlot,
+)
 
 
 class PriceProvider(Protocol):
@@ -13,11 +16,11 @@ class PriceProvider(Protocol):
 
 
 class AssetProvider(Protocol):
-    async def state_of_charge(self, asset_uid: str) -> tuple[float | None, datetime | None]: ...
+    async def state_of_charge(self, asset_uid: str) -> AssetObservation: ...
 
 
 class ChargerProvider(Protocol):
-    async def observed_power_kw(self, charger_uid: str) -> tuple[float | None, datetime | None]: ...
+    async def observation(self, charger_uid: str) -> ChargerObservation: ...
 
 
 class PowerProvider(Protocol):
@@ -25,8 +28,8 @@ class PowerProvider(Protocol):
 
 
 class ChargeActuator(Protocol):
-    async def request_charge_power(self, charger_uid: str, power_kw: float) -> str:
-        """Return request ID, never physical readback."""
+    async def request_charge_power(self, charger_uid: str, power_kw: float) -> CommandOutcome:
+        """Only the explicit physical owner may execute; no optimistic success."""
         ...
 
 
