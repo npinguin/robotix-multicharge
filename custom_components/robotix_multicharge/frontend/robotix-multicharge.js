@@ -339,8 +339,14 @@ class RobotixMultiChargeCard extends HTMLElement {
         this._yamlFlow=next;
         if(next.step_id==="yaml"&&current.step_id==="yaml_review")
           this._yamlError="";
-        if(Object.keys(next.errors||{}).length)
-          this._yamlError="YAML rejected: "+Object.values(next.errors).join(", ");
+        if(Object.keys(next.errors||{}).length){
+          const source=next.description_placeholders?.note||
+            next.description_placeholders?.summary||"";
+          const detail=source.includes("Validation:")?
+            source.split("Validation:").pop().trim():
+            Object.values(next.errors).join(", ");
+          this._yamlError="YAML rejected: "+detail;
+        }
       }else throw Error("Unexpected native configuration response");
     }catch(error){
       this._yamlError=String(error?.message||"Configuration not accepted");
