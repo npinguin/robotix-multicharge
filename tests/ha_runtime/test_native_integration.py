@@ -107,7 +107,8 @@ async def test_native_setup_registry_diagnostics_and_unload(hass: HomeAssistant)
     hass.states.async_set("sensor.native_session", "charging")
     await hass.async_block_till_done()
     runtime = hass.data[DOMAIN][entry.entry_id]
-    runtime.refresh()
+    # A real native state event must trigger the existing HA subscription;
+    # the test must not manually refresh to manufacture its readback.
     session = runtime.observations["chargers"]["charger"]["session"]
     assert session.value == "charging"
     assert session.quality == "ok"
