@@ -70,6 +70,10 @@ async function main(){
   assert.ok(content(card.shadowRoot).includes("2.30 kW"));
   find(card.shadowRoot,"button","Charging Plan").click();
   assert.ok(find(card.shadowRoot,"svg"),"actual quarter timeline chart mounted");
+  assert.ok(content(card.shadowRoot).includes("Vehicle + Charger"),
+    "Plan offers the user vehicle, charger or combined labels");
+  assert.ok(content(card.shadowRoot).includes("Indicative forecasting"),
+    "Indication is independently configurable");
   assert.ok(content(card.shadowRoot).includes("Measured interval history unavailable:"));
   assert.ok(!content(card.shadowRoot).includes("3.6 kW actually charged"),
             "future proposal must never be presented as real charging");

@@ -25,6 +25,12 @@ const MC_STYLE = [
   ".error{border-left-color:var(--error-color,#d43b38)}.chart{overflow-x:auto;width:100%}",
   ".legend{display:flex;flex-wrap:wrap;gap:15px;font-size:12px;color:var(--secondary-text-color,#65717e)}",
   ".dot{display:inline-block;width:11px;height:11px;margin-right:5px;border-radius:2px}",
+  ".plan-lane{margin:10px 0;border:1px solid var(--divider-color,#d8dde3);border-radius:11px;padding:11px}",
+  ".plan-lane svg{display:block;min-width:680px;width:100%;height:auto}",
+  ".plan-lane .chart{margin-top:5px}",
+  ".plan-key{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:6px 0;font-size:12px}",
+  ".plan-swatch{width:12px;height:12px;border-radius:3px;display:inline-block;margin-right:4px}",
+  ".plan-caution{font-size:12px;color:var(--secondary-text-color,#65717e);line-height:1.5}",
   "svg{width:100%;min-width:440px;height:220px}svg text{fill:var(--secondary-text-color,#65717e);font-size:11px}",
   "@media(max-width:600px){.root{padding:12px}.grid{grid-template-columns:1fr}.tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.tabs button{font-size:12px;padding:8px 5px}}"
 ].join("");
@@ -61,6 +67,22 @@ function mcSVG(tag, attrs, text) {
   for (const [name,value] of Object.entries(attrs||{})) node.setAttribute(name,String(value));
   if(text!==undefined)node.textContent=String(text);
   return node;
+}
+
+
+const MC_ID_COLORS=["#3779b9","#a86340","#32816e","#9568b4","#ae842d",
+                    "#487b97","#ae6187","#647fbd","#768b38","#915f55"];
+function mcIdentityColor(id){
+  let hash=2166136261;
+  for(const ch of String(id)){hash=Math.imul(hash^ch.charCodeAt(0),16777619)>>>0;}
+  return MC_ID_COLORS[hash%MC_ID_COLORS.length];
+}
+function mcPlanName(slot,configuration,labels){
+  const charger=(configuration.chargers||[]).find(c=>c.id===slot.charger_id);
+  const asset=(configuration.assets||[]).find(a=>a.id===slot.asset_id);
+  const car=asset?asset.name:(slot.asset_id||"Unidentified");
+  const station=charger?charger.name:(slot.charger_id||"Unknown charger");
+  return labels==="vehicle"?car:labels==="charger"?station:car+" · "+station;
 }
 
 class RobotixMultiChargeCard extends HTMLElement {
@@ -277,109 +299,212 @@ class RobotixMultiChargeCard extends HTMLElement {
   }
   settingsSelect(_container,name){this._tab="Settings";this._settingsOpen=name;this.render();}
   plan(container){
-    const d=this._data;
+    const d=this._data,c=d.configuration||{},controller=c.controller||{};
+    const cars=c.assets||[],chargers=c.chargers||[];
+    const labelMode=controller.plan_label_mode||"both";
+    const colorBy=controller.plan_color_by||"vehicle";
+    const forecastVisible=controller.show_indicative_forecast!==false;
     this.title(container,"Charging plan");
-    const controls=mcEl("div","controls");
-    for(const day of ["today","tomorrow"]) {
-      const btn=mcButton(day==="today"?"Today":"Tomorrow",()=>{this._day=day;this._last=0;this.load();},this._day===day?"active":"");
-      controls.append(btn);
+    const day=mcEl("div","controls");
+    for(const chosen of ["today","tomorrow"]){
+      const b=mcButton(chosen==="today"?"Today":"Tomorrow",()=>{
+        this._day=chosen;this._last=0;this.load();
+      },this._day===chosen?"active":"");
+      day.append(b);
     }
-    const selector=mcEl("select");
-    selector.setAttribute("aria-label","Filter by charger or chargeable asset");
-    const options=[["","All chargers"]];
-    for(const item of d.configuration.chargers||[])options.push(["charger:"+item.id,item.name]);
-    for(const item of d.configuration.assets||[])options.push(["asset:"+item.id,item.name+" (asset)"]);
-    for(const [value,title] of options){const option=mcEl("option","",title);option.value=value;option.selected=value===this._filter;selector.append(option);}
-    selector.addEventListener("change",()=>{this._filter=selector.value;this._last=0;this.load();});
-    controls.append(selector);
-    container.append(controls);
-    const chart=mcEl("div","chart");
-    const svg=mcSVG("svg",{viewBox:"0 0 900 220",role:"img","aria-label":"15-minute proposed and measured power. Missing measured slots are unknown."});
-    const raw=d.slots||[];
-    const start=new Date(d.start).getTime(),end=new Date(d.end).getTime();
-    const count=Math.max(1,Math.ceil((end-start)/900000));
-    const max=Math.max(0.2,...raw.map(s=>s.proposed_power_kw||0),
-      ...raw.map(s=>s.accepted_power_kw||0),
-      ...(d.actual_slots||[]).map(s=>s.actual_power_kw||0));
-    svg.append(mcSVG("line",{x1:37,y1:174,x2:892,y2:174,stroke:"currentColor","stroke-opacity":0.35}));
-    for(const slot of raw){
-      const index=Math.floor((new Date(slot.start).getTime()-start)/900000);
-      if(index<0||index>=count)continue;
-      const w=850/count;const x=40+index*w;
-      if(typeof slot.proposed_power_kw==="number"){
-        const h=Math.max(0,slot.proposed_power_kw/max*150);
-        const rect=mcSVG("rect",{x,y:174-h,width:Math.max(1,w-1),height:h,fill:"#4284d3"});
-        rect.append(mcSVG("title",{},"Proposed "+slot.proposed_power_kw+" kW · "+mcTime(slot.start,d.timezone)));
-        svg.append(rect);
+    const filter=mcEl("select");
+    filter.setAttribute("aria-label","Filter by charger or vehicle");
+    for(const [value,title] of [["","All chargers"],
+      ...chargers.map(x=>["charger:"+x.id,x.name]),
+      ...cars.map(x=>["asset:"+x.id,x.name+" (vehicle)"])]){
+      const o=mcEl("option","",title);o.value=value;
+      o.selected=this._filter===value;filter.append(o);
+    }
+    filter.value=this._filter;
+    filter.addEventListener("change",()=>{this._filter=filter.value;this._last=0;this.load();});
+    day.append(filter);container.append(day);
+    const selectors=mcEl("div","controls");
+    const option=(title,setting,value,variants)=>{
+      const wrap=mcEl("div","field");const label=mcEl("label","",title);
+      const select=mcEl("select");
+      select.setAttribute("aria-label",title);
+      for(const [id,caption] of variants){
+        const entry=mcEl("option","",caption);entry.value=id;
+        if(id===value)entry.selected=true;
+        select.append(entry);
       }
-      if(typeof slot.accepted_power_kw==="number"){
-        const h=Math.max(0,slot.accepted_power_kw/max*150);
-        const accepted=mcSVG("rect",{x:x+w*0.38,y:174-h,width:Math.max(1,w*0.28),height:h,fill:"#8d61b5"});
-        accepted.append(mcSVG("title",{},"Physically accepted "+slot.accepted_power_kw+" kW · "+mcTime(slot.start,d.timezone)));
-        svg.append(accepted);
-      }
-    }
-    const priceSlots=(d.price_slots||[]).filter(s=>typeof s.price_per_kwh==="number");
-    if(priceSlots.length){
-      const vmin=Math.min(...priceSlots.map(s=>s.price_per_kwh));
-      const vmax=Math.max(...priceSlots.map(s=>s.price_per_kwh));
-      const range=vmax-vmin||1;
-      let path="",started=false;
-      for(let i=0;i<count;i++){
-        const t=start+i*900000;
-        const eligible=priceSlots.filter(s=>new Date(s.start).getTime()<=t&&new Date(s.end).getTime()>=t+900000);
-        if(eligible.length!==1){started=false;continue;}
-        const x=40+(i+0.5)*850/count;
-        const y=170-(eligible[0].price_per_kwh-vmin)/range*145;
-        path+=(started?" L":" M")+x.toFixed(2)+" "+y.toFixed(2);
-        started=true;
-      }
-      if(path)svg.append(mcSVG("path",{d:path,fill:"none",stroke:"#d89a22","stroke-width":2}));
-    }
-    for(let i=0;i<=4;i++){
-      const t=new Date(start+(end-start)*i/4);
-      svg.append(mcSVG("text",{x:40+i*212,y:195},t.toLocaleTimeString(undefined,{timeZone:d.timezone||"UTC",hour:"2-digit",minute:"2-digit"})));
-    }
-    svg.append(mcSVG("text",{x:40,y:15}, "Power (kW) · proposed / physically accepted / measured"));
-    chart.append(svg);container.append(chart);
-    const legend=mcEl("div","legend");
-    for(const [color,text] of [["#4284d3","Proposed"],["#8d61b5","Accepted (physical)"],["#2d9c70","Measured"],["#d89a22","Qualified price"]]){
-      const item=mcEl("span");const dot=mcEl("span","dot");dot.style.background=color;item.append(dot,document.createTextNode(text));legend.append(item);
-    }
-    container.append(legend);
-    const actual=(d.actual_slots||[]);
-    const expected=this._filter ? 1 : (d.configuration.chargers||[]).length;
-    const buckets=new Map();
-    for(const sample of actual){
-      const rows=buckets.get(sample.start)||[];
-      rows.push(sample);
-      buckets.set(sample.start,rows);
-    }
-    let qualifiedActual=0;
-    for(const [timestamp,rows] of buckets){
-      if(!expected||rows.length!==expected||
-         !rows.every(item=>typeof item.actual_power_kw==="number"))continue;
-      const index=Math.floor((new Date(timestamp).getTime()-start)/900000);
-      if(index<0||index>=count)continue;
-      const kw=rows.reduce((total,row)=>total+row.actual_power_kw,0);
-      const h=Math.max(0,kw/max*150);
-      const w=850/count;
-      const rect=mcSVG("rect",{
-        x:40+index*w+w*0.55,y:174-h,
-        width:Math.max(1,w*0.35),height:h,fill:"#2d9c70"
+      select.value=value;
+      select.disabled=this._settingsBusy;
+      select.addEventListener("change",()=>{
+        const selected=setting==="show_indicative_forecast"?
+          select.value==="true":select.value;
+        this.saveSettings("controller",controller.id,{[setting]:selected});
       });
-      rect.append(mcSVG("title",{},"Measured "+kw.toFixed(2)+" kW · "+mcTime(timestamp,d.timezone)));
-      svg.append(rect);
-      qualifiedActual++;
+      wrap.append(label,select);selectors.append(wrap);
+    };
+    option("Show labels","plan_label_mode",labelMode,
+      [["vehicle","Vehicle"],["charger","Charger"],["both","Vehicle + Charger"]]);
+    option("Color by","plan_color_by",colorBy,
+      [["vehicle","Vehicle"],["charger","Charger"]]);
+    option("Indicative forecasting","show_indicative_forecast",
+      String(forecastVisible),[["true","Show (not reserved)"],["false","Hide"]]);
+    container.append(selectors);
+    this.feedback(container);
+    const rows=d.slots||[],forecast=forecastVisible?(d.forecast_slots||[]):[];
+    const measured=d.actual_slots||[],assumptions=d.forecast_assumptions||{};
+    const from=new Date(d.start).getTime(),until=new Date(d.end).getTime();
+    const count=Math.max(1,Math.ceil((until-from)/900000));
+    const width=820, x0=105, yRows=[28,54,80,106], height=14;
+    const scene=mcEl("div");
+    const shown=chargers.filter(item=>!this._filter ||
+      this._filter==="charger:"+item.id ||
+      this._filter.startsWith("asset:")&&item.asset===this._filter.slice(6));
+    const values=[["proposed_power_kw",rows,"Proposed"],
+      ["accepted_power_kw",rows,"Physically accepted"],
+      ["actual_power_kw",measured,"Measured physical"],
+      ["indicative_power_kw",forecast,"Indicative only"]];
+    for(const charger of shown){
+      const activeRows=rows.filter(s=>s.charger_id===charger.id);
+      const previewRows=forecast.filter(s=>s.charger_id===charger.id);
+      const actualRows=measured.filter(s=>s.charger_id===charger.id);
+      const selected=cars.find(a=>a.id===charger.asset);
+      const hasData=activeRows.length||previewRows.length||actualRows.length;
+      const card=mcEl("section","plan-lane");
+      const label=mcEl("div","row");
+      const vehicleLabel=selected?selected.name:"No vehicle selected";
+      const source=(d.observations||{}).chargers?.[charger.id]?.connected;
+      const plugged=source&&source.quality==="ok"?
+        source.value?"Connected — identity not implied":"Disconnected":"Connection unknown";
+      const fullName=labelMode==="vehicle"?vehicleLabel:
+        labelMode==="charger"?charger.name:vehicleLabel+" · "+charger.name;
+      const color=mcIdentityColor(colorBy==="charger"?
+        "charger:"+charger.id:"vehicle:"+(charger.asset||"unattributed"));
+      const lhs=mcEl("div","plan-key");
+      const swatch=mcEl("span","plan-swatch");swatch.style.background=color;
+      lhs.append(swatch,mcEl("strong","",fullName));
+      label.append(lhs,mcEl("span","muted small",plugged));card.append(label);
+      if(!hasData){
+        card.append(mcEl("p","muted small","No qualified slots for this day."));
+      }else{
+        const area=mcEl("div","chart");
+        const svg=mcSVG("svg",{
+          viewBox:"0 0 960 149",class:"timeline",role:"img",
+          "aria-label":fullName+" — proposed, accepted, measured and indicative quarter-hour charging"
+        });
+        const cap=Math.max(0.2,charger.rated_power_kw||0.2,
+          ...activeRows.flatMap(s=>[s.proposed_power_kw||0,s.accepted_power_kw||0]),
+          ...actualRows.map(s=>s.actual_power_kw||0),
+          ...previewRows.map(s=>s.indicative_power_kw||0));
+        values.forEach(([key,samples,description],index)=>{
+          const y=yRows[index];
+          svg.append(mcSVG("text",{x:2,y:y+2},description.replace("Physically accepted","Accepted")
+            .replace("Measured physical","Measured").replace("Indicative only","Indicative")));
+          svg.append(mcSVG("line",{
+            x1:x0,y1:y+7,x2:x0+width,y2:y+7,
+            stroke:"currentColor","stroke-opacity":0.15
+          }));
+          for(const item of samples){
+            if(item.charger_id!==charger.id||typeof item[key]!=="number")continue;
+            const slotIndex=Math.floor((new Date(item.start).getTime()-from)/900000);
+            if(slotIndex<0||slotIndex>=count)continue;
+            const kw=item[key];
+            const barHeight=Math.max(0,Math.min(height,kw/cap*height));
+            const x=x0+slotIndex*width/count;
+            const isForecast=key==="indicative_power_kw";
+            const isMeasured=key==="actual_power_kw";
+            const tint=isMeasured?"#757d87":color;
+            const rect=mcSVG("rect",{
+              x,y:y+7-barHeight,
+              width:Math.max(1,width/count-0.35),
+              height:barHeight,
+              fill:isForecast?"none":tint,
+              "fill-opacity":key==="proposed_power_kw"?0.4:1,
+              stroke:isForecast?tint:"none",
+              "stroke-width":isForecast?1.4:0,
+              "stroke-dasharray":isForecast?"3 2":"none"
+            });
+            const name=isMeasured?charger.name+" · physical (vehicle attribution unverified)":
+              mcPlanName(item,c,labelMode);
+            const caveat=isForecast?" · hypothetical, no reserved capacity":
+              isMeasured?" · independent Recorder source":"";
+            rect.append(mcSVG("title",{},
+              description+" · "+name+" · "+mcTime(item.start,d.timezone)+
+              " · "+kw+" kW"+caveat));
+            svg.append(rect);
+          }
+        });
+        for(let i=0;i<=4;i++){
+          const stamp=new Date(from+(until-from)*i/4);
+          svg.append(mcSVG("text",{
+            x:x0+i*width/4,y:139,
+            "text-anchor":i===0?"start":i===4?"end":"middle"
+          },stamp.toLocaleTimeString(undefined,{
+            timeZone:d.timezone||"UTC",hour:"2-digit",minute:"2-digit"
+          })));
+        }
+        area.append(svg);card.append(area);
+      }
+      if(assumptions[charger.id]&&forecastVisible){
+        const item=assumptions[charger.id];
+        card.append(mcEl("p","plan-caution",
+          "Indicative: "+
+          (item.assumption==="IF_CONNECTED_NOW"?
+            "assuming connection now":
+            "assuming connection "+mcTime(item.assumed_connection_at,d.timezone))+
+          ". Not connected, not reserved, cannot start charging."));
+      }
+      scene.append(card);
     }
-    if(!qualifiedActual)this.notice(container,
-      "Measured interval history unavailable: "+
-      (d.actual_history_quality||"RECORDER_OR_SOURCE_UNQUALIFIED")+
-      ". No actual charging or cost is inferred from proposals.",false);
-    const next=mcEl("div","card");next.append(mcEl("h3","","Next planned session"));
-    const first=raw.find(x=>x.proposed_power_kw>0);
-    next.append(mcEl("p","",first?mcTime(first.start,d.timezone)+" · "+first.proposed_power_kw+" kW":"No qualified charging slot"));
-    next.append(mcEl("p","muted small","Reason: "+Object.entries(d.reasons||{}).map(([k,v])=>k+" "+v).slice(0,4).join("; ")));
+    if(!shown.length)this.notice(scene,
+      "No matching Charger. Unassigned vehicles have no verified charger capacity for a numeric forecast.",false);
+    container.append(scene);
+    const key=mcEl("div","legend");
+    for(const phrase of ["Proposed · pale color","Accepted · solid color",
+                         "Measured · physical source","Indicative · dashed outline"]){
+      key.append(mcEl("span","",phrase));
+    }
+    container.append(key);
+    const groups=Object.entries(assumptions).filter(([id,meta])=>
+      forecastVisible&&(!this._filter||this._filter==="charger:"+id||
+        this._filter==="asset:"+meta.asset_id));
+    if(groups.length){
+      const forecastInfo=mcEl("div","card");
+      forecastInfo.append(mcEl("h3","","Indicative vehicles — not connected"));
+      for(const [chargerId,meta] of groups){
+        const obj=chargers.find(c=>c.id===chargerId);
+        const car=cars.find(a=>a.id===meta.asset_id);
+        const result=(d.forecast_reasons||{})[chargerId];
+        const window=forecast.filter(s=>s.charger_id===chargerId);
+        forecastInfo.append(mcEl("p","small",
+          (car?car.name:meta.asset_id)+" · "+(obj?obj.name:chargerId)+
+          " — "+(window.length?window.length+" hypothetical 15-min slots":"no feasible forecast slots")+
+          (result?" ("+result+")":"")+"; no power reservation"));
+      }
+      container.append(forecastInfo);
+    }
+    const prices=(d.price_slots||[]).filter(p=>typeof p.price_per_kwh==="number");
+    if(prices.length){
+      const currencies=[...new Set(prices.map(p=>p.currency))];
+      const label=mcEl("p","muted small",
+        "Qualified tariff overlay: "+currencies.join(", ")+
+        " per kWh; source intervals are reference context, not accepted cost.");
+      container.append(label);
+    }
+    if(!measured.some(row=>typeof row.actual_power_kw==="number")){
+      this.notice(container,"Measured power unavailable: "+
+        (d.actual_history_quality||"RECORDER_OR_SOURCE_UNQUALIFIED")+
+        ". Missing actual is not zero.",false);
+    }
+    const next=mcEl("div","card");
+    next.append(mcEl("h3","","Next planned session"));
+    const upcoming=rows.filter(s=>typeof s.proposed_power_kw==="number"&&s.proposed_power_kw>0)
+      .sort((a,b)=>new Date(a.start)-new Date(b.start))[0];
+    next.append(mcEl("p","",upcoming?
+      mcPlanName(upcoming,c,labelMode)+" · "+mcTime(upcoming.start,d.timezone)+
+      " · "+upcoming.proposed_power_kw+" kW":
+      "No active qualified vehicle plan"));
+    next.append(mcEl("p","muted small","Reasons: "+
+      Object.entries(d.reasons||{}).map(([k,val])=>k+" "+val).slice(0,5).join("; ")));
     container.append(next);
   }
   assets(container){
