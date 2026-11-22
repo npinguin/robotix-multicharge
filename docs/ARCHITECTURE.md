@@ -1,26 +1,80 @@
-# Architecture and ownership
+# Architecture, native HA experience and ownership
 
-## Scope
-Robotix MultiCharge coordinates electrical charging; car-first, expandable to other compatible rechargeable assets. It is not a general home EMS, battery/inverter manager or generic asset framework.
+## Scope and three concepts
 
-## Core concepts
+Robotix MultiCharge coordinates electric charging. **Car-first, not car-only.** It is not an inverter, home-battery or general home EMS controller.
+
 | Concept | Owns | Does not own |
 | --- | --- | --- |
-| ChargeableAsset | Stable charging identity, profile, goal and energy need | OEM integration, battery management, observed source facts |
-| Charger | Stable logical charge point, accepted source binding, physical capability and command/readback owner | Source HA device identity or unrelated hardware |
-| ChargeController | One planner, coordinated scheduling and charging admission for its Chargers | Whole-house scheduling, battery/inverter or other loads |
+| `ChargeableAsset` | Stable charging identity, energy need, target and deadline | Vehicle OEM/device or the original SoC source |
+| `Charger` | Stable logical charge point, verified capability, exclusive charging command/readback when enabled | Original physical HA Device Registry identity |
+| `ChargeController` | One coordinated charger plan and safe group allocation | Whole-home EMS or unrelated devices |
 
-A Charger belongs to exactly one ChargeController. Asset assignment, EVSE occupancy and positively proven identity are distinct. Native HA integrations own their original device and entity IDs.
+A Charger belongs to one Controller. Configured asset assignment, actual occupation and physically identified asset are different facts. Source HA devices remain owned by their native integrations; MultiCharge does not reparent or impersonate them. Multiple Controllers cannot independently spend the same shared power envelope.
 
-## Boundary
-Native HA providers (asset SoC, charger telemetry, prices, grid/PV) -> exact bindings + freshness -> ChargeController plan -> optional time-bounded binding power allocation -> one writer per Charger -> native EVSE command + actual readback.
+## Configuration: simple by default, YAML for experts
 
-An external energy supervisor may consume the charge plan, allocate time/phase bounded power and request urgent load reduction; it cannot directly write a Charger already owned by MultiCharge. Missing/expired binding allocation must never silently restore unlimited charging. Zero kW means hold. The standalone mode has its own explicit safe power configuration.
+**Default:** HA Config Flow and Options Flow with guided setup: Controller, Charger, ChargeableAsset, sources, binding validation. Users can add a car and charger without writing YAML.
 
-## Rules
-- One fact authority, one plan per Controller, one physical writer per Charger.
-- Requested, accepted, actual and unknown remain distinct.
-- Only explicit structural changes rebind sources; telemetry cannot rebuild HA Device Registry topology.
-- Variable current and phase limits require verified installation and EVSE capability. A smart plug only supports on/off and must be suitable for sustained load.
-- No site/provider assumptions or mandatory external product.
-- Bootstrap registers no executor; physical writes require later opt-in, admission, real readback, stop, restart and hardware qualification.
+**Expert option:** one declarative YAML import, validated by exactly the same schema. YAML remains the authoritative source when chosen (read-only in the UI); the UI owns its own configuration when chosen. No second runtime YAML/Jinja calculator, competing config stores, or copied Home Assistant source registry. Import into a native HA Config Entry. **This is planned, not yet implemented in the bootstrap.**
+
+Proposed future YAML form (illustration, **not yet supported**):
+
+```yaml
+# configuration.yaml
+robotix_multicharge: !include multicharge.yaml
+
+# multicharge.yaml
+controller:
+  id: home
+  name: Home charging
+  max_parallel: 2
+  max_power_kw: 11
+assets:
+  - id: car
+    name: Family car
+    kind: car
+    soc_entity: sensor.car_battery
+    target_soc: 80
+chargers:
+  - id: driveway
+    name: Driveway
+    kind: variable_current
+    rated_power_kw: 11
+    phase_count: 3
+    min_current_a: 6
+    max_current_a: 16
+    power_entity: sensor.driveway_power
+```
+
+## Native HA UX: useful, but no duplicate control plane
+
+- **Overview:** active charger(s), next session, remaining energy, available charging capacity and warnings.
+- **ChargeableAsset:** actual SoC/quality, target, Ready By, remaining demand, selected Charger.
+- **Charger:** connection, measured power/energy, verified control capability, status and safe actions.
+- **ChargeController:** active mode, cap/concurrency, plan status and coverage, attention and next activity.
+- **Settings:** guided mapping, safe limits, meaningful diagnostics, expert import.
+- **Dashboards:** usable first through native HA devices/entities, selectors, cards, buttons and sensors. Add a tiny optional overview card only if native cards cannot show a coherent daily journey; no UI-owned scheduler or rule engine.
+
+Current bootstrap still has **no actual charging devices, entities, planner or actuator**. Future release screenshots must come from tested real HA instances; missing information stays unknown, not zero or fabricated readiness.
+
+Unique logical device IDs use `(robotix_multicharge, concept/id)` with stable per-property entity unique IDs. Runtime SoC/power updates never trigger structural/device registry rebuilds. `via_device` must not be used to represent semantic ownership, assignment or planning. Native source devices retain their IDs/history.
+
+## Planner, safety and optional energy supervision
+
+```text
+HA sources (prices, grid/PV, SoC, charger observations)
+      -> explicit qualified bindings / freshness
+ChargeableAsset demand + Charger capabilities
+      -> ChargeController: one revisioned charge plan
+      <-> optional external supervisor: binding time/phase envelopes
+      -> exclusive physical writer per Charger, with actual readback
+```
+
+The Controller is the specialized charging optimizer. An external house EMS may read demand, plans, actual results and send binding capacity or urgent stop restrictions; it never writes an already-owned Charger or replaces the charging planner. A stale previously active binding restriction fails safe. No external product is required in standalone mode.
+
+A smart plug remains qualified on/off only. Phase/current limits must be verified; a HA service acknowledgment does not prove physical execution. Hardware and installation protections remain independent and authoritative. No charging actuator exists in the bootstrap.
+
+## Acceptance
+
+Prove native UI and YAML parity, structural identity persistence, unknown/quality, source binding, restart/unload/rollback, 1/2/4/10 mixed charger planning, deadline/solar/price/DST scenarios, external envelope expiry and emergency stop, exact HA command/readback and qualified real hardware before claiming Feature Complete.
