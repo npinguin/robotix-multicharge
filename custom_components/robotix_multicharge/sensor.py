@@ -36,8 +36,10 @@ async def async_setup_entry(
     for charger in cfg["chargers"]:
         entities.append(_LogicalEvidenceSensor("charger", charger, runtime, "power"))
         entities.append(_LogicalEvidenceSensor("charger", charger, runtime, "connected"))
+        entities.append(_CommandStatusSensor(charger, runtime))
         if charger.get("energy_entity"):
             entities.append(_LogicalSessionEnergySensor(charger, runtime))
+            entities.append(_LastSessionEnergySensor(charger, runtime))
     async_add_entities(entities)
 
 
@@ -275,4 +277,54 @@ class _LogicalSessionEnergySensor(_NativeMultiChargeSensor):
             "asset_id": session["asset_id"] if session else None,
             "started_at": session["started_at"] if session else None,
             "meter_source": self.data.get("energy_entity"),
+        }
+
+
+
+class _CommandStatusSensor(_NativeMultiChargeSensor):
+    """Logical outcome, never an optimistic reflection of a service call."""
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, charger: dict, runtime) -> None:
+        super().__init__("charger", charger, runtime)
+        self._attr_name = "Command status"
+        self._attr_unique_id = f"{DOMAIN}:charger:{charger['id']}:command_status"
+        self._update_value()
+
+    def _update_value(self):
+        result = self.runtime.executor.snapshot().get(self.data["id"])
+        self._attr_native_value = result.get("status") if result else "not_requested"
+        self._attr_extra_state_attributes = {
+            "reason": result.get("reason") if result else None,
+            "request_id": result.get("request_id") if result else None,
+            "physical_readback_at": result.get("readback_at") if result else None,
+        }
+
+
+class _LastSessionEnergySensor(_NativeMultiChargeSensor):
+    """Latest persistently measured session, separate from active meter reading."""
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_native_unit_of_measurement = "kWh"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, charger: dict, runtime) -> None:
+        super().__init__("charger", charger, runtime)
+        self._attr_name = "Last session energy"
+        self._attr_unique_id = f"{DOMAIN}:charger:{charger['id']}:last_session_energy"
+        self._update_value()
+
+    def _update_value(self):
+        rows = [
+            r for r in self.runtime.executor.completed_sessions()
+            if r["charger_id"] == self.data["id"]
+        ]
+        last = rows[-1] if rows else None
+        self._attr_native_value = last["actual_energy_kwh"] if last else None
+        self._attr_extra_state_attributes = {
+            "quality": last["energy_quality"] if last else "unknown",
+            "asset_id": last["asset_id"] if last else None,
+            "ended_at": last["ended_at"] if last else None,
+            "cost": last["cost"] if last else None,
+            "currency": last["currency"] if last else None,
+            "cost_quality": last["cost_quality"] if last else "unknown",
         }

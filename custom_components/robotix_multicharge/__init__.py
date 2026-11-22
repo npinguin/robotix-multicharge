@@ -28,7 +28,7 @@ from .command_query import register_command_query
 from .frontend import register_frontend, reconcile_frontend
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = ["sensor"]
+PLATFORMS = ["sensor", "button"]
 
 
 async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:

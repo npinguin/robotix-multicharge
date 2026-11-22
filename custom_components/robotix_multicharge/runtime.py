@@ -235,6 +235,7 @@ class MultiChargeRuntime:
             ),
             "command_outcomes": self.executor.snapshot(),
             "active_sessions": self.executor.session_snapshot(),
+            "completed_sessions": self.executor.completed_sessions(),
             "accepted_slots": [{
                 **row, "start": row["start"].isoformat(),
                 "end": row["end"].isoformat(),
@@ -313,6 +314,13 @@ class MultiChargeRuntime:
             match["accepted_power_kw"] = accepted["power_kw"]
             match["accepted_current_a"] = accepted["current_a"]
         slots.sort(key=lambda row: (row["start"], row["charger_id"]))
+        history = [
+            receipt for receipt in self.executor.completed_sessions()
+            if datetime.fromisoformat(receipt["started_at"]) < last
+            and datetime.fromisoformat(receipt["ended_at"]) >= first
+            and (charger_id is None or receipt["charger_id"] == charger_id)
+            and (asset_id is None or receipt["asset_id"] == asset_id)
+        ]
         return {
             "schema_major": 1,
             "controller_id": self.configuration["controller"]["id"],
@@ -341,6 +349,7 @@ class MultiChargeRuntime:
             "command_outcomes": self.executor.snapshot(),
             "command_capabilities": self.executor.capabilities(),
             "active_sessions": self.executor.session_snapshot(),
+            "completed_sessions": history,
             "price_slots": [
                 {"start": row.start.isoformat(), "end": row.end.isoformat(),
                  "price_per_kwh": row.effective_price_per_kwh,

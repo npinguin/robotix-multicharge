@@ -384,6 +384,36 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["status"], "rejected")
         self.assertFalse(services.calls)
 
+    async def test_completed_session_is_measured_persisted_and_stable_after_reload(self):
+        rt, states, services = rig()
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"], "confirmed")
+        states["sensor.meter"].state = "5.8"
+        states["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        self.assertEqual((await rt.executor.execute("evse", "stop"))["status"], "confirmed")
+        receipts = rt.executor.completed_sessions()
+        self.assertEqual(len(receipts), 1)
+        self.assertEqual(receipts[0]["charger_id"], "evse")
+        self.assertEqual(receipts[0]["asset_id"], "car")
+        self.assertAlmostEqual(receipts[0]["actual_energy_kwh"], 0.8, places=6)
+        self.assertEqual(receipts[0]["energy_quality"], "measured")
+        self.assertIsNone(receipts[0]["cost"])
+        self.assertEqual(receipts[0]["cost_quality"], "unknown")
+        self.assertTrue(receipts[0]["physical_stop_confirmed"])
+        reloaded = MultiChargeRuntime(rt.hass, rt.configuration)
+        reloaded.executor.restore_state(rt.executor.export_state())
+        self.assertEqual(reloaded.executor.completed_sessions(), receipts)
+
+    async def test_unqualified_meter_keeps_closed_session_energy_unknown(self):
+        rt, states, _ = rig()
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"], "confirmed")
+        states["sensor.meter"].state = "unavailable"
+        states["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        self.assertEqual((await rt.executor.execute("evse", "stop"))["status"], "confirmed")
+        receipt = rt.executor.completed_sessions()[0]
+        self.assertIsNone(receipt["actual_energy_kwh"])
+        self.assertIsNone(receipt["cost"])
+        self.assertEqual(receipt["energy_quality"], "unknown")
+
     async def test_real_on_and_off_calls_require_independent_power_confirmation(self):
         runtime, states, services = rig()
         self.assertTrue(runtime.executor.capabilities()["evse"]["start_allowed"])
