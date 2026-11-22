@@ -235,6 +235,34 @@ class RuntimeTests(unittest.TestCase):
             rt.observations["assets"]["car"]["effective_power_kw"].value
         )
 
+    def test_all_asset_types_share_one_planner_without_soc(self):
+        plans = []
+        for kind in ("car", "bicycle", "motorcycle", "scooter", "other"):
+            cfg = sample()
+            asset = cfg["assets"][0]
+            for field in ("soc_entity", "target_soc", "capacity_kwh",
+                          "charge_efficiency"):
+                asset.pop(field, None)
+            asset["requested_kwh"] = 2.0
+            asset["kind"] = kind
+            cfg = validate_configuration(cfg)
+            data = {
+                "sensor.power": state("0", "W"),
+                "binary_sensor.cable": state("on"),
+            }
+            rt = MultiChargeRuntime(
+                SimpleNamespace(states=SimpleNamespace(get=data.get)), cfg
+            )
+            rt.refresh(NOW)
+            self.assertTrue(rt.assessment.plan.slots, kind)
+            self.assertFalse(rt.summary()["physical_actuation_authorized"])
+            plans.append(tuple(
+                (slot.start, slot.end, slot.power_kw, slot.asset_uid)
+                for slot in rt.assessment.plan.slots
+            ))
+        for result in plans[1:]:
+            self.assertEqual(result, plans[0])
+
     def test_unassigned_asset_still_exposes_source_observation(self):
         cfg = sample()
         cfg["assets"].append({
