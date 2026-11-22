@@ -186,6 +186,27 @@ async function main(){
   find(card.shadowRoot,"button","Chargers").click();
   assert.ok(content(card.shadowRoot).includes("Driveway"));
   assert.ok(content(card.shadowRoot).includes("2.3 kW"));
+  fixture.command_capabilities={drive:{
+    pause_allowed:true,stop_allowed:true,paused:false
+  }};
+  card.render();
+  const pause=find(card.shadowRoot,"button","Pause charging");
+  assert.ok(pause,"native Charger offers real durable Pause action");
+  pause.click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(commands.some(c=>c.type==="robotix_multicharge/command"&&
+    c.action==="pause"&&c.charger_id==="drive"));
+  fixture.command_capabilities={drive:{
+    resume_allowed:true,paused:true,start_allowed:false
+  }};
+  card.render();
+  const resume=find(card.shadowRoot,"button","Resume charging");
+  assert.ok(resume,"paused Charger exposes explicit Resume");
+  resume.click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(commands.some(c=>c.type==="robotix_multicharge/command"&&
+    c.action==="resume"&&c.charger_id==="drive"));
+  fixture.command_capabilities={};
   find(card.shadowRoot,"button","Settings").click();
   for(const name of ["Charging site","Sources & bindings","Charging strategy",
                      "Safety & limits","Integrations","Advanced & YAML"]){
