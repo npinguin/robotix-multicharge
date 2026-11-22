@@ -1,4 +1,4 @@
-"""One source-neutral configuration schema for both guided UI and expert YAML import.
+"""One source-neutral configuration schema for native UI and expert JSON/YAML.
 
 This module never reads Home Assistant state or sends physical commands.
 """
@@ -388,12 +388,12 @@ def validate_configuration(value):
 
 
 def effective_configuration(entry):
-    """One authority: imported YAML overrides any historic UI options.
+    """One authority: expert JSON/YAML overrides historic UI options.
 
     The native Config Entry, its ID and its HA device/recorder history remain
     in place when an installed UI configuration switches to expert YAML.
     """
-    if entry.data.get("source") == "yaml":
+    if entry.data.get("source") in ("yaml", "json"):
         return validate_configuration(deepcopy(entry.data["configuration"]))
     return validate_configuration(deepcopy(
         entry.options.get("configuration", entry.data["configuration"])
