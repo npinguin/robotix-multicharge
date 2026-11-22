@@ -168,6 +168,35 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(refused["status"], "rejected")
         self.assertFalse(services.calls)
 
+    async def test_low_power_bicycle_uses_relative_physical_start_stop_thresholds(self):
+        rt, source, services = rig(group_kw=0.5)
+        charger = rt.configuration["chargers"][0]
+        charger["rated_power_kw"] = 0.08
+        charger["kind"] = "on_off"
+        original = services.async_call
+
+        async def measured_small_charge(domain, action, args, *, blocking, context):
+            await original(domain, action, args, blocking=blocking, context=context)
+            if domain == "switch" and action == "turn_on":
+                source["sensor.actual_power"].state = "65"
+                source["sensor.actual_power"].last_updated = datetime.now(timezone.utc)
+
+        services.async_call = measured_small_charge
+        rt.refresh()
+        started = await rt.executor.execute("evse", "start")
+        self.assertEqual(started["status"], "confirmed")
+        self.assertAlmostEqual(started["measured_power_kw"], 0.065)
+        # A residual 30W is meaningful for an 80W bike charger, not STOP.
+        source["switch.evse_control"].state = "off"
+        source["sensor.actual_power"].state = "30"
+        source["sensor.actual_power"].last_updated = datetime.now(timezone.utc)
+        self.assertIsNone(rt.executor._readback(
+            charger, "stop", datetime.now(timezone.utc) - timedelta(seconds=1)
+        ))
+        stopped = await rt.executor.execute("evse", "stop")
+        self.assertEqual(stopped["status"], "confirmed")
+        self.assertAlmostEqual(stopped["measured_power_kw"], 0)
+
     async def test_unconfirmed_or_replugged_vehicle_cannot_start(self):
         rt, states, services = rig()
         rt.executor._plug_confirmations.clear()

@@ -23,6 +23,18 @@ STOP_POWER_KW = 0.05
 READBACK_SECONDS = 45
 
 
+def stop_power_limit(charger):
+    """Small chargers must not mistake genuine charging for stopped."""
+    rated = float(charger["rated_power_kw"])
+    return max(0.002, min(STOP_POWER_KW, rated * 0.10))
+
+
+def start_power_limit(charger):
+    """Read back a positive fraction of qualified nominal charger power."""
+    return max(stop_power_limit(charger) * 2,
+               min(START_POWER_KW, float(charger["rated_power_kw"]) * 0.25))
+
+
 class NativeSwitchExecutor:
     """Serialized physical command path for one controller, never a second planner."""
 
@@ -451,7 +463,7 @@ class NativeSwitchExecutor:
         this_power = number(self.runtime.hass, charger.get("power_entity"), "power", at)
         if this_power.quality != "ok":
             return "INDEPENDENT_POWER_UNAVAILABLE"
-        if this_power.value > START_POWER_KW:
+        if this_power.value > start_power_limit(charger):
             return "POWER_ALREADY_PRESENT_WITHOUT_CONFIRMED_OWNER"
         return self._physical_budget(
             charger, at, requested_kw,
@@ -559,7 +571,7 @@ class NativeSwitchExecutor:
                 state is None
                 and other.get("control_owner") != "multicharge"
             )
-            if unknown_external_state and power.value <= STOP_POWER_KW:
+            if unknown_external_state and power.value <= stop_power_limit(other):
                 cable = connection(
                     self.runtime.hass, other.get("connected_entity"), at
                 )
@@ -573,7 +585,7 @@ class NativeSwitchExecutor:
             # higher draw always wins over nominal.
             externally_powered = (
                 other.get("control_owner") != "multicharge"
-                and power.value > STOP_POWER_KW
+                and power.value > stop_power_limit(other)
             )
             is_active = (
                 (state is not None and state.state == "on")
@@ -605,7 +617,7 @@ class NativeSwitchExecutor:
                     if other.get("circuit_id"):
                         key = other["circuit_id"]
                         circuits[key] = circuits.get(key, 0) + amps
-            elif power.value > STOP_POWER_KW:
+            elif power.value > stop_power_limit(other):
                 return "OTHER_CHARGER_POWER_WITH_SWITCH_OFF"
         if occupied >= ctl["max_parallel"]:
             return "MAX_PARALLEL_REACHED"
@@ -1041,7 +1053,8 @@ class NativeSwitchExecutor:
                 return False
             power = number(self.runtime.hass, charger.get("power_entity"),
                            "power", datetime.now(timezone.utc))
-            if state.state == "off" and power.quality == "ok" and power.value <= STOP_POWER_KW:
+            if (state.state == "off" and power.quality == "ok"
+                    and power.value <= stop_power_limit(charger)):
                 continue
             outcome = await self.execute(charger["id"], "stop")
             if outcome["status"] != "confirmed":
@@ -1061,11 +1074,11 @@ class NativeSwitchExecutor:
         if power.observed_at < requested_at:
             return None
         if action == "start" and (
-            power.value <= START_POWER_KW
+            power.value <= start_power_limit(charger)
             or power.value > charger["rated_power_kw"] * 1.10
         ):
             return None
-        if action == "stop" and power.value > STOP_POWER_KW:
+        if action == "stop" and power.value > stop_power_limit(charger):
             return None
         return power
 
@@ -1197,7 +1210,8 @@ class NativeSwitchExecutor:
             elif state.state == "off":
                 power = number(self.runtime.hass, charger.get("power_entity"),
                                "power", at)
-                if power.quality == "ok" and power.value <= STOP_POWER_KW:
+                if (power.quality == "ok"
+                        and power.value <= stop_power_limit(charger)):
                     outcome = result("confirmed", "ALREADY_PHYSICALLY_STOPPED",
                                      observed_at=power.observed_at,
                                      measured_kw=power.value)

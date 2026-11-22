@@ -14,6 +14,7 @@ from .configuration import (
     is_plan_presentation_only_change,
 )
 from .source_evidence import number
+from .execution import stop_power_limit
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
@@ -117,7 +118,8 @@ async def apply_native_preference(hass, entry, runtime, scope, target_id, change
                 )
                 # For an idle-only rebind even an external-owned charger needs
                 # physical power evidence: unobserved is not safely idle.
-                if (power.quality != "ok" or power.value > 0.05
+                if (power.quality != "ok"
+                        or power.value > stop_power_limit(charger)
                         or (observed is not None and observed.state != "off")
                         or (owned and observed is None)):
                     raise ValueError("charger_busy")
