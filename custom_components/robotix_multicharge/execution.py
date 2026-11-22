@@ -238,9 +238,24 @@ class NativeSwitchExecutor:
                         hold = True
                     else:
                         cap = min(cap, slots[0].max_charging_kw) if cap is not None else None
+            # Every configured charger consumes the same site budget,
+            # regardless of whether MultiCharge or another HA owner controls it.
+            reserved = 0.0
+            charging_count = 0
+            for c in cfg["chargers"]:
+                physical = number(self.runtime.hass, c.get("power_entity"), "power", at)
+                state = self._switch(self.runtime.hass, c.get("control_entity"))
+                if physical.quality != "ok" or state is None:
+                    hold = True
+                    continue
+                if state.state == "on":
+                    reserved += c["rated_power_kw"]
+                    charging_count += 1
+                elif physical.value > STOP_POWER_KW:
+                    hold = True
             if cap is not None and (
-                len(active) > controller["max_parallel"]
-                or sum(c["rated_power_kw"] for c in active) > cap + 1e-9
+                charging_count > controller["max_parallel"]
+                or reserved > cap + 1e-9
             ):
                 hold = True
             for charger in active:
