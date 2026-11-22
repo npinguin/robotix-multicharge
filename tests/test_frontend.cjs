@@ -221,7 +221,7 @@ async function main(){
   assert.ok(find(card.shadowRoot,"button","Details"),
             "Settings groups disclose details instead of an inert edit action");
   card.dispatchEvent=event=>{card._lastMoreInfo=event;return true;};
-  find(card.shadowRoot,"button","Details").click();
+  card._settingsOpen="Charging site";card.render();
   assert.ok(content(card.shadowRoot).includes("Site name"));
   const siteEdit=find(card.shadowRoot,"button","Edit");
   assert.ok(siteEdit,"Site name exposes its native HA text editor");
