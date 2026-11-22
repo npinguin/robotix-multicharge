@@ -147,7 +147,7 @@ def validate_configuration(value):
         _allowed(source, ("id", "name", "kind", "rated_power_kw", "asset",
                           "control_entity", "connected_entity", "power_entity",
                           "energy_entity", "min_current_a", "max_current_a",
-                          "phase_count"), "charger")
+                          "phase_count", "control_owner", "physical_commissioned"), "charger")
         uid = _text(source.get("id"), "charger.id")
         if uid in charger_ids:
             raise ValueError("charger.id: duplicate")
@@ -158,6 +158,24 @@ def validate_configuration(value):
             "kind": _text(source.get("kind"), "charger.kind"),
             "rated_power_kw": _number(source.get("rated_power_kw"), "charger.rated_power_kw"),
         }
+        owner = source.get("control_owner", "external")
+        if owner not in ("external", "multicharge"):
+            raise ValueError("charger.control_owner: expected external/multicharge")
+        if "physical_commissioned" in source and type(source["physical_commissioned"]) is not bool:
+            raise ValueError("charger.physical_commissioned: expected boolean")
+        commissioned = source.get("physical_commissioned", False)
+        if commissioned and owner != "multicharge":
+            raise ValueError("charger: physical commissioning requires MultiCharge owner")
+        if owner == "multicharge" and source.get("kind") != "on_off":
+            raise ValueError("charger: variable current commands not implemented")
+        if owner == "multicharge" and (
+            not str(source.get("control_entity", "")).startswith("switch.")
+            or not source.get("connected_entity")
+            or not source.get("power_entity")
+        ):
+            raise ValueError("charger: native switch, connection and power source required")
+        charger["control_owner"] = owner
+        charger["physical_commissioned"] = commissioned
         if source.get("phase_count") is not None:
             p = source["phase_count"]
             if isinstance(p, bool) or not isinstance(p, int) or p not in (1, 2, 3):

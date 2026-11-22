@@ -393,7 +393,8 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
                                 "kind": user_input["kind"],
                                 "rated_power_kw": user_input.get("rated_power_kw")})
                 for field in ("asset", "control_entity", "connected_entity", "power_entity",
-                              "energy_entity", "phase_count", "min_current_a", "max_current_a"):
+                              "energy_entity", "phase_count", "min_current_a", "max_current_a",
+                               "control_owner", "physical_commissioned"):
                     if user_input.get(field) is not None and user_input.get(field) != "":
                         charger[field] = user_input[field]
                 cfg["chargers"] = [c for c in cfg["chargers"] if c["id"] != uid] + [charger]
@@ -421,6 +422,8 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
                 vol.Optional("energy_entity"): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
                 ),
+                vol.Required("control_owner", default="external"): vol.In(["external", "multicharge"]),
+                vol.Required("physical_commissioned", default=False): bool,
                 vol.Optional("phase_count"): vol.All(vol.Coerce(int), vol.In([1, 2, 3])),
                 vol.Optional("min_current_a"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
                 vol.Optional("max_current_a"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),

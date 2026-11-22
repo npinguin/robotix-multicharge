@@ -119,7 +119,7 @@
       },
       "charger": {
         "title": "Charger",
-        "description": "Add or edit a charger; physical commands remain disabled.",
+        "description": "Select MultiCharge only after approved exclusive owner cutover. A claimed owner does not automatically disable EV Smart Charging or another writer. Verify physical power readback and electrical limits before commissioning.",
         "data": {
           "action": "Action",
           "id": "Stable ID (optional for new charger)",
@@ -127,13 +127,15 @@
           "kind": "Control capability",
           "rated_power_kw": "Rated power (kW)",
           "asset": "Assigned asset",
-          "control_entity": "Command entity (not used yet)",
+          "control_entity": "Native switch for actual on/off control",
           "connected_entity": "Connected state",
           "power_entity": "Measured power",
           "energy_entity": "Measured energy",
           "phase_count": "Number of phases",
           "min_current_a": "Minimum current (A)",
-          "max_current_a": "Maximum current (A)"
+          "max_current_a": "Maximum current (A)",
+          "control_owner": "Selected command owner (external or multicharge)",
+          "physical_commissioned": "Physical safety validated and all previous writers disabled (commissioning declaration)"
         }
       },
       "display": {
