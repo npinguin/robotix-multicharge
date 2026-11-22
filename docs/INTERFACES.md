@@ -1,21 +1,21 @@
-# Contracts and interfaces — bootstrap candidate
+# Community contracts — development candidate
 
-Typed definitions in the integration's domain.py, contracts.py and interfaces.py are candidate source contracts, not yet HA-published APIs.
+The integration's `domain.py`, `contracts.py` and `interfaces.py` currently define **candidate** Python types. They are not a released, compatible or Home Assistant-published API.
 
-| Surface | Type | Requirements |
+| Public-facing concern | Candidate interface | Intended invariant |
 | --- | --- | --- |
-| Price input | PriceProvider / PriceSlot | Aware UTC intervals, validated effective price and coverage, negative rates allowed |
-| Asset input | AssetProvider / ChargeDemand | Freshness/provenance, unknown distinct from 0, explicit kWh when SoC absent |
-| Charger input | ChargerProvider / Charger | Physical capability and measured readback independent from requested command |
-| Power input | PowerProvider / PowerEnvelope | Optional, revisioned time-bound allocation; advisory or binding; 0 kW stops |
-| Plan output | ChargePlan / PlannedChargeSlot | Controller revision, source quality and intervals; planned != measured |
-| Physical output | ChargeActuator | Single authorized writer, intent/ack != physical readback |
-| Read-only output | PlanConsumer | Flexibility visibility for independent energy supervision |
+| Charging assets | `ChargeableAsset` / `ChargeDemand` | Stable identity; explicit need, target, deadline and unknown source state |
+| Charger capability | `Charger` / `ChargerProvider` | Observed and configured capabilities separated from requested commands |
+| Prices | `PriceProvider` / `PriceSlot` | Zoned intervals, validated coverage and possible negative prices |
+| Available charging power | `PowerProvider` / `PowerEnvelope` | Optional, bounded time-based limit; no assumption that missing means unlimited |
+| Charge plan | `ChargeController` / `ChargePlan` | Revisioned interval proposals/acceptance; planned does not mean actual |
+| Hardware execution | `ChargeActuator` | Exclusive authorized writer; validated limits and independent readback |
+| Read-only visualization | `PlanConsumer` | Plan status/intervals for the native charging dashboard |
 
-No HA binding wizard, charging scheduler, per-phase solver, current regulation, executor, public entities, EMS dispatch or hardware acceptance exists yet. Those require separate code and tests within the active development batch.
+## Charging Plan read view
 
-## Charging-plan timeline read model (candidate)
+The planned 15-minute Today/Tomorrow chart needs one bounded, read-only query on the Controller's plan. It must identify the controller and optional charger/asset filter, timezone-aware interval and plan revision. Its response will distinguish proposed/accepted power, actual measured power/energy, data quality, source coverage, relevant deadline and optional price or solar context.
 
-A single bounded, read-only backend query, not another plan publication engine, will serve the future chart. Input: `controller_uid`, optional `charger_uid` / `asset_uid`, aware `start` / `end`, quarter resolution. Output: source revision, generation timestamp, timezone-aware slots with UTC offsets, proposal/acceptance state, planned power/energy, optional price and binding available capacity, observed actual power/energy with source/quality and interval coverage, deadlines, infeasibility reasons and explicit missing values. Query must be bounded, authenticated, read-only and resilient to unknown/unavailable data; all physical actuation remains through the exclusive backend owner. A short summary is published through native sensor entities and actual history through native Recorder, not by dumping a full 48-hour forecast into sensor attributes.
+Use native lightweight HA summary entities and Recorder for measured history. Do not replicate the planner or persist whole future timelines as large frequently rewritten sensor attributes.
 
-Community uses this exact read model for a bundled, responsive 15-minute Charge Plan graph (Today/Tomorrow) at group and charger level. Any external house EMS remains an optional reader/supervisor of the same authoritative charging plan rather than a replacement planner. **Design contract only** until implemented and tested.
+**Status:** contract shape is a development target. Native HA binding, planner, chart, actuator and hardware acceptance are not yet implemented or qualified. See [functional use cases](https://github.com/npinguin/robotix-multicharge/issues/1).

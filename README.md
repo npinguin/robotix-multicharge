@@ -8,7 +8,7 @@
 
 Robotix MultiCharge is an open-source Home Assistant integration being built to coordinate charging for electric cars, e-bikes and other compatible rechargeable assets. The goal: make smart use of electricity prices, solar energy, available power and charging deadlines—without locking you to a vehicle, charger or energy provider.
 
-> **Early development — not ready to control charging equipment.** The current `dev` branch contains a non-operational architecture bootstrap. No public installable TEST or STABLE release is available yet. Features described below are goals, not claims about the current release.
+> **Early development — do not use to control charging equipment.** The current `dev` branch contains configuration validation and read-only logical setup diagnostics, but no charging planner, chart or physical executor. No public installable TEST or STABLE release is available yet. Features described below are goals, not claims about the current release.
 
 ## What we're building
 
@@ -17,11 +17,11 @@ Robotix MultiCharge is an open-source Home Assistant integration being built to 
 - **Energy-aware scheduling** — optional electricity prices, solar surplus and site power limits.
 - **Capability-driven chargers** — safe on/off or variable-current control only when the hardware supports it.
 - **Real status** — physical charger readback, clear quality/availability and trustworthy plans.
-- **Works on its own** — native Home Assistant sources; optional external energy supervision.
+- **Works on its own** — choose optional data sources from native Home Assistant integrations.
 
 ## Simple in Home Assistant
 
-The planned everyday experience has four sections:
+The planned everyday experience has five sections:
 
 | View | Purpose |
 | --- | --- |
@@ -31,7 +31,7 @@ The planned everyday experience has four sections:
 | **Charging Plan** | Today/tomorrow 15-minute timeline: proposed/accepted charging, actual power, deadline and optional energy/price context |
 | **Settings** | Guided source selection, limits, diagnostics and expert YAML import |
 
-Set up the integration using the native Home Assistant configuration flow. Experts will have an optional declarative YAML import using the **same validation and stored configuration**, not a competing YAML automation engine. Native logical devices and entities stay useful in ordinary Home Assistant dashboards. A **single bundled charging-plan timeline card** will show future intervals and actual charging without installing an unrelated dashboard. This user experience is **planned, not yet implemented**.
+The first guided setup, YAML import parser and read-only logical setup entities exist in development but have **not passed actual Home Assistant runtime qualification**. A complete, beginner-friendly setup and a single bundled charging-plan timeline card are in scope, not yet operational. Both UI and optional YAML must use one validation model; no competing YAML automation engine is planned. Physical device identities remain with their native Home Assistant integrations.
 
 The stable core concepts are `ChargeableAsset`, `Charger` and `ChargeController`. A physical device stays owned by its native Home Assistant integration; MultiCharge only represents the logical charging role.
 
@@ -39,6 +39,7 @@ The stable core concepts are `ChargeableAsset`, `Charger` and `ChargeController`
 
 - [Architecture, UI and ownership](docs/ARCHITECTURE.md)
 - [Candidate contracts and interfaces](docs/INTERFACES.md)
+- [Functional use cases and acceptance](https://github.com/npinguin/robotix-multicharge/issues/1)
 - [Open development issues](https://github.com/npinguin/robotix-multicharge/issues)
 - [Active development PR](https://github.com/npinguin/robotix-multicharge/pull/2)
 

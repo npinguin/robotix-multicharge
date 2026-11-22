@@ -1,24 +1,26 @@
-# Architecture, native HA experience and ownership
+# Architecture and user experience
 
-## Scope and three concepts
+## Purpose and ownership
 
-Robotix MultiCharge coordinates electric charging. **Car-first, not car-only.** It is not an inverter, home-battery or general home EMS controller.
+Robotix MultiCharge is an independent Home Assistant integration for coordinating electrical charging. It starts with cars but can support other rechargeable mobility assets when their real charging capabilities are known.
 
-| Concept | Owns | Does not own |
-| --- | --- | --- |
-| `ChargeableAsset` | Stable charging identity, energy need, target and deadline | Vehicle OEM/device or the original SoC source |
-| `Charger` | Stable logical charge point, verified capability, exclusive charging command/readback when enabled | Original physical HA Device Registry identity |
-| `ChargeController` | One coordinated charger plan and safe group allocation | Whole-home EMS or unrelated devices |
+| Logical object | Responsibility |
+| --- | --- |
+| `ChargeController` | One coordinated plan for a group of charge points and a configured charging power ceiling |
+| `Charger` | The logical charge point, its supported controls, assigned asset and physical readback |
+| `ChargeableAsset` | The object needing energy, its requested amount, target and Ready By deadline |
 
-A Charger belongs to one Controller. Configured asset assignment, actual occupation and physically identified asset are different facts. Source HA devices remain owned by their native integrations; MultiCharge does not reparent or impersonate them. Multiple Controllers cannot independently spend the same shared power envelope.
+One Controller coordinates its Chargers. A Charger has one authorized physical command owner. A logical association is not evidence that a particular vehicle is physically connected or identified.
 
-## Configuration: simple by default, YAML for experts
+The original Home Assistant integrations keep ownership of the physical devices, source data and their entity IDs. MultiCharge exposes stable logical charging devices without copying or reparenting the source devices.
 
-**Default:** HA Config Flow and Options Flow with guided setup: Controller, Charger, ChargeableAsset, sources, binding validation. Users can add a car and charger without writing YAML.
+## Configuration
 
-**Expert option:** one declarative YAML import, validated by exactly the same schema. YAML remains the authoritative source when chosen (read-only in the UI); the UI owns its own configuration when chosen. No second runtime YAML/Jinja calculator, competing config stores, or copied Home Assistant source registry. Import into a native HA Config Entry. **This is planned, not yet implemented in the bootstrap.**
+**Recommended:** native Config Flow and Options Flow, with guided steps for controller → chargers → assets → optional sources → verification. Clear names and safe defaults for beginners.
 
-Proposed future YAML form (illustration, **not yet supported**):
+**Expert:** optional declarative YAML import. The YAML representation and UI use the same schema, field meanings and validation. The active configuration has one owner: YAML when imported or HA Options when UI-authored. There is no YAML/Jinja planning engine or duplicate settings store.
+
+Illustrative expert configuration (shape is under development; not yet qualified in HA):
 
 ```yaml
 # configuration.yaml
@@ -31,10 +33,10 @@ controller:
   max_parallel: 2
   max_power_kw: 11
 assets:
-  - id: car
+  - id: family_car
     name: Family car
     kind: car
-    soc_entity: sensor.car_battery
+    soc_entity: sensor.family_car_battery
     target_soc: 80
 chargers:
   - id: driveway
@@ -47,47 +49,53 @@ chargers:
     power_entity: sensor.driveway_power
 ```
 
-## Native HA UX: useful, but no duplicate control plane
+Config/Options Flow code, YAML structural validation and read-only logical setup devices have been committed. Real HA setup, import/reload, Options editing and rollback still require qualification. No current code can start charging.
 
-- **Overview:** active charger(s), next session, remaining energy, available charging capacity and warnings.
-- **ChargeableAsset:** actual SoC/quality, target, Ready By, remaining demand, selected Charger.
-- **Charger:** connection, measured power/energy, verified control capability, status and safe actions.
-- **ChargeController:** active mode, cap/concurrency, plan status and coverage, attention and next activity.
-- **Settings:** guided mapping, safe limits, meaningful diagnostics, expert import.
-- **Dashboards:** usable first through native HA devices/entities, selectors, cards, buttons and sensors. Add a tiny optional overview card only if native cards cannot show a coherent daily journey; no UI-owned scheduler or rule engine.
+## User experience and native entities
 
-Current bootstrap still has **no actual charging devices, entities, planner or actuator**. Future release screenshots must come from tested real HA instances; missing information stays unknown, not zero or fabricated readiness.
+| View | Primary task |
+| --- | --- |
+| **Overview** | See what is charging, what comes next and what needs attention |
+| **Charging Plan** | View today/tomorrow planned vs measured charging and readiness |
+| **Chargeable Assets** | Manage energy needs, targets, deadlines and source quality |
+| **Chargers** | See connection, assignment, capabilities and true hardware feedback |
+| **Settings** | Guided setup, source mapping, strategy, limits and diagnostics |
 
-Unique logical device IDs use `(robotix_multicharge, concept/id)` with stable per-property entity unique IDs. Runtime SoC/power updates never trigger structural/device registry rebuilds. `via_device` must not be used to represent semantic ownership, assignment or planning. Native source devices retain their IDs/history.
+The six requested modes are Automatic, Solar, Economy, Ready By, Force Charge and Off. A manual command still obeys the configured limits and physical equipment protections.
 
-## Planner, safety and optional energy supervision
+Expose stable native HA device and entity IDs for the three logical concepts. Ordinary HA dashboards and automations must remain possible even without a bespoke card. A dedicated chart is justified for the future interval timeline; no second planner or data store belongs in the frontend.
+
+Logical identity and selected source bindings change only through deliberate structural edits. Live SoC, energy, current and availability updates never rebuild device registry topology. Missing and unknown must never be rendered as zero or as a successful charge.
+
+## Charging plan timeline
+
+A single responsive, bundled timeline will be usable at ChargeController level and filtered by Charger or ChargeableAsset.
+
+- 15-minute slots for today and tomorrow in the HA timezone, including 23/25-hour daylight-saving days.
+- Proposed plan, accepted plan and **measured** actuals distinguished, with power (kW), energy (kWh) and source freshness.
+- Ready By and expected shortfall clearly indicated; optional electricity price and solar/context sources when available.
+- A simple mobile view, accessible labels, readable legends and explicit unavailable/unknown states.
+- Future slots queried through one bounded, read-only plan view; measured history from native HA telemetry and Recorder. Do not rewrite 48-hour plan arrays into giant sensor attributes or compute a new plan in the chart.
+
+The planner and chart are **not implemented** in the current source. Illustrative plots are not commissioning evidence.
+
+## Planning, physical execution and safety
 
 ```text
-HA sources (prices, grid/PV, SoC, charger observations)
-      -> explicit qualified bindings / freshness
-ChargeableAsset demand + Charger capabilities
-      -> ChargeController: one revisioned charge plan
-      <-> optional external supervisor: binding time/phase envelopes
-      -> exclusive physical writer per Charger, with actual readback
+Native HA sources (charger, asset, price, solar, available site power)
+    -> validated binding and source freshness
+ChargeableAsset needs + Charger capabilities
+    -> ChargeController: coordinated charging plan
+    -> one authorized Charger actuator
+    -> independent actual hardware readback
 ```
 
-The Controller is the specialized charging optimizer. An external house EMS may read demand, plans, actual results and send binding capacity or urgent stop restrictions; it never writes an already-owned Charger or replaces the charging planner. A stale previously active binding restriction fails safe. No external product is required in standalone mode.
+The configured power budget, circuit and charger limits are binding safety constraints, not soft suggestions. Missing or stale safety-critical capacity is never treated as unlimited. A verified on/off switch cannot be represented as variable-current control. A command acknowledgment is not proof of actual physical power change.
 
-A smart plug remains qualified on/off only. Phase/current limits must be verified; a HA service acknowledgment does not prove physical execution. Hardware and installation protections remain independent and authoritative. No charging actuator exists in the bootstrap.
+The installed equipment and built-in charger protections remain authoritative. Any physical execution must remain disabled until real hardware and fail-safe behavior are qualified.
 
-## Acceptance
+## Acceptance and tracking
 
-Prove native UI and YAML parity, structural identity persistence, unknown/quality, source binding, restart/unload/rollback, 1/2/4/10 mixed charger planning, deadline/solar/price/DST scenarios, external envelope expiry and emergency stop, exact HA command/readback and qualified real hardware before claiming Feature Complete.
+The [functional use case matrix and qualification checklist](https://github.com/npinguin/robotix-multicharge/issues/1) are maintained in one issue. Include 1/2/4/10 charger scenarios; no-SoC, missing price and meter sources; time zones/DST; deadline feasibility; unsafe or rejected commands; real readback; configuration persistence; and HA restart/unload/rollback.
 
-## Charging Plan chart — required community UX
-
-One native-bundled, responsive timeline card, reusable in the ChargeController overview and filtered to a single Charger/ChargeableAsset. This is **part of the agreed community Feature Complete scope**, not a separate Premium feature. Do not duplicate the optimizer in the card.
-
-- Default period: today and tomorrow in the Home Assistant timezone, using 15-minute exact intervals; DST days can have 92 or 100 slots. Let users inspect per-Charger plans without rebuilding a second chart implementation.
-- Show planned charging power (kW) over time with **proposed versus accepted** status, and actual measured power for completed intervals only. Distinguish current, forecast, actual, paused, unknown and unavailable. Use consistent units and legend.
-- Show Ready By deadline/target, remaining kWh and conflicts/missed deadlines. Optional price (EUR/kWh), PV surplus or binding available capacity appear only with qualified coverage and suitable units; missing sources do not break the chart.
-- A lightweight chart selector can toggle the group/individual view and the optional contextual traces. Accessibility, clear empty states and mobile usability are requirements.
-- Current and historical readback come from native HA sensors/Recorder where appropriate. **Future planned slots are read through one bounded, read-only native backend plan query** over the ChargeController's existing plan; do not store a 48-hour multi-Charger plan as constantly rewritten HA sensor attributes. Home Assistant records state attributes and has a 16 KiB attribute limit. No new planner/store or generic dashboard engine.
-- Use one bundled native HA custom card when necessary for future time-series; no mandatory frontend framework, third-party visualization service or additional HACS install. The same data also has lightweight native summary entities for ordinary HA cards.
-
-**Current state:** chart and read-only plan query are not yet implemented or HA-qualified. An illustrative YAML example or badge is not evidence of this feature.
+This document describes public implementation boundaries, not confidential project integration plans. Do not mark source CI, mock screens or an unqualified package Feature Complete.
