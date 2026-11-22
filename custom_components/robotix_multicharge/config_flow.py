@@ -407,16 +407,19 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )}
 
     async def async_step_import(self, user_input):
-        """Import expert YAML through the existing HA entry, even after UI setup."""
+        """Import expert JSON/YAML via native Config Entry, without any wizard."""
         await self.async_set_unique_id(DOMAIN)
         cfg = validate_configuration(user_input)
+        expert_format = self.context.get("expert_format", "yaml")
+        if expert_format not in ("yaml", "json"):
+            raise ValueError("Unsupported expert configuration format")
         entries = self._async_current_entries()
         if entries:
             # An existing setup can adopt expert YAML without deleting/readding
             # the HA Config Entry: this preserves its entry ID, logical devices,
             # registry identities, Recorder history and physical replay store.
             entry = entries[0]
-            next_data = {"source": "yaml", "configuration": cfg}
+            next_data = {"source": expert_format, "configuration": cfg}
             next_options = {
                 key: value for key, value in entry.options.items()
                 if key != "configuration"
@@ -434,7 +437,7 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_abort(reason="configuration_updated")
             return self.async_abort(reason="already_configured")
         return self.async_create_entry(
-            title=NAME, data={"source": "yaml", "configuration": cfg}
+            title=NAME, data={"source": expert_format, "configuration": cfg}
         )
 
 
@@ -456,7 +459,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         )
 
     async def async_step_init(self, user_input=None):
-        if self.config_entry.data.get("source") == "yaml":
+        if self.config_entry.data.get("source") in ("yaml", "json"):
             return self.async_abort(reason="yaml_managed")
         return self.async_show_menu(
             step_id="init", menu_options=["controller", "asset", "charger", "display"]
