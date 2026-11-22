@@ -1,0 +1,434 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Laadlocatie",
+        "description": "Laadlocatie",
+        "data": {
+          "name": "Naam",
+          "max_parallel": "Aantal",
+          "max_power_kw": "Vermogen",
+          "phase_limits_a": "Fasen"
+        }
+      },
+      "charger": {
+        "title": "Laadpaal",
+        "description": "Laadpaal",
+        "data": {
+          "action": "Actie",
+          "name": "Naam",
+          "kind": "Type",
+          "rated_power_kw": "Vermogen",
+          "phase_count": "Fasen",
+          "min_current_a": "Stroom",
+          "max_current_a": "Stroom",
+          "connected_entity": "Aansluiting",
+          "power_entity": "Vermogen",
+          "energy_entity": "Energiemeter",
+          "control_entity": "Stroom",
+          "add_another": "Actie",
+          "phase_ids": "Fasen",
+          "voltage_v": "Vermogen",
+          "current_step_a": "Stroom",
+          "fixed_current_a": "Stroom",
+          "circuit_id": "Aantal",
+          "circuit_limit_a": "Stroom",
+          "current_control_entity": "Stroom",
+          "current_readback_entity": "Stroom"
+        }
+      },
+      "asset": {
+        "title": "Voertuig",
+        "description": "Voertuig",
+        "data": {
+          "action": "Actie",
+          "name": "Naam",
+          "kind": "Type",
+          "soc_entity": "Batterij",
+          "capacity_kwh": "Batterij",
+          "target_soc": "Doel",
+          "requested_kwh": "Vermogen",
+          "requested_duration_minutes": "Duur",
+          "ready_by": "Klaar om",
+          "charge_efficiency": "Vermogen",
+          "max_charge_kw": "Vermogen",
+          "priority": "Prioriteit",
+          "add_another": "Actie",
+          "ready_by_repeat": "Herhalen",
+          "temporary": "Gast",
+          "expires_at": "Vervalt",
+          "expected_connection_at": "Verwachte aansluiting"
+        }
+      },
+      "sources": {
+        "title": "Bronnen",
+        "description": "Bronnen",
+        "data": {
+          "price_entity": "Tarief",
+          "solar_entity": "Zonne-energie",
+          "binding_entity": "Vermogen"
+        }
+      },
+      "verify": {
+        "title": "Controleren",
+        "description": "Controleren",
+        "data": {
+          "confirm": "Controleren"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Robotix MultiCharge is already configured.",
+      "configuration_conflict": "A UI-managed configuration already exists. Remove it before using YAML.",
+      "configuration_updated": "YAML configuration updated."
+    },
+    "error": {
+      "invalid_config": "Controleren",
+      "verification_required": "Controleren"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "menu_options": {
+          "controller": "Charging site",
+          "asset": "Chargeable assets",
+          "charger": "Chargers",
+          "display": "Dashboard card"
+        },
+        "title": "Instellingen"
+      },
+      "controller": {
+        "title": "Laadlocatie",
+        "data": {
+          "name": "Naam",
+          "max_parallel": "Aantal",
+          "max_power_kw": "Vermogen",
+          "mode": "Laadmodus",
+          "price_entity": "Tarief",
+          "solar_entity": "Zonne-energie",
+          "binding_entity": "Vermogen",
+          "phase_limits_a": "Fasen",
+          "plan_label_mode": "Planweergave",
+          "plan_color_by": "Kleur per",
+          "show_indicative_forecast": "Prognose"
+        }
+      },
+      "asset": {
+        "title": "Voertuig",
+        "description": "Voertuig",
+        "data": {
+          "action": "Actie",
+          "id": "Naam",
+          "name": "Naam",
+          "kind": "Type",
+          "soc_entity": "Batterij",
+          "capacity_kwh": "Batterij",
+          "target_soc": "Doel",
+          "max_charge_kw": "Vermogen",
+          "requested_kwh": "Vermogen",
+          "requested_duration_minutes": "Duur",
+          "ready_by": "Klaar om",
+          "charge_efficiency": "Vermogen",
+          "priority": "Prioriteit",
+          "ready_by_repeat": "Herhalen",
+          "temporary": "Gast",
+          "expires_at": "Vervalt",
+          "expected_connection_at": "Verwachte aansluiting"
+        }
+      },
+      "charger": {
+        "title": "Laadpaal",
+        "description": "Laadpaal",
+        "data": {
+          "action": "Actie",
+          "id": "Naam",
+          "name": "Naam",
+          "kind": "Type",
+          "rated_power_kw": "Vermogen",
+          "asset": "Voertuig",
+          "control_entity": "Stroom",
+          "connected_entity": "Aansluiting",
+          "power_entity": "Vermogen",
+          "energy_entity": "Energiemeter",
+          "phase_count": "Fasen",
+          "min_current_a": "Stroom",
+          "max_current_a": "Stroom",
+          "control_owner": "Stroom",
+          "physical_commissioned": "Controleren",
+          "phase_ids": "Fasen",
+          "voltage_v": "Vermogen",
+          "current_step_a": "Stroom",
+          "fixed_current_a": "Stroom",
+          "circuit_id": "Aantal",
+          "circuit_limit_a": "Stroom",
+          "current_control_entity": "Stroom",
+          "current_readback_entity": "Stroom"
+        }
+      },
+      "display": {
+        "title": "Dashboard",
+        "description": "Dashboard",
+        "data": {
+          "enable_ux": "Dashboard"
+        }
+      }
+    },
+    "abort": {
+      "yaml_managed": "Instellingen · YAML"
+    },
+    "error": {
+      "invalid_config": "Controleren"
+    }
+  },
+  "entity": {
+    "select": {
+      "plan_label_mode": {
+        "name": "Planlabels",
+        "state": {
+          "vehicle": "Asset",
+          "charger": "Laadpaal",
+          "both": "Beide"
+        }
+      },
+      "plan_color_by": {
+        "name": "Kleur per",
+        "state": {
+          "vehicle": "Asset",
+          "charger": "Laadpaal"
+        }
+      },
+      "show_indicative_forecast": {
+        "name": "Prognose",
+        "state": {
+          "on": "Tonen",
+          "off": "Verbergen"
+        }
+      },
+      "mode": {
+        "name": "Laadmodus",
+        "state": {
+          "automatic": "Automatisch",
+          "solar": "Zonne-energie",
+          "economy": "Voordelig",
+          "ready_by": "Klaar om",
+          "force_charge": "Direct laden",
+          "off": "Uit"
+        }
+      },
+      "plan_color": {
+        "name": "Plankleur",
+        "state": {
+          "blue": "Blauw",
+          "orange": "Oranje",
+          "green": "Groen",
+          "purple": "Paars",
+          "gold": "Goud",
+          "teal": "Blauwgroen",
+          "pink": "Roze",
+          "indigo": "Indigo",
+          "olive": "Olijfgroen",
+          "brown": "Bruin",
+          "coral": "Koraal",
+          "slate": "Leigrijs",
+          "violet": "Violet",
+          "lime": "Limoen",
+          "salmon": "Zalm",
+          "cyan": "Cyaan",
+          "wine": "Wijnrood",
+          "forest": "Bosgroen",
+          "peach": "Perzik",
+          "lavender": "Lavendel",
+          "turquoise": "Turkoois",
+          "rust": "Roest",
+          "navy": "Marineblauw",
+          "moss": "Mosgroen"
+        }
+      },
+      "selected_vehicle": {
+        "name": "Laadasset",
+        "state": {
+          "none": "Geen voertuig"
+        }
+      },
+      "ready_by_repeat": {
+        "name": "Herhalen",
+        "state": {
+          "none": "Geen",
+          "daily": "Dagelijks",
+          "weekly": "Wekelijks"
+        }
+      },
+      "kind": {
+        "name": "Type laadasset",
+        "state": {
+          "car": "Auto",
+          "bicycle": "Fiets",
+          "motorcycle": "Motor",
+          "scooter": "Scooter",
+          "other": "Overig"
+        }
+      }
+    },
+    "number": {
+      "target_soc": {
+        "name": "Doel"
+      },
+      "requested_kwh": {
+        "name": "Energie"
+      },
+      "requested_duration_minutes": {
+        "name": "Duur"
+      },
+      "priority": {
+        "name": "Prioriteit"
+      },
+      "max_charge_kw": {
+        "name": "Max. laadvermogen"
+      },
+      "max_parallel": {
+        "name": "Gelijktijdige laadpalen"
+      },
+      "max_power_kw": {
+        "name": "Max. locatievermogen"
+      },
+      "capacity_kwh": {
+        "name": "Batterijcapaciteit"
+      },
+      "charge_efficiency": {
+        "name": "Laadrendement"
+      }
+    },
+    "datetime": {
+      "ready_by": {
+        "name": "Klaar om"
+      },
+      "expected_connection_at": {
+        "name": "Verwachte aansluiting"
+      },
+      "expires_at": {
+        "name": "Gast geldig tot"
+      }
+    },
+    "sensor": {
+      "readiness": {
+        "name": "Gereed",
+        "state": {
+          "manual_controls_available": "Beschikbaar",
+          "not_commissioned": "Niet gereed",
+          "physical_readback_confirmed": "Gereed",
+          "readback_stale": "Geen update",
+          "unavailable": "Niet beschikbaar",
+          "source_observed": "Verbonden",
+          "demand_configured": "Ingesteld",
+          "needs_input": "Doel instellen"
+        }
+      },
+      "plan_status": {
+        "name": "Laadplan",
+        "state": {
+          "proposed": "Gepland",
+          "accepted": "Geaccepteerd",
+          "unavailable": "Niet beschikbaar"
+        }
+      },
+      "actual_power": {
+        "name": "Effectief laadvermogen"
+      },
+      "battery_level": {
+        "name": "Batterij"
+      },
+      "connection": {
+        "name": "Aansluiting"
+      },
+      "session_energy": {
+        "name": "Sessie-energie"
+      },
+      "command_status": {
+        "name": "Opdracht",
+        "state": {
+          "not_requested": "Geen actie",
+          "requested": "Bezig",
+          "confirmed": "Bevestigd",
+          "rejected": "Geweigerd",
+          "execution_unknown": "Onbekend"
+        }
+      },
+      "last_session_energy": {
+        "name": "Laatste laadsessie"
+      },
+      "charging_mode": {
+        "name": "Laadmodus"
+      },
+      "settings_revision": {
+        "name": "Instellingenversie"
+      },
+      "connected_chargers": {
+        "name": "Aangesloten laadpalen"
+      },
+      "charging_chargers": {
+        "name": "Ladende laadpalen"
+      },
+      "action_health": {
+        "name": "Laadstatus",
+        "state": {
+          "hold": "Geblokkeerd",
+          "unconfirmed": "Onbekend",
+          "pending": "Bezig",
+          "rejected": "Geweigerd",
+          "confirmed": "Bevestigd",
+          "idle": "Inactief"
+        }
+      },
+      "last_physical_action": {
+        "name": "Laatste laadactie",
+        "state": {
+          "start": "Start",
+          "stop": "Stop",
+          "set_current": "Stroom",
+          "none": "Geen"
+        }
+      },
+      "last_settings_action": {
+        "name": "Laatste wijziging",
+        "state": {
+          "save": "Opslaan",
+          "create": "Toevoegen",
+          "delete": "Verwijderen",
+          "none": "Geen"
+        }
+      },
+      "selected_vehicle": {
+        "name": "Laadasset"
+      },
+      "charging_intention": {
+        "name": "Laadbehoefte",
+        "state": {
+          "energy": "Energie",
+          "duration": "Duur",
+          "target_soc": "Batterijdoel",
+          "unconfigured": "Doel instellen"
+        }
+      },
+      "confirmed_current_setpoint": {
+        "name": "Stroomlimiet"
+      },
+      "actual_current": {
+        "name": "Gemeten stroom"
+      }
+    },
+    "text": {
+      "name": {
+        "name": "Naam"
+      }
+    },
+    "binary_sensor": {
+      "plugged": {
+        "name": "Kabel aangesloten"
+      },
+      "charging": {
+        "name": "Laden"
+      }
+    }
+  }
+}

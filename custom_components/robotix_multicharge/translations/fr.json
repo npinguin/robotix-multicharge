@@ -1,0 +1,434 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Site de recharge",
+        "description": "Site de recharge",
+        "data": {
+          "name": "Nom",
+          "max_parallel": "Nombre",
+          "max_power_kw": "Puissance",
+          "phase_limits_a": "Phases"
+        }
+      },
+      "charger": {
+        "title": "Borne",
+        "description": "Borne",
+        "data": {
+          "action": "Action",
+          "name": "Nom",
+          "kind": "Type",
+          "rated_power_kw": "Puissance",
+          "phase_count": "Phases",
+          "min_current_a": "Courant",
+          "max_current_a": "Courant",
+          "connected_entity": "Connexion",
+          "power_entity": "Puissance",
+          "energy_entity": "Compteur d’énergie",
+          "control_entity": "Courant",
+          "add_another": "Action",
+          "phase_ids": "Phases",
+          "voltage_v": "Puissance",
+          "current_step_a": "Courant",
+          "fixed_current_a": "Courant",
+          "circuit_id": "Nombre",
+          "circuit_limit_a": "Courant",
+          "current_control_entity": "Courant",
+          "current_readback_entity": "Courant"
+        }
+      },
+      "asset": {
+        "title": "Véhicule",
+        "description": "Véhicule",
+        "data": {
+          "action": "Action",
+          "name": "Nom",
+          "kind": "Type",
+          "soc_entity": "Batterie",
+          "capacity_kwh": "Batterie",
+          "target_soc": "Cible",
+          "requested_kwh": "Puissance",
+          "requested_duration_minutes": "Durée",
+          "ready_by": "Prêt pour",
+          "charge_efficiency": "Puissance",
+          "max_charge_kw": "Puissance",
+          "priority": "Priorité",
+          "add_another": "Action",
+          "ready_by_repeat": "Répéter",
+          "temporary": "Invité",
+          "expires_at": "Expiration",
+          "expected_connection_at": "Connexion prévue"
+        }
+      },
+      "sources": {
+        "title": "Sources",
+        "description": "Sources",
+        "data": {
+          "price_entity": "Tarif",
+          "solar_entity": "Solaire",
+          "binding_entity": "Puissance"
+        }
+      },
+      "verify": {
+        "title": "Vérification",
+        "description": "Vérification",
+        "data": {
+          "confirm": "Vérification"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Robotix MultiCharge is already configured.",
+      "configuration_conflict": "A UI-managed configuration already exists. Remove it before using YAML.",
+      "configuration_updated": "YAML configuration updated."
+    },
+    "error": {
+      "invalid_config": "Vérification",
+      "verification_required": "Vérification"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "menu_options": {
+          "controller": "Charging site",
+          "asset": "Chargeable assets",
+          "charger": "Chargers",
+          "display": "Dashboard card"
+        },
+        "title": "Réglages"
+      },
+      "controller": {
+        "title": "Site de recharge",
+        "data": {
+          "name": "Nom",
+          "max_parallel": "Nombre",
+          "max_power_kw": "Puissance",
+          "mode": "Mode de charge",
+          "price_entity": "Tarif",
+          "solar_entity": "Solaire",
+          "binding_entity": "Puissance",
+          "phase_limits_a": "Phases",
+          "plan_label_mode": "Affichage du plan",
+          "plan_color_by": "Couleur par",
+          "show_indicative_forecast": "Prévision"
+        }
+      },
+      "asset": {
+        "title": "Véhicule",
+        "description": "Véhicule",
+        "data": {
+          "action": "Action",
+          "id": "Nom",
+          "name": "Nom",
+          "kind": "Type",
+          "soc_entity": "Batterie",
+          "capacity_kwh": "Batterie",
+          "target_soc": "Cible",
+          "max_charge_kw": "Puissance",
+          "requested_kwh": "Puissance",
+          "requested_duration_minutes": "Durée",
+          "ready_by": "Prêt pour",
+          "charge_efficiency": "Puissance",
+          "priority": "Priorité",
+          "ready_by_repeat": "Répéter",
+          "temporary": "Invité",
+          "expires_at": "Expiration",
+          "expected_connection_at": "Connexion prévue"
+        }
+      },
+      "charger": {
+        "title": "Borne",
+        "description": "Borne",
+        "data": {
+          "action": "Action",
+          "id": "Nom",
+          "name": "Nom",
+          "kind": "Type",
+          "rated_power_kw": "Puissance",
+          "asset": "Véhicule",
+          "control_entity": "Courant",
+          "connected_entity": "Connexion",
+          "power_entity": "Puissance",
+          "energy_entity": "Compteur d’énergie",
+          "phase_count": "Phases",
+          "min_current_a": "Courant",
+          "max_current_a": "Courant",
+          "control_owner": "Courant",
+          "physical_commissioned": "Vérification",
+          "phase_ids": "Phases",
+          "voltage_v": "Puissance",
+          "current_step_a": "Courant",
+          "fixed_current_a": "Courant",
+          "circuit_id": "Nombre",
+          "circuit_limit_a": "Courant",
+          "current_control_entity": "Courant",
+          "current_readback_entity": "Courant"
+        }
+      },
+      "display": {
+        "title": "Tableau de bord",
+        "description": "Tableau de bord",
+        "data": {
+          "enable_ux": "Tableau de bord"
+        }
+      }
+    },
+    "abort": {
+      "yaml_managed": "Réglages · YAML"
+    },
+    "error": {
+      "invalid_config": "Vérification"
+    }
+  },
+  "entity": {
+    "select": {
+      "plan_label_mode": {
+        "name": "Libellés du plan",
+        "state": {
+          "vehicle": "Actif",
+          "charger": "Borne",
+          "both": "Les deux"
+        }
+      },
+      "plan_color_by": {
+        "name": "Couleur par",
+        "state": {
+          "vehicle": "Actif",
+          "charger": "Borne"
+        }
+      },
+      "show_indicative_forecast": {
+        "name": "Prévision",
+        "state": {
+          "on": "Afficher",
+          "off": "Masquer"
+        }
+      },
+      "mode": {
+        "name": "Mode de charge",
+        "state": {
+          "automatic": "Automatique",
+          "solar": "Solaire",
+          "economy": "Économique",
+          "ready_by": "Prêt pour",
+          "force_charge": "Charge immédiate",
+          "off": "Arrêt"
+        }
+      },
+      "plan_color": {
+        "name": "Couleur du plan",
+        "state": {
+          "blue": "Bleu",
+          "orange": "Orange",
+          "green": "Vert",
+          "purple": "Violet",
+          "gold": "Or",
+          "teal": "Sarcelle",
+          "pink": "Rose",
+          "indigo": "Indigo",
+          "olive": "Olive",
+          "brown": "Marron",
+          "coral": "Corail",
+          "slate": "Ardoise",
+          "violet": "Mauve",
+          "lime": "Citron vert",
+          "salmon": "Saumon",
+          "cyan": "Cyan",
+          "wine": "Bordeaux",
+          "forest": "Vert forêt",
+          "peach": "Pêche",
+          "lavender": "Lavande",
+          "turquoise": "Turquoise",
+          "rust": "Rouille",
+          "navy": "Bleu marine",
+          "moss": "Vert mousse"
+        }
+      },
+      "selected_vehicle": {
+        "name": "Actif à charger",
+        "state": {
+          "none": "Aucun véhicule"
+        }
+      },
+      "ready_by_repeat": {
+        "name": "Répétition",
+        "state": {
+          "none": "Aucune",
+          "daily": "Chaque jour",
+          "weekly": "Chaque semaine"
+        }
+      },
+      "kind": {
+        "name": "Type d’actif",
+        "state": {
+          "car": "Voiture",
+          "bicycle": "Vélo",
+          "motorcycle": "Moto",
+          "scooter": "Scooter",
+          "other": "Autre"
+        }
+      }
+    },
+    "number": {
+      "target_soc": {
+        "name": "Cible"
+      },
+      "requested_kwh": {
+        "name": "Énergie"
+      },
+      "requested_duration_minutes": {
+        "name": "Durée"
+      },
+      "priority": {
+        "name": "Priorité"
+      },
+      "max_charge_kw": {
+        "name": "Puissance max."
+      },
+      "max_parallel": {
+        "name": "Bornes simultanées"
+      },
+      "max_power_kw": {
+        "name": "Puissance max. du site"
+      },
+      "capacity_kwh": {
+        "name": "Capacité batterie"
+      },
+      "charge_efficiency": {
+        "name": "Rendement de charge"
+      }
+    },
+    "datetime": {
+      "ready_by": {
+        "name": "Prêt pour"
+      },
+      "expected_connection_at": {
+        "name": "Connexion prévue"
+      },
+      "expires_at": {
+        "name": "Invité valable jusqu’à"
+      }
+    },
+    "sensor": {
+      "readiness": {
+        "name": "Prêt",
+        "state": {
+          "manual_controls_available": "Disponible",
+          "not_commissioned": "Non prêt",
+          "physical_readback_confirmed": "Prêt",
+          "readback_stale": "Sans mise à jour",
+          "unavailable": "Indisponible",
+          "source_observed": "Connecté",
+          "demand_configured": "Configuré",
+          "needs_input": "Définir une cible"
+        }
+      },
+      "plan_status": {
+        "name": "Plan de charge",
+        "state": {
+          "proposed": "Planifié",
+          "accepted": "Accepté",
+          "unavailable": "Indisponible"
+        }
+      },
+      "actual_power": {
+        "name": "Puissance de charge effective"
+      },
+      "battery_level": {
+        "name": "Batterie"
+      },
+      "connection": {
+        "name": "Connexion"
+      },
+      "session_energy": {
+        "name": "Énergie de session"
+      },
+      "command_status": {
+        "name": "Commande",
+        "state": {
+          "not_requested": "Aucune action",
+          "requested": "En cours",
+          "confirmed": "Confirmé",
+          "rejected": "Refusé",
+          "execution_unknown": "Inconnu"
+        }
+      },
+      "last_session_energy": {
+        "name": "Dernière charge"
+      },
+      "charging_mode": {
+        "name": "Mode de charge"
+      },
+      "settings_revision": {
+        "name": "Version des réglages"
+      },
+      "connected_chargers": {
+        "name": "Bornes connectées"
+      },
+      "charging_chargers": {
+        "name": "Bornes en charge"
+      },
+      "action_health": {
+        "name": "État de charge",
+        "state": {
+          "hold": "Suspendu",
+          "unconfirmed": "Inconnu",
+          "pending": "En cours",
+          "rejected": "Refusé",
+          "confirmed": "Confirmé",
+          "idle": "Inactif"
+        }
+      },
+      "last_physical_action": {
+        "name": "Dernière commande",
+        "state": {
+          "start": "Démarrer",
+          "stop": "Arrêter",
+          "set_current": "Courant",
+          "none": "Aucune"
+        }
+      },
+      "last_settings_action": {
+        "name": "Dernière modification",
+        "state": {
+          "save": "Enregistrer",
+          "create": "Ajouter",
+          "delete": "Supprimer",
+          "none": "Aucune"
+        }
+      },
+      "selected_vehicle": {
+        "name": "Actif à charger"
+      },
+      "charging_intention": {
+        "name": "Besoin de charge",
+        "state": {
+          "energy": "Énergie",
+          "duration": "Durée",
+          "target_soc": "Cible batterie",
+          "unconfigured": "Définir une cible"
+        }
+      },
+      "confirmed_current_setpoint": {
+        "name": "Limite de courant"
+      },
+      "actual_current": {
+        "name": "Courant mesuré"
+      }
+    },
+    "text": {
+      "name": {
+        "name": "Nom"
+      }
+    },
+    "binary_sensor": {
+      "plugged": {
+        "name": "Câble branché"
+      },
+      "charging": {
+        "name": "En charge"
+      }
+    }
+  }
+}

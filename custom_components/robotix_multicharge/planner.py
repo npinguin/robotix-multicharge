@@ -1,0 +1,446 @@
+"""Deterministic, source-neutral quarter-hour charging proposals.
+
+A proposal NEVER grants a physical write.  Unknown capacity is not unlimited,
+and source price/solar/binding coverage is never filled with fabricated zeros.
+The HA adapter supplies qualified source readings; the command owner is separate.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
+from hashlib import sha256
+from math import ceil, floor, isfinite
+from typing import Mapping, Sequence
+
+from .contracts import (
+    ChargeDemand, ChargePlan, PlannedChargeSlot, PowerEnvelope, PowerLimitSlot,
+    PriceSlot,
+)
+from .domain import ChargeController, Charger
+
+def resolve_recurring_ready_by(
+    anchor: datetime, now: datetime, repeat: str, site_time_zone: str
+) -> tuple[datetime | None, str]:
+    """Resolve the next real wall-clock deadline without inventing DST instants.
+
+    Recurrence is local to the HA site time zone; ambiguous or nonexistent
+    upcoming wall times fail closed rather than silently shifting deadlines.
+    """
+    if anchor.tzinfo is None or anchor.utcoffset() is None:
+        raise ValueError("Ready By anchor must be timezone-aware")
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("now must be timezone-aware")
+    if repeat == "none":
+        return anchor, "ONE_OFF"
+    if repeat not in ("daily", "weekly"):
+        raise ValueError("unsupported Ready By repetition")
+    zone = ZoneInfo(site_time_zone)
+    local_anchor = anchor.astimezone(zone)
+    local_now = now.astimezone(zone)
+    day = max(local_anchor.date(), local_now.date())
+    if repeat == "weekly":
+        day += timedelta(days=(local_anchor.weekday() - day.weekday()) % 7)
+    step = 1 if repeat == "daily" else 7
+    for _ in range(370 if repeat == "daily" else 54):
+        wall = datetime.combine(
+            day, time(local_anchor.hour, local_anchor.minute,
+                      local_anchor.second, local_anchor.microsecond)
+        )
+        first = wall.replace(tzinfo=zone, fold=0)
+        second = wall.replace(tzinfo=zone, fold=1)
+        # The two possible offsets differ on ambiguous and nonexistent times.
+        # Reject the first upcoming invalid occurrence; do not shift by an
+        # implicit hour or quietly skip a user's required departure.
+        if first.utcoffset() != second.utcoffset():
+            if first > local_now:
+                return None, "DEADLINE_DST_UNRESOLVED"
+        elif first > local_now and first >= local_anchor:
+            return first, "RECURRING"
+        day += timedelta(days=step)
+    return None, "DEADLINE_UNAVAILABLE"
+
+
+QUARTER = timedelta(minutes=15)
+MODES = frozenset(("Automatic", "Solar", "Economy", "Ready By", "Force Charge", "Off"))
+
+
+def _utc(value: datetime) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("time must be timezone-aware")
+    return value.astimezone(timezone.utc)
+
+
+def _ceil_quarter(value: datetime) -> datetime:
+    at = _utc(value)
+    seconds = at.timestamp()
+    return datetime.fromtimestamp(ceil(seconds / 900) * 900, timezone.utc)
+
+
+def _cover(slots: Sequence[PriceSlot | PowerLimitSlot], start: datetime,
+           end: datetime):
+    matching = [s for s in slots if _utc(s.start) <= start and _utc(s.end) >= end]
+    return matching[0] if len(matching) == 1 else None
+
+
+@dataclass(frozen=True)
+class PlanAssessment:
+    """Read-only result: a proposed schedule is not an observed charge session."""
+
+    plan: ChargePlan
+    reasons: Mapping[str, str]
+    shortfall_kwh: Mapping[str, float | None]
+    proposed_kwh: Mapping[str, float]
+    coverage: Mapping[str, str]
+    strategy: Mapping[str, str]
+
+
+def compile_plan(
+    controller: ChargeController,
+    chargers: Mapping[str, Charger],
+    demands: Sequence[ChargeDemand],
+    now: datetime,
+    *,
+    mode: str = "Ready By",
+    tariffs: Mapping[str, Sequence[PriceSlot]] | None = None,
+    solar: Sequence[PowerLimitSlot] | None = None,
+    binding: PowerEnvelope | None = None,
+    horizon_hours: int = 48,
+    reserved_slots: Sequence[PlannedChargeSlot] = (),
+) -> PlanAssessment:
+    """Calculate one deterministic, bounded, non-actuating Controller proposal.
+
+    Slots are UTC-aligned 15-minute intervals; the frontend converts to the
+    actual HA local date (which may contain 92, 96 or 100 quarter-hours).
+    Tariff slots must cover an entire interval and be unambiguous.  A binding
+    source is a *hard* ceiling, including zero, expiry, holes and conflicts.
+    Group capacity must be explicitly configured before any allocation.
+    """
+    at = _utc(now)
+    if mode not in MODES:
+        raise ValueError("unsupported mode")
+    if not isinstance(horizon_hours, int) or not 1 <= horizon_hours <= 48:
+        raise ValueError("horizon must be 1..48 hours")
+    if binding is not None and binding.authority != "binding":
+        raise ValueError("advisory capacity is not a physical binding ceiling")
+    # Comparing nominal prices in different currencies creates a false
+    # financial optimization; one Charger needs one actual currency basis.
+    if tariffs is not None:
+        for charger_id, prices in tariffs.items():
+            if len({price.currency for price in prices}) > 1:
+                raise ValueError(f"mixed tariff currencies for charger {charger_id}")
+
+    reasons: dict[str, str] = {}
+    shortfall: dict[str, float | None] = {}
+    coverage: dict[str, str] = {}
+    strategy: dict[str, str] = {}
+    proposed: dict[str, float] = {}
+    allocations: list[PlannedChargeSlot] = []
+    ends = at + timedelta(hours=horizon_hours)
+    begin = _ceil_quarter(at)
+    intervals: list[datetime] = []
+    cursor = begin
+    while cursor + QUARTER <= ends:
+        intervals.append(cursor)
+        cursor += QUARTER
+
+    used_kw: dict[datetime, float] = {}
+    used_phase_a: dict[datetime, dict[str, float]] = {}
+    used_circuit_a: dict[datetime, dict[str, float]] = {}
+    active: dict[datetime, set[str]] = {}
+    seen: set[str] = set()
+    # Forecast scenarios run AFTER the live proposal: its existing physical
+    # allocations consume capacity but cannot be changed by a hypothetical EV.
+    # This is still the ONE planning engine, never a second executable plan.
+    for locked in reserved_slots:
+        start = _utc(locked.start)
+        if start not in intervals or _utc(locked.end) != start + QUARTER:
+            continue
+        owner = chargers.get(locked.charger_uid)
+        if owner is None:
+            raise ValueError("reserved charger is unknown")
+        used_kw[start] = used_kw.get(start, 0.0) + locked.power_kw
+        active.setdefault(start, set()).add(locked.charger_uid)
+        current = locked.current_a if owner.control_kind == "variable_current" else owner.fixed_current_a
+        if current is not None:
+            for phase in owner.phase_ids:
+                phases = used_phase_a.setdefault(start, {})
+                phases[phase] = phases.get(phase, 0.0) + current
+            if owner.circuit_id:
+                circuits = used_circuit_a.setdefault(start, {})
+                circuits[owner.circuit_id] = circuits.get(owner.circuit_id, 0.0) + current
+    ranked = sorted(demands, key=lambda d: (
+        -d.priority, _utc(d.ready_by) if d.ready_by else datetime.max.replace(
+            tzinfo=timezone.utc), d.charger_uid or "", d.asset_uid,
+    ))
+    for demand in ranked:
+        uid = demand.charger_uid
+        if not uid or uid not in chargers:
+            raise ValueError("demand must reference an existing charger")
+        if uid in seen:
+            raise ValueError("duplicate charging request for one physical charger")
+        seen.add(uid)
+        charger = chargers[uid]
+        if charger.controller_uid != controller.uid:
+            raise ValueError("charger belongs to another Controller")
+        proposed[uid] = 0.0
+        if mode == "Off":
+            reasons[uid] = "OFF"
+            strategy[uid] = "Off"
+            shortfall[uid] = demand.remaining_grid_kwh
+            coverage[uid] = "NOT_REQUIRED"
+            continue
+        if demand.remaining_grid_kwh is None and demand.remaining_duration_minutes is None:
+            reasons[uid] = "DEMAND_UNKNOWN"
+            shortfall[uid] = None
+            coverage[uid] = "UNAVAILABLE"
+            continue
+        if demand.remaining_grid_kwh == 0:
+            reasons[uid] = "TARGET_MET"
+            shortfall[uid] = 0.0
+            coverage[uid] = "NOT_REQUIRED"
+            continue
+        if demand.ready_by is None and mode == "Ready By":
+            reasons[uid] = "DEADLINE_UNKNOWN"
+            shortfall[uid] = demand.remaining_grid_kwh
+            coverage[uid] = "UNAVAILABLE"
+            continue
+        # Economy, Solar and Automatic can plan to the bounded horizon when
+        # no departure is configured. Force Charge explicitly ignores a later
+        # deadline, but NEVER the electrical or evidence limits.
+        deadline = (
+            _utc(demand.ready_by)
+            if demand.ready_by is not None and mode != "Force Charge"
+            else ends
+        )
+        if deadline <= begin:
+            reasons[uid] = "DEADLINE_PASSED"
+            shortfall[uid] = demand.remaining_grid_kwh
+            coverage[uid] = "UNAVAILABLE"
+            continue
+        if controller.max_group_power_kw is None:
+            reasons[uid] = "GROUP_CAPACITY_UNQUALIFIED"
+            shortfall[uid] = demand.remaining_grid_kwh
+            coverage[uid] = "UNAVAILABLE"
+            continue
+        if not isfinite(charger.rated_power_kw) or charger.rated_power_kw <= 0:
+            reasons[uid] = "CHARGER_CAPABILITY_UNQUALIFIED"
+            shortfall[uid] = demand.remaining_grid_kwh
+            coverage[uid] = "UNAVAILABLE"
+            continue
+        if (
+            charger.control_kind == "on_off"
+            and demand.max_power_kw is not None
+            and demand.max_power_kw + 1e-9 < charger.rated_power_kw
+        ):
+            # A full-power fixed-slot proposal would exceed the asset cap.
+            # Variable-current control needs separately verified voltage,
+            # phase, min/max and setpoint readback before it can be accepted.
+            reasons[uid] = "ASSET_POWER_LIMIT_REQUIRES_VERIFIED_MODULATION"
+            shortfall[uid] = demand.remaining_grid_kwh
+            coverage[uid] = "UNAVAILABLE"
+            continue
+        # A verified adjustable charger can propose stepped current, never a
+        # fictitious fractional on/off switch. Unknown wiring remains unavailable.
+        adjustable = charger.control_kind == "variable_current"
+        if adjustable and (
+            not charger.phase_ids or charger.voltage_v is None
+            or charger.current_step_a is None
+        ):
+            reasons[uid] = "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED"
+            shortfall[uid] = demand.remaining_grid_kwh
+            coverage[uid] = "UNAVAILABLE"
+            continue
+        if controller.phase_limits_a is not None and (
+            not charger.phase_ids or charger.voltage_v is None
+            or any(p not in controller.phase_limits_a for p in charger.phase_ids)
+            or (not adjustable and charger.fixed_current_a is None)
+        ):
+            reasons[uid] = "PHASE_WIRING_UNVERIFIED"
+            shortfall[uid] = demand.remaining_grid_kwh
+            coverage[uid] = "UNAVAILABLE"
+            continue
+        if charger.circuit_id and charger.circuit_limit_a is None:
+            reasons[uid] = "CIRCUIT_LIMIT_UNVERIFIED"
+            shortfall[uid] = demand.remaining_grid_kwh
+            coverage[uid] = "UNAVAILABLE"
+            continue
+        possible = []
+        missing_price = False
+        missing_solar = False
+        missing_binding = False
+        for slot in intervals:
+            finish = slot + QUARTER
+            if (finish > deadline or
+                    demand.not_before is not None and slot < _utc(demand.not_before)):
+
+                continue
+            cap = controller.max_group_power_kw
+            if binding is not None:
+                if (_utc(binding.issued_at) > slot
+                        or _utc(binding.valid_until) < finish):
+                    missing_binding = True
+                    continue
+                bound = _cover(binding.slots, slot, finish)
+                if bound is None:
+                    missing_binding = True
+                    continue
+                cap = min(cap, bound.max_charging_kw)
+            if mode == "Solar":
+                source = _cover(solar or (), slot, finish)
+                if source is None:
+                    missing_solar = True
+                    continue
+                cap = min(cap, source.max_charging_kw)
+            if len(active.get(slot, ())) >= controller.max_parallel:
+                continue
+            remaining_kw = cap - used_kw.get(slot, 0.0)
+            if demand.max_power_kw is not None:
+                remaining_kw = min(remaining_kw, demand.max_power_kw)
+            phases = charger.phase_ids
+            voltage = charger.voltage_v
+            if adjustable:
+                remaining_kw = min(remaining_kw, charger.rated_power_kw)
+                current_cap = min(charger.max_current_a,
+                                  remaining_kw * 1000 / (voltage * len(phases)))
+                if controller.phase_limits_a is not None:
+                    current_cap = min(current_cap, *(
+                        controller.phase_limits_a[p] - used_phase_a.get(slot, {}).get(p, 0)
+                        for p in phases
+                    ))
+                if charger.circuit_id:
+                    current_cap = min(
+                        current_cap, charger.circuit_limit_a
+                        - used_circuit_a.get(slot, {}).get(charger.circuit_id, 0)
+                    )
+                steps = floor((current_cap - charger.min_current_a + 1e-9)
+                              / charger.current_step_a)
+                current = (charger.min_current_a + max(0, steps) * charger.current_step_a)
+                if current_cap + 1e-9 < charger.min_current_a:
+                    continue
+                power = round(current * voltage * len(phases) / 1000, 6)
+            else:
+                power = charger.rated_power_kw
+                current = charger.fixed_current_a
+                if power > remaining_kw + 1e-9:
+                    continue
+                if controller.phase_limits_a is not None and any(
+                    used_phase_a.get(slot, {}).get(p, 0) + current >
+                    controller.phase_limits_a[p] + 1e-9 for p in phases
+                ):
+                    continue
+                if charger.circuit_id and (
+                    current is None or used_circuit_a.get(slot, {}).get(
+                        charger.circuit_id, 0
+                    ) + current > charger.circuit_limit_a + 1e-9
+                ):
+                    continue
+            tariff = _cover((tariffs or {}).get(uid, ()), slot, finish)
+            if mode == "Economy" and tariff is None:
+                missing_price = True
+                continue
+            rate = tariff.effective_price_per_kwh if tariff is not None else None
+            if mode == "Automatic":
+                available_solar = _cover(solar or (), slot, finish)
+                solar_covers = (
+                    available_solar is not None
+                    and used_kw.get(slot, 0.0) + power
+                    <= available_solar.max_charging_kw + 1e-9
+                )
+                if rate is not None and rate < 0:
+                    key, chosen_strategy = (-1, rate), "negative_tariff"
+                elif solar_covers:
+                    key, chosen_strategy = (0, 0.0), "solar"
+                elif rate is not None:
+                    key, chosen_strategy = (1, rate), "economy"
+                else:
+                    key, chosen_strategy = (2, 0.0), "ready_by_fallback"
+            elif mode == "Economy":
+                key, chosen_strategy = (0, rate), "economy"
+            else:
+                key, chosen_strategy = (0, 0.0), mode
+            possible.append((key, slot, chosen_strategy, power, current))
+        possible.sort(key=lambda item: (item[0], item[1]))
+        chosen = []
+        delivered = 0.0
+        for _, slot, selected_mode, power, current in possible:
+            if demand.remaining_duration_minutes is not None:
+                if len(chosen) * 15 >= demand.remaining_duration_minutes:
+                    break
+            elif delivered + 1e-9 >= demand.remaining_grid_kwh:
+                break
+            chosen.append((slot, selected_mode, power, current))
+            delivered += power / 4
+        chosen.sort(key=lambda item: item[0])
+        strategy[uid] = ",".join(sorted({method for _, method, _, _ in chosen})) if chosen else mode
+        for slot, _, power, current in chosen:
+            allocations.append(PlannedChargeSlot(
+                charger_uid=uid, asset_uid=demand.asset_uid, start=slot,
+                end=slot + QUARTER, power_kw=power,
+                current_a=current if adjustable else None,
+            ))
+            active.setdefault(slot, set()).add(uid)
+            used_kw[slot] = used_kw.get(slot, 0.0) + power
+            if current is not None:
+                phases_used = used_phase_a.setdefault(slot, {})
+                for phase in phases:
+                    phases_used[phase] = phases_used.get(phase, 0) + current
+                if charger.circuit_id:
+                    circuits = used_circuit_a.setdefault(slot, {})
+                    circuits[charger.circuit_id] = (
+                        circuits.get(charger.circuit_id, 0) + current
+                    )
+        proposed[uid] = round(delivered, 5)
+        shortfall[uid] = (
+            round(max(0.0, demand.remaining_grid_kwh - delivered), 5)
+            if demand.remaining_grid_kwh is not None else None
+        )
+        completed = (
+            len(chosen) * 15 >= demand.remaining_duration_minutes
+            if demand.remaining_duration_minutes is not None
+            else delivered + 1e-9 >= demand.remaining_grid_kwh
+        )
+        if completed:
+            reasons[uid] = "PROPOSED"
+            coverage[uid] = "COMPLETE"
+        else:
+            reasons[uid] = (
+                "BINDING_CAPACITY_UNAVAILABLE" if missing_binding
+                else "SOLAR_UNAVAILABLE" if mode == "Solar" and missing_solar
+                else "PRICE_UNAVAILABLE" if mode == "Economy" and missing_price
+                else "INSUFFICIENT_CAPACITY_OR_TIME"
+            )
+            coverage[uid] = "INCOMPLETE"
+
+    allocations.sort(key=lambda s: (s.start, s.charger_uid))
+    signature = "|".join((
+        controller.uid, mode,
+        *(f"locked:{s.charger_uid}:{s.start.isoformat()}:{s.power_kw}:{s.current_a}"
+          for s in reserved_slots),
+        *(
+            f"{s.charger_uid}:{s.start.isoformat()}:{s.power_kw}:{s.current_a}"
+            for s in allocations
+        ),
+        *(f"{uid}:{reasons[uid]}:{strategy.get(uid, '')}" for uid in sorted(reasons)),
+    ))
+    revision = sha256(signature.encode("utf-8")).hexdigest()[:16]
+    plan = ChargePlan(
+        controller_uid=controller.uid,
+        revision=revision,
+        generated_at=at,
+        status=(
+            "proposed" if allocations or mode == "Off"
+            or (reasons and all(reason == "TARGET_MET" for reason in reasons.values()))
+            else "unavailable"
+        ),
+        slots=tuple(allocations),
+    )
+    return PlanAssessment(
+        plan=plan,
+        reasons=reasons,
+        shortfall_kwh=shortfall,
+        proposed_kwh=proposed,
+        coverage=coverage,
+        strategy=strategy,
+    )

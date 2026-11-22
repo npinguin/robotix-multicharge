@@ -1,0 +1,433 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Instalación de carga",
+        "description": "Paso 1/5: configurar el lugar y los límites seguros. No se activa la carga física.",
+        "data": {
+          "name": "Nombre",
+          "max_parallel": "Puntos de carga simultáneos",
+          "max_power_kw": "Potencia máxima (kW)",
+          "phase_limits_a": "Límites de fase (A)"
+        }
+      },
+      "charger": {
+        "title": "Puntos de carga",
+        "description": "Paso 2/5: añadir puntos de carga. El control sigue desactivado.",
+        "data": {
+          "action": "Acción",
+          "name": "Nombre",
+          "kind": "Tipo",
+          "rated_power_kw": "Potencia nominal (kW)",
+          "phase_count": "Número de fases",
+          "min_current_a": "Corriente mínima (A)",
+          "max_current_a": "Corriente máxima (A)",
+          "connected_entity": "Sensor de conexión",
+          "power_entity": "Sensor de potencia",
+          "energy_entity": "Contador de energía",
+          "control_entity": "Entidad de control",
+          "add_another": "Añadir otro",
+          "phase_ids": "Fases cableadas",
+          "voltage_v": "Tensión (V)",
+          "current_step_a": "Paso de corriente (A)",
+          "fixed_current_a": "Corriente fija (A)",
+          "circuit_id": "ID de circuito",
+          "circuit_limit_a": "Límite del circuito (A)",
+          "current_control_entity": "Consigna de corriente (number)",
+          "current_readback_entity": "Corriente medida (A)"
+        }
+      },
+      "asset": {
+        "title": "Activos de carga",
+        "description": "Paso 3/5: añadir activos recargables. El nivel de batería es opcional si se indica energía o duración.",
+        "data": {
+          "action": "Acción",
+          "name": "Nombre",
+          "kind": "Tipo",
+          "soc_entity": "Sensor de batería",
+          "capacity_kwh": "Capacidad de batería (kWh)",
+          "target_soc": "Batería objetivo (%)",
+          "requested_kwh": "Energía solicitada (kWh)",
+          "requested_duration_minutes": "Duración (minutos)",
+          "ready_by": "Listo para",
+          "charge_efficiency": "Eficiencia de carga",
+          "max_charge_kw": "Potencia máxima del activo (kW)",
+          "priority": "Prioridad",
+          "add_another": "Añadir otro",
+          "ready_by_repeat": "Repetición",
+          "temporary": "Invitado temporal",
+          "expires_at": "Caducidad del invitado",
+          "expected_connection_at": "Conexión prevista"
+        }
+      },
+      "sources": {
+        "title": "Fuentes y asignación",
+        "description": "Paso 4/5: elegir fuentes de medida y asignar activos. Sin datos no se supone potencia ilimitada.",
+        "data": {
+          "price_entity": "Fuente de precios",
+          "solar_entity": "Fuente solar",
+          "binding_entity": "Fuente de límite de potencia"
+        }
+      },
+      "verify": {
+        "title": "Verificar",
+        "description": "{summary} Verificar las fuentes y los dispositivos. La configuración no activa el control físico.",
+        "data": {
+          "confirm": "Confirmar configuración"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Robotix MultiCharge ya está configurado.",
+      "configuration_conflict": "Ya existe una configuración de interfaz. Eliminarla antes de usar YAML.",
+      "configuration_updated": "Configuración YAML actualizada."
+    },
+    "error": {
+      "invalid_config": "Configuración no válida.",
+      "verification_required": "Revisar y confirmar antes de guardar."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "menu_options": {
+          "controller": "Instalación de carga",
+          "asset": "Activo de carga",
+          "charger": "Punto de carga",
+          "display": "Tarjeta del panel"
+        }
+      },
+      "controller": {
+        "title": "Instalación de carga",
+        "data": {
+          "name": "Nombre",
+          "max_parallel": "Puntos de carga simultáneos",
+          "max_power_kw": "Potencia máxima (kW)",
+          "mode": "Modo de carga",
+          "price_entity": "Fuente de precios",
+          "solar_entity": "Fuente solar",
+          "binding_entity": "Fuente de límite de potencia",
+          "phase_limits_a": "Límites de fase (A)",
+          "plan_label_mode": "Etiquetas del plan",
+          "plan_color_by": "Color por",
+          "show_indicative_forecast": "Mostrar previsión"
+        }
+      },
+      "asset": {
+        "title": "Activo de carga",
+        "description": "Usar el mismo ID para editar o eliminar.",
+        "data": {
+          "action": "Acción",
+          "id": "ID estable",
+          "name": "Nombre",
+          "kind": "Tipo",
+          "soc_entity": "Sensor de batería",
+          "capacity_kwh": "Capacidad de batería (kWh)",
+          "target_soc": "Batería objetivo (%)",
+          "max_charge_kw": "Potencia máxima del activo (kW)",
+          "requested_kwh": "Energía solicitada (kWh)",
+          "requested_duration_minutes": "Duración (minutos)",
+          "ready_by": "Listo para",
+          "charge_efficiency": "Eficiencia de carga",
+          "priority": "Prioridad",
+          "ready_by_repeat": "Repetición",
+          "temporary": "Invitado temporal",
+          "expires_at": "Caducidad del invitado",
+          "expected_connection_at": "Conexión prevista"
+        }
+      },
+      "charger": {
+        "title": "Punto de carga",
+        "description": "Seleccionar MultiCharge solo tras confirmar el control exclusivo. Verificar las medidas y los límites eléctricos antes de activar.",
+        "data": {
+          "action": "Acción",
+          "id": "ID estable",
+          "name": "Nombre",
+          "kind": "Tipo",
+          "rated_power_kw": "Potencia nominal (kW)",
+          "asset": "Activo de carga",
+          "control_entity": "Entidad de control",
+          "connected_entity": "Sensor de conexión",
+          "power_entity": "Sensor de potencia",
+          "energy_entity": "Contador de energía",
+          "phase_count": "Número de fases",
+          "min_current_a": "Corriente mínima (A)",
+          "max_current_a": "Corriente máxima (A)",
+          "control_owner": "Propietario del control",
+          "physical_commissioned": "Puesta en servicio confirmada",
+          "phase_ids": "Fases cableadas",
+          "voltage_v": "Tensión (V)",
+          "current_step_a": "Paso de corriente (A)",
+          "fixed_current_a": "Corriente fija (A)",
+          "circuit_id": "ID de circuito",
+          "circuit_limit_a": "Límite del circuito (A)",
+          "current_control_entity": "Consigna de corriente (number)",
+          "current_readback_entity": "Corriente medida (A)"
+        }
+      },
+      "display": {
+        "title": "Tarjeta del panel",
+        "description": "Vista opcional. La integración funciona sin la tarjeta.",
+        "data": {
+          "enable_ux": "Activar tarjeta de panel"
+        }
+      }
+    },
+    "abort": {
+      "yaml_managed": "Configuración gestionada mediante YAML. Modificar YAML y reiniciar Home Assistant."
+    },
+    "error": {
+      "invalid_config": "Configuración no válida."
+    }
+  },
+  "entity": {
+    "select": {
+      "plan_label_mode": {
+        "name": "Etiquetas del plan",
+        "state": {
+          "vehicle": "Activo",
+          "charger": "Punto de carga",
+          "both": "Ambos"
+        }
+      },
+      "plan_color_by": {
+        "name": "Color por",
+        "state": {
+          "vehicle": "Activo",
+          "charger": "Punto de carga"
+        }
+      },
+      "show_indicative_forecast": {
+        "name": "Previsión",
+        "state": {
+          "on": "Mostrar",
+          "off": "Ocultar"
+        }
+      },
+      "mode": {
+        "name": "Modo de carga",
+        "state": {
+          "automatic": "Automático",
+          "solar": "Solar",
+          "economy": "Económico",
+          "ready_by": "Listo para",
+          "force_charge": "Carga inmediata",
+          "off": "Apagado"
+        }
+      },
+      "plan_color": {
+        "name": "Color del plan",
+        "state": {
+          "blue": "Azul",
+          "orange": "Naranja",
+          "green": "Verde",
+          "purple": "Morado",
+          "gold": "Dorado",
+          "teal": "Verde azulado",
+          "pink": "Rosa",
+          "indigo": "Índigo",
+          "olive": "Oliva",
+          "brown": "Marrón",
+          "coral": "Coral",
+          "slate": "Pizarra",
+          "violet": "Violeta",
+          "lime": "Lima",
+          "salmon": "Salmón",
+          "cyan": "Cian",
+          "wine": "Granate",
+          "forest": "Verde bosque",
+          "peach": "Melocotón",
+          "lavender": "Lavanda",
+          "turquoise": "Turquesa",
+          "rust": "Óxido",
+          "navy": "Azul marino",
+          "moss": "Verde musgo"
+        }
+      },
+      "selected_vehicle": {
+        "name": "Activo de carga",
+        "state": {
+          "none": "Sin activo"
+        }
+      },
+      "ready_by_repeat": {
+        "name": "Repetición",
+        "state": {
+          "none": "Ninguna",
+          "daily": "Diaria",
+          "weekly": "Semanal"
+        }
+      },
+      "kind": {
+        "name": "Tipo de activo",
+        "state": {
+          "car": "Coche",
+          "bicycle": "Bicicleta",
+          "motorcycle": "Motocicleta",
+          "scooter": "Patinete",
+          "other": "Otro"
+        }
+      }
+    },
+    "number": {
+      "target_soc": {
+        "name": "Objetivo"
+      },
+      "requested_kwh": {
+        "name": "Energía"
+      },
+      "requested_duration_minutes": {
+        "name": "Duración"
+      },
+      "priority": {
+        "name": "Prioridad"
+      },
+      "max_charge_kw": {
+        "name": "Potencia máx. de carga"
+      },
+      "max_parallel": {
+        "name": "Puntos simultáneos"
+      },
+      "max_power_kw": {
+        "name": "Límite de potencia"
+      },
+      "capacity_kwh": {
+        "name": "Capacidad de batería"
+      },
+      "charge_efficiency": {
+        "name": "Eficiencia"
+      }
+    },
+    "datetime": {
+      "ready_by": {
+        "name": "Listo para"
+      },
+      "expected_connection_at": {
+        "name": "Conexión prevista"
+      },
+      "expires_at": {
+        "name": "Invitado hasta"
+      }
+    },
+    "sensor": {
+      "readiness": {
+        "name": "Preparación",
+        "state": {
+          "manual_controls_available": "Disponible",
+          "not_commissioned": "No listo",
+          "physical_readback_confirmed": "Listo",
+          "readback_stale": "Sin actualización",
+          "unavailable": "No disponible",
+          "source_observed": "Conectado",
+          "demand_configured": "Configurado",
+          "needs_input": "Definir objetivo"
+        }
+      },
+      "plan_status": {
+        "name": "Plan de carga",
+        "state": {
+          "proposed": "Planificado",
+          "accepted": "Confirmado",
+          "unavailable": "No disponible"
+        }
+      },
+      "actual_power": {
+        "name": "Potencia efectiva de carga"
+      },
+      "battery_level": {
+        "name": "Batería"
+      },
+      "connection": {
+        "name": "Conexión"
+      },
+      "session_energy": {
+        "name": "Energía de sesión"
+      },
+      "command_status": {
+        "name": "Comando",
+        "state": {
+          "not_requested": "Sin acción",
+          "requested": "Pendiente",
+          "confirmed": "Confirmado",
+          "rejected": "Rechazado",
+          "execution_unknown": "Desconocido"
+        }
+      },
+      "last_session_energy": {
+        "name": "Última carga"
+      },
+      "charging_mode": {
+        "name": "Modo de carga"
+      },
+      "settings_revision": {
+        "name": "Versión de ajustes"
+      },
+      "connected_chargers": {
+        "name": "Puntos conectados"
+      },
+      "charging_chargers": {
+        "name": "Puntos cargando"
+      },
+      "action_health": {
+        "name": "Estado de carga",
+        "state": {
+          "hold": "En espera",
+          "unconfirmed": "Desconocido",
+          "pending": "Pendiente",
+          "rejected": "Rechazado",
+          "confirmed": "Confirmado",
+          "idle": "Inactivo"
+        }
+      },
+      "last_physical_action": {
+        "name": "Última acción",
+        "state": {
+          "start": "Iniciar",
+          "stop": "Detener",
+          "set_current": "Corriente",
+          "none": "Ninguna"
+        }
+      },
+      "last_settings_action": {
+        "name": "Último cambio",
+        "state": {
+          "save": "Guardar",
+          "create": "Añadir",
+          "delete": "Eliminar",
+          "none": "Ninguno"
+        }
+      },
+      "selected_vehicle": {
+        "name": "Activo de carga"
+      },
+      "charging_intention": {
+        "name": "Objetivo de carga",
+        "state": {
+          "energy": "Energía",
+          "duration": "Duración",
+          "target_soc": "Objetivo de batería",
+          "unconfigured": "Definir objetivo"
+        }
+      },
+      "confirmed_current_setpoint": {
+        "name": "Límite de corriente"
+      },
+      "actual_current": {
+        "name": "Corriente medida"
+      }
+    },
+    "text": {
+      "name": {
+        "name": "Nombre"
+      }
+    },
+    "binary_sensor": {
+      "plugged": {
+        "name": "Cable conectado"
+      },
+      "charging": {
+        "name": "Cargando"
+      }
+    }
+  }
+}

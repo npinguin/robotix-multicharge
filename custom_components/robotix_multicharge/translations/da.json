@@ -1,0 +1,434 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Ladested",
+        "description": "Ladested",
+        "data": {
+          "name": "Navn",
+          "max_parallel": "Antal",
+          "max_power_kw": "Effekt",
+          "phase_limits_a": "Faser"
+        }
+      },
+      "charger": {
+        "title": "Lader",
+        "description": "Lader",
+        "data": {
+          "action": "Handling",
+          "name": "Navn",
+          "kind": "Type",
+          "rated_power_kw": "Effekt",
+          "phase_count": "Faser",
+          "min_current_a": "Strøm",
+          "max_current_a": "Strøm",
+          "connected_entity": "Tilslutning",
+          "power_entity": "Effekt",
+          "energy_entity": "Energimåler",
+          "control_entity": "Strøm",
+          "add_another": "Handling",
+          "phase_ids": "Faser",
+          "voltage_v": "Effekt",
+          "current_step_a": "Strøm",
+          "fixed_current_a": "Strøm",
+          "circuit_id": "Antal",
+          "circuit_limit_a": "Strøm",
+          "current_control_entity": "Strøm",
+          "current_readback_entity": "Strøm"
+        }
+      },
+      "asset": {
+        "title": "Køretøj",
+        "description": "Køretøj",
+        "data": {
+          "action": "Handling",
+          "name": "Navn",
+          "kind": "Type",
+          "soc_entity": "Batteri",
+          "capacity_kwh": "Batteri",
+          "target_soc": "Mål",
+          "requested_kwh": "Effekt",
+          "requested_duration_minutes": "Varighed",
+          "ready_by": "Klar kl.",
+          "charge_efficiency": "Effekt",
+          "max_charge_kw": "Effekt",
+          "priority": "Prioritet",
+          "add_another": "Handling",
+          "ready_by_repeat": "Gentag",
+          "temporary": "Gæst",
+          "expires_at": "Udløb",
+          "expected_connection_at": "Forventet tilslutning"
+        }
+      },
+      "sources": {
+        "title": "Kilder",
+        "description": "Kilder",
+        "data": {
+          "price_entity": "Tarif",
+          "solar_entity": "Solenergi",
+          "binding_entity": "Effekt"
+        }
+      },
+      "verify": {
+        "title": "Kontrol",
+        "description": "Kontrol",
+        "data": {
+          "confirm": "Kontrol"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Robotix MultiCharge is already configured.",
+      "configuration_conflict": "A UI-managed configuration already exists. Remove it before using YAML.",
+      "configuration_updated": "YAML configuration updated."
+    },
+    "error": {
+      "invalid_config": "Kontrol",
+      "verification_required": "Kontrol"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "menu_options": {
+          "controller": "Charging site",
+          "asset": "Chargeable assets",
+          "charger": "Chargers",
+          "display": "Dashboard card"
+        },
+        "title": "Indstillinger"
+      },
+      "controller": {
+        "title": "Ladested",
+        "data": {
+          "name": "Navn",
+          "max_parallel": "Antal",
+          "max_power_kw": "Effekt",
+          "mode": "Ladetilstand",
+          "price_entity": "Tarif",
+          "solar_entity": "Solenergi",
+          "binding_entity": "Effekt",
+          "phase_limits_a": "Faser",
+          "plan_label_mode": "Planvisning",
+          "plan_color_by": "Farve efter",
+          "show_indicative_forecast": "Prognose"
+        }
+      },
+      "asset": {
+        "title": "Køretøj",
+        "description": "Køretøj",
+        "data": {
+          "action": "Handling",
+          "id": "Navn",
+          "name": "Navn",
+          "kind": "Type",
+          "soc_entity": "Batteri",
+          "capacity_kwh": "Batteri",
+          "target_soc": "Mål",
+          "max_charge_kw": "Effekt",
+          "requested_kwh": "Effekt",
+          "requested_duration_minutes": "Varighed",
+          "ready_by": "Klar kl.",
+          "charge_efficiency": "Effekt",
+          "priority": "Prioritet",
+          "ready_by_repeat": "Gentag",
+          "temporary": "Gæst",
+          "expires_at": "Udløb",
+          "expected_connection_at": "Forventet tilslutning"
+        }
+      },
+      "charger": {
+        "title": "Lader",
+        "description": "Lader",
+        "data": {
+          "action": "Handling",
+          "id": "Navn",
+          "name": "Navn",
+          "kind": "Type",
+          "rated_power_kw": "Effekt",
+          "asset": "Køretøj",
+          "control_entity": "Strøm",
+          "connected_entity": "Tilslutning",
+          "power_entity": "Effekt",
+          "energy_entity": "Energimåler",
+          "phase_count": "Faser",
+          "min_current_a": "Strøm",
+          "max_current_a": "Strøm",
+          "control_owner": "Strøm",
+          "physical_commissioned": "Kontrol",
+          "phase_ids": "Faser",
+          "voltage_v": "Effekt",
+          "current_step_a": "Strøm",
+          "fixed_current_a": "Strøm",
+          "circuit_id": "Antal",
+          "circuit_limit_a": "Strøm",
+          "current_control_entity": "Strøm",
+          "current_readback_entity": "Strøm"
+        }
+      },
+      "display": {
+        "title": "Dashboard",
+        "description": "Dashboard",
+        "data": {
+          "enable_ux": "Dashboard"
+        }
+      }
+    },
+    "abort": {
+      "yaml_managed": "Indstillinger · YAML"
+    },
+    "error": {
+      "invalid_config": "Kontrol"
+    }
+  },
+  "entity": {
+    "select": {
+      "plan_label_mode": {
+        "name": "Planvisning",
+        "state": {
+          "vehicle": "Enhed",
+          "charger": "Lader",
+          "both": "Begge"
+        }
+      },
+      "plan_color_by": {
+        "name": "Farve efter",
+        "state": {
+          "vehicle": "Enhed",
+          "charger": "Lader"
+        }
+      },
+      "show_indicative_forecast": {
+        "name": "Prognose",
+        "state": {
+          "on": "Vis",
+          "off": "Skjul"
+        }
+      },
+      "mode": {
+        "name": "Ladetilstand",
+        "state": {
+          "automatic": "Automatisk",
+          "solar": "Sol",
+          "economy": "Økonomi",
+          "ready_by": "Klar kl.",
+          "force_charge": "Hurtigladning",
+          "off": "Fra"
+        }
+      },
+      "plan_color": {
+        "name": "Planfarve",
+        "state": {
+          "blue": "Blå",
+          "orange": "Orange",
+          "green": "Grøn",
+          "purple": "Lilla",
+          "gold": "Guld",
+          "teal": "Blågrøn",
+          "pink": "Pink",
+          "indigo": "Indigo",
+          "olive": "Oliven",
+          "brown": "Brun",
+          "coral": "Koral",
+          "slate": "Skifer",
+          "violet": "Violet",
+          "lime": "Lime",
+          "salmon": "Laks",
+          "cyan": "Cyan",
+          "wine": "Vinrød",
+          "forest": "Skovgrøn",
+          "peach": "Fersken",
+          "lavender": "Lavendel",
+          "turquoise": "Turkis",
+          "rust": "Rust",
+          "navy": "Marineblå",
+          "moss": "Mosgrøn"
+        }
+      },
+      "selected_vehicle": {
+        "name": "Ladeenhed",
+        "state": {
+          "none": "Intet køretøj"
+        }
+      },
+      "ready_by_repeat": {
+        "name": "Gentag",
+        "state": {
+          "none": "Ingen",
+          "daily": "Daglig",
+          "weekly": "Ugentlig"
+        }
+      },
+      "kind": {
+        "state": {
+          "car": "Car",
+          "bicycle": "Bicycle",
+          "motorcycle": "Motorcycle",
+          "scooter": "Scooter",
+          "other": "Other"
+        },
+        "name": "Type ladeenhed"
+      }
+    },
+    "number": {
+      "target_soc": {
+        "name": "Mål"
+      },
+      "requested_kwh": {
+        "name": "Effekt"
+      },
+      "requested_duration_minutes": {
+        "name": "Varighed"
+      },
+      "priority": {
+        "name": "Prioritet"
+      },
+      "max_charge_kw": {
+        "name": "Effekt"
+      },
+      "max_parallel": {
+        "name": "Antal"
+      },
+      "max_power_kw": {
+        "name": "Effekt"
+      },
+      "capacity_kwh": {
+        "name": "Battery capacity"
+      },
+      "charge_efficiency": {
+        "name": "Charging efficiency"
+      }
+    },
+    "datetime": {
+      "ready_by": {
+        "name": "Klar kl."
+      },
+      "expected_connection_at": {
+        "name": "Forventet tilslutning"
+      },
+      "expires_at": {
+        "name": "Udløb"
+      }
+    },
+    "sensor": {
+      "readiness": {
+        "name": "Klar",
+        "state": {
+          "manual_controls_available": "Available",
+          "not_commissioned": "Not ready",
+          "physical_readback_confirmed": "Ready",
+          "readback_stale": "No update",
+          "unavailable": "Unavailable",
+          "source_observed": "Connected",
+          "demand_configured": "Configured",
+          "needs_input": "Set goal"
+        }
+      },
+      "plan_status": {
+        "name": "Plan",
+        "state": {
+          "proposed": "Planned",
+          "accepted": "Accepted",
+          "unavailable": "Unavailable"
+        }
+      },
+      "actual_power": {
+        "name": "Effektiv ladeeffekt"
+      },
+      "battery_level": {
+        "name": "Batteriniveau"
+      },
+      "connection": {
+        "name": "Tilslutning"
+      },
+      "session_energy": {
+        "name": "Sessionsenergi"
+      },
+      "command_status": {
+        "name": "Kommandostatus",
+        "state": {
+          "not_requested": "No action",
+          "requested": "Pending",
+          "confirmed": "Confirmed",
+          "rejected": "Rejected",
+          "execution_unknown": "Unknown"
+        }
+      },
+      "last_session_energy": {
+        "name": "Sidste sessionsenergi"
+      },
+      "charging_mode": {
+        "name": "Ladetilstand"
+      },
+      "settings_revision": {
+        "name": "Indstillingsversion"
+      },
+      "connected_chargers": {
+        "name": "Tilsluttede ladere"
+      },
+      "charging_chargers": {
+        "name": "Aktive ladere"
+      },
+      "action_health": {
+        "name": "Handlingsstatus",
+        "state": {
+          "hold": "On hold",
+          "unconfirmed": "Unknown",
+          "pending": "Pending",
+          "rejected": "Rejected",
+          "confirmed": "Confirmed",
+          "idle": "Idle"
+        }
+      },
+      "last_physical_action": {
+        "name": "Seneste handling",
+        "state": {
+          "start": "Start",
+          "stop": "Stop",
+          "set_current": "Current",
+          "none": "None"
+        }
+      },
+      "last_settings_action": {
+        "name": "Seneste indstilling",
+        "state": {
+          "save": "Save",
+          "create": "Add",
+          "delete": "Remove",
+          "none": "None"
+        }
+      },
+      "selected_vehicle": {
+        "name": "Ladeenhed"
+      },
+      "charging_intention": {
+        "name": "Ladebehov",
+        "state": {
+          "energy": "Energy",
+          "duration": "Duration",
+          "target_soc": "Battery target",
+          "unconfigured": "Set goal"
+        }
+      },
+      "confirmed_current_setpoint": {
+        "name": "Bekræftet strøm"
+      },
+      "actual_current": {
+        "name": "Aktuel strøm"
+      }
+    },
+    "text": {
+      "name": {
+        "name": "Name"
+      }
+    },
+    "binary_sensor": {
+      "plugged": {
+        "name": "Kabel tilsluttet"
+      },
+      "charging": {
+        "name": "Oplader"
+      }
+    }
+  }
+}

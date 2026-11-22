@@ -1,0 +1,390 @@
+"""Executable pure-domain guarantees for MultiCharge's one safe planner."""
+
+from __future__ import annotations
+
+import importlib.util
+import sys
+import unittest
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+PKG = Path(__file__).resolve().parents[1] / "custom_components" / "robotix_multicharge"
+ROOT = "multicharge_plan_test"
+package = type(sys)(ROOT)
+package.__path__ = [str(PKG)]
+sys.modules[ROOT] = package
+for name in ("domain", "contracts", "planner"):
+    spec = importlib.util.spec_from_file_location(f"{ROOT}.{name}", PKG / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+from multicharge_plan_test.contracts import ChargeDemand, PowerEnvelope, PowerLimitSlot, PriceSlot  # noqa: E402 - imported after isolated pure-module bootstrap
+from multicharge_plan_test.domain import Charger, ChargeController  # noqa: E402 - imported after isolated pure-module bootstrap
+from multicharge_plan_test.planner import compile_plan, resolve_recurring_ready_by  # noqa: E402 - imported after isolated pure-module bootstrap
+
+NOW = datetime(2026, 11, 22, 12, tzinfo=timezone.utc)
+
+
+def build(n=1, *, power=4.0, limit=16):
+    controller = ChargeController(
+        uid="home", name="Home", max_parallel=n, max_group_power_kw=limit
+    )
+    chargers = {
+        f"c{i}": Charger(
+            uid=f"c{i}", name=f"Charger {i}", controller_uid="home",
+            control_kind="on_off", rated_power_kw=power,
+        ) for i in range(n)
+    }
+    return controller, chargers
+
+
+def demand(i, kwh=1.0, priority=1, deadline=None):
+    return ChargeDemand(
+        asset_uid=f"a{i}", charger_uid=f"c{i}",
+        remaining_grid_kwh=kwh,
+        ready_by=deadline or NOW + timedelta(hours=2),
+        priority=priority,
+    )
+
+
+class PlannerTests(unittest.TestCase):
+    def test_indicative_slots_use_residual_capacity_without_changing_firm_slots(self):
+        controller, chargers = build(n=2, power=4.0, limit=4.0)
+        at = NOW
+        live = compile_plan(controller, chargers, [
+            ChargeDemand(asset_uid="car0", charger_uid="c0",
+                         remaining_grid_kwh=2.0, ready_by=at + timedelta(hours=2)),
+        ], at, mode="Ready By")
+        assert live.plan.slots
+        preview = compile_plan(controller, chargers, [
+            ChargeDemand(asset_uid="car1", charger_uid="c1",
+                         remaining_grid_kwh=2.0, ready_by=at + timedelta(hours=3),
+                         not_before=at + timedelta(hours=1)),
+        ], at, mode="Ready By", reserved_slots=live.plan.slots)
+        self.assertEqual(tuple(live.plan.slots),
+                         tuple(compile_plan(controller, chargers, [
+                             ChargeDemand(asset_uid="car0", charger_uid="c0",
+                                          remaining_grid_kwh=2.0,
+                                          ready_by=at + timedelta(hours=2)),
+                         ], at, mode="Ready By").plan.slots))
+        self.assertTrue(preview.plan.slots)
+        firm_kw = {s.start: s.power_kw for s in live.plan.slots}
+        for slot in preview.plan.slots:
+            self.assertGreaterEqual(slot.start, at + timedelta(hours=1))
+            self.assertLessEqual(slot.power_kw + firm_kw.get(slot.start, 0), 4.0000001)
+        self.assertFalse(set((s.charger_uid, s.start) for s in live.plan.slots) &
+                         set((s.charger_uid, s.start) for s in preview.plan.slots))
+
+    def test_one_two_four_ten_chargers_with_bounded_parallel_cap(self):
+        for n in (1, 2, 4, 10):
+            ctl, chargers = build(n, limit=8)
+            result = compile_plan(
+                ctl, chargers, [demand(i) for i in range(n)], NOW
+            )
+            self.assertEqual(len(result.plan.slots), n, n)
+            for slot in {s.start for s in result.plan.slots}:
+                self.assertLessEqual(
+                    sum(s.power_kw for s in result.plan.slots if s.start == slot),
+                    8,
+                )
+                self.assertLessEqual(
+                    len([s for s in result.plan.slots if s.start == slot]), n
+                )
+
+    def test_unchanged_slots_keep_plan_revision_across_minute_refresh(self):
+        ctl, chargers = build()
+        desired = [demand(0, kwh=1)]
+        first = compile_plan(
+            ctl, chargers, desired, NOW + timedelta(minutes=1)
+        )
+        after = compile_plan(
+            ctl, chargers, desired, NOW + timedelta(minutes=2)
+        )
+        self.assertEqual(first.plan.slots, after.plan.slots)
+        self.assertEqual(first.plan.revision, after.plan.revision)
+        self.assertNotEqual(first.plan.generated_at, after.plan.generated_at)
+
+    def test_explicit_priority_wins_early_capacity(self):
+        ctl, chargers = build(2, limit=4)
+        result = compile_plan(
+            ctl, chargers,
+            [demand(0, kwh=4, priority=0), demand(1, kwh=4, priority=5)],
+            NOW, horizon_hours=1,
+        )
+        self.assertEqual(result.proposed_kwh["c1"], 4)
+        self.assertEqual(result.proposed_kwh["c0"], 0)
+        self.assertEqual(result.reasons["c0"], "INSUFFICIENT_CAPACITY_OR_TIME")
+
+    def test_negative_prices_choose_cheapest_real_quarters(self):
+        ctl, chargers = build()
+        rates = [
+            PriceSlot(NOW, NOW + timedelta(minutes=15), 0.4, "EUR"),
+            PriceSlot(
+                NOW + timedelta(minutes=15),
+                NOW + timedelta(minutes=30), -0.1, "EUR"
+            ),
+        ]
+        result = compile_plan(
+            ctl, chargers, [demand(0)], NOW, mode="Economy",
+            tariffs={"c0": rates}, horizon_hours=1,
+        )
+        self.assertEqual(result.plan.slots[0].start, NOW + timedelta(minutes=15))
+        self.assertEqual(result.coverage["c0"], "COMPLETE")
+
+    def test_force_charge_accepts_explicit_demand_without_deadline(self):
+        ctl, chargers = build()
+        request = ChargeDemand("guest", "c0", 1.0, None)
+        result = compile_plan(ctl, chargers, [request], NOW, mode="Force Charge")
+        self.assertEqual(result.plan.status, "proposed")
+        self.assertEqual(len(result.plan.slots), 1)
+        self.assertEqual(result.strategy["c0"], "Force Charge")
+        self.assertEqual(result.plan.slots[0].start, NOW)
+
+    def test_off_without_deadline_is_a_safe_empty_proposal(self):
+        ctl, chargers = build()
+        request = ChargeDemand("guest", "c0", None, None)
+        result = compile_plan(ctl, chargers, [request], NOW, mode="Off")
+        self.assertEqual(result.plan.slots, ())
+        self.assertEqual(result.reasons["c0"], "OFF")
+        self.assertEqual(result.plan.status, "proposed")
+
+    def test_automatic_uses_qualified_solar_before_positive_tariff(self):
+        ctl, chargers = build()
+        request = [demand(0, kwh=1)]
+        tariff = [PriceSlot(NOW, NOW + timedelta(minutes=30), 0.3, "EUR")]
+        solar = [
+            PowerLimitSlot(
+                NOW + timedelta(minutes=15), NOW + timedelta(minutes=30), 4
+            )
+        ]
+        result = compile_plan(
+            ctl, chargers, request, NOW, mode="Automatic",
+            tariffs={"c0": tariff}, solar=solar,
+        )
+        self.assertEqual(result.plan.slots[0].start, NOW + timedelta(minutes=15))
+        self.assertEqual(result.strategy["c0"], "solar")
+
+    def test_automatic_explains_missing_price_and_solar_fallback(self):
+        ctl, chargers = build()
+        result = compile_plan(
+            ctl, chargers, [demand(0)], NOW, mode="Automatic"
+        )
+        self.assertEqual(result.reasons["c0"], "PROPOSED")
+        self.assertEqual(result.strategy["c0"], "ready_by_fallback")
+
+    def test_automatic_prioritizes_real_negative_prices(self):
+        ctl, chargers = build()
+        tariffs = [
+            PriceSlot(NOW, NOW + timedelta(minutes=15), -0.12, "EUR"),
+            PriceSlot(NOW + timedelta(minutes=15),
+                      NOW + timedelta(minutes=30), 0.11, "EUR"),
+        ]
+        solar = [
+            PowerLimitSlot(NOW + timedelta(minutes=15),
+                           NOW + timedelta(minutes=30), 4)
+        ]
+        result = compile_plan(
+            ctl, chargers, [demand(0)], NOW, mode="Automatic",
+            tariffs={"c0": tariffs}, solar=solar,
+        )
+        self.assertEqual(result.plan.slots[0].start, NOW)
+        self.assertEqual(result.strategy["c0"], "negative_tariff")
+
+    def test_economy_without_price_is_not_fake_zero(self):
+        ctl, chargers = build()
+        result = compile_plan(ctl, chargers, [demand(0)], NOW, mode="Economy")
+        self.assertEqual(result.reasons["c0"], "PRICE_UNAVAILABLE")
+        self.assertEqual(len(result.plan.slots), 0)
+
+    def test_solar_without_solar_evidence_cannot_propose(self):
+        ctl, chargers = build()
+        result = compile_plan(ctl, chargers, [demand(0)], NOW, mode="Solar")
+        self.assertEqual(result.reasons["c0"], "SOLAR_UNAVAILABLE")
+        self.assertEqual(len(result.plan.slots), 0)
+
+    def test_binding_zero_and_hole_never_fail_open(self):
+        ctl, chargers = build()
+        envelope = PowerEnvelope(
+            "site", "r1", NOW, NOW + timedelta(hours=2), "binding",
+            (PowerLimitSlot(NOW, NOW + timedelta(minutes=15), 0),),
+        )
+        result = compile_plan(
+            ctl, chargers, [demand(0)], NOW, binding=envelope,
+            horizon_hours=1,
+        )
+        self.assertEqual(len(result.plan.slots), 0)
+        self.assertEqual(result.reasons["c0"], "BINDING_CAPACITY_UNAVAILABLE")
+
+    def test_expired_envelope_never_grants_power(self):
+        ctl, chargers = build()
+        envelope = PowerEnvelope(
+            "site", "rev", NOW - timedelta(hours=2), NOW, "binding",
+            (),
+        )
+        result = compile_plan(ctl, chargers, [demand(0)], NOW, binding=envelope)
+        self.assertEqual(len(result.plan.slots), 0)
+
+    def test_unknown_demand_not_treated_as_zero(self):
+        ctl, chargers = build()
+        unknown = ChargeDemand("a0", "c0", None, NOW + timedelta(hours=1))
+        result = compile_plan(ctl, chargers, [unknown], NOW)
+        self.assertIsNone(result.shortfall_kwh["c0"])
+        self.assertEqual(result.reasons["c0"], "DEMAND_UNKNOWN")
+        complete = compile_plan(ctl, chargers, [demand(0, kwh=0)], NOW)
+        self.assertEqual(complete.reasons["c0"], "TARGET_MET")
+
+    def test_missing_group_cap_is_unqualified_not_unlimited(self):
+        ctl = ChargeController(uid="home", name="Home", max_parallel=1)
+        _, chargers = build()
+        result = compile_plan(ctl, chargers, [demand(0)], NOW)
+        self.assertEqual(result.reasons["c0"], "GROUP_CAPACITY_UNQUALIFIED")
+        self.assertEqual(len(result.plan.slots), 0)
+
+    def test_asset_power_cap_blocks_unqualified_modulation(self):
+        ctl, chargers = build(power=7.2, limit=11)
+        request = ChargeDemand(
+            "bike", "c0", 1.0, NOW + timedelta(hours=1),
+            max_power_kw=2.0,
+        )
+        result = compile_plan(ctl, chargers, [request], NOW)
+        self.assertEqual(result.plan.slots, ())
+        self.assertEqual(
+            result.reasons["c0"],
+            "ASSET_POWER_LIMIT_REQUIRES_VERIFIED_MODULATION",
+        )
+
+    def test_prices_of_different_currencies_are_not_compared(self):
+        ctl, chargers = build()
+        prices = [
+            PriceSlot(NOW, NOW + timedelta(minutes=15), -0.1, "EUR"),
+            PriceSlot(NOW + timedelta(minutes=15),
+                      NOW + timedelta(minutes=30), 0.1, "USD"),
+        ]
+        with self.assertRaisesRegex(ValueError, "mixed tariff currencies"):
+            compile_plan(
+                ctl, chargers, [demand(0)], NOW, mode="Economy",
+                tariffs={"c0": prices},
+            )
+
+    def test_one_charger_may_only_have_one_request(self):
+        ctl, chargers = build()
+        with self.assertRaises(ValueError):
+            compile_plan(ctl, chargers, [demand(0), demand(0)], NOW)
+
+    def test_no_implicit_physical_authorization_or_current_modulation(self):
+        ctl, chargers = build()
+        result = compile_plan(ctl, chargers, [demand(0)], NOW)
+        self.assertEqual(result.plan.status, "proposed")
+        self.assertFalse(hasattr(result.plan, "authorized_physical_execution"))
+
+    def test_recurring_ready_by_uses_site_wall_clock_across_spring_dst(self):
+        zone = ZoneInfo("Europe/Brussels")
+        anchor = datetime(2026, 3, 28, 8, tzinfo=zone)
+        now = datetime(2026, 3, 29, 7, tzinfo=zone)
+        deadline, reason = resolve_recurring_ready_by(
+            anchor, now, "daily", "Europe/Brussels"
+        )
+        self.assertEqual(reason, "RECURRING")
+        self.assertEqual(deadline.astimezone(timezone.utc).hour, 6)
+        self.assertEqual(deadline.astimezone(zone).hour, 8)
+
+    def test_recurring_ready_by_refuses_nonexistent_and_ambiguous_dst(self):
+        zone = ZoneInfo("Europe/Brussels")
+        for anchor, now in (
+            (datetime(2026, 3, 28, 2, 30, tzinfo=zone),
+             datetime(2026, 3, 29, 1, tzinfo=zone)),
+            (datetime(2026, 10, 24, 2, 30, tzinfo=zone),
+             datetime(2026, 10, 25, 1, tzinfo=zone)),
+        ):
+            deadline, reason = resolve_recurring_ready_by(
+                anchor, now, "daily", "Europe/Brussels"
+            )
+            self.assertIsNone(deadline)
+            self.assertEqual(reason, "DEADLINE_DST_UNRESOLVED")
+
+    def test_weekly_ready_by_preserves_anchor_weekday(self):
+        zone = ZoneInfo("Europe/Brussels")
+        anchor = datetime(2026, 11, 23, 9, tzinfo=zone)
+        now = datetime(2026, 11, 25, 12, tzinfo=zone)
+        deadline, reason = resolve_recurring_ready_by(
+            anchor, now, "weekly", "Europe/Brussels"
+        )
+        self.assertEqual(reason, "RECURRING")
+        self.assertEqual(deadline.astimezone(zone).date().isoformat(), "2026-11-30")
+
+    def test_dst_is_real_utc_quarters_not_fixed_local_96(self):
+        tz = ZoneInfo("Europe/Brussels")
+        for date, count in (("2026-03-29", 92), ("2026-10-25", 100)):
+            midnight = datetime.fromisoformat(date).replace(tzinfo=tz)
+            tomorrow = (midnight.date() + timedelta(days=1))
+            next_midnight = datetime.combine(tomorrow, datetime.min.time(), tzinfo=tz)
+            start = midnight.astimezone(timezone.utc)
+            end = next_midnight.astimezone(timezone.utc)
+            slots = []
+            while start < end:
+                slots.append(start)
+                start += timedelta(minutes=15)
+            self.assertEqual(len(slots), count)
+
+    def test_duration_without_soc_is_valid_and_priority_scheduled(self):
+        ctl, chargers = build()
+        guest = ChargeDemand(
+            "guest", "c0", None, NOW + timedelta(hours=2),
+            remaining_duration_minutes=30,
+        )
+        result = compile_plan(ctl, chargers, [guest], NOW)
+        self.assertEqual(len(result.plan.slots), 2)
+        self.assertEqual(result.proposed_kwh["c0"], 2.0)
+
+
+    def test_variable_current_respects_site_phase_and_circuit(self):
+        controller = ChargeController(
+            uid="site", name="Site", max_parallel=2, max_group_power_kw=12,
+            phase_limits_a={"L1": 20, "L2": 20, "L3": 20},
+        )
+        chargers = {
+            "a": Charger(uid="a", name="A", controller_uid="site",
+                control_kind="variable_current", rated_power_kw=11,
+                phase_count=3, phase_ids=("L1", "L2", "L3"), voltage_v=230,
+                min_current_a=6, max_current_a=16, current_step_a=1,
+                circuit_id="shared", circuit_limit_a=20),
+            "b": Charger(uid="b", name="B", controller_uid="site",
+                control_kind="variable_current", rated_power_kw=11,
+                phase_count=3, phase_ids=("L1", "L2", "L3"), voltage_v=230,
+                min_current_a=6, max_current_a=16, current_step_a=1,
+                circuit_id="shared", circuit_limit_a=20),
+        }
+        demand = [ChargeDemand("car-a", "a", 5, NOW, priority=10),
+                  ChargeDemand("car-b", "b", 5, NOW)]
+        result = compile_plan(controller, chargers, demand, NOW, mode="Force Charge")
+        for slot in {s.start for s in result.plan.slots}:
+            selected = [s for s in result.plan.slots if s.start == slot]
+            self.assertLessEqual(sum(s.current_a for s in selected), 20)
+            self.assertLessEqual(sum(s.power_kw for s in selected), 12)
+        self.assertTrue(any(s.current_a < 16 for s in result.plan.slots
+                            if s.charger_uid == "b"))
+
+    def test_variable_current_without_verified_wiring_cannot_be_planned(self):
+        controller = ChargeController(uid="site", name="Site", max_group_power_kw=11)
+        charger = Charger(uid="c", name="C", controller_uid="site",
+            control_kind="variable_current", rated_power_kw=11, phase_count=3,
+            min_current_a=6, max_current_a=16)
+        result = compile_plan(controller, {"c": charger},
+            [ChargeDemand("car", "c", 2, NOW + timedelta(hours=1))],
+            NOW, mode="Automatic")
+        self.assertEqual(result.reasons["c"], "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED")
+
+    def test_reject_advisory_as_binding(self):
+        ctl, chargers = build()
+        env = PowerEnvelope(
+            "source", "r", NOW, NOW + timedelta(hours=1), "advisory",
+            (PowerLimitSlot(NOW, NOW + timedelta(hours=1), 1),),
+        )
+        with self.assertRaises(ValueError):
+            compile_plan(ctl, chargers, [demand(0)], NOW, binding=env)
+
+
+if __name__ == "__main__":
+    unittest.main()
