@@ -59,8 +59,8 @@ async def test_native_setup_registry_diagnostics_and_unload(hass: HomeAssistant)
     devices = dr.async_get(hass)
     for kind, uid in (("controller", "site"), ("charger", "charger"),
                       ("asset", "asset")):
-        assert devices.async_get_device(
-            identifiers={(DOMAIN, f"{kind}/{uid}")}
+        assert devices.async_get_device_by_identifier(
+            (DOMAIN, f"{kind}/{uid}"), entry.entry_id
         ) is not None
     diagnostic = await async_get_config_entry_diagnostics(hass, entry)
     assert diagnostic["schema_major"] == 1
@@ -98,8 +98,8 @@ async def test_native_empty_configuration_still_installs(hass: HomeAssistant):
     assert await async_setup_component(hass, DOMAIN, {})
     await hass.async_block_till_done()
     assert entry.state.value == "loaded"
-    assert dr.async_get(hass).async_get_device(
-        identifiers={(DOMAIN, "controller/empty")}
+    assert dr.async_get(hass).async_get_device_by_identifier(
+        (DOMAIN, "controller/empty"), entry.entry_id
     ) is not None
     data = await async_get_config_entry_diagnostics(hass, entry)
     assert data["chargers"] == []

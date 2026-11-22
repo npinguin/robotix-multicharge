@@ -66,8 +66,8 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
                 for row in after_rows:
                     if former.get(row["id"]) == row["name"]:
                         continue
-                    device = registry.async_get_device(
-                        identifiers={(DOMAIN, f"{kind}/{row['id']}")}
+                    device = registry.async_get_device_by_identifier(
+                        (DOMAIN, f"{kind}/{row['id']}"), entry.entry_id
                     )
                     if device is not None:
                         registry.async_update_device(device.id, name=row["name"])
