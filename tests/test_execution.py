@@ -298,6 +298,7 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
     async def test_shared_phase_and_circuit_excess_block_without_any_write(self):
         rt, states, services = rig(group_kw=4)
         rt.configuration["controller"]["phase_limits_a"] = {"L1": 16}
+        rt.configuration["controller"]["max_parallel"] = 2
         rt.configuration["chargers"][0].update(
             phase_ids=["L1"], voltage_v=230, fixed_current_a=10,
             circuit_id="common", circuit_limit_a=16)
