@@ -104,11 +104,11 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._commandFeedback[charger]={status:"requested",reason:"Submitting physical command…"};
     this.render();
     try {
-      const outcome=await this._hass.callWS({
-        type:"robotix_multicharge/command",
-        charger_id:charger,action,
-        request_id:crypto.randomUUID()
-      });
+      const request={type:"robotix_multicharge/command",
+                     charger_id:charger,action};
+      if(typeof crypto!=="undefined"&&typeof crypto.randomUUID==="function")
+        request.request_id=crypto.randomUUID();
+      const outcome=await this._hass.callWS(request);
       this._commandFeedback[charger]=outcome;
       if(outcome.status==="confirmed"){
         this._last=0;
