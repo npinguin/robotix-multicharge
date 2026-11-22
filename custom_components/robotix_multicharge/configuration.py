@@ -14,6 +14,33 @@ from re import fullmatch
 
 from .domain import ChargeableAsset, Charger, ChargeController
 
+# One shared, accessible identity palette. Keys are stable HA select options.
+PLAN_COLORS = {
+    "blue": "#3779B9", "orange": "#BA6B3F", "green": "#32816E",
+    "purple": "#9568B4", "gold": "#A78529", "teal": "#397E91",
+    "pink": "#B05D81", "indigo": "#6370B9", "olive": "#738638",
+    "brown": "#916052", "coral": "#BE6D5E", "slate": "#658398",
+    "violet": "#8055A7", "lime": "#649041", "salmon": "#B77E70",
+    "cyan": "#337F99", "wine": "#95506D", "forest": "#376F4D",
+    "peach": "#AA774C", "lavender": "#8480B8", "turquoise": "#21877F",
+    "rust": "#AD5C39", "navy": "#52668B", "moss": "#687845",
+}
+
+
+def assign_default_plan_colors(rows):
+    """Stable unique defaults for each logical device kind; explicit picks win."""
+    taken = {row["plan_color"] for row in rows if row.get("plan_color")}
+    choices = list(PLAN_COLORS)
+    for row in sorted(rows, key=lambda item: item["id"]):
+        if row.get("plan_color"):
+            continue
+        color = next((c for c in choices if c not in taken), None)
+        if color is None:
+            raise ValueError("too many devices for distinct default colors")
+        row["plan_color"] = color
+        taken.add(color)
+
+
 
 def _text(value, name):
     if not isinstance(value, str) or not value.strip():
@@ -108,13 +135,18 @@ def validate_configuration(value):
                           "capacity_kwh", "target_soc", "max_charge_kw",
                           "requested_kwh", "requested_duration_minutes", "ready_by",
                           "ready_by_repeat", "charge_efficiency", "priority",
-                          "temporary", "expires_at", "expected_connection_at", "expected_connection_at"), "asset")
+                          "temporary", "expires_at", "expected_connection_at",
+                          "plan_color"), "asset")
         uid = _text(source.get("id"), "asset.id")
         if uid in ids:
             raise ValueError("asset.id: duplicate")
         ids.add(uid)
         asset = {"id": uid, "name": _text(source.get("name"), "asset.name"),
                  "kind": _text(source.get("kind", "car"), "asset.kind")}
+        if source.get("plan_color") is not None:
+            if source["plan_color"] not in PLAN_COLORS:
+                raise ValueError("asset.plan_color: invalid palette color")
+            asset["plan_color"] = source["plan_color"]
         if source.get("soc_entity"):
             asset["soc_entity"] = _entity(source["soc_entity"], "asset.soc_entity")
         for key in ("capacity_kwh", "max_charge_kw"):
@@ -203,7 +235,7 @@ def validate_configuration(value):
                           "phase_count", "control_owner", "physical_commissioned",
                           "phase_ids", "voltage_v", "current_step_a", "fixed_current_a",
                           "circuit_id", "circuit_limit_a", "current_control_entity",
-                          "current_readback_entity"), "charger")
+                          "current_readback_entity", "plan_color"), "charger")
         uid = _text(source.get("id"), "charger.id")
         if uid in charger_ids:
             raise ValueError("charger.id: duplicate")
@@ -214,6 +246,10 @@ def validate_configuration(value):
             "kind": _text(source.get("kind"), "charger.kind"),
             "rated_power_kw": _number(source.get("rated_power_kw"), "charger.rated_power_kw"),
         }
+        if source.get("plan_color") is not None:
+            if source["plan_color"] not in PLAN_COLORS:
+                raise ValueError("charger.plan_color: invalid palette color")
+            charger["plan_color"] = source["plan_color"]
         owner = source.get("control_owner", "external")
         if owner not in ("external", "multicharge"):
             raise ValueError("charger.control_owner: expected external/multicharge")
@@ -325,6 +361,8 @@ def validate_configuration(value):
                 raise ValueError(
                     f"charger.{role}: entity also bound as {previous[0]}.{previous[1]}"
                 )
+    assign_default_plan_colors(assets)
+    assign_default_plan_colors(chargers)
     return {"controller": controller, "assets": assets, "chargers": chargers}
 
 
@@ -359,8 +397,9 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
             "max_charge_kw", "requested_kwh", "requested_duration_minutes",
             "ready_by", "ready_by_repeat", "charge_efficiency", "priority",
             "temporary", "expires_at", "expected_connection_at",
+            "plan_color",
         },
-        "charger": {"name", "asset"},
+        "charger": {"name", "asset", "plan_color"},
     }
     if scope not in allowed or set(changes) - allowed[scope]:
         raise ValueError("settings field not editable in this scope")
@@ -395,6 +434,12 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
             target.pop(name, None)
         else:
             target[name] = value
+    if scope == "charger" and changes.get("asset"):
+        # One selected Charger per vehicle. Reassignment is one atomic
+        # configuration edit, not delete/recreate or a second ownership store.
+        for old in cfg["chargers"]:
+            if old["id"] != target_id and old.get("asset") == changes["asset"]:
+                old.pop("asset", None)
     return validate_configuration(cfg)
 
 
@@ -402,12 +447,12 @@ def is_plan_presentation_only_change(before, after):
     """Allow card display settings without unloading any active physical writer."""
     if before == after:
         return False
-    if (before.get("assets") != after.get("assets")
-            or before.get("chargers") != after.get("chargers")):
-        return False
-    allowed = frozenset((
-        "plan_label_mode", "plan_color_by", "show_indicative_forecast"
-    ))
-    old = {k: v for k, v in before["controller"].items() if k not in allowed}
-    new = {k: v for k, v in after["controller"].items() if k not in allowed}
-    return old == new
+    def without_visual(cfg):
+        rest = deepcopy(cfg)
+        for row in (*rest["assets"], *rest["chargers"]):
+            row.pop("plan_color", None)
+        for key in ("plan_label_mode", "plan_color_by",
+                    "show_indicative_forecast"):
+            rest["controller"].pop(key, None)
+        return rest
+    return without_visual(before) == without_visual(after)
