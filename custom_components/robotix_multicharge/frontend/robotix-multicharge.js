@@ -50,25 +50,25 @@ for(const [locale,translations] of Object.entries({
 const MC_MODES = ["Automatic", "Solar", "Economy", "Ready By", "Force Charge", "Off"];
 const MC_STYLE = [
   ":host{display:block;color:var(--primary-text-color,#20252b);font:inherit}",
-  ".root{background:var(--ha-card-background,var(--card-background-color,#fff));border-radius:16px;padding:16px;box-shadow:var(--ha-card-box-shadow,0 2px 8px #0002)}",
+  ".root{background:var(--ha-card-background,var(--card-background-color,#fff));border:1px solid var(--divider-color,#e5e7eb);border-radius:14px;padding:20px;box-shadow:0 1px 4px #0000000b}",
   ".heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}",
-  "h2{font-size:20px;line-height:1.4;margin:0 0 8px}h3{font-size:16px;margin:0}p{margin:5px 0;line-height:1.5}",
+  "h2{font-size:20px;font-weight:650;line-height:1.4;margin:0 0 8px}h3{font-size:15px;font-weight:600;margin:0}p{margin:5px 0;line-height:1.5}",
   ".muted{color:var(--secondary-text-color,#65717e)}.small{font-size:12px}.value{font-weight:700;font-size:22px}",
-  ".tabs,.controls,.chips{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0}",
-  "input,button,select,textarea,a.action{font:inherit;border:1px solid var(--divider-color,#cfd6de);background:var(--card-background-color,#fff);color:inherit;border-radius:10px;padding:9px 11px;cursor:pointer;text-decoration:none;min-height:42px}",
-  "button[aria-selected=true],button.active{background:var(--primary-color,#1976d2);color:var(--text-primary-color,#fff);border-color:var(--primary-color,#1976d2)}",
+  ".tabs,.controls,.chips{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.tabs{gap:3px;border-bottom:1px solid var(--divider-color,#e5e7eb);margin-bottom:20px}",
+  "input,button,select,textarea,a.action{font:inherit;border:1px solid var(--divider-color,#cfd6de);background:var(--card-background-color,#fff);color:inherit;border-radius:8px;padding:9px 11px;cursor:pointer;text-decoration:none;min-height:40px}.tabs button{border:0;border-bottom:3px solid transparent;border-radius:0;background:transparent;padding:10px 13px;color:var(--secondary-text-color,#667085)}",
+  ".tabs button[aria-selected=true]{color:var(--primary-color,#1976d2);border-bottom-color:var(--primary-color,#1976d2);background:transparent;font-weight:650}button.active{background:var(--primary-color,#1976d2);color:var(--text-primary-color,#fff);border-color:var(--primary-color,#1976d2)}",
   "button:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid var(--primary-color,#1976d2);outline-offset:2px}",
   ".grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}",
-  ".card{border:1px solid var(--divider-color,#e1e4e8);border-radius:12px;padding:13px;min-width:0;margin:8px 0}",
-  ".metric{background:var(--secondary-background-color,#f6f8fa);border-radius:12px;padding:12px;min-width:0}",
+  ".card{border:1px solid var(--divider-color,#e1e4e8);border-radius:10px;padding:14px;min-width:0;margin:8px 0}.settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr));gap:12px;margin-top:14px}.settings-card{margin:0;min-height:72px}.settings-card.expanded{grid-column:1/-1}.settings-heading{min-width:0;flex:1}.settings-heading p{margin-top:5px}.settings-card .row{align-items:flex-start}.config-code{white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;border:1px solid var(--divider-color,#e1e4e8);border-radius:8px;background:var(--secondary-background-color,#f7f8fa);font-size:12px;line-height:1.5}",
+  ".metric{background:var(--secondary-background-color,#f6f8fa);border:1px solid var(--divider-color,#e1e4e8);border-radius:10px;padding:15px;min-width:0}",
   ".row{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}",
   ".details{margin-top:10px;padding-top:9px;border-top:1px solid var(--divider-color,#ddd)}",
   ".pair{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:5px 0}",
   ".field{display:flex;flex-direction:column;gap:4px;margin:8px 0}.field label{font-size:13px;color:var(--secondary-text-color,#65717e)}",
   ".field input,.field select{width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--divider-color,#cfd6de);background:var(--card-background-color,#fff);color:inherit;border-radius:8px}",
   ".message{font-size:13px;margin:9px 0}.pending{color:var(--warning-color,#b57418)}.confirmed{color:var(--success-color,#278355)}",
-  ".notice{border-left:3px solid var(--warning-color,#e59e31);padding:9px 12px;background:var(--secondary-background-color,#f6f8fa);margin:12px 0;font-size:13px}",
-  ".error{border-left-color:var(--error-color,#d43b38)}.chart{overflow-x:auto;width:100%}",
+  ".notice{border:1px solid var(--divider-color,#e5e7eb);border-radius:8px;padding:11px 13px;background:var(--secondary-background-color,#f6f8fa);margin:12px 0;font-size:13px}",
+  ".error{border-color:var(--error-color,#d43b38)}.chart{overflow-x:auto;width:100%}",
   ".legend{display:flex;flex-wrap:wrap;gap:15px;font-size:12px;color:var(--secondary-text-color,#65717e)}",
   ".dot{display:inline-block;width:11px;height:11px;margin-right:5px;border-radius:2px}",
   ".plan-lane{margin:10px 0;border:1px solid var(--divider-color,#d8dde3);border-radius:11px;padding:11px}",
@@ -78,7 +78,7 @@ const MC_STYLE = [
   ".plan-swatch{width:12px;height:12px;border-radius:3px;display:inline-block;margin-right:4px}",
   ".plan-caution{font-size:12px;color:var(--secondary-text-color,#65717e);line-height:1.5}",
   "svg{width:100%;min-width:440px;height:220px}svg text{fill:var(--secondary-text-color,#65717e);font-size:11px}",
-  "@media(max-width:600px){.root{padding:12px}.grid{grid-template-columns:1fr}.tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.tabs button{font-size:12px;padding:8px 5px}}"
+  "@media(max-width:600px){.root{padding:12px}.grid{grid-template-columns:1fr}.tabs{display:flex;overflow-x:auto;flex-wrap:nowrap}.tabs button{font-size:12px;padding:9px 10px;white-space:nowrap;flex-shrink:0}.settings-grid{grid-template-columns:1fr}}"
 ].join("");
 
 function mcEl(tag, css, text) {
@@ -423,7 +423,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     const active=powers.filter(x=>x&&x.quality==="ok"&&x.value>0).length;
     const metrics=mcEl("div","grid");
     for(const [key,value] of [
-      ["Active chargers",complete?String(active):"Unknown"],
+      ["Active chargers",!chargers.length?"0":complete?String(active):"Unknown"],
       ["Actual power",complete?(powers.reduce((sum,x)=>sum+x.value,0).toFixed(2)+" kW"):"Unknown"],
       ["Current price",priceLabel]
     ]){const el=mcEl("div","metric");el.append(mcEl("p","muted small",key),mcEl("div","value",value));metrics.append(el);}
@@ -449,7 +449,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     }
     if(!assets.length)this.notice(container,"No data",false);
     const next=mcEl("div","card");next.append(mcEl("h3","","Next action"));
-    next.append(mcEl("p","",d.status==="unavailable"?"Not ready":"Plan"));
+    next.append(mcEl("p","",!chargers.length?"Configure a charger to begin":d.status==="unavailable"?"Not ready":"Plan"));
     const reasons=Object.entries(d.reasons||{}).filter(([key,val])=>val!=="PROPOSED");
     if(reasons.length)next.append(mcEl("p","muted small",reasons.map(([key,val])=>key+": "+mcReason(val)).slice(0,4).join(" · ")));
     container.append(next);
@@ -922,10 +922,22 @@ class RobotixMultiChargeCard extends HTMLElement {
 
     this.configure(container);
     this.feedback(container);
+    const settingsGrid=mcEl("div","settings-grid");
     for(const title of MC_SETTINGS){
-      const group=mcEl("section","card"),open=title===this._settingsOpen;
+      const open=title===this._settingsOpen;
+      const group=mcEl("section","card settings-card"+(open?" expanded":""));
+      const heading=mcEl("div","settings-heading");
+      heading.append(mcEl("h3","",title));
+      const summary=title==="Charging site"?ctl.name||"Not set":
+        title==="Sources & bindings"?[ctl.price_entity?"Tariff":null,
+          ctl.solar_entity?"Solar":null,ctl.binding_entity?"Capacity":null].filter(Boolean).join(" · ")||"No source":
+        title==="Charging strategy"?ctl.mode||"Off":
+        title==="Safety & limits"?(ctl.max_power_kw===undefined?"No capacity":ctl.max_power_kw+" kW")+" · "+(ctl.max_parallel||1)+" parallel":
+        title==="Integrations"?(c.chargers||[]).length+" chargers":
+        d.configuration_managed_by_yaml?"YAML / JSON source · read-only":"Expert YAML / JSON configuration";
+      heading.append(mcEl("p","muted small",summary));
       const row=mcEl("div","row");
-      row.append(mcEl("h3","",title),mcButton(open?"Close":"Details",()=>{
+      row.append(heading,mcButton(open?"Close":"Details",()=>{
         this._settingsOpen=open?"":title;this.render();
       }));
       group.append(row);
@@ -962,9 +974,8 @@ class RobotixMultiChargeCard extends HTMLElement {
             ["price_entity","Tariff"],["solar_entity","Solar"],
             ["binding_entity","Capacity"]
           ]){
-            mcPair(detail,label,ctl[field]?mcTr("Selected"):mcTr("Not set"));
+            mcPair(detail,label,ctl[field]||mcTr("Not set"));
           }
-          this.configure(detail);
         }else if(title==="Integrations"){
           mcPair(detail,"Tariff",mcReason((d.observations||{}).sources?.tariff_quality));
           mcPair(detail,"Solar",mcReason((d.observations||{}).sources?.solar_quality));
@@ -985,14 +996,21 @@ class RobotixMultiChargeCard extends HTMLElement {
           const phases=Object.entries(ctl.phase_limits_a||{});
           mcPair(detail,"Electrical limits",
             phases.length?phases.map(([id,amps])=>id+": "+amps+" A").join(" · "):mcTr("Not set"));
-          this.configure(detail);
         }else{
-          this.configure(detail);
+          mcPair(detail,"Configuration",d.configuration_managed_by_yaml?
+            (d.configuration_managed_by_json?"JSON source":"YAML source"):"Home Assistant settings");
+          detail.append(mcEl("p","muted small",
+            "Expert configuration is edited in Home Assistant files, not in this dashboard. Use one package file, verify configuration and restart. The existing integration entry is adopted; do not add a second entry."));
+          detail.append(mcEl("p","muted small",
+            "Path: /config/packages/multicharge.yaml (with HA packages enabled)"));
+          detail.append(mcEl("pre","config-code",
+            "homeassistant:\\n  packages: !include_dir_named packages"));
         }
         group.append(detail);
       }
-      container.append(group);
+      settingsGrid.append(group);
     }
+    container.append(settingsGrid);
   }
 }
 if(!customElements.get("robotix-multicharge-card"))customElements.define("robotix-multicharge-card",RobotixMultiChargeCard);
