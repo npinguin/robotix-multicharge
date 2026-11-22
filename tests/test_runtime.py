@@ -136,6 +136,11 @@ class RuntimeTests(unittest.TestCase):
         self.assertIsNone(result["slots"][0]["actual_power_kw"])
         self.assertIsNone(result["slots"][0]["accepted_power_kw"])
         self.assertFalse(result["physical_actuation_authorized"])
+        self.assertEqual(result["configuration"]["controller"]["id"], "home")
+        self.assertEqual(result["observations"]["assets"]["car"]["soc"]["value"], 50.0)
+        self.assertEqual(result["observations"]["chargers"]["drive"]["power_kw"]["value"], 2.3)
+        self.assertEqual(result["observations"]["chargers"]["drive"]["connected"]["value"], True)
+        self.assertEqual(result["observations"]["sources"]["binding_quality"], "NOT_CONFIGURED")
 
     def test_plan_read_rejects_unknown_and_oversized_ranges(self):
         rt = MultiChargeRuntime(None, sample())

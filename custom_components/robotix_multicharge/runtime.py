@@ -17,6 +17,16 @@ from .source_evidence import binding, connection, intervals, number
 _LOGGER = logging.getLogger(__name__)
 
 
+def _evidence(value):
+    """Public JSON-shaped observation, never an implicit successful reading."""
+    if value is None:
+        return {"value": None, "quality": "unknown", "reason": "NOT_OBSERVED",
+                "observed_at": None}
+    return {"value": value.value, "quality": value.quality,
+            "reason": value.reason,
+            "observed_at": value.observed_at.isoformat() if value.observed_at else None}
+
+
 class MultiChargeRuntime:
     def __init__(self, hass, configuration):
         self.hass = hass
@@ -235,6 +245,21 @@ class MultiChargeRuntime:
             "strategy_by_charger": dict(assessment.strategy) if assessment else {},
             "reasons": {**self.excluded, **assessment.reasons} if assessment else dict(self.excluded),
             "slots": slots,
+            "configuration": self.configuration,
+            "observations": {
+                "assets": {
+                    uid: {"soc": _evidence(readings.get("soc"))}
+                    for uid, readings in self.observations.get("assets", {}).items()
+                },
+                "chargers": {
+                    uid: {
+                        "connected": _evidence(readings.get("connected")),
+                        "power_kw": _evidence(readings.get("power_kw")),
+                    }
+                    for uid, readings in self.observations.get("chargers", {}).items()
+                },
+                "sources": dict(self.observations.get("sources", {})),
+            },
             "read_only": True,
             "physical_actuation_authorized": False,
         }
