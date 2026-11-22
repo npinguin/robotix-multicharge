@@ -157,6 +157,11 @@ def _assert_safe_yaml_ui_commit(runtime, updated):
                 raise ValueError("YAML_UPDATE_REQUIRES_VERIFIED_IDLE")
         elif previous.get("control_owner") == "multicharge":
             raise ValueError("YAML_UPDATE_REQUIRES_VERIFIED_IDLE")
+        switch = runtime.executor._switch(
+            runtime.hass, previous.get("control_entity"),
+        )
+        if switch is not None and switch.state != "off":
+            raise ValueError("YAML_UPDATE_REQUIRES_VERIFIED_IDLE")
 
 
 class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -692,9 +697,17 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                                for c in [*self._current()["chargers"],
                                          *updated["chargers"]]):
                             raise ValueError("active writer requires verified runtime")
+                        result = self._saved(updated)
                     else:
-                        _assert_safe_yaml_ui_commit(runtime, updated)
-                    result = self._saved(updated)
+                        # Serialize the final safety check with the sole native
+                        # writer's admission/STOP lock. No frontend-supplied
+                        # status is trusted for this decision.
+                        async with runtime.executor._lock:
+                            if self._yaml_baseline_revision != configuration_revision(
+                                    self._current()):
+                                raise ValueError("configuration changed")
+                            _assert_safe_yaml_ui_commit(runtime, updated)
+                            result = self._saved(updated)
                     if result is None:
                         raise ValueError("configuration rejected")
                     return result
