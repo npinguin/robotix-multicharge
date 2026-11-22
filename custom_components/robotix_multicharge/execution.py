@@ -44,7 +44,61 @@ class NativeSwitchExecutor:
         self._inflight = {}
         self._session_history = []
         self._persistence_verified = True
+        # Current physical plug identity is volatile by design. Never assume a
+        # stored vehicle assignment remains valid after restart or re-plug.
+        self._plug_confirmations = {}
 
+
+    def connection_confirmation(self, charger, at):
+        """Return only an explicit confirmation for the current plug instance."""
+        uid = charger["id"]
+        observed = connection(self.runtime.hass, charger.get("connected_entity"), at)
+        if observed.quality != "ok" or observed.value is not True:
+            self._plug_confirmations.pop(uid, None)
+            return None
+        source = self.runtime.hass.states.get(charger.get("connected_entity"))
+        changed = getattr(source, "last_changed", None)
+        receipt = self._plug_confirmations.get(uid)
+        if (not isinstance(changed, datetime) or changed.utcoffset() is None
+                or not receipt
+                or receipt["asset_id"] != charger.get("asset")
+                or receipt["connected_at"] != changed.astimezone(timezone.utc).isoformat()):
+            self._plug_confirmations.pop(uid, None)
+            return None
+        return dict(receipt)
+
+    def confirm_current_connection(self, charger_id, *, at=None):
+        """Confirm the selected vehicle against one presently observed plug.
+
+        Called by the owning HA-native Charger button under executor lock.
+        This changes identity evidence only; it sends NO physical command.
+        """
+        now = at or datetime.now(timezone.utc)
+        charger = next((c for c in self.runtime.configuration["chargers"]
+                        if c["id"] == charger_id), None)
+        if charger is None:
+            return {"status": "rejected", "reason": "UNKNOWN_CHARGER"}
+        asset = charger.get("asset")
+        if not asset or not any(a["id"] == asset
+                                for a in self.runtime.configuration["assets"]):
+            return {"status": "rejected", "reason": "SELECT_VEHICLE_FIRST"}
+        observed = connection(self.runtime.hass, charger.get("connected_entity"), now)
+        if observed.quality != "ok" or observed.value is not True:
+            self._plug_confirmations.pop(charger_id, None)
+            return {"status": "rejected", "reason": "CURRENT_PHYSICAL_CONNECTION_UNKNOWN"}
+        source = self.runtime.hass.states.get(charger.get("connected_entity"))
+        changed = getattr(source, "last_changed", None)
+        if not isinstance(changed, datetime) or changed.utcoffset() is None:
+            return {"status": "rejected", "reason": "PLUG_INSTANCE_UNVERIFIED"}
+        record = {
+            "asset_id": asset,
+            "connected_at": changed.astimezone(timezone.utc).isoformat(),
+            "confirmed_at": now.astimezone(timezone.utc).isoformat(),
+        }
+        self._plug_confirmations[charger_id] = record
+        self.runtime.notify()
+        return {"status": "confirmed", "reason": "CURRENT_PLUG_ASSET_CONFIRMED",
+                **record}
 
     def _intent_key(self, asset, charger, occurrence):
         """Stable one-intent fingerprint; mutable SoC readings are never identity."""
@@ -361,6 +415,8 @@ class NativeSwitchExecutor:
         cable = connection(self.runtime.hass, charger.get("connected_entity"), at)
         if cable.quality != "ok" or cable.value is not True:
             return "PHYSICAL_CONNECTION_UNVERIFIED"
+        if self.connection_confirmation(charger, at) is None:
+            return "CURRENT_PLUG_ASSET_UNCONFIRMED"
         this_power = number(self.runtime.hass, charger.get("power_entity"), "power", at)
         if this_power.quality != "ok":
             return "INDEPENDENT_POWER_UNAVAILABLE"
@@ -562,6 +618,8 @@ class NativeSwitchExecutor:
         )
         if asset is None or charger.get("asset") != session["asset_id"]:
             return "ACTIVE_SESSION_ASSIGNMENT_CHANGED"
+        if self.connection_confirmation(charger, now) is None:
+            return "CURRENT_PLUG_ASSET_UNCONFIRMED"
         if (asset.get("temporary")
                 and datetime.fromisoformat(asset["expires_at"]) <= now):
             return "TEMPORARY_ASSET_EXPIRED"

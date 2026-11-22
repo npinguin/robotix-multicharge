@@ -34,6 +34,7 @@ def state(value, unit=None):
         state=str(value),
         attributes={"unit_of_measurement": unit} if unit is not None else {},
         last_updated=datetime.now(timezone.utc) - timedelta(seconds=1),
+        last_changed=datetime.now(timezone.utc) - timedelta(seconds=1),
     )
 
 
@@ -104,11 +105,32 @@ def rig(*, owner="multicharge", commissioned=True, group_kw=4.0,
         config=SimpleNamespace(time_zone="Europe/Brussels"),
     )
     runtime = MultiChargeRuntime(hass, cfg)
+    assert runtime.executor.confirm_current_connection("evse")["status"] == "confirmed"
     runtime.refresh()
     return runtime, sources, services
 
 
 class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unconfirmed_or_replugged_vehicle_cannot_start(self):
+        rt, states, services = rig()
+        rt.executor._plug_confirmations.clear()
+        rt.refresh()
+        self.assertFalse(rt.assessment.plan.slots)
+        denied = await rt.executor.execute("evse", "start")
+        self.assertEqual(denied["reason"], "CURRENT_PLUG_ASSET_UNCONFIRMED")
+        self.assertEqual(services.calls, [])
+        confirmed = rt.executor.confirm_current_connection("evse")
+        self.assertEqual(confirmed["status"], "confirmed")
+        self.assertTrue(rt.executor.connection_confirmation(
+            rt.configuration["chargers"][0], datetime.now(timezone.utc)
+        ))
+        states["binary_sensor.cable"].last_changed = datetime.now(timezone.utc)
+        rt.refresh()
+        self.assertFalse(rt.assessment.plan.slots)
+        self.assertIsNone(rt.executor.connection_confirmation(
+            rt.configuration["chargers"][0], datetime.now(timezone.utc)
+        ))
+
 
     async def test_indicative_unplugged_vehicle_never_reaches_physical_writer(self):
         rt, states, services = rig(mode="Automatic")

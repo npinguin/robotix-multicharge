@@ -22,7 +22,19 @@ for name in ("domain", "contracts", "configuration", "planner",
     spec.loader.exec_module(module)
 
 from multicharge_runtime_test.configuration import default_configuration, validate_configuration  # noqa: E402 - imported after isolated pure-module bootstrap
-from multicharge_runtime_test.runtime import MultiChargeRuntime  # noqa: E402 - imported after isolated pure-module bootstrap
+from multicharge_runtime_test.runtime import MultiChargeRuntime as _ProductionRuntime  # noqa: E402
+
+
+class MultiChargeRuntime(_ProductionRuntime):
+    """Source tests explicitly acknowledge the selected car as the test operator."""
+
+    def __init__(self, hass, config):
+        super().__init__(hass, config)
+        for charger in config["chargers"]:
+            source = hass.states.get(charger.get("connected_entity"))
+            if (source is not None and source.state in ("on", "connected")
+                    and charger.get("asset")):
+                self.executor.confirm_current_connection(charger["id"], at=NOW)
 
 NOW = datetime(2026, 11, 22, 12, tzinfo=timezone.utc)
 
@@ -32,6 +44,7 @@ def state(value, unit=None):
         state=value,
         attributes={"unit_of_measurement": unit} if unit else {},
         last_updated=NOW,
+        last_changed=NOW,
     )
 
 
@@ -52,6 +65,30 @@ def sample():
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_current_plug_identity_must_be_explicit_for_active_plan(self):
+        config = sample()
+        observations = {
+            "sensor.soc": state("65", "%"),
+            "sensor.power": state("0", "W"),
+            "binary_sensor.cable": state("on"),
+        }
+        rt = _ProductionRuntime(
+            SimpleNamespace(states=SimpleNamespace(get=observations.get)), config
+        )
+        rt.refresh(NOW)
+        self.assertFalse(rt.assessment.plan.slots)
+        self.assertEqual(rt.excluded["drive"], "CURRENT_PLUG_ASSET_UNCONFIRMED")
+        self.assertEqual(
+            rt.executor.confirm_current_connection("drive", at=NOW)["status"],
+            "confirmed",
+        )
+        rt.refresh(NOW)
+        self.assertTrue(rt.assessment.plan.slots)
+        observations["binary_sensor.cable"].last_changed = NOW + timedelta(seconds=2)
+        rt.refresh(NOW + timedelta(seconds=3))
+        self.assertFalse(rt.assessment.plan.slots)
+        self.assertEqual(rt.excluded["drive"], "CURRENT_PLUG_ASSET_UNCONFIRMED")
+
     def test_native_diagnostics_capture_errors_without_leaking_names(self):
         import json
         from multicharge_runtime_test.diagnostics import build_diagnostics

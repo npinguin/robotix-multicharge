@@ -225,6 +225,7 @@ class MultiChargeRuntime:
                 if disconnected and assumed_arrival else None,
             )
             if disconnected:
+                self.executor.connection_confirmation(raw, at)
                 self.excluded[uid] = "DISCONNECTED"
                 indicative_demands.append(request)
                 self.forecast_assumptions[uid] = {
@@ -242,6 +243,9 @@ class MultiChargeRuntime:
                     "reserves_capacity": False,
                 }
             else:
+                if self.executor.connection_confirmation(raw, at) is None:
+                    self.excluded[uid] = "CURRENT_PLUG_ASSET_UNCONFIRMED"
+                    continue
                 demands.append(request)
         # Asset power reuses the Charger observation. A selected Vehicle alone
         # never proves the identity of an actively charging battery.
@@ -575,6 +579,10 @@ class MultiChargeRuntime:
             },
             "command_outcomes": self.executor.snapshot(),
             "command_capabilities": self.executor.capabilities(),
+            "connection_identity": {
+                c["id"]: self.executor.connection_confirmation(c, datetime.now(timezone.utc))
+                for c in self.configuration["chargers"]
+            },
             "active_sessions": self.executor.session_snapshot(),
             "completed_sessions": history,
             "price_slots": [
