@@ -108,7 +108,8 @@
           "controller": "Instalación de carga",
           "asset": "Activo de carga",
           "charger": "Punto de carga",
-          "display": "Tarjeta del panel"
+          "display": "Tarjeta del panel",
+          "yaml": "Edit YAML (review before save)"
         }
       },
       "controller": {
@@ -185,13 +186,31 @@
         "data": {
           "enable_ux": "Activar tarjeta de panel"
         }
+      },
+      "yaml": {
+        "title": "MultiCharge — YAML configuration",
+        "description": "Edit all current settings or submit scoped changes. All changes are validated before review; no physical controls are activated.",
+        "data": {
+          "mode": "Update mode",
+          "yaml_text": "MultiCharge configuration (YAML / JSON data)"
+        }
+      },
+      "yaml_review": {
+        "title": "Review YAML changes",
+        "description": "{summary}\nConfirm only after checking the complete impact. No charger command is sent by this operation.",
+        "data": {
+          "confirm": "Apply these reviewed configuration changes",
+          "edit_again": "Return to YAML editing"
+        }
       }
     },
     "abort": {
       "yaml_managed": "Configuración gestionada mediante YAML. Modificar YAML y reiniciar Home Assistant."
     },
     "error": {
-      "invalid_config": "Configuración no válida."
+      "invalid_config": "Configuración no válida.",
+      "confirm_save": "Confirm the reviewed changes before saving.",
+      "selection_changed": "The configuration changed; reopen YAML before saving."
     }
   },
   "entity": {
