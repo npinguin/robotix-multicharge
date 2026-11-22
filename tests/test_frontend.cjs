@@ -196,6 +196,23 @@ async function main(){
   assert.ok(content(card.shadowRoot).includes("Laadpalen"),"Dutch card labels");
   card._hass.language="fr";card.render();
   assert.ok(content(card.shadowRoot).includes("Bornes"),"French card labels");
+  for(const [lang,label] of [
+    ["da","Ladere"],["nb","Ladere"],["sv","Laddare"],
+    ["de","Ladepunkte"],["es","Puntos de carga"]
+  ]){
+    card._hass.language=lang;card.render();
+    assert.ok(content(card.shadowRoot).includes(label),
+      lang+" must translate the Charger view");
+  }
+  card._tab="Chargeable Assets";
+  for(const [lang,power] of [
+    ["de","Effektive Ladeleistung"],["es","Potencia efectiva de carga"]
+  ]){
+    card._hass.language=lang;card.render();
+    assert.ok(content(card.shadowRoot).includes(power),
+      lang+" must show the Asset-owned power sensor label");
+  }
+  card._tab="Chargers";
   card._hass.language="en";card.render();
 
   assert.ok(!find(card.shadowRoot,"button","Start charging"),
