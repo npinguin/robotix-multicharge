@@ -186,7 +186,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     container.append(metrics);
     const mode=(c.controller||{}).mode||"Off";
     const chips=mcEl("div","chips");chips.append(mcEl("p","muted", "Selected strategy: "+mode+" (proposal only)"));
-    for(const item of MC_MODES){const button=mcButton(item,()=>this.settingsSelect(container,"Charging strategy"));button.disabled=true;button.title="Physical modes not commissioned. Change proposal mode in native integration settings.";if(item===mode)button.className="active";chips.append(button);}
+    for(const item of MC_MODES){const button=mcButton(item,()=>this.settingsSelect(container,"Charging strategy"));button.disabled=true;button.title="Change the charging mode in native integration settings. Physical control is individually gated by verified ownership, sources and commissioning.";if(item===mode)button.className="active";chips.append(button);}
     container.append(chips);
     for(const a of assets){
       const card=mcEl("div","card");const observed=((d.observations||{}).assets||{})[a.id]||{};
@@ -394,7 +394,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     const data={
       "Charging site":"Site: "+(ctl.name||"not configured")+" · Parallel chargers: "+(ctl.max_parallel||"not set"),
       "Sources & bindings":"Chargers: "+(c.chargers||[]).length+" · Assets: "+(c.assets||[]).length+" · Source bindings are selected explicitly",
-      "Charging strategy":"Current mode: "+(ctl.mode||"Off")+". Only qualified manual on/off Force Charge has an executable START command; the other modes remain advisory.",
+      "Charging strategy":"Current mode: "+(ctl.mode||"Off")+". Source-tested automatic execution and manual Force Charge use the same guarded writer. Physical controls remain unavailable without qualified exclusive ownership and readback.",
       "Safety & limits":"Configured group limit: "+(ctl.max_power_kw===undefined?"unqualified":ctl.max_power_kw+" kW")+". Optional external binding must be fresh.",
       "Integrations":"External Energy, Mobility, Planning, Finance and Notifications are optional; no mandatory provider.",
       "Advanced & YAML":"Expert YAML uses the same validated configuration schema. YAML-owned entries must be edited in YAML."
