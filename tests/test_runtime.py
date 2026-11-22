@@ -259,6 +259,9 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(view["slots"], [])
         self.assertTrue(view["forecast_slots"])
         self.assertEqual(view["forecast_slots"][0]["status"], "indicative_only")
+        summary = rt.summary()
+        self.assertIn("drive", summary["forecast_kwh_by_charger"])
+        self.assertNotIn("drive", summary["planned_kwh_by_charger"])
         self.assertFalse(view["forecast_slots"][0]["may_execute"])
         self.assertFalse(view["forecast_slots"][0]["reserves_capacity"])
         self.assertEqual(view["forecast_assumptions"]["drive"]["assumption"],

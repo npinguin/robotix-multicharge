@@ -173,6 +173,11 @@ class _PlanStatusSensor(_NativeMultiChargeSensor):
             "coverage_by_charger": summary.get("coverage_by_charger", {}),
             "strategy_by_charger": summary.get("strategy_by_charger", {}),
             "planned_kwh_by_charger": summary.get("planned_kwh_by_charger", {}),
+            "forecast_status": summary.get("forecast_status", "not_available"),
+            "indicative_kwh_by_charger": summary.get("forecast_kwh_by_charger", {}),
+            "indicative_reasons": summary.get("forecast_reasons", {}),
+            "forecast_is_reservation": False,
+            "forecast_can_execute": False,
             "read_only": True,
             "physical_actuation_authorized": summary.get(
                 "physical_actuation_authorized", False

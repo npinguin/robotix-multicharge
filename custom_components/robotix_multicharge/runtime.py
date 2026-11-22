@@ -361,6 +361,15 @@ class MultiChargeRuntime:
                 if self.forecast_assessment else "not_available"
             ),
             "forecast_assumptions": dict(self.forecast_assumptions),
+            "forecast_kwh_by_charger": (
+                dict(self.forecast_assessment.proposed_kwh)
+                if self.forecast_assessment else {}
+            ),
+            "forecast_reasons": {
+                **self.forecast_excluded,
+                **(self.forecast_assessment.reasons
+                   if self.forecast_assessment else {}),
+            },
             "live": self.live_state(),
             "revision": assessment.plan.revision,
             "generated_at": assessment.plan.generated_at.isoformat(),
