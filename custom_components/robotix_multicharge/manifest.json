@@ -1,0 +1,12 @@
+{
+  "domain": "robotix_multicharge",
+  "name": "Robotix MultiCharge",
+  "version": "0.1.0",
+  "documentation": "https://github.com/npinguin/robotix-multicharge",
+  "issue_tracker": "https://github.com/npinguin/robotix-multicharge/issues",
+  "codeowners": ["@npinguin"],
+  "config_flow": true,
+  "dependencies": [],
+  "requirements": [],
+  "iot_class": "calculated"
+}
