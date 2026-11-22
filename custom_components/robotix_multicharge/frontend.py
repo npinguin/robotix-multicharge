@@ -20,12 +20,15 @@ SCRIPT = Path(__file__).parent / "frontend" / "robotix-multicharge.js"
 KEY = f"{DOMAIN}_frontend"
 
 class MultiChargeScriptView(HomeAssistantView):
+    def __init__(self, hass):
+        self.hass = hass
+
     url = RESOURCE
     name = "robotix_multicharge:frontend"
     requires_auth = False  # Static JavaScript only, no user/HA observations.
 
     async def get(self, request):
-        data = await request.app["hass"].async_add_executor_job(SCRIPT.read_bytes)
+        data = await self.hass.async_add_executor_job(SCRIPT.read_bytes)
         return web.Response(body=data, content_type="text/javascript",
                             headers={"Cache-Control": "no-store",
                                      "X-Content-Type-Options": "nosniff"})
@@ -34,7 +37,7 @@ def register_frontend(hass):
     """One fixed route per integration setup; no dashboard modifications."""
     if getattr(hass, "http", None) is None or hass.data.get(KEY + "_route"):
         return
-    hass.http.register_view(MultiChargeScriptView())
+    hass.http.register_view(MultiChargeScriptView(hass))
     hass.data[KEY + "_route"] = True
 
 def reconcile_frontend(hass, entry=None):

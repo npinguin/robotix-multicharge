@@ -20,6 +20,7 @@ from .configuration import effective_configuration, validate_configuration
 from .const import DOMAIN
 from .runtime import MultiChargeRuntime
 from .plan_query import register_plan_query
+from .frontend import register_frontend, reconcile_frontend
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor"]
@@ -30,6 +31,7 @@ CONFIG_SCHEMA = vol.Schema({vol.Optional(DOMAIN): dict}, extra=vol.ALLOW_EXTRA)
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Optional expert YAML, imported through the same native Config Entry."""
     register_plan_query(hass)
+    register_frontend(hass)
     if DOMAIN not in config:
         return True
     try:
@@ -67,12 +69,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         runtime.stop()
         hass.data[DOMAIN].pop(entry.entry_id, None)
         raise
+    reconcile_frontend(hass, entry)
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if ok:
+        reconcile_frontend(hass)
         runtime = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
         if runtime is not None:
             runtime.stop()

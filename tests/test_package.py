@@ -18,6 +18,27 @@ class PackageTest(unittest.TestCase):
             list(obj), ["domain", "name", *sorted(set(obj) - {"domain", "name"})]
         )
 
+    def test_native_five_view_frontend_is_bundled(self):
+        source = (COMPONENT / "frontend" / "robotix-multicharge.js").read_text(
+            encoding="utf8"
+        )
+        for title in (
+            "Overview", "Charging Plan", "Chargeable Assets", "Chargers",
+            "Settings", "Charging site", "Sources & bindings",
+            "Charging strategy", "Safety & limits", "Integrations",
+            "Advanced & YAML",
+        ):
+            self.assertIn(title, source)
+        self.assertIn("robotix-multicharge-card", source)
+        self.assertIn('type:"robotix_multicharge/get_plan"', source)
+        self.assertNotIn("hass.callService", source)
+        self.assertNotIn(".innerHTML", source)
+
+    def test_plan_query_is_importable_with_declared_ha_dependencies(self):
+        text = (COMPONENT / "plan_query.py").read_text(encoding="utf8")
+        self.assertIn("import voluptuous as vol", text)
+        self.assertNotIn("import probatio", text)
+
     def test_manifest_is_standalone(self):
         m = json.loads((COMPONENT / "manifest.json").read_text(encoding="utf8"))
         self.assertEqual(m["domain"], "robotix_multicharge")

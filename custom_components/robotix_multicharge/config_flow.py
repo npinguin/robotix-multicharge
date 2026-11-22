@@ -78,13 +78,15 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
             result = validate_configuration(config)
         except ValueError:
             return None
-        return self.async_create_entry(title="", data={"configuration": result})
+        return self.async_create_entry(
+            title="", data={**self.config_entry.options, "configuration": result}
+        )
 
     async def async_step_init(self, user_input=None):
         if self.config_entry.data.get("source") == "yaml":
             return self.async_abort(reason="yaml_managed")
         return self.async_show_menu(
-            step_id="init", menu_options=["controller", "asset", "charger"]
+            step_id="init", menu_options=["controller", "asset", "charger", "display"]
         )
 
     async def async_step_controller(self, user_input=None):
@@ -226,4 +228,17 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlowWithReload):
                 vol.Optional("max_current_a"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
             }),
             errors={"base": "invalid_config"} if user_input else {},
+        )
+
+    async def async_step_display(self, user_input=None):
+        """Optional frontend is a display preference, never a charging control."""
+        current = self.config_entry.options.get("enable_ux", True)
+        if user_input is not None:
+            return self.async_create_entry(
+                title="",
+                data={**self.config_entry.options, "enable_ux": bool(user_input["enable_ux"])},
+            )
+        return self.async_show_form(
+            step_id="display",
+            data_schema=vol.Schema({vol.Required("enable_ux", default=current): bool}),
         )

@@ -48,6 +48,8 @@ def check() -> None:
     # separately through "format" and can be applied in the existing PR.
     run(sys.executable, "-m", "ruff", "check", "--select", "F,E4,E7,E9",
         "custom_components", "tests", "scripts")
+    run("node", "--check",
+        "custom_components/robotix_multicharge/frontend/robotix-multicharge.js")
     test()
 
 

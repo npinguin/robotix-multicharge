@@ -24,7 +24,8 @@
         "menu_options": {
           "controller": "Charging site",
           "asset": "Chargeable assets",
-          "charger": "Chargers"
+          "charger": "Chargers",
+          "display": "Dashboard card"
         }
       },
       "controller": {
@@ -75,6 +76,13 @@
           "phase_count": "Number of phases",
           "min_current_a": "Minimum current (A)",
           "max_current_a": "Maximum current (A)"
+        }
+      },
+      "display": {
+        "title": "Dashboard card",
+        "description": "Optional five-view card in Home Assistant. Disabling it does not affect read-only planning.",
+        "data": {
+          "enable_ux": "Enable bundled MultiCharge dashboard card"
         }
       }
     },
