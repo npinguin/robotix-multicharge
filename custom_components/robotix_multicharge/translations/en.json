@@ -5,10 +5,10 @@
         "title": "Robotix MultiCharge",
         "description": "Step 1/5 — Define your charging site and a conservative configured group budget. No physical charging is enabled.",
         "data": {
-          "name": "Charging site name",
-          "max_parallel": "Maximum simultaneous charging points",
-          "max_power_kw": "Configured group power ceiling (kW; hardware verification required)",
-          "phase_limits_a": "Verified phase current ceilings, e.g. L1:16,L2:16,L3:16 (A)"
+          "name": "Charging site name (optional)",
+          "max_parallel": "Maximum simultaneous charging points (optional)",
+          "max_power_kw": "Configured group power ceiling (kW; hardware verification required) (optional)",
+          "phase_limits_a": "Verified phase current ceilings, e.g. L1:16,L2:16,L3:16 (A) (optional)"
         }
       },
       "charger": {
@@ -16,25 +16,10 @@
         "description": "Add one physical charging point at a time, or Finish to continue. No control will be activated.",
         "data": {
           "action": "Add or finish",
-          "name": "Charger name",
-          "kind": "Qualified control type",
-          "rated_power_kw": "Rated power (kW)",
-          "phase_count": "Phases (if known)",
-          "min_current_a": "Minimum supported current (A)",
-          "max_current_a": "Maximum supported current (A)",
-          "connected_entity": "Physical connection sensor",
-          "power_entity": "Actual power sensor",
-          "energy_entity": "Energy meter",
-          "control_entity": "Command entity (saved only; not activated)",
-          "add_another": "Add another charger",
-          "phase_ids": "Verified wired phases (L1,L2,L3)",
-          "voltage_v": "Verified line-to-neutral voltage (V)",
-          "current_step_a": "Supported current adjustment step (A)",
-          "fixed_current_a": "On/off current per phase (A)",
-          "circuit_id": "Electrical circuit identifier",
-          "circuit_limit_a": "Circuit current ceiling (A)",
-          "current_control_entity": "Native current limit setpoint (number)",
-          "current_readback_entity": "Independent actual current sensor (A)"
+          "name": "Charger name (required to add)",
+          "control_entity": "Command entity (saved only; not activated) (required to add)",
+          "configure_details": "More settings (optional)",
+          "add_another": "Add another charger"
         }
       },
       "asset": {
@@ -42,31 +27,31 @@
         "description": "Add a vehicle or rechargeable asset. SoC is optional when explicit kWh or duration is entered.",
         "data": {
           "action": "Add or finish",
-          "name": "Asset name",
-          "kind": "Asset kind",
+          "name": "Asset name (required to add)",
+          "kind": "Asset kind (optional)",
           "soc_entity": "Battery % source (optional)",
-          "capacity_kwh": "Usable battery capacity (kWh)",
-          "target_soc": "Target battery %",
-          "requested_kwh": "Explicit requested kWh",
-          "requested_duration_minutes": "Requested duration (minutes)",
-          "ready_by": "Ready by (timezone-aware)",
-          "charge_efficiency": "Verified charging efficiency",
-          "max_charge_kw": "Asset charging limit (kW)",
-          "priority": "Priority (0–100)",
+          "capacity_kwh": "Usable battery capacity (kWh) (optional)",
+          "target_soc": "Target battery % (optional)",
+          "requested_kwh": "Explicit requested kWh (optional)",
+          "requested_duration_minutes": "Requested duration (minutes) (optional)",
+          "ready_by": "Ready by (timezone-aware) (optional)",
+          "charge_efficiency": "Verified charging efficiency (optional)",
+          "max_charge_kw": "Asset charging limit (kW) (optional)",
+          "priority": "Priority (0–100) (optional)",
           "add_another": "Add another asset",
-          "ready_by_repeat": "Repeat Ready By (none/daily/weekly, site time zone)",
-          "temporary": "Temporary guest (requires an expiry)",
-          "expires_at": "Guest expiry date/time with timezone",
-          "expected_connection_at": "Optional expected connection time (timezone-aware) — indicative only"
+          "ready_by_repeat": "Repeat Ready By (none/daily/weekly, site time zone) (optional)",
+          "temporary": "Temporary guest (requires an expiry) (optional)",
+          "expires_at": "Guest expiry date/time with timezone (optional)",
+          "expected_connection_at": "Optional expected connection time (timezone-aware) — indicative only (optional)"
         }
       },
       "sources": {
         "title": "Step 4/5 — Sources & assignments",
         "description": "Select optional qualified sources and explicitly assign assets to chargers. Missing critical bindings never imply unlimited power.",
         "data": {
-          "price_entity": "Effective price interval source",
-          "solar_entity": "Available solar power interval source",
-          "binding_entity": "Binding available charging power envelope"
+          "price_entity": "Effective price interval source (optional)",
+          "solar_entity": "Available solar power interval source (optional)",
+          "binding_entity": "Binding available charging power envelope (optional)"
         }
       },
       "verify": {
@@ -74,6 +59,35 @@
         "description": "{summary} Confirm only after checking equipment and source names. This completes configuration, not physical commissioning.",
         "data": {
           "confirm": "I have reviewed the configuration"
+        }
+      },
+      "charger_details": {
+        "title": "Step 2/5 — Optional charging measurements",
+        "description": "Only add sources available in Home Assistant. No physical control is activated.",
+        "data": {
+          "kind": "Qualified control type (optional)",
+          "rated_power_kw": "Rated power (kW) (optional)",
+          "connected_entity": "Physical connection sensor (optional)",
+          "power_entity": "Actual power sensor (optional)",
+          "energy_entity": "Energy meter (optional)",
+          "configure_electrical": "Configure electrical details (optional)"
+        }
+      },
+      "charger_electrical": {
+        "title": "Step 2/5 — Optional electrical details",
+        "description": "Enter only verified currents, phases and wiring. Skip until commissioning.",
+        "data": {
+          "phase_count": "Phases (if known) (optional)",
+          "phase_ids": "Verified wired phases (L1,L2,L3) (optional)",
+          "voltage_v": "Verified line-to-neutral voltage (V) (optional)",
+          "min_current_a": "Minimum supported current (A) (optional)",
+          "max_current_a": "Maximum supported current (A) (optional)",
+          "current_step_a": "Supported current adjustment step (A) (optional)",
+          "fixed_current_a": "On/off current per phase (A) (optional)",
+          "circuit_id": "Electrical circuit identifier (optional)",
+          "circuit_limit_a": "Circuit current ceiling (A) (optional)",
+          "current_control_entity": "Native current limit setpoint (number) (optional)",
+          "current_readback_entity": "Independent actual current sensor (A) (optional)"
         }
       }
     },
@@ -102,12 +116,12 @@
         "data": {
           "name": "Name",
           "max_parallel": "Simultaneous chargers",
-          "max_power_kw": "Maximum charging power (kW)",
+          "max_power_kw": "Maximum charging power (kW) (optional)",
           "mode": "Charging mode (physical actuation requires approved commissioning)",
-          "price_entity": "Effective price interval source",
-          "solar_entity": "Qualified solar available-power interval source",
-          "binding_entity": "Optional binding power envelope (fail closed if unavailable)",
-          "phase_limits_a": "Verified phase limits, e.g. L1:16,L2:16,L3:16 (A)",
+          "price_entity": "Effective price interval source (optional)",
+          "solar_entity": "Qualified solar available-power interval source (optional)",
+          "binding_entity": "Optional binding power envelope (fail closed if unavailable) (optional)",
+          "phase_limits_a": "Verified phase limits, e.g. L1:16,L2:16,L3:16 (A) (optional)",
           "plan_label_mode": "Charging plan labels: vehicle, charger or both",
           "plan_color_by": "Charging plan colors by vehicle or charger",
           "show_indicative_forecast": "Show disconnected vehicle indicative forecasts"

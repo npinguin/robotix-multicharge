@@ -5,10 +5,10 @@
         "title": "Laddplats",
         "description": "Laddplats",
         "data": {
-          "name": "Namn",
-          "max_parallel": "Antal",
-          "max_power_kw": "Effekt",
-          "phase_limits_a": "Faser"
+          "name": "Namn (valfritt)",
+          "max_parallel": "Antal (valfritt)",
+          "max_power_kw": "Effekt (valfritt)",
+          "phase_limits_a": "Faser (valfritt)"
         }
       },
       "charger": {
@@ -16,25 +16,10 @@
         "description": "Laddare",
         "data": {
           "action": "Åtgärd",
-          "name": "Namn",
-          "kind": "Typ",
-          "rated_power_kw": "Effekt",
-          "phase_count": "Faser",
-          "min_current_a": "Ström",
-          "max_current_a": "Ström",
-          "connected_entity": "Anslutning",
-          "power_entity": "Effekt",
-          "energy_entity": "Energimätare",
-          "control_entity": "Ström",
-          "add_another": "Åtgärd",
-          "phase_ids": "Faser",
-          "voltage_v": "Effekt",
-          "current_step_a": "Ström",
-          "fixed_current_a": "Ström",
-          "circuit_id": "Antal",
-          "circuit_limit_a": "Ström",
-          "current_control_entity": "Ström",
-          "current_readback_entity": "Ström"
+          "name": "Namn (krävs för att lägga till)",
+          "control_entity": "Ström (krävs för att lägga till)",
+          "configure_details": "Fler inställningar (valfritt)",
+          "add_another": "Åtgärd"
         }
       },
       "asset": {
@@ -42,31 +27,31 @@
         "description": "Fordon",
         "data": {
           "action": "Åtgärd",
-          "name": "Namn",
-          "kind": "Typ",
-          "soc_entity": "Batteri",
-          "capacity_kwh": "Batteri",
-          "target_soc": "Mål",
-          "requested_kwh": "Effekt",
-          "requested_duration_minutes": "Varaktighet",
-          "ready_by": "Klar senast",
-          "charge_efficiency": "Effekt",
-          "max_charge_kw": "Effekt",
-          "priority": "Prioritet",
+          "name": "Namn (krävs för att lägga till)",
+          "kind": "Typ (valfritt)",
+          "soc_entity": "Batteri (valfritt)",
+          "capacity_kwh": "Batteri (valfritt)",
+          "target_soc": "Mål (valfritt)",
+          "requested_kwh": "Effekt (valfritt)",
+          "requested_duration_minutes": "Varaktighet (valfritt)",
+          "ready_by": "Klar senast (valfritt)",
+          "charge_efficiency": "Effekt (valfritt)",
+          "max_charge_kw": "Effekt (valfritt)",
+          "priority": "Prioritet (valfritt)",
           "add_another": "Åtgärd",
-          "ready_by_repeat": "Upprepa",
-          "temporary": "Gäst",
-          "expires_at": "Upphör",
-          "expected_connection_at": "Förväntad anslutning"
+          "ready_by_repeat": "Upprepa (valfritt)",
+          "temporary": "Gäst (valfritt)",
+          "expires_at": "Upphör (valfritt)",
+          "expected_connection_at": "Förväntad anslutning (valfritt)"
         }
       },
       "sources": {
         "title": "Källor",
         "description": "Källor",
         "data": {
-          "price_entity": "Pris",
-          "solar_entity": "Solenergi",
-          "binding_entity": "Effekt"
+          "price_entity": "Pris (valfritt)",
+          "solar_entity": "Solenergi (valfritt)",
+          "binding_entity": "Effekt (valfritt)"
         }
       },
       "verify": {
@@ -74,6 +59,35 @@
         "description": "Kontroll",
         "data": {
           "confirm": "Kontroll"
+        }
+      },
+      "charger_details": {
+        "title": "Steg 2/5 — Valfria mätningar",
+        "description": "Lägg bara till tillgängliga källor. Fysisk styrning är avstängd.",
+        "data": {
+          "kind": "Typ (valfritt)",
+          "rated_power_kw": "Effekt (valfritt)",
+          "connected_entity": "Anslutning (valfritt)",
+          "power_entity": "Effekt (valfritt)",
+          "energy_entity": "Energimätare (valfritt)",
+          "configure_electrical": "Konfigurera elektriska detaljer (valfritt)"
+        }
+      },
+      "charger_electrical": {
+        "title": "Steg 2/5 — Valfria elektriska detaljer",
+        "description": "Ange endast verifierad ström, faser och kablage. Kan göras senare.",
+        "data": {
+          "phase_count": "Faser (valfritt)",
+          "phase_ids": "Faser (valfritt)",
+          "voltage_v": "Effekt (valfritt)",
+          "min_current_a": "Ström (valfritt)",
+          "max_current_a": "Ström (valfritt)",
+          "current_step_a": "Ström (valfritt)",
+          "fixed_current_a": "Ström (valfritt)",
+          "circuit_id": "Antal (valfritt)",
+          "circuit_limit_a": "Ström (valfritt)",
+          "current_control_entity": "Ström (valfritt)",
+          "current_readback_entity": "Ström (valfritt)"
         }
       }
     },
@@ -103,12 +117,12 @@
         "data": {
           "name": "Namn",
           "max_parallel": "Antal",
-          "max_power_kw": "Effekt",
+          "max_power_kw": "Effekt (valfritt)",
           "mode": "Laddläge",
-          "price_entity": "Pris",
-          "solar_entity": "Solenergi",
-          "binding_entity": "Effekt",
-          "phase_limits_a": "Faser",
+          "price_entity": "Pris (valfritt)",
+          "solar_entity": "Solenergi (valfritt)",
+          "binding_entity": "Effekt (valfritt)",
+          "phase_limits_a": "Faser (valfritt)",
           "plan_label_mode": "Planvisning",
           "plan_color_by": "Färg efter",
           "show_indicative_forecast": "Prognos"

@@ -5,10 +5,10 @@
         "title": "Ladested",
         "description": "Ladested",
         "data": {
-          "name": "Navn",
-          "max_parallel": "Antall",
-          "max_power_kw": "Effekt",
-          "phase_limits_a": "Faser"
+          "name": "Navn (valgfritt)",
+          "max_parallel": "Antall (valgfritt)",
+          "max_power_kw": "Effekt (valgfritt)",
+          "phase_limits_a": "Faser (valgfritt)"
         }
       },
       "charger": {
@@ -16,25 +16,10 @@
         "description": "Lader",
         "data": {
           "action": "Handling",
-          "name": "Navn",
-          "kind": "Type",
-          "rated_power_kw": "Effekt",
-          "phase_count": "Faser",
-          "min_current_a": "Strøm",
-          "max_current_a": "Strøm",
-          "connected_entity": "Tilkobling",
-          "power_entity": "Effekt",
-          "energy_entity": "Energimåler",
-          "control_entity": "Strøm",
-          "add_another": "Handling",
-          "phase_ids": "Faser",
-          "voltage_v": "Effekt",
-          "current_step_a": "Strøm",
-          "fixed_current_a": "Strøm",
-          "circuit_id": "Antall",
-          "circuit_limit_a": "Strøm",
-          "current_control_entity": "Strøm",
-          "current_readback_entity": "Strøm"
+          "name": "Navn (påkrevd ved tilføying)",
+          "control_entity": "Strøm (påkrevd ved tilføying)",
+          "configure_details": "Flere innstillinger (valgfritt)",
+          "add_another": "Handling"
         }
       },
       "asset": {
@@ -42,31 +27,31 @@
         "description": "Kjøretøy",
         "data": {
           "action": "Handling",
-          "name": "Navn",
-          "kind": "Type",
-          "soc_entity": "Batteri",
-          "capacity_kwh": "Batteri",
-          "target_soc": "Mål",
-          "requested_kwh": "Effekt",
-          "requested_duration_minutes": "Varighet",
-          "ready_by": "Klar innen",
-          "charge_efficiency": "Effekt",
-          "max_charge_kw": "Effekt",
-          "priority": "Prioritet",
+          "name": "Navn (påkrevd ved tilføying)",
+          "kind": "Type (valgfritt)",
+          "soc_entity": "Batteri (valgfritt)",
+          "capacity_kwh": "Batteri (valgfritt)",
+          "target_soc": "Mål (valgfritt)",
+          "requested_kwh": "Effekt (valgfritt)",
+          "requested_duration_minutes": "Varighet (valgfritt)",
+          "ready_by": "Klar innen (valgfritt)",
+          "charge_efficiency": "Effekt (valgfritt)",
+          "max_charge_kw": "Effekt (valgfritt)",
+          "priority": "Prioritet (valgfritt)",
           "add_another": "Handling",
-          "ready_by_repeat": "Gjenta",
-          "temporary": "Gjest",
-          "expires_at": "Utløp",
-          "expected_connection_at": "Forventet tilkobling"
+          "ready_by_repeat": "Gjenta (valgfritt)",
+          "temporary": "Gjest (valgfritt)",
+          "expires_at": "Utløp (valgfritt)",
+          "expected_connection_at": "Forventet tilkobling (valgfritt)"
         }
       },
       "sources": {
         "title": "Kilder",
         "description": "Kilder",
         "data": {
-          "price_entity": "Pris",
-          "solar_entity": "Solenergi",
-          "binding_entity": "Effekt"
+          "price_entity": "Pris (valgfritt)",
+          "solar_entity": "Solenergi (valgfritt)",
+          "binding_entity": "Effekt (valgfritt)"
         }
       },
       "verify": {
@@ -74,6 +59,35 @@
         "description": "Kontroll",
         "data": {
           "confirm": "Kontroll"
+        }
+      },
+      "charger_details": {
+        "title": "Trinn 2/5 — Valgfrie målinger",
+        "description": "Legg bare til tilgjengelige kilder. Fysisk styring er av.",
+        "data": {
+          "kind": "Type (valgfritt)",
+          "rated_power_kw": "Effekt (valgfritt)",
+          "connected_entity": "Tilkobling (valgfritt)",
+          "power_entity": "Effekt (valgfritt)",
+          "energy_entity": "Energimåler (valgfritt)",
+          "configure_electrical": "Konfigurer elektriske detaljer (valgfritt)"
+        }
+      },
+      "charger_electrical": {
+        "title": "Trinn 2/5 — Valgfrie elektriske detaljer",
+        "description": "Oppgi bare verifisert strøm, faser og kabling. Kan gjøres senere.",
+        "data": {
+          "phase_count": "Faser (valgfritt)",
+          "phase_ids": "Faser (valgfritt)",
+          "voltage_v": "Effekt (valgfritt)",
+          "min_current_a": "Strøm (valgfritt)",
+          "max_current_a": "Strøm (valgfritt)",
+          "current_step_a": "Strøm (valgfritt)",
+          "fixed_current_a": "Strøm (valgfritt)",
+          "circuit_id": "Antall (valgfritt)",
+          "circuit_limit_a": "Strøm (valgfritt)",
+          "current_control_entity": "Strøm (valgfritt)",
+          "current_readback_entity": "Strøm (valgfritt)"
         }
       }
     },
@@ -103,12 +117,12 @@
         "data": {
           "name": "Navn",
           "max_parallel": "Antall",
-          "max_power_kw": "Effekt",
+          "max_power_kw": "Effekt (valgfritt)",
           "mode": "Lademodus",
-          "price_entity": "Pris",
-          "solar_entity": "Solenergi",
-          "binding_entity": "Effekt",
-          "phase_limits_a": "Faser",
+          "price_entity": "Pris (valgfritt)",
+          "solar_entity": "Solenergi (valgfritt)",
+          "binding_entity": "Effekt (valgfritt)",
+          "phase_limits_a": "Faser (valgfritt)",
           "plan_label_mode": "Planvisning",
           "plan_color_by": "Farge etter",
           "show_indicative_forecast": "Prognose"

@@ -5,10 +5,10 @@
         "title": "Laadlocatie",
         "description": "Laadlocatie",
         "data": {
-          "name": "Naam",
-          "max_parallel": "Aantal",
-          "max_power_kw": "Vermogen",
-          "phase_limits_a": "Fasen"
+          "name": "Naam (optioneel)",
+          "max_parallel": "Aantal (optioneel)",
+          "max_power_kw": "Vermogen (optioneel)",
+          "phase_limits_a": "Fasen (optioneel)"
         }
       },
       "charger": {
@@ -16,25 +16,10 @@
         "description": "Laadpaal",
         "data": {
           "action": "Actie",
-          "name": "Naam",
-          "kind": "Type",
-          "rated_power_kw": "Vermogen",
-          "phase_count": "Fasen",
-          "min_current_a": "Stroom",
-          "max_current_a": "Stroom",
-          "connected_entity": "Aansluiting",
-          "power_entity": "Vermogen",
-          "energy_entity": "Energiemeter",
-          "control_entity": "Stroom",
-          "add_another": "Actie",
-          "phase_ids": "Fasen",
-          "voltage_v": "Vermogen",
-          "current_step_a": "Stroom",
-          "fixed_current_a": "Stroom",
-          "circuit_id": "Aantal",
-          "circuit_limit_a": "Stroom",
-          "current_control_entity": "Stroom",
-          "current_readback_entity": "Stroom"
+          "name": "Naam (verplicht bij toevoegen)",
+          "control_entity": "Stroom (verplicht bij toevoegen)",
+          "configure_details": "Meer instellingen (optioneel)",
+          "add_another": "Actie"
         }
       },
       "asset": {
@@ -42,31 +27,31 @@
         "description": "Voertuig",
         "data": {
           "action": "Actie",
-          "name": "Naam",
-          "kind": "Type",
-          "soc_entity": "Batterij",
-          "capacity_kwh": "Batterij",
-          "target_soc": "Doel",
-          "requested_kwh": "Vermogen",
-          "requested_duration_minutes": "Duur",
-          "ready_by": "Klaar om",
-          "charge_efficiency": "Vermogen",
-          "max_charge_kw": "Vermogen",
-          "priority": "Prioriteit",
+          "name": "Naam (verplicht bij toevoegen)",
+          "kind": "Type (optioneel)",
+          "soc_entity": "Batterij (optioneel)",
+          "capacity_kwh": "Batterij (optioneel)",
+          "target_soc": "Doel (optioneel)",
+          "requested_kwh": "Vermogen (optioneel)",
+          "requested_duration_minutes": "Duur (optioneel)",
+          "ready_by": "Klaar om (optioneel)",
+          "charge_efficiency": "Vermogen (optioneel)",
+          "max_charge_kw": "Vermogen (optioneel)",
+          "priority": "Prioriteit (optioneel)",
           "add_another": "Actie",
-          "ready_by_repeat": "Herhalen",
-          "temporary": "Gast",
-          "expires_at": "Vervalt",
-          "expected_connection_at": "Verwachte aansluiting"
+          "ready_by_repeat": "Herhalen (optioneel)",
+          "temporary": "Gast (optioneel)",
+          "expires_at": "Vervalt (optioneel)",
+          "expected_connection_at": "Verwachte aansluiting (optioneel)"
         }
       },
       "sources": {
         "title": "Bronnen",
         "description": "Bronnen",
         "data": {
-          "price_entity": "Tarief",
-          "solar_entity": "Zonne-energie",
-          "binding_entity": "Vermogen"
+          "price_entity": "Tarief (optioneel)",
+          "solar_entity": "Zonne-energie (optioneel)",
+          "binding_entity": "Vermogen (optioneel)"
         }
       },
       "verify": {
@@ -74,6 +59,35 @@
         "description": "Controleren",
         "data": {
           "confirm": "Controleren"
+        }
+      },
+      "charger_details": {
+        "title": "Stap 2/5 — Optionele laadmetingen",
+        "description": "Voeg enkel beschikbare Home Assistant-bronnen toe. Fysieke sturing blijft uit.",
+        "data": {
+          "kind": "Type (optioneel)",
+          "rated_power_kw": "Vermogen (optioneel)",
+          "connected_entity": "Aansluiting (optioneel)",
+          "power_entity": "Vermogen (optioneel)",
+          "energy_entity": "Energiemeter (optioneel)",
+          "configure_electrical": "Elektrische details configureren (optioneel)"
+        }
+      },
+      "charger_electrical": {
+        "title": "Stap 2/5 — Optionele elektrische gegevens",
+        "description": "Vul enkel geverifieerde stromen, fasen en bekabeling in. Mag later.",
+        "data": {
+          "phase_count": "Fasen (optioneel)",
+          "phase_ids": "Fasen (optioneel)",
+          "voltage_v": "Vermogen (optioneel)",
+          "min_current_a": "Stroom (optioneel)",
+          "max_current_a": "Stroom (optioneel)",
+          "current_step_a": "Stroom (optioneel)",
+          "fixed_current_a": "Stroom (optioneel)",
+          "circuit_id": "Aantal (optioneel)",
+          "circuit_limit_a": "Stroom (optioneel)",
+          "current_control_entity": "Stroom (optioneel)",
+          "current_readback_entity": "Stroom (optioneel)"
         }
       }
     },
@@ -103,12 +117,12 @@
         "data": {
           "name": "Naam",
           "max_parallel": "Aantal",
-          "max_power_kw": "Vermogen",
+          "max_power_kw": "Vermogen (optioneel)",
           "mode": "Laadmodus",
-          "price_entity": "Tarief",
-          "solar_entity": "Zonne-energie",
-          "binding_entity": "Vermogen",
-          "phase_limits_a": "Fasen",
+          "price_entity": "Tarief (optioneel)",
+          "solar_entity": "Zonne-energie (optioneel)",
+          "binding_entity": "Vermogen (optioneel)",
+          "phase_limits_a": "Fasen (optioneel)",
           "plan_label_mode": "Planweergave",
           "plan_color_by": "Kleur per",
           "show_indicative_forecast": "Prognose"
