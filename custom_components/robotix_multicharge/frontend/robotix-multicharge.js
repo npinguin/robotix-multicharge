@@ -28,6 +28,16 @@ const MC_REASONS={
 function mcReason(value){return mcTr(MC_REASONS[value]||"Unavailable");}
 const MC_TABS = ["Overview", "Charging Plan", "Chargeable Assets", "Chargers", "Settings"];
 const MC_SETTINGS = ["Charging site", "Sources & bindings", "Charging strategy", "Safety & limits", "Integrations", "Advanced & YAML"];
+// Pause is a persistent Charger admission hold, not a second strategy.
+for (const [locale, terms] of Object.entries({
+  nl:{"Pause charging":"Laden pauzeren","Resume charging":"Laden hervatten","Paused":"Gepauzeerd","Ready for next plan":"Klaar voor volgend laadplan"},
+  fr:{"Pause charging":"Mettre en pause","Resume charging":"Reprendre","Paused":"En pause","Ready for next plan":"Prêt pour le prochain plan"},
+  da:{"Pause charging":"Sæt opladning på pause","Resume charging":"Genoptag opladning","Paused":"Sat på pause","Ready for next plan":"Klar til næste plan"},
+  nb:{"Pause charging":"Sett lading på pause","Resume charging":"Gjenoppta lading","Paused":"Pauset","Ready for next plan":"Klar for neste plan"},
+  sv:{"Pause charging":"Pausa laddning","Resume charging":"Återuppta laddning","Paused":"Pausad","Ready for next plan":"Klar för nästa plan"},
+  de:{"Pause charging":"Laden pausieren","Resume charging":"Laden fortsetzen","Paused":"Pausiert","Ready for next plan":"Bereit für den nächsten Plan"},
+  es:{"Pause charging":"Pausar carga","Resume charging":"Reanudar carga","Paused":"En pausa","Ready for next plan":"Listo para el próximo plan"}
+}))Object.assign(MC_TEXT[locale],terms);
 const MC_MODES = ["Automatic", "Solar", "Economy", "Ready By", "Force Charge", "Off"];
 const MC_STYLE = [
   ":host{display:block;color:var(--primary-text-color,#20252b);font:inherit}",
@@ -841,6 +851,16 @@ class RobotixMultiChargeCard extends HTMLElement {
         stop.disabled=this._commandBusy;
         controls.append(stop);
       }
+      if(this.canManage()&&capability.pause_allowed){
+        const pause=mcButton(mcTr("Pause charging"),()=>this.command(c.id,"pause"));
+        pause.disabled=this._commandBusy;
+        controls.append(pause);
+      }
+      if(this.canManage()&&capability.resume_allowed){
+        const resume=mcButton(mcTr("Resume charging"),()=>this.command(c.id,"resume"));
+        resume.disabled=this._commandBusy;
+        controls.append(resume);
+      }
       if(controls.children.length)card.append(controls);
       if(this.canManage()&&!c.asset&&capability.manual_one_off_allowed){
         const oneOff=mcEl("section","card");
@@ -866,7 +886,9 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(outcome){
         const bad=outcome.status==="rejected"||outcome.status==="execution_unknown";
         const label=bad?mcReason(outcome.reason):outcome.status==="confirmed"?
-          (outcome.action==="stop"?"Stopped":"Charging"):"Pending";
+          (outcome.action==="stop"?"Stopped":
+           outcome.action==="pause"?mcTr("Paused"):
+           outcome.action==="resume"?mcTr("Ready for next plan"):"Charging"):"Pending";
         const status=mcEl("p","small"+(bad?" error":""),label);
         status.setAttribute("role",bad?"alert":"status");
         card.append(status);
