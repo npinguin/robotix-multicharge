@@ -293,6 +293,24 @@ class _LogicalEvidenceSensor(_NativeMultiChargeSensor):
             } if self.property_name == "power" else {}),
         }
 
+        if self.kind == "charger" and self.property_name == "connected":
+            # Do not infer physical charging or vehicle identity from a
+            # separate provider's session flag. This is diagnostic evidence.
+            session = readings.get("session")
+            self._attr_extra_state_attributes.update({
+                "session_source_entity_id": self.data.get("session_entity"),
+                "session_source_state": (
+                    session.value if session and session.quality == "ok" else None
+                ),
+                "session_source_quality": (
+                    session.quality if session else "unknown"
+                ),
+                "session_source_observed_at": (
+                    session.observed_at.isoformat()
+                    if session and session.observed_at else None
+                ),
+            })
+
 
 class _LogicalSessionEnergySensor(_NativeMultiChargeSensor):
     """Recorder-backed actual kWh for a confirmed active physical charge session.
