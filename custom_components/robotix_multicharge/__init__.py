@@ -21,7 +21,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .configuration import (
-    effective_configuration, validate_configuration,
+    effective_configuration, normalize_expert_json,
     is_plan_presentation_only_change,
     is_in_place_runtime_preference_change,
 )
@@ -86,25 +86,30 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     register_frontend(hass)
     # An imported YAML-owned entry must never silently replay a historic
     # persisted configuration if its authoritative YAML was removed.
-    hass.data[f"{DOMAIN}_yaml_present"] = DOMAIN in config
+    hass.data[f"{DOMAIN}_source_present"] = DOMAIN in config
     if DOMAIN not in config:
         return True
     try:
-        checked = validate_configuration(config[DOMAIN])
+        source = config[DOMAIN]
+        direct_json = "Charger" in source or "ChargingAsset" in source
+        checked = normalize_expert_json(source)
     except ValueError as exc:
         _LOGGER.error("MultiCharge YAML configuration rejected: %s", exc)
         return False
     await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_IMPORT}, data=checked
+        DOMAIN,
+        context={"source": config_entries.SOURCE_IMPORT,
+                 "expert_format": "json" if direct_json else "yaml"},
+        data=checked
     )
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Expose only truthful configuration-status entities in this bootstrap."""
-    if (entry.data.get("source") == "yaml"
-            and not hass.data.get(f"{DOMAIN}_yaml_present", False)):
-        _LOGGER.error("MultiCharge YAML source missing; previous settings are NOT resumed")
+    if (entry.data.get("source") in ("yaml", "json")
+            and not hass.data.get(f"{DOMAIN}_source_present", False)):
+        _LOGGER.error("MultiCharge expert source missing; previous settings are NOT resumed")
         return False
     try:
         cfg = effective_configuration(entry)
