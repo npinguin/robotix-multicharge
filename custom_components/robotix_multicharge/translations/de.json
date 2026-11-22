@@ -108,7 +108,8 @@
           "controller": "Ladestandort",
           "asset": "Lade-Asset",
           "charger": "Ladepunkt",
-          "display": "Dashboardkarte"
+          "display": "Dashboardkarte",
+          "yaml": "YAML bearbeiten (vor dem Speichern prüfen)"
         }
       },
       "controller": {
@@ -185,13 +186,31 @@
         "data": {
           "enable_ux": "Dashboardkarte aktivieren"
         }
+      },
+      "yaml": {
+        "title": "MultiCharge YAML-Konfiguration",
+        "description": "Gesamte Konfiguration oder gezielte Änderungen bearbeiten. Prüfung vor dem Speichern.",
+        "data": {
+          "mode": "Änderungsmodus",
+          "yaml_text": "MultiCharge Konfiguration (YAML/JSON)"
+        }
+      },
+      "yaml_review": {
+        "title": "YAML-Änderungen prüfen",
+        "description": "{summary}\nErst nach Prüfung bestätigen.",
+        "data": {
+          "confirm": "Geprüfte Änderungen anwenden",
+          "edit_again": "Zurück zum YAML"
+        }
       }
     },
     "abort": {
       "yaml_managed": "Konfiguration wird über YAML verwaltet. YAML ändern und Home Assistant neu starten."
     },
     "error": {
-      "invalid_config": "Ungültige Konfiguration."
+      "invalid_config": "Ungültige Konfiguration.",
+      "confirm_save": "Confirm the reviewed changes before saving.",
+      "selection_changed": "The configuration changed; reopen YAML before saving."
     }
   },
   "entity": {
