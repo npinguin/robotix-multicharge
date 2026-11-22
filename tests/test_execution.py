@@ -175,17 +175,19 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("NATIVE_SERVICE_EXCEPTION", outcome["reason"])
         self.assertEqual((await rt.executor.execute("evse", "start"))["reason"],
                          "PREVIOUS_COMMAND_UNCONFIRMED")
-        self.assertEqual(len(services.calls), 1)
+        self.assertEqual(len(services.calls), 2)
+        self.assertEqual(services.calls[-1][1], "turn_off")
 
     async def test_timeout_does_not_forge_success_and_quarantines_start(self):
         rt, _, services = rig()
         services.reconcile_observations = False
         result = await rt.executor.execute("evse", "start", readback_seconds=0.015)
         self.assertEqual(result["status"], "execution_unknown")
-        self.assertEqual(result["reason"], "PHYSICAL_READBACK_TIMEOUT")
+        self.assertTrue(result["reason"].startswith("PHYSICAL_READBACK_TIMEOUT"))
+        self.assertIn("PROTECTIVE_STOP_SENT", result["reason"])
         self.assertIsNone(result["readback_at"])
         self.assertFalse(rt.executor.capabilities()["evse"]["start_allowed"])
-        self.assertEqual(len(services.calls), 1)
+        self.assertEqual([x[1] for x in services.calls], ["turn_on", "turn_off"])
 
     async def test_stop_does_not_claim_positive_command_with_old_power(self):
         rt, sources, services = rig()
@@ -196,6 +198,34 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["status"], "execution_unknown")
         self.assertIsNone(result["readback_at"])
         self.assertEqual(services.calls[0][1], "turn_off")
+
+    async def test_stop_after_timeout_can_reconcile_quarantine(self):
+        rt, sources, services = rig()
+        services.reconcile_observations = False
+        first = await rt.executor.execute("evse", "start", readback_seconds=0.015)
+        self.assertEqual(first["status"], "execution_unknown")
+        self.assertFalse(rt.executor.capabilities()["evse"]["start_allowed"])
+        # The native physical source eventually confirms a stopped charger.
+        sources["switch.evse_control"].state = "off"
+        sources["sensor.actual_power"].state = "0"
+        sources["sensor.actual_power"].last_updated = datetime.now(timezone.utc)
+        stopped = await rt.executor.execute("evse", "stop")
+        self.assertEqual(stopped["status"], "confirmed")
+        self.assertTrue(rt.executor.capabilities()["evse"]["start_allowed"])
+
+    async def test_start_rejects_unverified_other_charger_even_at_zero_power(self):
+        rt, sources, services = rig()
+        rt.configuration["chargers"].append({
+            "id": "other", "name": "Another charger", "kind": "on_off",
+            "rated_power_kw": 1.0, "asset": "car",
+            "power_entity": "sensor.other_power",
+            "control_entity": "switch.other",
+            "control_owner": "external",
+        })
+        sources["sensor.other_power"] = state(0, "W")
+        outcome = await rt.executor.execute("evse", "start")
+        self.assertEqual(outcome["reason"], "OTHER_CHARGER_OWNER_OR_STATE_UNKNOWN")
+        self.assertEqual(services.calls, [])
 
     async def test_unload_never_allows_new_commands(self):
         rt, _, services = rig()
