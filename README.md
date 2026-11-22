@@ -8,7 +8,7 @@
 
 Robotix MultiCharge is an open-source Home Assistant integration being built to coordinate charging for electric cars, e-bikes and other compatible rechargeable assets. The goal: make smart use of electricity prices, solar energy, available power and charging deadlines—without locking you to a vehicle, charger or energy provider.
 
-> **Early development — do not use to control charging equipment.** The current `dev` branch contains a read-only quarter-hour proposal engine, source-quality checks and native logical plan diagnostics, but no qualified physical executor or five-tab chart. No public installable TEST or STABLE release is available yet. Features described below are goals, not claims about the current release.
+> **Early development — do not install on live charging equipment.** The current `dev` branch contains a native Home Assistant on/off START/STOP service path with separate measured-power readback, but it is disabled by default and has **not been qualified on real Home Assistant charger hardware**. The five-tab UI and quarter-hour planner are still incomplete; variable current, automatic physical execution and session history remain open. No HACS TEST or STABLE release is approved.
 
 ## What we're building
 
@@ -31,7 +31,7 @@ The planned everyday experience has five sections:
 | **Chargers** | Connection, power, actual state, active assignment and safe controls |
 | **Settings** | Guided source selection, limits, diagnostics and expert YAML import |
 
-On `dev`, the native Site → Charger → Asset → Sources → Verify setup flow and optional bundled `robotix-multicharge-card` implement the approved five-section navigation and a source-only 15-minute proposed-plan visualization. The card opens native HA integration options rather than pretending to edit hardware. YAML/UI use the same validation. **Actual HA configuration/browser tests and complete working Settings are not yet qualified; accepted-versus-measured interval history and physical charging remain unavailable.** The bounded plan query is admin-only while permission/scoping policy is unfinished. UI and optional YAML must share a single validated configuration authority. Physical device identities remain with their native Home Assistant integrations.
+On `dev`, the native Site → Charger → Asset → Sources → Verify setup flow and optional bundled `robotix-multicharge-card` implement the approved five-section navigation and a source-only 15-minute proposed-plan visualization. The card opens native HA integration options rather than pretending to edit hardware. YAML/UI use the same validation. **Actual HA browser/field commissioning and complete working Settings are not yet qualified; accepted-versus-measured interval history remains unavailable. The native on/off command path can perform a real `switch.turn_on/off` only after explicit single-owner cutover and manual commissioning, and requires independent physical readback. This code is NOT field-approved.** The bounded plan query is admin-only while permission/scoping policy is unfinished. UI and optional YAML must share a single validated configuration authority. Physical device identities remain with their native Home Assistant integrations.
 
 The stable core concepts are `ChargeableAsset`, `Charger` and `ChargeController`. A physical device stays owned by its native Home Assistant integration; MultiCharge only represents the logical charging role.
 
