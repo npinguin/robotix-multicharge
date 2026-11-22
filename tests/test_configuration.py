@@ -28,41 +28,41 @@ class ConfigurationTests(unittest.TestCase):
     def test_direct_expert_json_normalizes_charger_and_vehicle_without_wizard(self):
         """Owner's JSON fields are the complete input, not internal YAML keys."""
         data = {
-            "Controller": {"Name": "Wessels Home", "ID": "home"},
+            "Controller": {"Name": "Sample home", "ID": "home"},
             "Charger": [
-                {"Name": "Garage White",
+                {"Name": "Garage A",
                  "Charging-Session-sensor": "sensor.white_session",
                  "Charging-startstop-entity": "switch.white_charge",
                  "Charging-amp-entity": "number.white_limit",
-                 "ChargingAsset": "Audi Q8"},
-                {"Name": "Peblar Outside",
+                 "ChargingAsset": "Family car"},
+                {"Name": "Outdoor charger",
                  "Charging-startstop-entity": "switch.peblar_charge"},
             ],
             "ChargingAsset": [
-                {"Name": "Audi Q8", "Asset type": "Véhicule",
-                 "Vehicle-Charging-startstop-entity": "switch.audi_charge",
-                 "Vehicle-Charging-amp-entity": "number.audi_limit",
-                 "Vehicle-soc-sensor": "sensor.audi_soc"},
+                {"Name": "Family car", "Asset type": "Véhicule",
+                 "Vehicle-Charging-startstop-entity": "switch.family_charge",
+                 "Vehicle-Charging-amp-entity": "number.family_limit",
+                 "Vehicle-soc-sensor": "sensor.family_soc"},
                 {"Name": "Guest", "Asset type": "bicycle"},
             ],
         }
         cfg = normalize_expert_json(data)
-        self.assertEqual(cfg["controller"]["name"], "Wessels Home")
+        self.assertEqual(cfg["controller"]["name"], "Sample home")
         self.assertEqual(cfg["controller"]["mode"], "Off")
         self.assertEqual(cfg["controller"]["id"], "home")
         self.assertNotIn("max_power_kw", cfg["controller"])
         self.assertEqual(len(cfg["chargers"]), 2)
-        self.assertEqual(cfg["chargers"][0]["id"], "garage_white")
-        self.assertEqual(cfg["chargers"][0]["asset"], "audi_q8")
+        self.assertEqual(cfg["chargers"][0]["id"], "garage_a")
+        self.assertEqual(cfg["chargers"][0]["asset"], "family_car")
         self.assertEqual(cfg["chargers"][0]["session_entity"], "sensor.white_session")
         self.assertEqual(cfg["chargers"][0]["control_entity"], "switch.white_charge")
         self.assertEqual(cfg["chargers"][0]["current_control_entity"], "number.white_limit")
         self.assertEqual(cfg["chargers"][0]["control_owner"], "external")
         self.assertFalse(cfg["chargers"][0]["physical_commissioned"])
         self.assertEqual(cfg["assets"][0]["kind"], "car")
-        self.assertEqual(cfg["assets"][0]["soc_entity"], "sensor.audi_soc")
-        self.assertEqual(cfg["assets"][0]["vehicle_control_entity"], "switch.audi_charge")
-        self.assertEqual(cfg["assets"][0]["vehicle_current_entity"], "number.audi_limit")
+        self.assertEqual(cfg["assets"][0]["soc_entity"], "sensor.family_soc")
+        self.assertEqual(cfg["assets"][0]["vehicle_control_entity"], "switch.family_charge")
+        self.assertEqual(cfg["assets"][0]["vehicle_current_entity"], "number.family_limit")
         self.assertEqual(cfg["assets"][1]["kind"], "bicycle")
         self.assertNotIn("vehicle_control_entity", cfg["assets"][1])
         self.assertEqual(cfg, validate_configuration(cfg))
@@ -71,7 +71,7 @@ class ConfigurationTests(unittest.TestCase):
         cfg = normalize_expert_json({
             "Charger": {"Name": "Utility Plug",
                         "Charging-startstop-entity": "switch.utility"},
-            "ChargingAsset": {"Name": "Mercedes GLA", "Asset type": "Véhicule"},
+            "ChargingAsset": {"Name": "Second car", "Asset type": "Véhicule"},
         })
         self.assertEqual(len(cfg["chargers"]), 1)
         self.assertEqual(len(cfg["assets"]), 1)
@@ -80,7 +80,7 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(cfg["controller"]["mode"], "Off")
 
     def test_expert_json_rejects_unknown_keys_and_invalid_entity_domains(self):
-        sample = {"Charger": [{"Name": "Garage White",
+        sample = {"Charger": [{"Name": "Garage A",
                               "Charging-startstop-entity": "switch.white"}]}
         for field, value in (
             ("Charging-Session-sensor", "number.not_a_sensor"),
