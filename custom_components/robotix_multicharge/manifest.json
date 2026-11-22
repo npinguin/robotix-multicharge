@@ -1,6 +1,10 @@
 {
   "domain": "robotix_multicharge",
   "name": "Robotix MultiCharge",
+  "after_dependencies": [
+    "frontend",
+    "http"
+  ],
   "codeowners": [
     "@npinguin"
   ],
