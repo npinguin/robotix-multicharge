@@ -9,7 +9,7 @@ const MC_STYLE = [
   "h2{font-size:20px;line-height:1.4;margin:0 0 8px}h3{font-size:16px;margin:0}p{margin:5px 0;line-height:1.5}",
   ".muted{color:var(--secondary-text-color,#65717e)}.small{font-size:12px}.value{font-weight:700;font-size:22px}",
   ".tabs,.controls,.chips{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0}",
-  "button,select,a.action{font:inherit;border:1px solid var(--divider-color,#cfd6de);background:var(--card-background-color,#fff);color:inherit;border-radius:10px;padding:9px 11px;cursor:pointer;text-decoration:none;min-height:42px}",
+  "input,button,select,textarea,a.action{font:inherit;border:1px solid var(--divider-color,#cfd6de);background:var(--card-background-color,#fff);color:inherit;border-radius:10px;padding:9px 11px;cursor:pointer;text-decoration:none;min-height:42px}",
   "button[aria-selected=true],button.active{background:var(--primary-color,#1976d2);color:var(--text-primary-color,#fff);border-color:var(--primary-color,#1976d2)}",
   "button:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid var(--primary-color,#1976d2);outline-offset:2px}",
   ".grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}",
@@ -18,6 +18,9 @@ const MC_STYLE = [
   ".row{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}",
   ".details{margin-top:10px;padding-top:9px;border-top:1px solid var(--divider-color,#ddd)}",
   ".pair{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:5px 0}",
+  ".field{display:flex;flex-direction:column;gap:4px;margin:8px 0}.field label{font-size:13px;color:var(--secondary-text-color,#65717e)}",
+  ".field input,.field select{width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--divider-color,#cfd6de);background:var(--card-background-color,#fff);color:inherit;border-radius:8px}",
+  ".message{font-size:13px;margin:9px 0}.pending{color:var(--warning-color,#b57418)}.confirmed{color:var(--success-color,#278355)}",
   ".notice{border-left:3px solid var(--warning-color,#e59e31);padding:9px 12px;background:var(--secondary-background-color,#f6f8fa);margin:12px 0;font-size:13px}",
   ".error{border-left-color:var(--error-color,#d43b38)}.chart{overflow-x:auto;width:100%}",
   ".legend{display:flex;flex-wrap:wrap;gap:15px;font-size:12px;color:var(--secondary-text-color,#65717e)}",
@@ -75,6 +78,10 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._loading=false;
     this._commandBusy=false;
     this._commandFeedback={};
+    this._settingsBusy=false;
+    this._settingsFeedback=null;
+    this._pendingSettings=null;
+    this._assetEditor="";
   }
   setConfig(config){this._cardConfig=config||{};this.render();}
   getCardSize(){return 10;}
@@ -91,6 +98,11 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(this._filter.startsWith("charger:"))cmd.charger_id=this._filter.slice(8);
       if(this._filter.startsWith("asset:"))cmd.asset_id=this._filter.slice(6);
       this._data=await this._hass.callWS(cmd);
+      if(this._pendingSettings&&
+         this._data.configuration_revision===this._pendingSettings.expected_revision){
+        this._settingsFeedback={status:"confirmed",message:"Settings confirmed after Home Assistant readback."};
+        this._pendingSettings=null;
+      }
       this._last=Date.now();
     }catch(error){
       this._error=error && (error.message||error.code) ? String(error.message||error.code) : "Read access unavailable";
@@ -120,6 +132,59 @@ class RobotixMultiChargeCard extends HTMLElement {
         reason:"COMMAND_REQUEST_FAILED: "+String(error.message||error)
       };
     }finally{this._commandBusy=false;this.render();}
+  }
+  async saveSettings(scope,targetId,changes,action){
+    if(this._settingsBusy||!this._hass||!this._data)return;
+    if(!this._data.configuration_revision){
+      this._settingsFeedback={status:"rejected",message:"Settings revision unavailable. Refresh first."};
+      this.render();return;
+    }
+    this._settingsBusy=true;
+    this._settingsFeedback={status:"requested",message:"Validating settings…"};
+    this.render();
+    try{
+      const receipt=await this._hass.callWS({
+        type:"robotix_multicharge/update_settings",
+        scope,target_id:targetId,changes,action:action||"save",
+        expected_revision:this._data.configuration_revision
+      });
+      if(receipt.status!=="accepted_unconfirmed"||!receipt.expected_revision)
+        throw new Error("Settings change was not admitted");
+      this._pendingSettings={expected_revision:receipt.expected_revision};
+      this._settingsFeedback={status:"accepted_unconfirmed",message:"Saved to Home Assistant; checking the reloaded configuration…"};
+      this._last=0;
+    }catch(error){
+      this._settingsFeedback={status:"rejected",message:String(error.message||error)};
+    }finally{
+      this._settingsBusy=false;
+      if(this._pendingSettings)await this.load();
+      this.render();
+    }
+  }
+  field(container,title,value,type,choices){
+    const wrapper=mcEl("div","field"),label=mcEl("label","",title);
+    const input=mcEl(choices?"select":"input");
+    const id="multicharge-"+title.toLowerCase().replace(/[^a-z0-9]+/g,"-");
+    input.setAttribute("id",id);label.setAttribute("for",id);
+    if(choices){
+      for(const [key,caption] of choices){
+        const opt=mcEl("option","",caption);opt.value=key;
+        if(key===String(value===null||value===undefined?"":value))opt.selected=true;
+        input.append(opt);
+      }
+    }else{
+      input.setAttribute("type",type||"text");
+    }
+    input.value=value===undefined||value===null?"":String(value);
+    wrapper.append(label,input);container.append(wrapper);
+    return input;
+  }
+  feedback(container){
+    if(!this._settingsFeedback)return;
+    const result=this._settingsFeedback;
+    const node=mcEl("p","message "+(result.status==="confirmed"?"confirmed":result.status==="rejected"?"error":"pending"),result.message);
+    node.setAttribute("role",result.status==="rejected"?"alert":"status");
+    container.append(node);
   }
   title(container,label){
     container.append(mcEl("h2","",label));
@@ -185,9 +250,16 @@ class RobotixMultiChargeCard extends HTMLElement {
     ]){const el=mcEl("div","metric");el.append(mcEl("p","muted small",key),mcEl("div","value",value));metrics.append(el);}
     container.append(metrics);
     const mode=(c.controller||{}).mode||"Off";
-    const chips=mcEl("div","chips");chips.append(mcEl("p","muted", "Selected strategy: "+mode+" (proposal only)"));
-    for(const item of MC_MODES){const button=mcButton(item,()=>this.settingsSelect(container,"Charging strategy"));button.disabled=true;button.title="Change the charging mode in native integration settings. Physical control is individually gated by verified ownership, sources and commissioning.";if(item===mode)button.className="active";chips.append(button);}
+    const chips=mcEl("div","chips");chips.append(mcEl("p","muted","Charging strategy: "+mode));
+    for(const item of MC_MODES){
+      const button=mcButton(item,()=>this.saveSettings("controller",(c.controller||{}).id,{mode:item}));
+      button.disabled=this._settingsBusy||item===mode;
+      button.title="Mode changes require administrator access and physical idle safety.";
+      if(item===mode)button.className="active";
+      chips.append(button);
+    }
     container.append(chips);
+    this.feedback(container);
     for(const a of assets){
       const card=mcEl("div","card");const observed=((d.observations||{}).assets||{})[a.id]||{};
       const charger=chargers.find(x=>x.asset===a.id);
@@ -225,7 +297,9 @@ class RobotixMultiChargeCard extends HTMLElement {
     const raw=d.slots||[];
     const start=new Date(d.start).getTime(),end=new Date(d.end).getTime();
     const count=Math.max(1,Math.ceil((end-start)/900000));
-    const max=Math.max(0.2,...raw.map(s=>s.proposed_power_kw||0),...raw.map(s=>s.actual_power_kw||0));
+    const max=Math.max(0.2,...raw.map(s=>s.proposed_power_kw||0),
+      ...raw.map(s=>s.accepted_power_kw||0),
+      ...(d.actual_slots||[]).map(s=>s.actual_power_kw||0));
     svg.append(mcSVG("line",{x1:37,y1:174,x2:892,y2:174,stroke:"currentColor","stroke-opacity":0.35}));
     for(const slot of raw){
       const index=Math.floor((new Date(slot.start).getTime()-start)/900000);
@@ -237,9 +311,11 @@ class RobotixMultiChargeCard extends HTMLElement {
         rect.append(mcSVG("title",{},"Proposed "+slot.proposed_power_kw+" kW · "+mcTime(slot.start,d.timezone)));
         svg.append(rect);
       }
-      if(typeof slot.actual_power_kw==="number"){
-        const h=Math.max(0,slot.actual_power_kw/max*150);
-        svg.append(mcSVG("rect",{x:x+w*0.55,y:174-h,width:Math.max(1,w*0.35),height:h,fill:"#2d9c70"}));
+      if(typeof slot.accepted_power_kw==="number"){
+        const h=Math.max(0,slot.accepted_power_kw/max*150);
+        const accepted=mcSVG("rect",{x:x+w*0.38,y:174-h,width:Math.max(1,w*0.28),height:h,fill:"#8d61b5"});
+        accepted.append(mcSVG("title",{},"Physically accepted "+slot.accepted_power_kw+" kW · "+mcTime(slot.start,d.timezone)));
+        svg.append(accepted);
       }
     }
     const priceSlots=(d.price_slots||[]).filter(s=>typeof s.price_per_kwh==="number");
@@ -263,10 +339,10 @@ class RobotixMultiChargeCard extends HTMLElement {
       const t=new Date(start+(end-start)*i/4);
       svg.append(mcSVG("text",{x:40+i*212,y:195},t.toLocaleTimeString(undefined,{timeZone:d.timezone||"UTC",hour:"2-digit",minute:"2-digit"})));
     }
-    svg.append(mcSVG("text",{x:40,y:15}, "Power (kW) · proposed only until accepted/readback available"));
+    svg.append(mcSVG("text",{x:40,y:15}, "Power (kW) · proposed / physically accepted / measured"));
     chart.append(svg);container.append(chart);
     const legend=mcEl("div","legend");
-    for(const [color,text] of [["#4284d3","Proposed"],["#2d9c70","Actual (when measured)"],["#d89a22","Price (when qualified)"]]){
+    for(const [color,text] of [["#4284d3","Proposed"],["#8d61b5","Accepted (physical)"],["#2d9c70","Measured"],["#d89a22","Qualified price"]]){
       const item=mcEl("span");const dot=mcEl("span","dot");dot.style.background=color;item.append(dot,document.createTextNode(text));legend.append(item);
     }
     container.append(legend);
@@ -328,7 +404,23 @@ class RobotixMultiChargeCard extends HTMLElement {
       }
       container.append(card);
     }
-    container.append(mcButton("+ Add asset",()=>this.settingsSelect(container,"Sources & bindings")));
+    if(this._assetEditor==="new"){
+      const form=mcEl("form","card");form.append(mcEl("h3","","Add a chargeable asset"));
+      const name=this.field(form,"Asset name","","text");
+      const kind=this.field(form,"Asset type","car",null,[["car","Car"],["bicycle","Bicycle"],["other","Other"]]);
+      const energy=this.field(form,"Requested energy (kWh)","", "number");
+      form.append(mcButton("Create asset",()=>{
+        const id=name.value.trim().toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"");
+        const changes={name:name.value.trim(),kind:kind.value};
+        if(energy.value!=="")changes.requested_kwh=Number(energy.value);
+        this.saveSettings("asset",id,changes,"create");
+      }));
+      container.append(form);
+    }
+    this.feedback(container);
+    container.append(mcButton(this._assetEditor==="new"?"Cancel adding":"Add asset",()=>{
+      this._assetEditor=this._assetEditor==="new"?"":"new";this.render();
+    }));
   }
   chargers(container){
     const d=this._data,chargers=d.configuration.chargers||[],observations=(d.observations||{}).chargers||{};
@@ -341,7 +433,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       card.append(head);
       mcPair(card,"Connection",mcValue(obs.connected));
       mcPair(card,"Actual power",mcValue(obs.power_kw," kW"));
-      mcPair(card,"Control type",c.kind==="on_off"?"On/off":"Variable current (not commissioned)");
+      mcPair(card,"Control type",c.kind==="on_off"?"On/off":"Verified variable current when commissioned");
       const session=(d.active_sessions||{})[c.id];
       if(session){
         mcPair(card,"Active session",mcTime(session.started_at,d.timezone));
@@ -349,6 +441,13 @@ class RobotixMultiChargeCard extends HTMLElement {
                session.actual_energy_kwh===null?"Unknown":session.actual_energy_kwh+" kWh");
       }
       mcPair(card,"Assigned asset",c.asset||"Not assigned");
+      const history=(d.completed_sessions||[]).filter(x=>x.charger_id===c.id);
+      const latest=history.length?history[history.length-1]:null;
+      if(latest){
+        mcPair(card,"Last confirmed session",mcTime(latest.ended_at,d.timezone));
+        mcPair(card,"Measured energy",latest.actual_energy_kwh===null?"Unknown":latest.actual_energy_kwh+" kWh");
+        mcPair(card,"Verified cost",latest.cost===null?"Unknown":latest.cost+" "+latest.currency);
+      }
       if(this._open===c.id){
         const detail=mcEl("div","details");
         mcPair(detail,"Rated power",c.rated_power_kw+" kW");
@@ -390,21 +489,78 @@ class RobotixMultiChargeCard extends HTMLElement {
   settings(container){
     const d=this._data,c=d.configuration||{},ctl=c.controller||{};
     this.title(container,"Settings");
-    this.notice(container,"Settings are managed through the native Home Assistant Options Flow or YAML. Manual physical control requires a separately approved single-writer cutover and commissioning.",false);
-    const data={
-      "Charging site":"Site: "+(ctl.name||"not configured")+" · Parallel chargers: "+(ctl.max_parallel||"not set"),
-      "Sources & bindings":"Chargers: "+(c.chargers||[]).length+" · Assets: "+(c.assets||[]).length+" · Source bindings are selected explicitly",
-      "Charging strategy":"Current mode: "+(ctl.mode||"Off")+". Source-tested automatic execution and manual Force Charge use the same guarded writer. Physical controls remain unavailable without qualified exclusive ownership and readback.",
-      "Safety & limits":"Configured group limit: "+(ctl.max_power_kw===undefined?"unqualified":ctl.max_power_kw+" kW")+". Optional external binding must be fresh.",
-      "Integrations":"External Energy, Mobility, Planning, Finance and Notifications are optional; no mandatory provider.",
-      "Advanced & YAML":"Expert YAML uses the same validated configuration schema. YAML-owned entries must be edited in YAML."
-    };
+    this.notice(container,"Changes are validated by Home Assistant and confirmed only after reloading. Stop active owned chargers before structural changes; commissioning and hardware capabilities remain in native advanced options.",false);
+    this.feedback(container);
     for(const title of MC_SETTINGS){
-      const group=mcEl("div","card");
-      const open=title===this._settingsOpen;
-      const row=mcEl("div","row");row.append(mcEl("h3","",title),mcButton(open?"Close":"Open",()=>{this._settingsOpen=open?"":title;this.render();}));
+      const group=mcEl("section","card"),open=title===this._settingsOpen;
+      const row=mcEl("div","row");
+      row.append(mcEl("h3","",title),mcButton(open?"Close":"Edit",()=>{
+        this._settingsOpen=open?"":title;this.render();
+      }));
       group.append(row);
-      if(open){const detail=mcEl("div","details");detail.append(mcEl("p","",data[title]));this.configure(detail);group.append(detail);}
+      if(open){
+        const detail=mcEl("div","details");
+        if(title==="Charging site"){
+          const name=this.field(detail,"Site name",ctl.name);
+          const parallel=this.field(detail,"Parallel chargers",ctl.max_parallel,"number");
+          const power=this.field(detail,"Group power ceiling kW",ctl.max_power_kw,"number");
+          detail.append(mcButton("Save charging site",()=>this.saveSettings(
+            "controller",ctl.id,{name:name.value,max_parallel:Number(parallel.value),
+            max_power_kw:power.value===""?null:Number(power.value)}
+          )));
+        }else if(title==="Sources & bindings"){
+          const price=this.field(detail,"Effective tariff source",ctl.price_entity);
+          const solar=this.field(detail,"Solar capacity source",ctl.solar_entity);
+          const binding=this.field(detail,"Binding power envelope",ctl.binding_entity);
+          detail.append(mcButton("Save sources",()=>this.saveSettings(
+            "controller",ctl.id,{price_entity:price.value||null,
+            solar_entity:solar.value||null,binding_entity:binding.value||null}
+          )));
+          detail.append(mcEl("p","muted small","Source IDs must refer to existing qualified native Home Assistant sensors. Unknown capacity never becomes unlimited."));
+        }else if(title==="Charging strategy"){
+          detail.append(mcEl("p","", "Selected: "+(ctl.mode||"Off")));
+          const chips=mcEl("div","chips");
+          for(const mode of MC_MODES){
+            const button=mcButton(mode,()=>this.saveSettings("controller",ctl.id,{mode}));
+            button.disabled=this._settingsBusy||mode===ctl.mode;
+            if(mode===ctl.mode)button.className="active";
+            chips.append(button);
+          }
+          detail.append(chips);
+        }else if(title==="Safety & limits"){
+          const power=this.field(detail,"Maximum group kW",ctl.max_power_kw,"number");
+          const phases=this.field(detail,"Verified phase ceilings (A)",
+            Object.entries(ctl.phase_limits_a||{}).map(([key,val])=>key+":"+val).join(","));
+          detail.append(mcButton("Save electrical limits",()=>{
+            let limits=null;
+            if(phases.value.trim()){
+              limits={};
+              for(const part of phases.value.split(",")){
+                const pieces=part.trim().split(":");
+                if(pieces.length!==2||!["L1","L2","L3"].includes(pieces[0].trim().toUpperCase())){
+                  this._settingsFeedback={status:"rejected",message:"Use verified phase limits such as L1:16,L2:16,L3:16."};this.render();return;
+                }
+                limits[pieces[0].trim().toUpperCase()]=Number(pieces[1]);
+              }
+            }
+            this.saveSettings("controller",ctl.id,{
+              max_power_kw:power.value===""?null:Number(power.value),
+              phase_limits_a:limits
+            });
+          }));
+          detail.append(mcEl("p","muted small","Circuit wiring, physical ownership and commissioning are only changed through native expert configuration after electrical verification."));
+        }else if(title==="Integrations"){
+          detail.append(mcEl("p","","Home Assistant integrations own physical sources and charger devices. MultiCharge only references their qualified entities."));
+          mcPair(detail,"Tariff",(d.observations||{}).sources?.tariff_quality||"Unknown");
+          mcPair(detail,"Solar",(d.observations||{}).sources?.solar_quality||"Unknown");
+          mcPair(detail,"Capacity",(d.observations||{}).sources?.binding_quality||"Unknown");
+          this.configure(detail);
+        }else{
+          detail.append(mcEl("p","","Advanced wiring, assets, charger commissioning, import and YAML remain managed by native Home Assistant Options. Existing logical IDs are retained on edit."));
+          this.configure(detail);
+        }
+        group.append(detail);
+      }
       container.append(group);
     }
   }
