@@ -1018,7 +1018,14 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         sources["sensor.actual_power"].last_updated = datetime.now(timezone.utc)
         stopped = await rt.executor.execute("evse", "stop")
         self.assertEqual(stopped["status"], "confirmed")
-        self.assertTrue(rt.executor.capabilities()["evse"]["start_allowed"])
+        # There was no confirmed START/session meter baseline before the
+        # timeout. Even an independently confirmed STOP cannot establish how
+        # much energy the earlier uncertain request actually delivered.
+        self.assertFalse(rt.executor.capabilities()["evse"]["start_allowed"])
+        self.assertEqual(
+            rt.executor.capabilities()["evse"]["reason"],
+            "UNRESOLVED_PREVIOUS_CHARGE_INTENT",
+        )
 
     async def test_unknown_external_switch_reserves_possible_parallel_slot(self):
         rt, sources, services = rig()
