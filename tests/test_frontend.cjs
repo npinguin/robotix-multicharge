@@ -88,6 +88,38 @@ async function main(){
     assert.ok(content(card.shadowRoot).includes(name),name);
   }
   assert.ok(find(card.shadowRoot,"a"),"setting opens real HA integration settings");
+  assert.ok(find(card.shadowRoot,"button","Save charging site"),
+            "Charging site must have an actual saving control");
+  fixture.configuration_revision="config-revision-1";
+  card._hass.callWS=async request=>{
+    commands.push(request);
+    if(request.type==="robotix_multicharge/update_settings"){
+      assert.equal(request.scope,"controller");
+      assert.equal(request.expected_revision,"config-revision-1");
+      assert.equal(request.changes.mode,"Economy");
+      fixture.configuration.controller.mode="Economy";
+      fixture.configuration_revision="config-revision-2";
+      return {status:"accepted_unconfirmed",expected_revision:"config-revision-2"};
+    }
+    return fixture;
+  };
+  card._tab="Settings";card._settingsOpen="Charging strategy";card.render();
+  const modeButton=find(card.shadowRoot,"button","Economy");
+  assert.ok(modeButton,"selected strategy has a real action");
+  modeButton.click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(commands.some(c=>c.type==="robotix_multicharge/update_settings"&&
+    c.changes.mode==="Economy"),"native settings update is invoked");
+  assert.ok(content(card.shadowRoot).includes("Settings confirmed after Home Assistant readback."),
+    "only reloaded native configuration confirms settings changes");
+  card._tab="Chargeable Assets";card.render();
+  find(card.shadowRoot,"button","Details").click();
+  assert.ok(find(card.shadowRoot,"button","Save asset"),"asset preferences have working editor");
+  card._tab="Chargers";card._open="";card.render();
+  find(card.shadowRoot,"button","Details").click();
+  assert.ok(find(card.shadowRoot,"button","Save assignment"),
+    "chargers can rebind through the one native settings authority");
+
   assert.ok(!find(card.shadowRoot,"button","Start charging"),
             "uncommissioned hardware cannot gain optimistic action");
   fixture.command_capabilities={drive:{start_allowed:true,stop_allowed:true,reason:"READY"}};

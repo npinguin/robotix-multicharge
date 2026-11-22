@@ -400,6 +400,18 @@ class RobotixMultiChargeCard extends HTMLElement {
         mcPair(detail,"Battery data",obs.soc?(obs.soc.quality+" · "+(a.soc_entity||"manual")):"Unknown");
         mcPair(detail,"Requested energy",a.requested_kwh===undefined?"Not set":a.requested_kwh+" kWh");
         mcPair(detail,"Duration",a.requested_duration_minutes===undefined?"Not set":a.requested_duration_minutes+" min");
+        const target=this.field(detail,"Target battery %",a.target_soc,"number");
+        const energy=this.field(detail,"Requested kWh",a.requested_kwh,"number");
+        const duration=this.field(detail,"Requested minutes",a.requested_duration_minutes,"number");
+        const priority=this.field(detail,"Charging priority",a.priority||0,"number");
+        const ready=this.field(detail,"Ready By ISO time",a.ready_by);
+        detail.append(mcButton("Save asset",()=>this.saveSettings("asset",a.id,{
+          target_soc:target.value===""?null:Number(target.value),
+          requested_kwh:energy.value===""?null:Number(energy.value),
+          requested_duration_minutes:duration.value===""?null:Number(duration.value),
+          priority:Number(priority.value),
+          ready_by:ready.value||null
+        })));
         this.configure(detail);card.append(detail);
       }
       container.append(card);
@@ -458,6 +470,11 @@ class RobotixMultiChargeCard extends HTMLElement {
         mcPair(detail,"Command outcome",actual.status||"No command issued");
         if(actual.reason)mcPair(detail,"Reason",actual.reason);
         if(actual.readback_at)mcPair(detail,"Measured confirmation",mcTime(actual.readback_at,d.timezone));
+        const assignment=this.field(detail,"Chargeable asset assignment",c.asset||"",null,
+          [["","Unassigned"],...(d.configuration.assets||[]).map(a=>[a.id,a.name])]);
+        detail.append(mcButton("Save assignment",()=>this.saveSettings(
+          "charger",c.id,{asset:assignment.value||null}
+        )));
         this.configure(detail);card.append(detail);
       }
       const capability=(d.command_capabilities||{})[c.id]||{};
@@ -490,6 +507,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     const d=this._data,c=d.configuration||{},ctl=c.controller||{};
     this.title(container,"Settings");
     this.notice(container,"Changes are validated by Home Assistant and confirmed only after reloading. Stop active owned chargers before structural changes; commissioning and hardware capabilities remain in native advanced options.",false);
+    this.configure(container);
     this.feedback(container);
     for(const title of MC_SETTINGS){
       const group=mcEl("section","card"),open=title===this._settingsOpen;
