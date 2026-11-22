@@ -108,7 +108,8 @@
           "controller": "Charging site",
           "asset": "Chargeable assets",
           "charger": "Chargers",
-          "display": "Dashboard card"
+          "display": "Dashboard card",
+          "yaml": "YAML bewerken (eerst controleren)"
         },
         "title": "Instellingen"
       },
@@ -186,13 +187,31 @@
         "data": {
           "enable_ux": "Dashboard"
         }
+      },
+      "yaml": {
+        "title": "MultiCharge — YAML-configuratie",
+        "description": "Bewerk de volledige configuratie of pas onderdelen aan. Eerst valideren en beoordelen; geen fysieke laadcommando's. {note}",
+        "data": {
+          "mode": "Bijwerkmodus",
+          "yaml_text": "MultiCharge-configuratie (YAML/JSON)"
+        }
+      },
+      "yaml_review": {
+        "title": "YAML-wijzigingen controleren",
+        "description": "{summary}\nControleer alle wijzigingen voordat je bevestigt.",
+        "data": {
+          "confirm": "Deze gecontroleerde wijzigingen toepassen",
+          "edit_again": "Terug naar YAML"
+        }
       }
     },
     "abort": {
       "yaml_managed": "Instellingen · YAML"
     },
     "error": {
-      "invalid_config": "Controleren"
+      "invalid_config": "Controleren",
+      "confirm_save": "Bevestig de gecontroleerde wijzigingen.",
+      "selection_changed": "Configuratie gewijzigd; open YAML opnieuw."
     }
   },
   "entity": {

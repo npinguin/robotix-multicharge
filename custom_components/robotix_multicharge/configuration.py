@@ -523,6 +523,84 @@ def is_in_place_runtime_preference_change(before, after):
     return structure(before) == structure(after)
 
 
+def prepare_expert_yaml_revision(current, document, mode="merge"):
+    """Prepare one YAML/JSON editor draft for the existing native Config Entry.
+
+    Merge patches only provided logical IDs and leaves every other source and
+    identity intact. Replace explicitly removes omitted objects. The editor
+    cannot commission or transfer any physical charging writer.
+    """
+    before = validate_configuration(current)
+    if mode not in ("merge", "replace"):
+        raise ValueError("yaml update mode must be merge or replace")
+    if not isinstance(document, dict):
+        raise ValueError("expert YAML must contain a mapping")
+    if "robotix_multicharge" in document:
+        if set(document) != {"robotix_multicharge"}:
+            raise ValueError(
+                "Only robotix_multicharge may be imported here; HA template "
+                "sensors and other packages must stay in Home Assistant YAML"
+            )
+        document = document["robotix_multicharge"]
+    if not isinstance(document, dict):
+        raise ValueError("robotix_multicharge must be a mapping")
+    if any(key in document for key in ("Controller", "Charger", "ChargingAsset")):
+        if mode != "replace":
+            raise ValueError("Controller/Charger/ChargingAsset format requires replace mode")
+        candidate = normalize_expert_json(document)
+    else:
+        _allowed(document, ("controller", "assets", "chargers"), "expert YAML")
+        if mode == "replace":
+            if "controller" not in document:
+                raise ValueError("complete replacement requires controller")
+            candidate = validate_configuration({
+                "controller": document["controller"],
+                "assets": document.get("assets", []),
+                "chargers": document.get("chargers", []),
+            })
+        else:
+            candidate = deepcopy(before)
+            if "controller" in document:
+                if not isinstance(document["controller"], dict):
+                    raise ValueError("controller: expected mapping")
+                candidate["controller"].update(document["controller"])
+            for group in ("assets", "chargers"):
+                if group not in document:
+                    continue
+                if not isinstance(document[group], list):
+                    raise ValueError(f"{group}: expected list")
+                rows = candidate[group]
+                ids = set()
+                for supplied in document[group]:
+                    if not isinstance(supplied, dict):
+                        raise ValueError(f"{group}: expected mapping")
+                    key = _text(supplied.get("id"), f"{group}.id")
+                    if key in ids:
+                        raise ValueError(f"{group}: duplicate ID in YAML")
+                    ids.add(key)
+                    existing = next((row for row in rows if row["id"] == key), None)
+                    if existing is None:
+                        rows.append(deepcopy(supplied))
+                    else:
+                        existing.update(deepcopy(supplied))
+            candidate = validate_configuration(candidate)
+
+    if candidate["controller"]["id"] != before["controller"]["id"]:
+        raise ValueError("controller ID cannot change in UI; preserve existing HA history")
+    old_by_id = {item["id"]: item for item in before["chargers"]}
+    for charger in candidate["chargers"]:
+        original = old_by_id.get(charger["id"])
+        prior_owner = original.get("control_owner", "external") if original else "external"
+        prior_commissioned = original.get("physical_commissioned", False) if original else False
+        if (charger.get("control_owner", "external") != prior_owner
+                or charger.get("physical_commissioned", False) != prior_commissioned):
+            raise ValueError(
+                "YAML editor cannot transfer charger ownership or commissioning; "
+                "qualify the exclusive physical writer separately"
+            )
+    return candidate
+
+
 # Expert JSON is only an adapter to the existing canonical Config Entry validator.
 # Every command remains subject to the executor's physical admission/readback.
 def normalize_expert_json(value):

@@ -7,12 +7,13 @@ from datetime import datetime, timezone
 from re import sub
 
 import voluptuous as vol
+import yaml
 from homeassistant import config_entries
 from homeassistant.helpers import selector
 
 from .configuration import (
     default_configuration, is_plan_presentation_only_change,
-    validate_configuration,
+    configuration_revision, prepare_expert_yaml_revision, validate_configuration,
 )
 from .source_evidence import number
 from .execution import stop_power_limit
@@ -77,6 +78,90 @@ def _assert_safe_expert_import(runtime, updated, *, source_changed=False):
             if (switch is None or switch.state != "off" or power.quality != "ok"
                     or power.value > stop_power_limit(charger)):
                 raise ValueError("EXPERT_IMPORT_REQUIRES_VERIFIED_IDLE_CHARGERS")
+
+
+def _parse_editor_yaml(text):
+    """Parse bounded data-only YAML/JSON without silent duplicate overrides."""
+    if not isinstance(text, str) or not text.strip() or len(text.encode("utf-8")) > 131072:
+        raise ValueError("YAML must contain 1–128 KiB of mapping data")
+
+    class StrictSafeLoader(yaml.SafeLoader):
+        def construct_mapping(self, node, deep=False):
+            seen = set()
+            for key_node, _ in node.value:
+                key = self.construct_object(key_node, deep=deep)
+                if not isinstance(key, (str, int, float, bool)):
+                    raise ValueError("YAML mapping keys must be scalar")
+                if key in seen:
+                    raise ValueError("duplicate YAML key")
+                seen.add(key)
+            return super().construct_mapping(node, deep=deep)
+
+    try:
+        document = yaml.load(text, Loader=StrictSafeLoader)
+    except yaml.YAMLError as exc:
+        raise ValueError("YAML syntax error or unsupported YAML tag") from exc
+    if not isinstance(document, dict):
+        raise ValueError("YAML root must be a mapping")
+    return document
+
+
+def _yaml_review_summary(old, new):
+    lines = []
+    fields = sorted(key for key in set(old["controller"]) | set(new["controller"])
+                    if old["controller"].get(key) != new["controller"].get(key))
+    lines.append("Site settings: " + (", ".join(fields) if fields else "unchanged"))
+    for category in ("chargers", "assets"):
+        prior = {row["id"]: row for row in old[category]}
+        current = {row["id"]: row for row in new[category]}
+        adds = sorted(current.keys() - prior.keys())
+        removes = sorted(prior.keys() - current.keys())
+        updates = sorted(key for key in current.keys() & prior.keys()
+                         if current[key] != prior[key])
+        lines.append(f"{category.title()}: {len(current)} total")
+        for label, keys in (("Add", adds), ("Modify", updates), ("Remove", removes)):
+            if keys:
+                lines.append(f"  {label}: {', '.join(keys)}")
+    lines.extend((
+        "Physical charger control owner: unchanged",
+        "Commissioning: unchanged; this edit sends no charging command.",
+    ))
+    return "\n".join(lines)
+
+
+def _assert_safe_yaml_ui_commit(runtime, updated):
+    """Recheck source and safety immediately before native Options Save."""
+    _assert_safe_expert_import(runtime, updated)
+    existing = {charger["id"]: charger for charger in runtime.configuration["chargers"]}
+    revised = {charger["id"]: charger for charger in updated["chargers"]}
+    # Even an external-owner charger must be measured idle to remove or change
+    # its historical association; a name-only edit never needs this gate.
+    for uid, previous in existing.items():
+        current = revised.get(uid)
+        if (current is not None and
+                all(previous.get(key) == current.get(key)
+                    for key in ("asset", "control_entity", "power_entity",
+                                "connected_entity", "energy_entity",
+                                "session_entity", "kind", "rated_power_kw"))):
+            continue
+        if (uid in runtime.executor._sessions or
+                uid in runtime.executor._start_pending):
+            raise ValueError("YAML_UPDATE_CHARGER_BUSY")
+        if previous.get("power_entity"):
+            observed = number(
+                runtime.hass, previous["power_entity"], "power",
+                datetime.now(timezone.utc),
+            )
+            if (observed.quality != "ok" or
+                    observed.value > stop_power_limit(previous)):
+                raise ValueError("YAML_UPDATE_REQUIRES_VERIFIED_IDLE")
+        elif previous.get("control_owner") == "multicharge":
+            raise ValueError("YAML_UPDATE_REQUIRES_VERIFIED_IDLE")
+        switch = runtime.executor._switch(
+            runtime.hass, previous.get("control_entity"),
+        )
+        if switch is not None and switch.state != "off":
+            raise ValueError("YAML_UPDATE_REQUIRES_VERIFIED_IDLE")
 
 
 class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -529,11 +614,128 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             title="", data={**self.config_entry.options, "configuration": result}
         )
 
+    async def async_step_yaml(self, user_input=None):
+        """Edit one full or scoped YAML document through native Options Flow.
+
+        Drafts live only inside the current HA flow; no physical action or
+        Config Entry mutation takes place before independent Review & Save.
+        """
+        if self.config_entry.data.get("source") in ("yaml", "json"):
+            return self.async_abort(reason="yaml_managed")
+        if not hasattr(self, "_yaml_baseline_revision"):
+            self._yaml_baseline_revision = configuration_revision(self._current())
+            self._yaml_text = yaml.safe_dump(
+                self._current(), sort_keys=False, allow_unicode=True,
+            )
+            self._yaml_mode = "replace"
+        errors = {}
+        self._yaml_validation_error = ""
+        if user_input is not None:
+            self._yaml_text = user_input.get("yaml_text", self._yaml_text)
+            self._yaml_mode = user_input.get("mode", self._yaml_mode)
+            try:
+                if self._yaml_baseline_revision != configuration_revision(self._current()):
+                    raise ValueError("configuration changed since editor opened")
+                document = _parse_editor_yaml(self._yaml_text)
+                proposed = prepare_expert_yaml_revision(
+                    self._current(), document, self._yaml_mode,
+                )
+                self._yaml_draft = proposed
+                self._yaml_summary = _yaml_review_summary(
+                    self._current(), proposed,
+                )
+                return await self.async_step_yaml_review()
+            except (ValueError, TypeError, KeyError) as exc:
+                errors["base"] = "invalid_config"
+                self._yaml_validation_error = str(exc)[:260]
+        return self.async_show_form(
+            step_id="yaml", errors=errors,
+            data_schema=vol.Schema({
+                vol.Required("mode", default=self._yaml_mode): vol.In({
+                    "replace": "Complete configuration (replace omitted assets/chargers)",
+                    "merge": "Scoped changes (preserve omitted assets/chargers)",
+                }),
+                vol.Required("yaml_text", default=self._yaml_text):
+                    selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
+            }),
+            description_placeholders={
+                "note": (
+                    "Data-only YAML. The existing Home Assistant Config Entry remains "
+                    "authoritative. Review all additions/removals before Save. "
+                    "Physical commissioning or owner changes are blocked."
+                    + (f"\nValidation: {self._yaml_validation_error}"
+                       if self._yaml_validation_error else "")
+                ),
+            },
+        )
+
+    async def async_step_yaml_review(self, user_input=None):
+        if not hasattr(self, "_yaml_draft"):
+            return await self.async_step_yaml()
+        errors = {}
+        review_error = ""
+        if user_input is not None:
+            if user_input.get("edit_again"):
+                return await self.async_step_yaml()
+            if not user_input.get("confirm"):
+                errors["base"] = "confirm_save"
+            elif self.config_entry.data.get("source") in ("yaml", "json"):
+                errors["base"] = "yaml_managed"
+            elif self._yaml_baseline_revision != configuration_revision(self._current()):
+                errors["base"] = "selection_changed"
+            else:
+                try:
+                    updated = prepare_expert_yaml_revision(
+                        self._current(), _parse_editor_yaml(self._yaml_text),
+                        self._yaml_mode,
+                    )
+                    if updated != self._yaml_draft:
+                        raise ValueError("reviewed YAML draft no longer matches")
+                    # Prefer the loaded canonical runtime and fail closed for
+                    # commissioned writers if their idle state is unobservable.
+                    runtime = self.hass.data.get(DOMAIN, {}).get(
+                        self.config_entry.entry_id,
+                    )
+                    if runtime is None:
+                        if any(c.get("control_owner") == "multicharge"
+                               and c.get("physical_commissioned") is True
+                               for c in [*self._current()["chargers"],
+                                         *updated["chargers"]]):
+                            raise ValueError("active writer requires verified runtime")
+                        result = self._saved(updated)
+                    else:
+                        # Serialize the final safety check with the sole native
+                        # writer's admission/STOP lock. No frontend-supplied
+                        # status is trusted for this decision.
+                        async with runtime.executor._lock:
+                            if self._yaml_baseline_revision != configuration_revision(
+                                    self._current()):
+                                raise ValueError("configuration changed")
+                            _assert_safe_yaml_ui_commit(runtime, updated)
+                            result = self._saved(updated)
+                    if result is None:
+                        raise ValueError("configuration rejected")
+                    return result
+                except (ValueError, KeyError, TypeError) as exc:
+                    errors["base"] = "invalid_config"
+                    review_error = str(exc)[:260]
+        return self.async_show_form(
+            step_id="yaml_review", errors=errors,
+            data_schema=vol.Schema({
+                vol.Required("confirm", default=False): bool,
+                vol.Optional("edit_again", default=False): bool,
+            }),
+            description_placeholders={
+                "summary": self._yaml_summary
+                + (f"\nValidation: {review_error}" if review_error else ""),
+            },
+        )
+
     async def async_step_init(self, user_input=None):
         if self.config_entry.data.get("source") in ("yaml", "json"):
             return self.async_abort(reason="yaml_managed")
         return self.async_show_menu(
-            step_id="init", menu_options=["controller", "asset", "charger", "display"]
+            step_id="init", menu_options=["controller", "asset", "charger", "display", "yaml"]
         )
 
     async def async_step_controller(self, user_input=None):

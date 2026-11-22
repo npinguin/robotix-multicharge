@@ -108,7 +108,8 @@
           "controller": "Charging site",
           "asset": "Chargeable assets",
           "charger": "Chargers",
-          "display": "Dashboard card"
+          "display": "Dashboard card",
+          "yaml": "Edit YAML (review before save)"
         }
       },
       "controller": {
@@ -185,13 +186,31 @@
         "data": {
           "enable_ux": "Enable bundled MultiCharge dashboard card"
         }
+      },
+      "yaml": {
+        "title": "MultiCharge — YAML configuration",
+        "description": "Edit all current settings or submit scoped changes. All changes are validated before review; no physical controls are activated. {note}",
+        "data": {
+          "mode": "Update mode",
+          "yaml_text": "MultiCharge configuration (YAML / JSON data)"
+        }
+      },
+      "yaml_review": {
+        "title": "Review YAML changes",
+        "description": "{summary}\nConfirm only after checking the complete impact. No charger command is sent by this operation.",
+        "data": {
+          "confirm": "Apply these reviewed configuration changes",
+          "edit_again": "Return to YAML editing"
+        }
       }
     },
     "abort": {
       "yaml_managed": "This configuration is managed by YAML. Edit the YAML and restart Home Assistant."
     },
     "error": {
-      "invalid_config": "Check the provided values and references."
+      "invalid_config": "Check the provided values and references.",
+      "confirm_save": "Confirm the reviewed changes before saving.",
+      "selection_changed": "The configuration changed; reopen YAML before saving."
     }
   },
   "entity": {

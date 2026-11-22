@@ -112,6 +112,103 @@ async function main(){
     "YAML-managed settings clearly disclose their authority");
   assert.ok(!find(yamlCard.shadowRoot,"button","Edit"),
     "YAML-managed configuration must not advertise writable settings");
+  assert.ok(!find(yamlCard.shadowRoot,"button","Edit YAML"),
+    "External YAML source cannot be overwritten from a second UI editor");
+  assert.ok(!find(resident.shadowRoot,"button","Edit YAML"),
+    "Non-admin must never access native configuration transaction");
+
+  // A real admin begins exactly one official HA Options Flow. The frontend
+  // holds a draft only, and sends all validation/review/save to HA.
+  const yamlApis=[];
+  let yamlApplied=false;
+  const initialYaml="controller:\n  id: site\n  name: Sample\n  mode: Off\n  max_parallel: 2\nassets: []\nchargers: []\n";
+  const editorCard=new Card();
+  editorCard.setConfig({});
+  editorCard.hass={user:{is_admin:true},states:{},
+    callWS:async()=>fixture,
+    callApi:async(method,path,body)=>{
+      yamlApis.push({method,path,body});
+      if(method==="GET"&&path==="config/config_entries/entry")
+        return [{domain:"robotix_multicharge",entry_id:"entry-1"}];
+      if(method==="POST"&&path==="config/config_entries/options/flow")
+        return {type:"menu",flow_id:"flow-1",step_id:"init"};
+      if(method==="DELETE")
+        return {};
+      assert.equal(path,"config/config_entries/options/flow/flow-1");
+      if(body.next_step_id==="yaml")return {type:"form",flow_id:"flow-1",
+        step_id:"yaml",data_schema:[
+          {name:"yaml_text",default:initialYaml},
+          {name:"mode",default:"replace"}
+        ]};
+      if(body.edit_again)return {type:"form",flow_id:"flow-1",
+        step_id:"yaml",data_schema:[]};
+      if(body.yaml_text){
+        if(body.yaml_text.includes("INVALID"))
+          return {type:"form",flow_id:"flow-1",step_id:"yaml",
+            errors:{base:"invalid_config"},
+            description_placeholders:{note:"Validation: duplicate YAML key"}};
+        return {type:"form",flow_id:"flow-1",step_id:"yaml_review",
+          description_placeholders:{summary:"Chargers: Add outside\nWriter unchanged"},
+          data_schema:[]};
+      }
+      if(body.confirm){
+        yamlApplied=true;
+        return {type:"create_entry",title:"",data:{}};
+      }
+      throw Error("Unsupported Options Flow action");
+    }};
+  await new Promise(resolve=>setImmediate(resolve));
+  editorCard._tab="Settings";editorCard.render();
+  assert.ok(find(editorCard.shadowRoot,"button","Edit YAML"),
+    "GUI-managed site exposes first-class YAML mode in Settings");
+  find(editorCard.shadowRoot,"button","Edit YAML").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(editorCard._yamlFlow?.step_id,"yaml");
+  const textarea=find(editorCard.shadowRoot,"textarea");
+  assert.ok(textarea&&textarea.value===initialYaml,
+    "Editor uses backend-returned native Config Entry, not a local template");
+  textarea.value=initialYaml+"# preview only\n";
+  textarea.events.input();
+  assert.ok(!yamlApplied,"Changing YAML text cannot save by itself");
+  find(editorCard.shadowRoot,"button","Continue / review").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(editorCard._yamlFlow.step_id,"yaml_review");
+  assert.ok(content(editorCard.shadowRoot).includes("Writer unchanged"),
+    "Actual backend review diff is shown verbatim before Save");
+  assert.ok(!yamlApplied,"Review must not save or send any physical command");
+  find(editorCard.shadowRoot,"button","Back to YAML").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(editorCard._yamlFlow.step_id,"yaml");
+  editorCard._yamlText="INVALID";
+  editorCard.render();
+  find(editorCard.shadowRoot,"button","Continue / review").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(editorCard._yamlFlow.step_id,"yaml");
+  assert.ok(content(editorCard.shadowRoot).includes("YAML rejected"),
+    "Backend YAML validation failure must remain visible without saving");
+  assert.ok(content(editorCard.shadowRoot).includes("duplicate YAML key"),
+    "Show actionable server validation, not only a generic failure");
+  editorCard._yamlText=initialYaml;
+  editorCard.render();
+  find(editorCard.shadowRoot,"button","Continue / review").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  find(editorCard.shadowRoot,"button","Apply reviewed changes").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(yamlApplied);
+  assert.equal(editorCard._yamlFlow,null);
+  assert.ok(yamlApis.some(call=>call.body?.next_step_id==="yaml"));
+  assert.ok(yamlApis.some(call=>call.body?.confirm===true));
+  assert.ok(!yamlApis.some(call=>call.method==="POST"&&
+    call.path==="config/config_entries/options/flow/flow-1"&&
+    call.body?.action==="start"),
+    "Config review/save never sends physical actuation");
+  find(editorCard.shadowRoot,"button","Edit YAML").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  find(editorCard.shadowRoot,"button","Cancel YAML").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(yamlApis.some(call=>call.method==="DELETE"),
+    "Cancel deletes the server-side draft flow");
+  assert.equal(editorCard._yamlFlow,null);
 
   // The native sidebar forwards HA's authenticated hass object to the
   // same canonical card and exposes all five tabs to a non-admin resident.

@@ -108,7 +108,8 @@
           "controller": "Charging site",
           "asset": "Chargeable assets",
           "charger": "Chargers",
-          "display": "Dashboard card"
+          "display": "Dashboard card",
+          "yaml": "Modifier YAML (vérification avant enregistrement)"
         },
         "title": "Réglages"
       },
@@ -186,13 +187,31 @@
         "data": {
           "enable_ux": "Tableau de bord"
         }
+      },
+      "yaml": {
+        "title": "Configuration YAML MultiCharge",
+        "description": "Modifier la configuration complète ou des éléments ciblés. Valider avant enregistrement. {note}",
+        "data": {
+          "mode": "Mode de mise à jour",
+          "yaml_text": "Configuration MultiCharge (YAML/JSON)"
+        }
+      },
+      "yaml_review": {
+        "title": "Vérifier les modifications YAML",
+        "description": "{summary}\nConfirmez uniquement après vérification.",
+        "data": {
+          "confirm": "Appliquer les modifications vérifiées",
+          "edit_again": "Retour au YAML"
+        }
       }
     },
     "abort": {
       "yaml_managed": "Réglages · YAML"
     },
     "error": {
-      "invalid_config": "Vérification"
+      "invalid_config": "Vérification",
+      "confirm_save": "Confirm the reviewed changes before saving.",
+      "selection_changed": "The configuration changed; reopen YAML before saving."
     }
   },
   "entity": {

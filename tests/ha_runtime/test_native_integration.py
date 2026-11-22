@@ -419,3 +419,104 @@ async def test_expert_json_include_skips_wizard_and_reuses_entry(hass: HomeAssis
         (DOMAIN, "charger/garage_white"), entry_id
     ).id == before_id
     assert entry.state.value == "loaded"
+
+
+@pytest.mark.asyncio
+async def test_native_yaml_options_review_save_and_recorder_identity(hass: HomeAssistant):
+    """Real pinned Home Assistant Options Flow: edit, validate, review and save."""
+    import yaml
+
+    source = (Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN)
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    initial = validate_configuration({
+        "controller": {
+            "id": "home", "name": "Original home", "mode": "Off",
+            "max_parallel": 1,
+        },
+        "assets": [],
+        "chargers": [],
+    })
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Robotix MultiCharge",
+        data={"source": "ui", "configuration": initial},
+        unique_id=DOMAIN,
+    )
+    entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+    devices = dr.async_get(hass)
+    controller_before = devices.async_get_device_by_identifier(
+        (DOMAIN, "controller/home"), entry.entry_id
+    )
+    assert controller_before is not None
+
+    opts = await hass.config_entries.options.async_init(entry.entry_id)
+    assert opts["type"] == FlowResultType.MENU
+    assert "yaml" in opts["menu_options"]
+    opts = await hass.config_entries.options.async_configure(
+        opts["flow_id"], {"next_step_id": "yaml"}
+    )
+    assert opts["type"] == FlowResultType.FORM
+    assert opts["step_id"] == "yaml"
+
+    # Invalid/ambiguous YAML must not silently overwrite an existing key.
+    opts = await hass.config_entries.options.async_configure(
+        opts["flow_id"], {
+            "mode": "replace",
+            "yaml_text": "controller:\n  id: home\n  id: other\n",
+        },
+    )
+    assert opts["step_id"] == "yaml"
+    assert opts["errors"]["base"] == "invalid_config"
+    assert "duplicate YAML key" in opts["description_placeholders"]["note"]
+    assert entry.data["configuration"] == initial
+    assert not entry.options.get("configuration")
+
+    updated = validate_configuration({
+        "controller": {**initial["controller"], "name": "Reviewed home"},
+        "assets": [{"id": "guest", "name": "Guest", "kind": "car"}],
+        "chargers": [{
+            "id": "outside", "name": "Outside", "kind": "on_off",
+            "rated_power_kw": 3.6, "control_entity": "switch.outside",
+            "control_owner": "external", "physical_commissioned": False,
+        }],
+    })
+    opts = await hass.config_entries.options.async_configure(
+        opts["flow_id"], {"mode": "replace",
+                          "yaml_text": yaml.safe_dump(updated, sort_keys=False)}
+    )
+    assert opts["type"] == FlowResultType.FORM
+    assert opts["step_id"] == "yaml_review"
+    assert "Outside" not in str(opts.get("description_placeholders", {})) or (
+        "outside" in str(opts["description_placeholders"]))
+    assert entry.options.get("configuration") is None, (
+        "Preview and review must not persist any configuration"
+    )
+
+    # Continue editing is a real native server-backed step, not a UI rewind.
+    opts = await hass.config_entries.options.async_configure(
+        opts["flow_id"], {"edit_again": True}
+    )
+    assert opts["step_id"] == "yaml"
+    opts = await hass.config_entries.options.async_configure(
+        opts["flow_id"], {"mode": "replace",
+                          "yaml_text": yaml.safe_dump(updated, sort_keys=False)}
+    )
+    assert opts["step_id"] == "yaml_review"
+    saved = await hass.config_entries.options.async_configure(
+        opts["flow_id"], {"confirm": True}
+    )
+    assert saved["type"] == FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert entry.entry_id in [x.entry_id for x in hass.config_entries.async_entries(DOMAIN)]
+    assert entry.data["source"] == "ui"
+    assert entry.options["configuration"]["controller"]["name"] == "Reviewed home"
+    assert entry.options["configuration"]["chargers"][0]["control_owner"] == "external"
+    assert entry.options["configuration"]["chargers"][0]["physical_commissioned"] is False
+    assert devices.async_get_device_by_identifier(
+        (DOMAIN, "controller/home"), entry.entry_id
+    ).id == controller_before.id
+    assert len(hass.config_entries.async_entries(DOMAIN)) == 1
+    assert entry.state.value == "loaded"

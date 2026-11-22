@@ -20,7 +20,7 @@ for name in ("domain", "configuration"):
 
 from multicharge_configuration_tests.configuration import (  # noqa: E402 - imported after isolated pure-module bootstrap
     default_configuration, effective_configuration, validate_configuration,
-    normalize_expert_json,
+    normalize_expert_json, prepare_expert_yaml_revision,
 )
 
 
@@ -639,6 +639,91 @@ class ConfigurationTests(unittest.TestCase):
         cfg["controller"]["private_writer"] = True
         with self.assertRaises(ValueError):
             validate_configuration(cfg)
+
+
+class YamlEditorConfigurationTests(unittest.TestCase):
+    """Same canonical schema for native reviewed YAML and ordinary settings."""
+
+    @staticmethod
+    def configured_site():
+        cfg = default_configuration("Original")
+        cfg["assets"] = [
+            {"id": "family", "name": "Family", "kind": "car"},
+            {"id": "guest", "name": "Guest", "kind": "car"},
+        ]
+        cfg["chargers"] = [
+            {"id": "white", "name": "White", "kind": "on_off",
+             "rated_power_kw": 3.6, "control_entity": "switch.white",
+             "control_owner": "external", "physical_commissioned": False,
+             "asset": "family"},
+            {"id": "outside", "name": "Outside", "kind": "on_off",
+             "rated_power_kw": 7.2, "control_entity": "switch.outside",
+             "control_owner": "external", "physical_commissioned": False},
+        ]
+        return validate_configuration(cfg)
+
+    def test_full_replacement_preserves_existing_id_and_rejects_owner_change(self):
+        old = self.configured_site()
+        updated = prepare_expert_yaml_revision(old, {
+            "robotix_multicharge": {
+                "controller": {**old["controller"], "name": "Home"},
+                "assets": [{"id": "family", "name": "Family", "kind": "car"}],
+                "chargers": [old["chargers"][0]],
+            }
+        }, "replace")
+        self.assertEqual(updated["controller"]["id"], "home")
+        self.assertEqual([c["id"] for c in updated["chargers"]], ["white"])
+        self.assertEqual([a["id"] for a in updated["assets"]], ["family"])
+        self.assertEqual(updated["chargers"][0]["control_owner"], "external")
+        self.assertFalse(updated["chargers"][0]["physical_commissioned"])
+        bad = {**old, "chargers": [{**old["chargers"][0],
+                                  "control_owner": "multicharge",
+                                  "connected_entity": "binary_sensor.white_plug",
+                                  "power_entity": "sensor.white_power",
+                                  "physical_commissioned": False}]}
+        with self.assertRaisesRegex(ValueError, "cannot transfer"):
+            prepare_expert_yaml_revision(old, bad, "replace")
+        with self.assertRaisesRegex(ValueError, "cannot change"):
+            prepare_expert_yaml_revision(old, {
+                **old, "controller": {**old["controller"], "id": "other"},
+            }, "replace")
+
+    def test_scoped_merge_preserves_unmentioned_chargers_and_assets(self):
+        old = self.configured_site()
+        updated = prepare_expert_yaml_revision(old, {
+            "controller": {"name": "Updated"},
+            "assets": [{"id": "guest", "requested_kwh": 2.0}],
+            "chargers": [{"id": "white", "name": "Garage White"}],
+        }, "merge")
+        self.assertEqual(updated["controller"]["name"], "Updated")
+        self.assertEqual(len(updated["chargers"]), 2)
+        self.assertEqual(len(updated["assets"]), 2)
+        self.assertEqual(updated["chargers"][0]["asset"], "family")
+        self.assertEqual(updated["chargers"][0]["name"], "Garage White")
+        self.assertEqual(updated["assets"][1]["requested_kwh"], 2)
+        self.assertEqual(old["chargers"][0]["name"], "White")
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            prepare_expert_yaml_revision(old, {
+                "chargers": [{"id": "white"}, {"id": "white"}],
+            }, "merge")
+        with self.assertRaisesRegex(ValueError, "requires controller"):
+            prepare_expert_yaml_revision(old, {"chargers": []}, "replace")
+        with self.assertRaisesRegex(ValueError, "Only robotix_multicharge"):
+            prepare_expert_yaml_revision(old, {
+                "robotix_multicharge": old, "template": []
+            }, "replace")
+
+    def test_expert_json_and_yaml_share_one_schema_but_no_writer_commissioning(self):
+        old = default_configuration()
+        result = prepare_expert_yaml_revision(old, {
+            "Controller": {"ID": "home", "Name": "Home"},
+            "Charger": [{"Name": "Garage", "Charging-startstop-entity": "switch.garage"}],
+        }, "replace")
+        self.assertEqual(result["controller"]["id"], "home")
+        self.assertEqual(result["chargers"][0]["control_owner"], "external")
+        self.assertFalse(result["chargers"][0]["physical_commissioned"])
+        with self.assertRaisesRegex(ValueError, "requires replace"):
+            prepare_expert_yaml_revision(old, {"Controller": {"Name": "Home"}}, "merge")
 
 
 if __name__ == "__main__":
