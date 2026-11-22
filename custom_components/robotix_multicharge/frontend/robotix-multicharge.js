@@ -883,7 +883,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     for(const title of MC_SETTINGS){
       const group=mcEl("section","card"),open=title===this._settingsOpen;
       const row=mcEl("div","row");
-      row.append(mcEl("h3","",title),mcButton(open?"Close":"Edit",()=>{
+      row.append(mcEl("h3","",title),mcButton(open?"Close":this.canManage()?"Edit":"Details",()=>{
         this._settingsOpen=open?"":title;this.render();
       }));
       group.append(row);
