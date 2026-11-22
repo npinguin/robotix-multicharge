@@ -22,6 +22,14 @@ global.document={
 require("../custom_components/robotix_multicharge/frontend/robotix-multicharge.js");
 const Card=customElements.get("robotix-multicharge-card");
 assert.ok(Card,"native custom card registered");
+const Panel=customElements.get("robotix-multicharge-panel");
+assert.ok(Panel,"native HA sidebar panel element registered");
+const nativePanel=new Panel();
+assert.ok(nativePanel._card instanceof Card,
+  "sidebar reuses exactly the existing five-view native card");
+assert.ok(nativePanel.shadowRoot.children.includes(nativePanel._content),
+  "sidebar has standalone rendered content");
+
 assert.equal(window.customCards.filter(c=>c.type==="robotix-multicharge-card").length,1);
 const fixture={
   controller_id:"site",timezone:"Europe/Brussels",start:"2026-11-22T00:00:00+01:00",
@@ -103,6 +111,21 @@ async function main(){
   assert.ok(!find(yamlCard.shadowRoot,"button","Edit"),
     "YAML-managed configuration must not advertise writable settings");
 
+  // The native sidebar forwards HA's authenticated hass object to the
+  // same canonical card and exposes all five tabs to a non-admin resident.
+  const residentPanel=new Panel();
+  const residentPanelCalls=[];
+  residentPanel.hass={user:{is_admin:false},states:{},
+    callWS:async request=>{residentPanelCalls.push(request);return fixture;}};
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(residentPanelCalls[0]?.type,"robotix_multicharge/get_plan");
+  assert.equal(residentPanel._card._data,fixture);
+  for(const view of ["Overview","Charging Plan","Chargeable Assets","Chargers","Settings"]){
+    residentPanel._card._tab=view;
+    residentPanel._card.render();
+    assert.ok(content(residentPanel._card.shadowRoot).length>0,
+      "resident sidebar renders "+view);
+  }
   assert.ok(commands.length>0);
   assert.equal(commands[0].type,"robotix_multicharge/get_plan");
   assert.ok(!require("node:fs").readFileSync(
