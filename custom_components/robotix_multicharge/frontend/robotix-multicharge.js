@@ -461,6 +461,11 @@ class RobotixMultiChargeCard extends HTMLElement {
     const colorBy=controller.plan_color_by||"vehicle";
     const forecastVisible=controller.show_indicative_forecast!==false;
     this.title(container,"Charging plan");
+    if(!chargers.length){
+      this.notice(container,"No charging points",false);
+      this.configure(container);
+      return;
+    }
     const day=mcEl("div","controls");
     for(const chosen of ["today","tomorrow"]){
       const b=mcButton(chosen==="today"?"Today":"Tomorrow",()=>{
