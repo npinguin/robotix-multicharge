@@ -1,7 +1,7 @@
-"""One source-neutral, read-only Home Assistant charging planning runtime.
+"""Source-neutral HA planning runtime and the guarded one-writer command owner.
 
-The engine makes no HA service calls and has no EVSE write ownership. Future
-physical command authorization and independent readback are separate gates.
+Planning never authorizes a physical command. Explicit manual on/off requests
+use the native executor, with distinct source observations and command outcomes.
 """
 
 from __future__ import annotations
@@ -199,7 +199,10 @@ class MultiChargeRuntime:
             "coverage_by_charger": dict(assessment.coverage),
             "strategy_by_charger": dict(assessment.strategy),
             "read_only": True,
-            "physical_actuation_authorized": False,
+            "physical_actuation_authorized": any(
+                x["start_allowed"] or x["stop_allowed"]
+                for x in self.executor.capabilities().values()
+            ),
             "command_outcomes": self.executor.snapshot(),
         }
 
@@ -297,5 +300,8 @@ class MultiChargeRuntime:
                 "sources": dict(self.observations.get("sources", {})),
             },
             "read_only": True,
-            "physical_actuation_authorized": False,
+            "physical_actuation_authorized": any(
+                x["start_allowed"] or x["stop_allowed"]
+                for x in self.executor.capabilities().values()
+            ),
         }

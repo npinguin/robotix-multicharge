@@ -89,15 +89,51 @@ class _LogicalReadinessSensor(_NativeMultiChargeSensor):
         self._update_value()
 
     def _update_value(self):
-        self._attr_native_value = "not_commissioned"
+        outcomes = self.runtime.executor.snapshot()
+        caps = self.runtime.executor.capabilities()
+        active = [
+            uid for uid, cap in caps.items()
+            if cap["start_allowed"] or cap["stop_allowed"]
+        ]
+        confirmed = outcomes.get(self.data["id"], {}).get("status") == "confirmed"
+        if self.kind == "controller":
+            status = "manual_controls_available" if active else "not_commissioned"
+            operational = any(row.get("status") == "confirmed" for row in outcomes.values())
+        elif self.kind == "charger":
+            cap = caps.get(self.data["id"], {})
+            if confirmed:
+                obs = self.runtime.observations.get("chargers", {}).get(self.data["id"], {})
+                power = obs.get("power_kw")
+                operational = bool(power is not None and power.quality == "ok")
+                status = "physical_readback_confirmed" if operational else "readback_stale"
+            elif cap.get("start_allowed") or cap.get("stop_allowed"):
+                status = "manual_controls_available"
+                operational = False
+            else:
+                status = "not_commissioned" if self.data.get("physical_commissioned") is not True else "unavailable"
+                operational = False
+        else:
+            obs = self.runtime.observations.get("assets", {}).get(self.data["id"], {})
+            soc = obs.get("soc")
+            status = (
+                "source_observed" if soc is not None and soc.quality == "ok"
+                else "demand_configured" if (
+                    self.data.get("requested_kwh") is not None
+                    or self.data.get("requested_duration_minutes") is not None
+                )
+                else "needs_input"
+            )
+            operational = False
+        self._attr_native_value = status
         assessment = self.runtime.assessment
         self._attr_extra_state_attributes = {
             "logical_id": self.data["id"],
             "concept": self._attr_device_info["model"],
-            "operational": False,
+            "operational": operational,
             "planning_status": (
                 assessment.plan.status if assessment is not None else "unavailable"
             ),
+            "command_outcome": outcomes.get(self.data["id"]),
         }
 
 
@@ -121,7 +157,10 @@ class _PlanStatusSensor(_NativeMultiChargeSensor):
             "strategy_by_charger": summary.get("strategy_by_charger", {}),
             "planned_kwh_by_charger": summary.get("planned_kwh_by_charger", {}),
             "read_only": True,
-            "physical_actuation_authorized": False,
+            "physical_actuation_authorized": summary.get(
+                "physical_actuation_authorized", False
+            ),
+            "command_outcomes": summary.get("command_outcomes", {}),
         }
 
 
