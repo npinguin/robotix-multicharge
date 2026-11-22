@@ -20,10 +20,11 @@ async def async_setup_entry(
         for charger in runtime.configuration["chargers"]
         if charger.get("connected_entity")
     ] + [
-        _SafeStopButton(charger, runtime)
+        action(charger, runtime)
         for charger in runtime.configuration["chargers"]
         if charger.get("control_owner") == "multicharge"
         and charger.get("physical_commissioned") is True
+        for action in (_SafeStopButton, _PauseButton, _ResumeButton)
     ])
 
 
@@ -49,6 +50,44 @@ class _SafeStopButton(ButtonEntity):
         if outcome["status"] != "confirmed":
             raise RuntimeError(
                 "MultiCharge STOP not physically confirmed: " + outcome["reason"]
+            )
+
+
+class _PauseButton(_SafeStopButton):
+    """Durable operator hold plus independently verified physical STOP."""
+    _attr_icon = "mdi:pause-circle-outline"
+
+    def __init__(self, charger, runtime):
+        super().__init__(charger, runtime)
+        self._attr_name = "Pause charging"
+        self._attr_unique_id = f"{DOMAIN}:charger:{charger['id']}:pause"
+
+    async def async_press(self) -> None:
+        outcome = await self.runtime.executor.execute(
+            self._charger_id, "pause", context=self.context
+        )
+        if outcome["status"] != "confirmed":
+            raise RuntimeError(
+                "MultiCharge Pause not confirmed: " + outcome["reason"]
+            )
+
+
+class _ResumeButton(_SafeStopButton):
+    """Release user hold; never issues an automatic physical START."""
+    _attr_icon = "mdi:play-circle-outline"
+
+    def __init__(self, charger, runtime):
+        super().__init__(charger, runtime)
+        self._attr_name = "Resume charging"
+        self._attr_unique_id = f"{DOMAIN}:charger:{charger['id']}:resume"
+
+    async def async_press(self) -> None:
+        outcome = await self.runtime.executor.execute(
+            self._charger_id, "resume", context=self.context
+        )
+        if outcome["status"] != "confirmed":
+            raise RuntimeError(
+                "MultiCharge Resume not confirmed: " + outcome["reason"]
             )
 
 
