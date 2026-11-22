@@ -629,6 +629,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             )
             self._yaml_mode = "replace"
         errors = {}
+        self._yaml_validation_error = ""
         if user_input is not None:
             self._yaml_text = user_input.get("yaml_text", self._yaml_text)
             self._yaml_mode = user_input.get("mode", self._yaml_mode)
@@ -644,8 +645,9 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                     self._current(), proposed,
                 )
                 return await self.async_step_yaml_review()
-            except (ValueError, TypeError, KeyError):
+            except (ValueError, TypeError, KeyError) as exc:
                 errors["base"] = "invalid_config"
+                self._yaml_validation_error = str(exc)[:260]
         return self.async_show_form(
             step_id="yaml", errors=errors,
             data_schema=vol.Schema({
@@ -661,6 +663,8 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                     "Data-only YAML. The existing Home Assistant Config Entry remains "
                     "authoritative. Review all additions/removals before Save. "
                     "Physical commissioning or owner changes are blocked."
+                    + (f"\nValidation: {self._yaml_validation_error}"
+                       if self._yaml_validation_error else "")
                 ),
             },
         )
@@ -669,6 +673,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         if not hasattr(self, "_yaml_draft"):
             return await self.async_step_yaml()
         errors = {}
+        review_error = ""
         if user_input is not None:
             if user_input.get("edit_again"):
                 return await self.async_step_yaml()
@@ -711,15 +716,19 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                     if result is None:
                         raise ValueError("configuration rejected")
                     return result
-                except (ValueError, KeyError, TypeError):
+                except (ValueError, KeyError, TypeError) as exc:
                     errors["base"] = "invalid_config"
+                    review_error = str(exc)[:260]
         return self.async_show_form(
             step_id="yaml_review", errors=errors,
             data_schema=vol.Schema({
                 vol.Required("confirm", default=False): bool,
                 vol.Optional("edit_again", default=False): bool,
             }),
-            description_placeholders={"summary": self._yaml_summary},
+            description_placeholders={
+                "summary": self._yaml_summary
+                + (f"\nValidation: {review_error}" if review_error else ""),
+            },
         )
 
     async def async_step_init(self, user_input=None):
