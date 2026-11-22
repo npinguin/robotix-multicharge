@@ -81,6 +81,17 @@ class ConceptsTest(unittest.TestCase):
         accepted = ChargeDemand("car", "charger", 1, NOW, max_power_kw=4)
         self.assertEqual(accepted.max_power_kw, 4)
 
+    def test_remaining_duration_accepts_measured_fraction_after_partial_session(self):
+        self.assertEqual(
+            ChargeDemand("asset", "charger", None, NOW,
+                         remaining_duration_minutes=0.5).remaining_duration_minutes,
+            0.5,
+        )
+        for bad in (float("nan"), float("inf"), -0.1, False):
+            with self.assertRaises(ValueError):
+                ChargeDemand("asset", "charger", None, NOW,
+                             remaining_duration_minutes=bad)
+
     def test_energy_and_duration_not_conflated(self):
         self.assertEqual(
             ChargeDemand("asset", "charger", 4.0, NOW).remaining_grid_kwh, 4.0

@@ -85,7 +85,7 @@ class ChargeDemand:
     remaining_grid_kwh: float | None
     ready_by: datetime | None
     priority: int = 0
-    remaining_duration_minutes: int | None = None
+    remaining_duration_minutes: float | None = None
     max_power_kw: float | None = None
     not_before: datetime | None = None
 
@@ -107,10 +107,10 @@ class ChargeDemand:
         ):
             raise ValueError("asset charging power cap must be positive and finite")
         if self.remaining_duration_minutes is not None:
-            if (isinstance(self.remaining_duration_minutes, bool)
-                    or not isinstance(self.remaining_duration_minutes, int)
+            if (type(self.remaining_duration_minutes) not in (int, float)
+                    or not isfinite(self.remaining_duration_minutes)
                     or self.remaining_duration_minutes <= 0):
-                raise ValueError("duration must be positive minutes")
+                raise ValueError("duration must be positive finite minutes")
             if self.remaining_grid_kwh is not None:
                 raise ValueError("choose energy or duration, not both")
 
