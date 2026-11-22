@@ -85,7 +85,7 @@ jobs:
         if: steps.gate.outputs.publish == 'true'
         run: |
           python -m pip install --index-url https://pypi.org/simple pytest-homeassistant==2026.11.2
-          python -m pytest -q tests/ha_runtime/test_native_integration.py
+          python -m pytest -q -o asyncio_mode=auto tests/ha_runtime/test_native_integration.py
       - name: Immutable TEST release with exact package, digest and provenance
         if: steps.gate.outputs.publish == 'true'
         shell: bash
