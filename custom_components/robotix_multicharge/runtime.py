@@ -171,6 +171,10 @@ class MultiChargeRuntime:
                 self.forecast_excluded[uid] = "CONNECTION_UNCONFIRMED"
                 continue
             disconnected = cable.value is False
+            if uid in self.executor._paused:
+                self.excluded[uid] = "USER_PAUSED"
+                self.forecast_excluded[uid] = "USER_PAUSED"
+                continue
             asset = assets.get(raw.get("asset"))
             if asset is None:
                 self.excluded[uid] = (
