@@ -28,9 +28,10 @@ The planned everyday experience has four sections:
 | **Overview** | What is charging, what comes next and what needs attention |
 | **Chargeable Assets** | Battery level, target, deadline, priority and remaining need |
 | **Chargers** | Connection, power, actual state, active assignment and safe controls |
+| **Charging Plan** | Today/tomorrow 15-minute timeline: proposed/accepted charging, actual power, deadline and optional energy/price context |
 | **Settings** | Guided source selection, limits, diagnostics and expert YAML import |
 
-Set up the integration using the native Home Assistant configuration flow. Experts will have an optional declarative YAML import using the **same validation and stored configuration**, not a competing YAML automation engine. Native logical devices and entities stay useful in ordinary Home Assistant dashboards. This user experience is **planned, not yet implemented**.
+Set up the integration using the native Home Assistant configuration flow. Experts will have an optional declarative YAML import using the **same validation and stored configuration**, not a competing YAML automation engine. Native logical devices and entities stay useful in ordinary Home Assistant dashboards. A **single bundled charging-plan timeline card** will show future intervals and actual charging without installing an unrelated dashboard. This user experience is **planned, not yet implemented**.
 
 The stable core concepts are `ChargeableAsset`, `Charger` and `ChargeController`. A physical device stays owned by its native Home Assistant integration; MultiCharge only represents the logical charging role.
 

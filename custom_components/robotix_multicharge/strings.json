@@ -3,11 +3,77 @@
     "step": {
       "user": {
         "title": "Robotix MultiCharge",
-        "description": "Create the integration entry. Charging control is not available in this development baseline."
+        "description": "Set up your charging site. Charger control is not available in this development version.",
+        "data": {
+          "name": "Charging site name"
+        }
       }
     },
     "abort": {
-      "already_configured": "Robotix MultiCharge is already configured."
+      "already_configured": "Robotix MultiCharge is already configured.",
+      "configuration_conflict": "A UI-managed configuration already exists. Remove it before using YAML.",
+      "configuration_updated": "YAML configuration updated."
+    },
+    "error": {
+      "invalid_config": "Invalid configuration."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "menu_options": {
+          "controller": "Charging site",
+          "asset": "Chargeable assets",
+          "charger": "Chargers"
+        }
+      },
+      "controller": {
+        "title": "Charging site",
+        "data": {
+          "name": "Name",
+          "max_parallel": "Simultaneous chargers",
+          "max_power_kw": "Maximum charging power (kW)"
+        }
+      },
+      "asset": {
+        "title": "Chargeable asset",
+        "description": "Use the same ID to update an asset, or delete it by ID.",
+        "data": {
+          "action": "Action",
+          "id": "Stable ID (optional for new asset)",
+          "name": "Name",
+          "kind": "Type",
+          "soc_entity": "Battery level entity",
+          "capacity_kwh": "Battery capacity (kWh)",
+          "target_soc": "Target battery level (%)",
+          "max_charge_kw": "Maximum charging power (kW)"
+        }
+      },
+      "charger": {
+        "title": "Charger",
+        "description": "Add or edit a charger without enabling physical control.",
+        "data": {
+          "action": "Action",
+          "id": "Stable ID (optional for new charger)",
+          "name": "Name",
+          "kind": "Control capability",
+          "rated_power_kw": "Rated power (kW)",
+          "asset": "Assigned asset",
+          "control_entity": "Command entity (not used yet)",
+          "connected_entity": "Connected state",
+          "power_entity": "Measured power",
+          "energy_entity": "Measured energy",
+          "phase_count": "Number of phases",
+          "min_current_a": "Minimum current (A)",
+          "max_current_a": "Maximum current (A)"
+        }
+      }
+    },
+    "abort": {
+      "yaml_managed": "This configuration is managed by YAML. Edit the YAML and restart Home Assistant."
+    },
+    "error": {
+      "invalid_config": "Check the provided values and references."
     }
   }
 }

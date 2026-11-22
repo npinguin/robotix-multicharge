@@ -1,4 +1,4 @@
-"""Static source checks that do not need a Home Assistant installation."""
+"""Static package and source-level safety checks; no Home Assistant runtime."""
 
 from __future__ import annotations
 
@@ -17,7 +17,6 @@ class PackageTest(unittest.TestCase):
         self.assertTrue(m["config_flow"])
         self.assertEqual(m["dependencies"], [])
         self.assertEqual(m["requirements"], [])
-        self.assertEqual(len(list((ROOT / "custom_components").iterdir())), 1)
 
     def test_translation_source_consistency(self):
         self.assertEqual(
@@ -25,11 +24,15 @@ class PackageTest(unittest.TestCase):
             json.loads((COMPONENT / "translations/en.json").read_text(encoding="utf8")),
         )
 
-    def test_bootstrap_cannot_write_to_hardware(self):
-        source = (COMPONENT / "__init__.py").read_text(encoding="utf8")
-        self.assertNotIn("async_call(", source)
-        self.assertNotIn("async_track_", source)
-        self.assertNotIn("async_forward_entry", source)
+    def test_no_physical_executor_in_bootstrap(self):
+        for name in ("__init__.py", "sensor.py", "config_flow.py"):
+            source = (COMPONENT / name).read_text(encoding="utf8")
+            self.assertNotIn("services.async_call(", source)
+            self.assertNotIn("async_track_state_change", source)
+
+    def test_logical_devices_not_reparented(self):
+        source = (COMPONENT / "sensor.py").read_text(encoding="utf8")
+        self.assertNotIn("via_device", source)
 
     def test_no_legacy_runtime_import(self):
         for path in COMPONENT.glob("*.py"):

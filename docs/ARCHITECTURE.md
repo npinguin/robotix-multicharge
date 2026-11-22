@@ -78,3 +78,16 @@ A smart plug remains qualified on/off only. Phase/current limits must be verifie
 ## Acceptance
 
 Prove native UI and YAML parity, structural identity persistence, unknown/quality, source binding, restart/unload/rollback, 1/2/4/10 mixed charger planning, deadline/solar/price/DST scenarios, external envelope expiry and emergency stop, exact HA command/readback and qualified real hardware before claiming Feature Complete.
+
+## Charging Plan chart — required community UX
+
+One native-bundled, responsive timeline card, reusable in the ChargeController overview and filtered to a single Charger/ChargeableAsset. This is **part of the agreed community Feature Complete scope**, not a separate Premium feature. Do not duplicate the optimizer in the card.
+
+- Default period: today and tomorrow in the Home Assistant timezone, using 15-minute exact intervals; DST days can have 92 or 100 slots. Let users inspect per-Charger plans without rebuilding a second chart implementation.
+- Show planned charging power (kW) over time with **proposed versus accepted** status, and actual measured power for completed intervals only. Distinguish current, forecast, actual, paused, unknown and unavailable. Use consistent units and legend.
+- Show Ready By deadline/target, remaining kWh and conflicts/missed deadlines. Optional price (EUR/kWh), PV surplus or binding available capacity appear only with qualified coverage and suitable units; missing sources do not break the chart.
+- A lightweight chart selector can toggle the group/individual view and the optional contextual traces. Accessibility, clear empty states and mobile usability are requirements.
+- Current and historical readback come from native HA sensors/Recorder where appropriate. **Future planned slots are read through one bounded, read-only native backend plan query** over the ChargeController's existing plan; do not store a 48-hour multi-Charger plan as constantly rewritten HA sensor attributes. Home Assistant records state attributes and has a 16 KiB attribute limit. No new planner/store or generic dashboard engine.
+- Use one bundled native HA custom card when necessary for future time-series; no mandatory frontend framework, third-party visualization service or additional HACS install. The same data also has lightweight native summary entities for ordinary HA cards.
+
+**Current state:** chart and read-only plan query are not yet implemented or HA-qualified. An illustrative YAML example or badge is not evidence of this feature.
