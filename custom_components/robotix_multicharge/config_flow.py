@@ -7,12 +7,13 @@ from datetime import datetime, timezone
 from re import sub
 
 import voluptuous as vol
+import yaml
 from homeassistant import config_entries
 from homeassistant.helpers import selector
 
 from .configuration import (
     default_configuration, is_plan_presentation_only_change,
-    validate_configuration,
+    configuration_revision, prepare_expert_yaml_revision, validate_configuration,
 )
 from .source_evidence import number
 from .execution import stop_power_limit
@@ -77,6 +78,85 @@ def _assert_safe_expert_import(runtime, updated, *, source_changed=False):
             if (switch is None or switch.state != "off" or power.quality != "ok"
                     or power.value > stop_power_limit(charger)):
                 raise ValueError("EXPERT_IMPORT_REQUIRES_VERIFIED_IDLE_CHARGERS")
+
+
+def _parse_editor_yaml(text):
+    """Parse bounded data-only YAML/JSON without silent duplicate overrides."""
+    if not isinstance(text, str) or not text.strip() or len(text.encode("utf-8")) > 131072:
+        raise ValueError("YAML must contain 1–128 KiB of mapping data")
+
+    class StrictSafeLoader(yaml.SafeLoader):
+        def construct_mapping(self, node, deep=False):
+            seen = set()
+            for key_node, _ in node.value:
+                key = self.construct_object(key_node, deep=deep)
+                if not isinstance(key, (str, int, float, bool)):
+                    raise ValueError("YAML mapping keys must be scalar")
+                if key in seen:
+                    raise ValueError("duplicate YAML key")
+                seen.add(key)
+            return super().construct_mapping(node, deep=deep)
+
+    try:
+        document = yaml.load(text, Loader=StrictSafeLoader)
+    except yaml.YAMLError as exc:
+        raise ValueError("YAML syntax error or unsupported YAML tag") from exc
+    if not isinstance(document, dict):
+        raise ValueError("YAML root must be a mapping")
+    return document
+
+
+def _yaml_review_summary(old, new):
+    lines = []
+    fields = sorted(key for key in set(old["controller"]) | set(new["controller"])
+                    if old["controller"].get(key) != new["controller"].get(key))
+    lines.append("Site settings: " + (", ".join(fields) if fields else "unchanged"))
+    for category in ("chargers", "assets"):
+        prior = {row["id"]: row for row in old[category]}
+        current = {row["id"]: row for row in new[category]}
+        adds = sorted(current.keys() - prior.keys())
+        removes = sorted(prior.keys() - current.keys())
+        updates = sorted(key for key in current.keys() & prior.keys()
+                         if current[key] != prior[key])
+        lines.append(f"{category.title()}: {len(current)} total")
+        for label, keys in (("Add", adds), ("Modify", updates), ("Remove", removes)):
+            if keys:
+                lines.append(f"  {label}: {', '.join(keys)}")
+    lines.extend((
+        "Physical charger control owner: unchanged",
+        "Commissioning: unchanged; this edit sends no charging command.",
+    ))
+    return "\n".join(lines)
+
+
+def _assert_safe_yaml_ui_commit(runtime, updated):
+    """Recheck source and safety immediately before native Options Save."""
+    _assert_safe_expert_import(runtime, updated)
+    existing = {charger["id"]: charger for charger in runtime.configuration["chargers"]}
+    revised = {charger["id"]: charger for charger in updated["chargers"]}
+    # Even an external-owner charger must be measured idle to remove or change
+    # its historical association; a name-only edit never needs this gate.
+    for uid, previous in existing.items():
+        current = revised.get(uid)
+        if (current is not None and
+                all(previous.get(key) == current.get(key)
+                    for key in ("asset", "control_entity", "power_entity",
+                                "connected_entity", "energy_entity",
+                                "session_entity", "kind", "rated_power_kw"))):
+            continue
+        if (uid in runtime.executor._sessions or
+                uid in runtime.executor._start_pending):
+            raise ValueError("YAML_UPDATE_CHARGER_BUSY")
+        if previous.get("power_entity"):
+            observed = number(
+                runtime.hass, previous["power_entity"], "power",
+                datetime.now(timezone.utc),
+            )
+            if (observed.quality != "ok" or
+                    observed.value > stop_power_limit(previous)):
+                raise ValueError("YAML_UPDATE_REQUIRES_VERIFIED_IDLE")
+        elif previous.get("control_owner") == "multicharge":
+            raise ValueError("YAML_UPDATE_REQUIRES_VERIFIED_IDLE")
 
 
 class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
