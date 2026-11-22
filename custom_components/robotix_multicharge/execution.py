@@ -44,6 +44,9 @@ class NativeSwitchExecutor:
         self._outcomes = {}
         self._requests = {}
         self._quarantine = set()
+        # A user Pause is a durable, charger-scoped admission hold. It is
+        # neither a second planner nor an optimistic physical STOP receipt.
+        self._paused = set()
         self._stopped = False
         self._supervising = False
         self._sessions = {}
@@ -180,6 +183,12 @@ class NativeSwitchExecutor:
             inflight = snapshot["inflight"]
             rows = snapshot["accepted"]
             sessions = snapshot.get("sessions", [])
+            paused = snapshot.get("paused", [])
+            configured = {c["id"] for c in self.runtime.configuration["chargers"]}
+            if (not isinstance(paused, list) or len(paused) != len(set(paused))
+                    or any(not isinstance(uid, str) or uid not in configured
+                           for uid in paused)):
+                raise ValueError("invalid paused charger state")
             if not isinstance(sessions, list) or len(sessions) > 200:
                 raise ValueError("invalid session history")
             if not isinstance(completed, dict) or not isinstance(inflight, dict):
@@ -201,6 +210,7 @@ class NativeSwitchExecutor:
                 history[(record["charger_id"], start)] = record
             self._completed = dict(completed)
             self._inflight = dict(inflight)
+            self._paused = set(paused)
             receipts = []
             for row in sessions:
                 if not isinstance(row, dict):
@@ -238,6 +248,7 @@ class NativeSwitchExecutor:
         return {
             "schema_major": 1,
             "completed": dict(self._completed),
+            "paused": sorted(self._paused),
             "sessions": list(self._session_history[-200:]),
             "inflight": dict(self._inflight),
             "accepted": [
@@ -337,6 +348,8 @@ class NativeSwitchExecutor:
                 reason = "PHYSICAL_COMMISSIONING_REQUIRED"
             elif self._switch(self.runtime.hass, charger["control_entity"]) is None:
                 reason = "NATIVE_SWITCH_UNAVAILABLE"
+            elif uid in self._paused:
+                reason = "USER_PAUSED"
             elif self._switch(self.runtime.hass, charger["control_entity"]).state == "on":
                 reason = "SWITCH_ALREADY_ON"
             else:
@@ -365,6 +378,11 @@ class NativeSwitchExecutor:
                 else "MANUAL_ONE_OFF_NOT_AVAILABLE"
             )
             result[uid] = {
+                "paused": uid in self._paused,
+                "pause_allowed": stop_allowed and uid not in self._paused
+                    and self._persistence_verified,
+                "resume_allowed": stop_allowed and uid in self._paused
+                    and uid not in self._quarantine and self._persistence_verified,
                 "manual_one_off_allowed": manual_reason is None
                     and uid not in self._quarantine,
                 "manual_one_off_reason": manual_reason or "READY",
@@ -392,7 +410,7 @@ class NativeSwitchExecutor:
         self._outcomes[uid] = result
         if status == "execution_unknown":
             self._quarantine.add(uid)
-        if status == "confirmed" and action == "stop":
+        if status == "confirmed" and action in ("stop", "pause"):
             self._archive_session(uid, observed_at, reason)
             self._quarantine.discard(uid)
             self._sessions.pop(uid, None)
@@ -418,6 +436,8 @@ class NativeSwitchExecutor:
         ctl = cfg["controller"]
         if not self._persistence_verified:
             return "CONTROL_STATE_UNVERIFIED"
+        if charger["id"] in self._paused:
+            return "USER_PAUSED"
         if not planned and ctl.get("mode") != "Force Charge":
             return "MANUAL_START_REQUIRES_FORCE_CHARGE"
         if planned and ctl.get("mode") not in (
@@ -907,7 +927,8 @@ class NativeSwitchExecutor:
             for charger in self.runtime.configuration["chargers"]:
                 uid = charger["id"]
                 if (charger.get("control_owner", "external") != "multicharge"
-                        or charger.get("physical_commissioned") is not True):
+                        or charger.get("physical_commissioned") is not True
+                        or uid in self._paused):
                     continue
                 slot = slots.get(uid)
                 switch = self._switch(self.runtime.hass, charger.get("control_entity"))
@@ -1053,7 +1074,7 @@ class NativeSwitchExecutor:
                 if mode == "Force Charge" and accepted is not None:
                     wrong_mode = True
                 unsafe = (
-                    wrong_mode or cable.quality != "ok" or cable.value is not True
+                    uid in self._paused or wrong_mode or cable.quality != "ok" or cable.value is not True
                     or power.quality != "ok"
                     or power.value > charger["rated_power_kw"] * 1.10
                     or session_reason is not None
@@ -1166,7 +1187,7 @@ class NativeSwitchExecutor:
                       request_id=None, readback_seconds=READBACK_SECONDS,
                       current_a=None, plan_slot=None, manual_request=None):
         """Perform a real HA switch call; success requires fresh independent power."""
-        if action not in ("start", "stop", "set_current"):
+        if action not in ("start", "stop", "set_current", "pause", "resume"):
             raise ValueError("unsupported physical action")
         at = datetime.now(timezone.utc)
         request_id = request_id or uuid4().hex
@@ -1209,6 +1230,33 @@ class NativeSwitchExecutor:
             state = self._switch(self.runtime.hass, entity)
             if state is None:
                 return result("rejected", "NATIVE_SWITCH_UNAVAILABLE")
+            if action == "resume":
+                if charger_id not in self._paused:
+                    return result("rejected", "CHARGER_NOT_PAUSED")
+                if charger_id in self._quarantine or charger_id in self._sessions:
+                    return result("rejected", "UNCONFIRMED_SESSION_CANNOT_RESUME")
+                power = number(self.runtime.hass, charger.get("power_entity"),
+                               "power", at)
+                if (state.state != "off" or power.quality != "ok"
+                        or power.value > stop_power_limit(charger)):
+                    return result("rejected", "PHYSICAL_STOP_NOT_VERIFIED")
+                self._paused.remove(charger_id)
+                if not await self.runtime.persist_control_state():
+                    self._paused.add(charger_id)
+                    self._persistence_verified = False
+                    return result("execution_unknown", "PAUSE_RELEASE_NOT_PERSISTED")
+                # Resume only releases the admission hold; it NEVER energizes
+                # hardware. A real future quarter plan or explicit manual
+                # START must independently pass all physical gates.
+                return result("confirmed", "PAUSE_RELEASED_NO_PHYSICAL_START",
+                              observed_at=power.observed_at,
+                              measured_kw=power.value)
+            if action == "pause" and charger_id not in self._paused:
+                self._paused.add(charger_id)
+                if not await self.runtime.persist_control_state():
+                    self._paused.discard(charger_id)
+                    self._persistence_verified = False
+                    return result("rejected", "PAUSE_HOLD_NOT_PERSISTED")
             if action in ("start", "set_current"):
                 if charger["kind"] == "variable_current":
                     if current_a is None and action == "start" and plan_slot is None:
@@ -1357,7 +1405,7 @@ class NativeSwitchExecutor:
                                   observed_at=observed.observed_at,
                                   measured_kw=observed.value,
                                   service_sent=True)
-                    if action == "stop" and not await self.runtime.persist_control_state():
+                    if action in ("stop", "pause") and not await self.runtime.persist_control_state():
                         self._persistence_verified = False
                     return outcome
                 remaining = deadline - asyncio.get_running_loop().time()
