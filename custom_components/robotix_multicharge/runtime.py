@@ -38,10 +38,11 @@ class MultiChargeRuntime:
         self.price_slots = ()
         self.executor = NativeSwitchExecutor(self)
         self._listeners = set()
-        self._unsubscribe_tick = None
+        self._unsubscribers = []
+        self.active = True
 
     def set_unsubscribe(self, unsubscribe):
-        self._unsubscribe_tick = unsubscribe
+        self._unsubscribers.append(unsubscribe)
 
     def subscribe(self, callback):
         self._listeners.add(callback)
@@ -52,10 +53,11 @@ class MultiChargeRuntime:
             listener()
 
     def stop(self):
+        self.active = False
         self.executor.detach()
-        if self._unsubscribe_tick is not None:
-            self._unsubscribe_tick()
-            self._unsubscribe_tick = None
+        for unsubscribe in self._unsubscribers:
+            unsubscribe()
+        self._unsubscribers.clear()
         self._listeners.clear()
 
     def refresh(self, at=None):

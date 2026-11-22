@@ -9,7 +9,9 @@ import logging
 from datetime import timedelta
 
 from homeassistant.core import callback
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import (
+    async_track_time_interval, async_track_state_change_event,
+)
 
 import voluptuous as vol
 from homeassistant import config_entries
@@ -57,14 +59,39 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     runtime = MultiChargeRuntime(hass, cfg)
     runtime.refresh()
 
+    pending = None
+    dirty = False
+
+    async def reconcile():
+        nonlocal dirty
+        while dirty and runtime.active:
+            dirty = False
+            runtime.refresh()
+            await runtime.executor.supervise()
+
     @callback
-    def on_tick(now):
-        runtime.refresh(now)
-        hass.async_create_task(runtime.executor.supervise())
+    def on_source_change(event=None):
+        nonlocal pending, dirty
+        if not runtime.active:
+            return
+        dirty = True
+        if pending is None or pending.done():
+            pending = hass.async_create_task(reconcile())
 
     runtime.set_unsubscribe(
-        async_track_time_interval(hass, on_tick, timedelta(minutes=1))
+        async_track_time_interval(hass, on_source_change, timedelta(minutes=1))
     )
+    monitored = {
+        value for row in (
+            cfg["controller"], *cfg["chargers"], *cfg["assets"]
+        )
+        for key, value in row.items()
+        if key.endswith("_entity") and isinstance(value, str)
+    }
+    if monitored:
+        runtime.set_unsubscribe(
+            async_track_state_change_event(hass, list(monitored), on_source_change)
+        )
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = runtime
     try:
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
