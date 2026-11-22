@@ -13,16 +13,24 @@ MAX_OBSERVATION_AGE = timedelta(minutes=30)
 
 
 def _sample(state):
+    """Keep invalid native readings as gaps, never bridge over unavailable."""
     try:
-        stamp = state.last_updated.astimezone(timezone.utc)
-        if state.last_updated.tzinfo is None:
+        stamp = state.last_updated
+        if stamp.tzinfo is None or stamp.utcoffset() is None:
             return None
+        stamp = stamp.astimezone(timezone.utc)
         factor = {"W": 0.001, "kW": 1.0}[state.attributes["unit_of_measurement"]]
         value = float(state.state) * factor
         if not isfinite(value) or value < 0:
-            return None
+            value = None
         return stamp, value
     except (KeyError, ValueError, TypeError, AttributeError, OverflowError):
+        try:
+            timestamp = state.last_updated
+            if timestamp.tzinfo is not None and timestamp.utcoffset() is not None:
+                return timestamp.astimezone(timezone.utc), None
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            pass
         return None
 
 
@@ -43,14 +51,13 @@ def _quarter_actuals(states, first, last, now):
         energy = 0.0
         valid = active is not None
         for next_stamp, value in (*events, (finish, None)):
-            if (active is None or active[0] > cursor
+            if (active is None or active[1] is None or active[0] > cursor
                     or next_stamp - active[0] > MAX_OBSERVATION_AGE):
                 valid = False
                 break
             energy += active[1] * (next_stamp - cursor).total_seconds() / 3600
             cursor = next_stamp
-            if value is not None:
-                active = (next_stamp, value)
+            active = (next_stamp, value)
         series.append({
             "start": slot.isoformat(),
             "end": finish.isoformat(),
@@ -79,13 +86,17 @@ async def read_actual_history(hass, configuration, start, end, *,
         return [], "POWER_METER_NOT_CONFIGURED"
     if last <= first or last - first > timedelta(hours=48):
         raise ValueError("historical view must be bounded to 48 hours")
+    if first >= now:
+        return [], "FUTURE_ONLY"
+    if "recorder" not in hass.config.components:
+        return [], "RECORDER_NOT_LOADED"
     try:
-        from homeassistant.components.recorder.history import get_significant_states
+        from homeassistant.components.recorder import get_instance, history
 
-        # A native Recorder query, no alternate time-series store. Its DB work
-        # must run outside the HA event loop. Attributes include real units.
-        historical = await hass.async_add_executor_job(
-            get_significant_states, hass, first, min(last, now), entities,
+        # Use the Recorder's own executor, preserving the native DB lifecycle.
+        historical = await get_instance(hass).async_add_executor_job(
+            history.get_significant_states,
+            hass, first, min(last, now), entities,
             None, True, False, False, False, False,
         )
     except (ImportError, RuntimeError, ValueError, OSError, KeyError):
