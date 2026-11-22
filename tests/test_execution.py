@@ -264,6 +264,58 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(services.calls, [])
         self.assertTrue(rt.executor.capabilities()["evse"]["stop_allowed"])
 
+    async def test_completed_measured_demand_is_retained_after_restart(self):
+        class MemoryStore:
+            def __init__(self):
+                self.data = None
+            async def async_save(self, data):
+                self.data = data
+
+        rt, states, services = rig(mode="Automatic")
+        store = MemoryStore()
+        rt.attach_control_store(store, None)
+        at = datetime.now(timezone.utc)
+        quarter = at.replace(minute=(at.minute // 15) * 15,
+                             second=0, microsecond=0)
+        for row in states.values():
+            row.last_updated = quarter + timedelta(seconds=1)
+        rt.refresh(quarter)
+        await rt.executor.advance_plan(quarter)
+        self.assertEqual(services.calls[0][1], "turn_on")
+        states["sensor.meter"].state = "6.1"
+        states["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        await rt.executor.supervise()
+        self.assertEqual(services.calls[-1][1], "turn_off")
+        self.assertTrue(store.data["completed"])
+        self.assertEqual(store.data["inflight"], {})
+        rt.refresh(quarter)
+        self.assertFalse(rt.assessment.plan.slots)
+        restarted = MultiChargeRuntime(rt.hass, rt.configuration)
+        restarted.attach_control_store(store, store.data)
+        restarted.refresh(quarter)
+        self.assertFalse(restarted.assessment.plan.slots)
+
+    async def test_shared_phase_and_circuit_excess_block_without_any_write(self):
+        rt, states, services = rig(group_kw=4)
+        rt.configuration["controller"]["phase_limits_a"] = {"L1": 16}
+        rt.configuration["chargers"][0].update(
+            phase_ids=["L1"], voltage_v=230, fixed_current_a=10,
+            circuit_id="common", circuit_limit_a=16)
+        rt.configuration["chargers"].append({
+            "id": "other", "name": "Other", "kind": "on_off",
+            "rated_power_kw": 2, "phase_count": 1, "phase_ids": ["L1"],
+            "voltage_v": 230, "fixed_current_a": 10,
+            "circuit_id": "common", "circuit_limit_a": 16,
+            "control_entity": "switch.other",
+            "power_entity": "sensor.other_power",
+            "control_owner": "external", "physical_commissioned": False,
+        })
+        states["switch.other"] = state("on")
+        states["sensor.other_power"] = state(2000, "W")
+        denied = await rt.executor.execute("evse", "start")
+        self.assertEqual(denied["reason"], "SITE_PHASE_CURRENT_EXCEEDED")
+        self.assertFalse(services.calls)
+
     async def test_invalid_adjustable_current_is_rejected_without_physical_write(self):
         rt, states, services = rig(group_kw=7.5)
         rt.configuration["chargers"][0].update(
