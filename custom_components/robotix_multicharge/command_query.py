@@ -26,6 +26,8 @@ from .const import DOMAIN
     vol.Required("charger_id"): str,
     vol.Required("action"): vol.In(("start", "stop", "set_current")),
     vol.Optional("current_a"): vol.Coerce(float),
+    vol.Optional("energy_kwh"): vol.Coerce(float),
+    vol.Optional("duration_minutes"): vol.Coerce(int),
     vol.Optional("request_id"): str,
 })
 @websocket_api.async_response
@@ -40,10 +42,20 @@ async def websocket_charge_command(
             "Exactly one active ChargeController is required"
         )
         return
+    manual_request = {
+        key: msg[key] for key in ("energy_kwh", "duration_minutes")
+        if key in msg
+    }
+    if manual_request and msg["action"] != "start":
+        connection.send_error(
+            msg["id"], websocket_api.ERR_INVALID_FORMAT,
+            "One-off energy/duration is valid only for manual START",
+        )
+        return
     result = await runtimes[0].executor.execute(
         msg["charger_id"], msg["action"],
         request_id=msg.get("request_id"), context=connection.context(msg),
-        current_a=msg.get("current_a")
+        current_a=msg.get("current_a"), manual_request=manual_request or None,
     )
     connection.send_result(msg["id"], result)
 

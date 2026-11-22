@@ -111,6 +111,63 @@ def rig(*, owner="multicharge", commissioned=True, group_kw=4.0,
 
 
 class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_charger_only_measured_kwh_stops_and_keeps_asset_unattributed(self):
+        rt, sources, services = rig()
+        rt.configuration["chargers"][0].pop("asset")
+        rt.refresh()
+        self.assertTrue(rt.executor.capabilities()["evse"]["manual_one_off_allowed"])
+        result = await rt.executor.execute(
+            "evse", "start", manual_request={"energy_kwh": 2.0}
+        )
+        self.assertEqual(result["status"], "confirmed")
+        self.assertIsNone(rt.executor.session_snapshot()["evse"]["asset_id"])
+        sources["sensor.meter"].state = "7"
+        sources["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        await rt.executor.supervise()
+        self.assertEqual([x[1] for x in services.calls], ["turn_on", "turn_off"])
+        completed = rt.executor.completed_sessions()
+        self.assertEqual(len(completed), 1)
+        self.assertIsNone(completed[0]["asset_id"])
+        self.assertEqual(completed[0]["actual_energy_kwh"], 2.0)
+        self.assertTrue(completed[0]["physical_stop_confirmed"])
+        saved = rt.executor.export_state()
+        rt2, _, _ = rig()
+        rt2.executor.restore_state(saved)
+        self.assertIsNone(rt2.executor.completed_sessions()[0]["asset_id"])
+
+    async def test_charger_only_duration_without_meter_is_real_and_finite(self):
+        rt, sources, services = rig()
+        rt.configuration["chargers"][0].pop("asset")
+        rt.configuration["chargers"][0].pop("energy_entity")
+        rt.refresh()
+        result = await rt.executor.execute(
+            "evse", "start", manual_request={"duration_minutes": 30}
+        )
+        self.assertEqual(result["status"], "confirmed")
+        rt.executor._sessions["evse"]["started_at"] -= timedelta(minutes=31)
+        await rt.executor.supervise()
+        self.assertEqual([x[1] for x in services.calls], ["turn_on", "turn_off"])
+        receipt = rt.executor.completed_sessions()[0]
+        self.assertIsNone(receipt["asset_id"])
+        self.assertIsNone(receipt["actual_energy_kwh"])
+        self.assertEqual(receipt["energy_quality"], "unknown")
+
+    async def test_charger_only_rejects_unbounded_invalid_or_assigned_requests(self):
+        rt, _, services = rig()
+        refused = await rt.executor.execute(
+            "evse", "start", manual_request={"duration_minutes": 30}
+        )
+        self.assertEqual(refused["reason"], "MANUAL_ONE_OFF_REQUIRES_UNASSIGNED_CHARGER")
+        rt.configuration["chargers"][0].pop("asset")
+        for intent in ({}, {"duration_minutes": 0},
+                       {"energy_kwh": 0}, {"duration_minutes": 1441},
+                       {"energy_kwh": 2, "duration_minutes": 30}):
+            refused = await rt.executor.execute(
+                "evse", "start", manual_request=intent,
+            )
+            self.assertEqual(refused["status"], "rejected")
+        self.assertFalse(services.calls)
+
     async def test_unconfirmed_or_replugged_vehicle_cannot_start(self):
         rt, states, services = rig()
         rt.executor._plug_confirmations.clear()

@@ -152,7 +152,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       this._last=Date.now();
     }finally{this._loading=false;this.render();}
   }
-  async command(charger,action){
+  async command(charger,action,manualRequest=null){
     if(this._commandBusy||!this._hass)return;
     this._commandBusy=true;
     this._commandFeedback[charger]={status:"requested",reason:"Pending"};
@@ -160,6 +160,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     try {
       const request={type:"robotix_multicharge/command",
                      charger_id:charger,action};
+      if(manualRequest)Object.assign(request,manualRequest);
       if(typeof crypto!=="undefined"&&typeof crypto.randomUUID==="function")
         request.request_id=crypto.randomUUID();
       const outcome=await this._hass.callWS(request);
@@ -788,7 +789,26 @@ class RobotixMultiChargeCard extends HTMLElement {
         controls.append(stop);
       }
       if(controls.children.length)card.append(controls);
-      if(!capability.start_allowed && capability.reason)
+      if(!c.asset&&capability.manual_one_off_allowed){
+        const oneOff=mcEl("section","card");
+        oneOff.append(mcEl("h3","",mcTr("Manual one-off charge")));
+        const energy=this.field(oneOff,mcTr("Energy limit (kWh)"),"","number");
+        const minutes=this.field(oneOff,mcTr("Time limit (minutes)"),"","number");
+        const submit=mcButton(mcTr("Start bounded session"),()=>{
+          const amount=energy.value.trim(),time=minutes.value.trim();
+          if((!!amount)===(!!time)){
+            this._commandFeedback[c.id]={
+              status:"rejected",reason:"ONE_FINITE_MANUAL_LIMIT_REQUIRED"
+            };
+            this.render();return;
+          }
+          this.command(c.id,"start",amount?
+            {energy_kwh:Number(amount)}:{duration_minutes:Number(time)});
+        });
+        submit.disabled=this._commandBusy;
+        oneOff.append(submit);card.append(oneOff);
+      }
+      if(!capability.start_allowed && capability.reason && c.asset)
         card.append(mcEl("p","muted small",mcTr("Unavailable")+" · "+mcReason(capability.reason)));
       if(outcome){
         const bad=outcome.status==="rejected"||outcome.status==="execution_unknown";
