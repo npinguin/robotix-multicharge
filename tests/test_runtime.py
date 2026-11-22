@@ -80,6 +80,17 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(incomplete["power_quality"], "unknown")
         self.assertEqual(incomplete["connected_chargers"], 0)
 
+    def test_restored_unresolved_intent_is_controller_hold_not_idle(self):
+        cfg = sample()
+        rt = MultiChargeRuntime(
+            SimpleNamespace(states=SimpleNamespace(get={}.get)), cfg
+        )
+        rt.executor._inflight["car"] = "unresolved-intent"
+        self.assertEqual(rt.live_state()["action_health"], "hold")
+        rt.executor._inflight.clear()
+        rt.executor._persistence_verified = False
+        self.assertEqual(rt.live_state()["action_health"], "hold")
+
     def test_multiple_chargers_unknown_connection_must_not_fake_aggregate_count(self):
         cfg = sample()
         cfg["chargers"].append({

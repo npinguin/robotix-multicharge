@@ -6,6 +6,10 @@ copy their identities, reparent devices or assert physical command ownership.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
+from .source_evidence import number
+
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, UnitOfPower, PERCENTAGE
@@ -44,7 +48,8 @@ async def async_setup_entry(
         entities.append(_CommandStatusSensor(charger, runtime))
         entities.append(_ChargerAssignmentSensor(charger, runtime))
         if charger.get("kind") == "variable_current":
-            entities.append(_ChargerCurrentSensor(charger, runtime))
+            entities.append(_ChargerCurrentSensor(charger, runtime, "setpoint"))
+            entities.append(_ChargerCurrentSensor(charger, runtime, "actual"))
         if charger.get("energy_entity"):
             entities.append(_LogicalSessionEnergySensor(charger, runtime))
             entities.append(_LastSessionEnergySensor(charger, runtime))
@@ -496,32 +501,44 @@ class _AssetIntentSensor(_NativeMultiChargeSensor):
 
 
 class _ChargerCurrentSensor(_NativeMultiChargeSensor):
-    """Session setpoint and physically measured ampere are different facts."""
+    """Separate native HA numeric setpoint and source-confirmed actual current."""
 
     _attr_native_unit_of_measurement = "A"
     _attr_state_class = SensorStateClass.MEASUREMENT
 
-    def __init__(self, charger: dict, runtime) -> None:
+    def __init__(self, charger: dict, runtime, metric: str) -> None:
         super().__init__("charger", charger, runtime)
-        self._attr_name = "Confirmed current setpoint"
-        self._attr_unique_id = f"{DOMAIN}:charger:{charger['id']}:confirmed_current"
+        if metric not in ("setpoint", "actual"):
+            raise ValueError("unsupported charger current metric")
+        self.metric = metric
+        self._attr_name = (
+            "Confirmed current setpoint" if metric == "setpoint"
+            else "Actual current"
+        )
+        self._attr_unique_id = (
+            f"{DOMAIN}:charger:{charger['id']}:"
+            f"{'confirmed_current' if metric == 'setpoint' else 'actual_current'}"
+        )
         self._update_value()
 
     def _update_value(self):
         session = self.runtime.executor.session_snapshot().get(self.data["id"])
-        self._attr_native_value = session.get("target_current_a") if session else None
+        setpoint = session.get("target_current_a") if session else None
         source_id = self.data.get("current_readback_entity")
-        from .source_evidence import number
-        from datetime import datetime, timezone
-        measured = number(
-            self.runtime.hass, source_id, "current",
-            datetime.now(timezone.utc),
+        actual = number(
+            self.runtime.hass, source_id, "current", datetime.now(timezone.utc)
+        )
+        self._attr_native_value = (
+            setpoint if self.metric == "setpoint"
+            else actual.value if actual.quality == "ok" else None
         )
         self._attr_extra_state_attributes = {
-            "measured_current_a": measured.value if measured.quality == "ok" else None,
-            "readback_quality": measured.quality,
-            "readback_at": measured.observed_at.isoformat()
-            if measured.observed_at is not None else None,
+            "confirmed_setpoint_a": setpoint,
+            "physical_current_a": actual.value if actual.quality == "ok" else None,
+            "readback_quality": actual.quality,
+            "readback_at": actual.observed_at.isoformat()
+            if actual.observed_at is not None else None,
             "source_entity_id": source_id,
             "session_confirmed": session is not None,
+            "metric": self.metric,
         }
