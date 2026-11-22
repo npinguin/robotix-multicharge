@@ -519,9 +519,24 @@ class NativeSwitchExecutor:
             if power.quality != "ok":
                 return "OTHER_CHARGER_POWER_UNAVAILABLE"
             state = self._switch(self.runtime.hass, other.get("control_entity"))
-            if state is None:
-                return "OTHER_CHARGER_OWNER_OR_STATE_UNKNOWN"
-            if state.state == "on":
+            # Native providers need not publish a switch if MultiCharge is not
+            # their writer. Verified zero physical power is sufficient to
+            # exclude an idle external Charger from the occupied budget.
+            # A measured external load is conservatively reserved at rated
+            # power even without access to the provider's native switch.
+            if state is None and power.value <= STOP_POWER_KW:
+                if other.get("control_owner") == "multicharge":
+                    return "OTHER_CHARGER_OWNER_OR_STATE_UNKNOWN"
+                continue
+            externally_powered = (
+                other.get("control_owner") != "multicharge"
+                and power.value > STOP_POWER_KW
+            )
+            is_active = (
+                (state is not None and state.state == "on")
+                or externally_powered
+            )
+            if is_active:
                 occupied += 1
                 amps = other.get("fixed_current_a")
                 if other["kind"] == "variable_current":

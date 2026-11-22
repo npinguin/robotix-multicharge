@@ -513,6 +513,34 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
                               asset_id="car")
         self.assertEqual(result["completed_sessions"][0]["asset_id"], "car")
 
+    async def test_external_charger_without_switch_uses_verified_real_power_budget(self):
+        """A provider-neutral external Charger can coexist without a writable switch."""
+        rt, states, services = rig(group_kw=4.0)
+        rt.configuration["controller"]["max_parallel"] = 2
+        rt.configuration["chargers"].append({
+            "id": "external", "name": "Other provider",
+            "kind": "on_off", "rated_power_kw": 1.5,
+            "power_entity": "sensor.external_power",
+            "connected_entity": "binary_sensor.external_connected",
+            "control_owner": "external", "physical_commissioned": False,
+        })
+        states["sensor.external_power"] = state(0, "W")
+        states["binary_sensor.external_connected"] = state("off")
+        rt.refresh()
+        self.assertTrue(rt.executor.capabilities()["evse"]["start_allowed"])
+        first = await rt.executor.execute("evse", "start")
+        self.assertEqual(first["status"], "confirmed")
+        await rt.executor.execute("evse", "stop")
+        # Actual external power must now consume the shared budget even if
+        # its native provider has no switch entity exposed to MultiCharge.
+        states["sensor.external_power"].state = "2500"
+        states["sensor.external_power"].last_updated = datetime.now(timezone.utc)
+        rt.refresh()
+        blocked = await rt.executor.execute("evse", "start")
+        self.assertEqual(blocked["reason"], "SITE_CAPACITY_EXCEEDED")
+        self.assertEqual([call[1] for call in services.calls],
+                         ["turn_on", "turn_off"])
+
     async def test_independent_charger_actions_remain_scoped_in_controller_projection(self):
         rt, sources, services = rig()
         cfg = rt.configuration
