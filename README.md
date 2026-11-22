@@ -35,42 +35,91 @@ On `dev`, native Site → Charger → Asset → Sources → Verify setup and the
 
 The stable core concepts are `ChargeableAsset`, `Charger` and `ChargeController`. A physical device stays owned by its native Home Assistant integration; MultiCharge only represents the logical charging role.
 
-## YAML-only expert configuration after installation
+## Expert JSON — direct setup, no wizard
 
-Home Assistant can take a **single** MultiCharge configuration from YAML,
-including if the original installation was completed through the native wizard.
-You do not need to remove or re-add the integration. Starting with the next
-qualified TEST patch, the YAML source is adopted into the **same native Config
-Entry**; the previous UI `options.configuration` is discarded while the
-integration ID, device registry and Recorder history remain intact. The
-dashboard continues to work. YAML-managed settings are read-only in the UI.
-
-Create or reuse a Home Assistant package. For example, add this line to the
-**existing** `homeassistant:` section of `configuration.yaml` only if a
-package include is not already present:
+Expert users **do not need to complete the five setup screens**. The entire
+configuration lives in a single plain JSON file. In the existing Home Assistant
+`configuration.yaml`, add one native include:
 
 ```yaml
-homeassistant:
-  packages: !include_dir_named packages
+robotix_multicharge: !include multicharge.json
 ```
 
-Then put the complete expert configuration under
-`/config/packages/multicharge.yaml`. A package may contain both
-`robotix_multicharge:` and `template:` (site-owned price adaptation),
-with no separate YAML planner. Alternatively, import just the MultiCharge
-configuration using `robotix_multicharge: !include multicharge.yaml`
-from `configuration.yaml`.
+Create `/config/multicharge.json` containing only this object:
 
-**Preserve stable `controller.id`, Charger IDs and Asset IDs** when migrating
-an existing UI setup; changing an ID represents a different logical device.
-Restart Home Assistant after editing YAML and verify native devices and source
-bindings. YAML is the only configuration authority until deliberately switched
-away from import; native Options/inline settings cannot overwrite it.
-If the YAML section disappears, the integration fails closed rather than
-reusing saved configuration invisibly. Keep the existing physical controller
-until a separately qualified, exclusive-writer commissioning handoff.
-The wizard's provisional power value is a planning fallback, not field
-electrical proof.
+```json
+{
+  "Controller": {"ID": "home", "Name": "Home charging"},
+  "Charger": [
+    {
+      "Name": "Garage White",
+      "Charging-Session-sensor": "sensor.garage_white_session",
+      "Charging-startstop-entity": "switch.garage_white_charging",
+      "Charging-amp-entity": "number.garage_white_current",
+      "ChargingAsset": "Family car"
+    }
+  ],
+  "ChargingAsset": [
+    {
+      "Name": "Family car",
+      "Asset type": "Véhicule",
+      "Vehicle-Charging-startstop-entity": "switch.car_charging",
+      "Vehicle-Charging-amp-entity": "number.car_charging_current",
+      "Vehicle-soc-sensor": "sensor.car_battery_level"
+    }
+  ]
+}
+```
+
+The above entity IDs **illustrate the JSON shape**, not verified bindings
+for a particular installation. Replace them with actual HA entity IDs.
+
+**Minimal JSON:** One `Charger` requires only `Name` and
+`Charging-startstop-entity` (a native `switch.*`). All other fields and
+`ChargingAsset` are optional; each group may be an object or an array.
+`Controller` is optional and defaults to `home`, `Home charging`, one
+parallel charging point and mode `Off`. The planning fallback of 3.6 kW
+per charger is **not an electrically verified rating or commissioning limit**.
+Provide optional `Rated-power-kW` only with measured hardware data; physical
+commands still require the existing separate protections and exclusive ownership.
+
+The exact mapping is:
+
+| Expert JSON | Canonical owned concept |
+| --- | --- |
+| `Charger.Name` / optional `ID` | Stable logical Charger name/ID |
+| `Charging-Session-sensor` | Optional raw source for the charging session (not silently interpreted as kWh) |
+| `Charging-startstop-entity` | Native Charger switch; never activated by import |
+| `Charging-amp-entity` | Charger current setpoint reference (`number.*`) |
+| `ChargingAsset.Name` / optional `ID` | Stable logical ChargeableAsset |
+| `Asset type` | `Véhicule` → `car` (other canonical kinds also supported) |
+| `Vehicle-Charging-startstop-entity` | Optional vehicle-owned switch binding |
+| `Vehicle-Charging-amp-entity` | Optional vehicle-owned current setpoint binding |
+| `Vehicle-soc-sensor` | Optional vehicle battery SoC source (`sensor.*`) |
+
+To supply measured performance, optional additional Charger keys are
+`Charging-power-sensor`, `Charging-energy-sensor`, and
+`Charging-connected-sensor`. These are independent sources; a session status
+sensor must never be silently treated as a cumulative or per-session energy
+meter. The vehicle command bindings are **saved and represented as such**;
+there is no second physical writer. Setting an entity does not authorize
+MultiCharge to invoke it. Charger command ownership remains `external` and
+physical commissioning is `false`.
+
+Upon HA restart, the native startup importer reads the JSON through Home
+Assistant's built-in `!include`, validates every key and source domain, and
+creates the **same one native Config Entry** that the wizard would create.
+No `Add Integration` wizard is required. An existing wizard installation is
+adopted in place: no removal, re-pair or second Config Entry, and historical
+HA device/Recorder identity is retained for unchanged IDs. Keep `Controller.ID`
+and explicit Charger/Asset `ID` values stable (the wizard defaults its
+Controller ID to `home`). The imported JSON owns settings until explicitly
+switched away from import: native Options and inline settings do not overwrite
+it. A missing authoritative startup file fails closed.
+
+Existing structured expert YAML remains compatible, but is **not a prerequisite**
+for this JSON bypass. The YAML include line is Home Assistant's one-line file
+reference only, not an instruction to express the configuration in YAML.
 
 ## Community HACS TEST installation and closing-iteration evidence
 
@@ -80,7 +129,7 @@ from source; no precompiled runtime, paid Robotix services or separate mirror.
 After a `TEST` prerelease is published, open HACS in Home Assistant, add
 `https://github.com/npinguin/robotix-multicharge` as a **custom Integration
 repository**, enable prerelease/beta versions where applicable, and install
-the explicitly selected `v0.1.1` TEST patch once published. Restart Home Assistant, then
+the latest explicitly qualified TEST release (v0.1.2 for the expert JSON bypass). Restart Home Assistant, then
 open **Settings → Devices & services → Add integration → Robotix MultiCharge**.
 The source ZIP attached to GitHub Releases has the same runtime files and a
 SHA256 sidecar; HACS normally installs from the matching immutable tag.
