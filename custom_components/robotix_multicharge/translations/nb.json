@@ -108,7 +108,8 @@
           "controller": "Charging site",
           "asset": "Chargeable assets",
           "charger": "Chargers",
-          "display": "Dashboard card"
+          "display": "Dashboard card",
+          "yaml": "Edit YAML (review before save)"
         },
         "title": "Innstillinger"
       },
@@ -186,13 +187,31 @@
         "data": {
           "enable_ux": "Dashbord"
         }
+      },
+      "yaml": {
+        "title": "MultiCharge — YAML configuration",
+        "description": "Edit all current settings or submit scoped changes. All changes are validated before review; no physical controls are activated.",
+        "data": {
+          "mode": "Update mode",
+          "yaml_text": "MultiCharge configuration (YAML / JSON data)"
+        }
+      },
+      "yaml_review": {
+        "title": "Review YAML changes",
+        "description": "{summary}\nConfirm only after checking the complete impact. No charger command is sent by this operation.",
+        "data": {
+          "confirm": "Apply these reviewed configuration changes",
+          "edit_again": "Return to YAML editing"
+        }
       }
     },
     "abort": {
       "yaml_managed": "Innstillinger · YAML"
     },
     "error": {
-      "invalid_config": "Kontroll"
+      "invalid_config": "Kontroll",
+      "confirm_save": "Confirm the reviewed changes before saving.",
+      "selection_changed": "The configuration changed; reopen YAML before saving."
     }
   },
   "entity": {
