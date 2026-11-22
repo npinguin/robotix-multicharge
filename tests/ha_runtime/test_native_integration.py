@@ -223,7 +223,7 @@ async def test_expert_json_include_skips_wizard_and_reuses_entry(hass: HomeAssis
     }
     json_file.write_text(json.dumps(expert), encoding="utf8")
     yaml_file.write_text(
-        "robotix_multicharge: !include multicharge.json\\n",
+        "robotix_multicharge: !include multicharge.json\n",
         encoding="utf8",
     )
     # The user config file is plain JSON; HA's native !include is only
