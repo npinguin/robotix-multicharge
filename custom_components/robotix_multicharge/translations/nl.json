@@ -1,4 +1,186 @@
 {
+  "config": {
+    "step": {
+      "user": {
+        "title": "Laadlocatie",
+        "description": "Laadlocatie",
+        "data": {
+          "name": "Naam",
+          "max_parallel": "Aantal",
+          "max_power_kw": "Vermogen",
+          "phase_limits_a": "Fasen"
+        }
+      },
+      "charger": {
+        "title": "Laadpaal",
+        "description": "Laadpaal",
+        "data": {
+          "action": "Actie",
+          "name": "Naam",
+          "kind": "Type",
+          "rated_power_kw": "Vermogen",
+          "phase_count": "Fasen",
+          "min_current_a": "Stroom",
+          "max_current_a": "Stroom",
+          "connected_entity": "Aansluiting",
+          "power_entity": "Vermogen",
+          "energy_entity": "Energiemeter",
+          "control_entity": "Stroom",
+          "add_another": "Actie",
+          "phase_ids": "Fasen",
+          "voltage_v": "Vermogen",
+          "current_step_a": "Stroom",
+          "fixed_current_a": "Stroom",
+          "circuit_id": "Aantal",
+          "circuit_limit_a": "Stroom",
+          "current_control_entity": "Stroom",
+          "current_readback_entity": "Stroom"
+        }
+      },
+      "asset": {
+        "title": "Voertuig",
+        "description": "Voertuig",
+        "data": {
+          "action": "Actie",
+          "name": "Naam",
+          "kind": "Type",
+          "soc_entity": "Batterij",
+          "capacity_kwh": "Batterij",
+          "target_soc": "Doel",
+          "requested_kwh": "Vermogen",
+          "requested_duration_minutes": "Duur",
+          "ready_by": "Klaar om",
+          "charge_efficiency": "Vermogen",
+          "max_charge_kw": "Vermogen",
+          "priority": "Prioriteit",
+          "add_another": "Actie",
+          "ready_by_repeat": "Herhalen",
+          "temporary": "Gast",
+          "expires_at": "Vervalt",
+          "expected_connection_at": "Verwachte aansluiting"
+        }
+      },
+      "sources": {
+        "title": "Bronnen",
+        "description": "Bronnen",
+        "data": {
+          "price_entity": "Tarief",
+          "solar_entity": "Zonne-energie",
+          "binding_entity": "Vermogen"
+        }
+      },
+      "verify": {
+        "title": "Controleren",
+        "description": "Controleren",
+        "data": {
+          "confirm": "Controleren"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Robotix MultiCharge is already configured.",
+      "configuration_conflict": "A UI-managed configuration already exists. Remove it before using YAML.",
+      "configuration_updated": "YAML configuration updated."
+    },
+    "error": {
+      "invalid_config": "Controleren",
+      "verification_required": "Controleren"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "menu_options": {
+          "controller": "Charging site",
+          "asset": "Chargeable assets",
+          "charger": "Chargers",
+          "display": "Dashboard card"
+        },
+        "title": "Instellingen"
+      },
+      "controller": {
+        "title": "Laadlocatie",
+        "data": {
+          "name": "Naam",
+          "max_parallel": "Aantal",
+          "max_power_kw": "Vermogen",
+          "mode": "Laadmodus",
+          "price_entity": "Tarief",
+          "solar_entity": "Zonne-energie",
+          "binding_entity": "Vermogen",
+          "phase_limits_a": "Fasen",
+          "plan_label_mode": "Planweergave",
+          "plan_color_by": "Kleur per",
+          "show_indicative_forecast": "Prognose"
+        }
+      },
+      "asset": {
+        "title": "Voertuig",
+        "description": "Voertuig",
+        "data": {
+          "action": "Actie",
+          "id": "Naam",
+          "name": "Naam",
+          "kind": "Type",
+          "soc_entity": "Batterij",
+          "capacity_kwh": "Batterij",
+          "target_soc": "Doel",
+          "max_charge_kw": "Vermogen",
+          "requested_kwh": "Vermogen",
+          "requested_duration_minutes": "Duur",
+          "ready_by": "Klaar om",
+          "charge_efficiency": "Vermogen",
+          "priority": "Prioriteit",
+          "ready_by_repeat": "Herhalen",
+          "temporary": "Gast",
+          "expires_at": "Vervalt",
+          "expected_connection_at": "Verwachte aansluiting"
+        }
+      },
+      "charger": {
+        "title": "Laadpaal",
+        "description": "Laadpaal",
+        "data": {
+          "action": "Actie",
+          "id": "Naam",
+          "name": "Naam",
+          "kind": "Type",
+          "rated_power_kw": "Vermogen",
+          "asset": "Voertuig",
+          "control_entity": "Stroom",
+          "connected_entity": "Aansluiting",
+          "power_entity": "Vermogen",
+          "energy_entity": "Energiemeter",
+          "phase_count": "Fasen",
+          "min_current_a": "Stroom",
+          "max_current_a": "Stroom",
+          "control_owner": "Stroom",
+          "physical_commissioned": "Controleren",
+          "phase_ids": "Fasen",
+          "voltage_v": "Vermogen",
+          "current_step_a": "Stroom",
+          "fixed_current_a": "Stroom",
+          "circuit_id": "Aantal",
+          "circuit_limit_a": "Stroom",
+          "current_control_entity": "Stroom",
+          "current_readback_entity": "Stroom"
+        }
+      },
+      "display": {
+        "title": "Dashboard",
+        "description": "Dashboard",
+        "data": {
+          "enable_ux": "Dashboard"
+        }
+      }
+    },
+    "abort": {
+      "yaml_managed": "Instellingen · YAML"
+    },
+    "error": {
+      "invalid_config": "Controleren"
+    }
+  },
   "entity": {
     "select": {
       "plan_label_mode": {

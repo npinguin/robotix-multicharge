@@ -1,0 +1,439 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Laddplats",
+        "description": "Laddplats",
+        "data": {
+          "name": "Namn",
+          "max_parallel": "Antal",
+          "max_power_kw": "Effekt",
+          "phase_limits_a": "Faser"
+        }
+      },
+      "charger": {
+        "title": "Laddare",
+        "description": "Laddare",
+        "data": {
+          "action": "Åtgärd",
+          "name": "Namn",
+          "kind": "Typ",
+          "rated_power_kw": "Effekt",
+          "phase_count": "Faser",
+          "min_current_a": "Ström",
+          "max_current_a": "Ström",
+          "connected_entity": "Anslutning",
+          "power_entity": "Effekt",
+          "energy_entity": "Energimätare",
+          "control_entity": "Ström",
+          "add_another": "Åtgärd",
+          "phase_ids": "Faser",
+          "voltage_v": "Effekt",
+          "current_step_a": "Ström",
+          "fixed_current_a": "Ström",
+          "circuit_id": "Antal",
+          "circuit_limit_a": "Ström",
+          "current_control_entity": "Ström",
+          "current_readback_entity": "Ström"
+        }
+      },
+      "asset": {
+        "title": "Fordon",
+        "description": "Fordon",
+        "data": {
+          "action": "Åtgärd",
+          "name": "Namn",
+          "kind": "Typ",
+          "soc_entity": "Batteri",
+          "capacity_kwh": "Batteri",
+          "target_soc": "Mål",
+          "requested_kwh": "Effekt",
+          "requested_duration_minutes": "Varaktighet",
+          "ready_by": "Klar senast",
+          "charge_efficiency": "Effekt",
+          "max_charge_kw": "Effekt",
+          "priority": "Prioritet",
+          "add_another": "Åtgärd",
+          "ready_by_repeat": "Upprepa",
+          "temporary": "Gäst",
+          "expires_at": "Upphör",
+          "expected_connection_at": "Förväntad anslutning"
+        }
+      },
+      "sources": {
+        "title": "Källor",
+        "description": "Källor",
+        "data": {
+          "price_entity": "Pris",
+          "solar_entity": "Solenergi",
+          "binding_entity": "Effekt"
+        }
+      },
+      "verify": {
+        "title": "Kontroll",
+        "description": "Kontroll",
+        "data": {
+          "confirm": "Kontroll"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Robotix MultiCharge is already configured.",
+      "configuration_conflict": "A UI-managed configuration already exists. Remove it before using YAML.",
+      "configuration_updated": "YAML configuration updated."
+    },
+    "error": {
+      "invalid_config": "Kontroll",
+      "verification_required": "Kontroll"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "menu_options": {
+          "controller": "Charging site",
+          "asset": "Chargeable assets",
+          "charger": "Chargers",
+          "display": "Dashboard card"
+        },
+        "title": "Inställningar"
+      },
+      "controller": {
+        "title": "Laddplats",
+        "data": {
+          "name": "Namn",
+          "max_parallel": "Antal",
+          "max_power_kw": "Effekt",
+          "mode": "Laddläge",
+          "price_entity": "Pris",
+          "solar_entity": "Solenergi",
+          "binding_entity": "Effekt",
+          "phase_limits_a": "Faser",
+          "plan_label_mode": "Planvisning",
+          "plan_color_by": "Färg efter",
+          "show_indicative_forecast": "Prognos"
+        }
+      },
+      "asset": {
+        "title": "Fordon",
+        "description": "Fordon",
+        "data": {
+          "action": "Åtgärd",
+          "id": "Namn",
+          "name": "Namn",
+          "kind": "Typ",
+          "soc_entity": "Batteri",
+          "capacity_kwh": "Batteri",
+          "target_soc": "Mål",
+          "max_charge_kw": "Effekt",
+          "requested_kwh": "Effekt",
+          "requested_duration_minutes": "Varaktighet",
+          "ready_by": "Klar senast",
+          "charge_efficiency": "Effekt",
+          "priority": "Prioritet",
+          "ready_by_repeat": "Upprepa",
+          "temporary": "Gäst",
+          "expires_at": "Upphör",
+          "expected_connection_at": "Förväntad anslutning"
+        }
+      },
+      "charger": {
+        "title": "Laddare",
+        "description": "Laddare",
+        "data": {
+          "action": "Åtgärd",
+          "id": "Namn",
+          "name": "Namn",
+          "kind": "Typ",
+          "rated_power_kw": "Effekt",
+          "asset": "Fordon",
+          "control_entity": "Ström",
+          "connected_entity": "Anslutning",
+          "power_entity": "Effekt",
+          "energy_entity": "Energimätare",
+          "phase_count": "Faser",
+          "min_current_a": "Ström",
+          "max_current_a": "Ström",
+          "control_owner": "Ström",
+          "physical_commissioned": "Kontroll",
+          "phase_ids": "Faser",
+          "voltage_v": "Effekt",
+          "current_step_a": "Ström",
+          "fixed_current_a": "Ström",
+          "circuit_id": "Antal",
+          "circuit_limit_a": "Ström",
+          "current_control_entity": "Ström",
+          "current_readback_entity": "Ström"
+        }
+      },
+      "display": {
+        "title": "Instrumentpanel",
+        "description": "Instrumentpanel",
+        "data": {
+          "enable_ux": "Instrumentpanel"
+        }
+      }
+    },
+    "abort": {
+      "yaml_managed": "Inställningar · YAML"
+    },
+    "error": {
+      "invalid_config": "Kontroll"
+    }
+  },
+  "entity": {
+    "select": {
+      "plan_label_mode": {
+        "name": "Planvisning",
+        "state": {
+          "vehicle": "Fordon",
+          "charger": "Laddare",
+          "both": "Båda"
+        }
+      },
+      "plan_color_by": {
+        "name": "Färg efter",
+        "state": {
+          "vehicle": "Fordon",
+          "charger": "Laddare"
+        }
+      },
+      "show_indicative_forecast": {
+        "name": "Prognos",
+        "state": {
+          "on": "Visa",
+          "off": "Dölj"
+        }
+      },
+      "mode": {
+        "name": "Laddläge",
+        "state": {
+          "automatic": "Automatisk",
+          "solar": "Sol",
+          "economy": "Ekonomi",
+          "ready_by": "Klar senast",
+          "force_charge": "Snabbladdning",
+          "off": "Av"
+        }
+      },
+      "plan_color": {
+        "name": "Planfärg",
+        "state": {
+          "blue": "Blå",
+          "orange": "Orange",
+          "green": "Grön",
+          "purple": "Lila",
+          "gold": "Guld",
+          "teal": "Blågrön",
+          "pink": "Rosa",
+          "indigo": "Indigo",
+          "olive": "Oliv",
+          "brown": "Brun",
+          "coral": "Korall",
+          "slate": "Skiffer",
+          "violet": "Violett",
+          "lime": "Lime",
+          "salmon": "Lax",
+          "cyan": "Cyan",
+          "wine": "Vinröd",
+          "forest": "Skogsgrön",
+          "peach": "Persika",
+          "lavender": "Lavendel",
+          "turquoise": "Turkos",
+          "rust": "Rost",
+          "navy": "Marinblå",
+          "moss": "Mossgrön"
+        }
+      },
+      "selected_vehicle": {
+        "name": "Valt fordon",
+        "state": {
+          "none": "Inget fordon"
+        }
+      },
+      "ready_by_repeat": {
+        "name": "Upprepa",
+        "state": {
+          "none": "Ingen",
+          "daily": "Dagligen",
+          "weekly": "Veckovis"
+        }
+      },
+      "kind": {
+        "state": {
+          "car": "Car",
+          "bicycle": "Bicycle",
+          "motorcycle": "Motorcycle",
+          "scooter": "Scooter",
+          "other": "Other"
+        }
+      }
+    },
+    "number": {
+      "target_soc": {
+        "name": "Mål"
+      },
+      "requested_kwh": {
+        "name": "Effekt"
+      },
+      "requested_duration_minutes": {
+        "name": "Varaktighet"
+      },
+      "priority": {
+        "name": "Prioritet"
+      },
+      "max_charge_kw": {
+        "name": "Effekt"
+      },
+      "max_parallel": {
+        "name": "Antal"
+      },
+      "max_power_kw": {
+        "name": "Effekt"
+      },
+      "capacity_kwh": {
+        "name": "Battery capacity"
+      },
+      "charge_efficiency": {
+        "name": "Charging efficiency"
+      }
+    },
+    "datetime": {
+      "ready_by": {
+        "name": "Klar senast"
+      },
+      "expected_connection_at": {
+        "name": "Förväntad anslutning"
+      },
+      "expires_at": {
+        "name": "Upphör"
+      }
+    },
+    "sensor": {
+      "readiness": {
+        "name": "Klar",
+        "state": {
+          "manual_controls_available": "Available",
+          "not_commissioned": "Not ready",
+          "physical_readback_confirmed": "Ready",
+          "readback_stale": "No update",
+          "unavailable": "Unavailable",
+          "source_observed": "Connected",
+          "demand_configured": "Configured",
+          "needs_input": "Set goal"
+        }
+      },
+      "plan_status": {
+        "name": "Plan",
+        "state": {
+          "proposed": "Planned",
+          "accepted": "Accepted",
+          "unavailable": "Unavailable"
+        }
+      },
+      "actual_power": {
+        "name": "Aktuell effekt"
+      },
+      "battery_level": {
+        "name": "Batterinivå"
+      },
+      "connection": {
+        "name": "Anslutning",
+        "state": {
+          "True": "Connected",
+          "False": "Disconnected",
+          "true": "Connected",
+          "false": "Disconnected"
+        }
+      },
+      "session_energy": {
+        "name": "Sessionsenergi"
+      },
+      "command_status": {
+        "name": "Kommandostatus",
+        "state": {
+          "not_requested": "No action",
+          "requested": "Pending",
+          "confirmed": "Confirmed",
+          "rejected": "Rejected",
+          "execution_unknown": "Unknown"
+        }
+      },
+      "last_session_energy": {
+        "name": "Senaste sessionsenergi"
+      },
+      "charging_mode": {
+        "name": "Laddläge",
+        "state": {
+          "Automatic": "Automatic",
+          "Solar": "Solar",
+          "Economy": "Economy",
+          "Ready By": "Ready by",
+          "Force Charge": "Charge now",
+          "Off": "Off"
+        }
+      },
+      "settings_revision": {
+        "name": "Inställningsversion"
+      },
+      "connected_chargers": {
+        "name": "Anslutna laddare"
+      },
+      "charging_chargers": {
+        "name": "Aktiva laddare"
+      },
+      "action_health": {
+        "name": "Åtgärdsstatus",
+        "state": {
+          "hold": "On hold",
+          "unconfirmed": "Unknown",
+          "pending": "Pending",
+          "rejected": "Rejected",
+          "confirmed": "Confirmed",
+          "idle": "Idle"
+        }
+      },
+      "last_physical_action": {
+        "name": "Senaste åtgärd",
+        "state": {
+          "start": "Start",
+          "stop": "Stop",
+          "set_current": "Current",
+          "none": "None"
+        }
+      },
+      "last_settings_action": {
+        "name": "Senaste inställning",
+        "state": {
+          "save": "Save",
+          "create": "Add",
+          "delete": "Remove",
+          "none": "None"
+        }
+      },
+      "selected_vehicle": {
+        "name": "Valt fordon"
+      },
+      "charging_intention": {
+        "name": "Laddbehov",
+        "state": {
+          "energy": "Energy",
+          "duration": "Duration",
+          "target_soc": "Battery target",
+          "unconfigured": "Set goal"
+        }
+      },
+      "confirmed_current_setpoint": {
+        "name": "Bekräftad ström"
+      },
+      "actual_current": {
+        "name": "Aktuell ström"
+      }
+    },
+    "text": {
+      "name": {
+        "name": "Name"
+      }
+    }
+  }
+}
