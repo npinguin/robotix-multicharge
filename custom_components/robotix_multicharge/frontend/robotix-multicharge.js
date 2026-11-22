@@ -124,13 +124,52 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._settingsFeedback=null;
     this._pendingSettings=null;
     this._assetEditor="";
+    this._refreshTimer=null;
+    this._refreshPending=false;
+    this._pendingNative=null;
+  }
+  canManage(){return this._hass?.user?.is_admin===true;}
+  watchedEntities(){
+    const data=this._data||{},cfg=data.configuration||{},refs=data.preference_entities||{};
+    const ids=new Set();
+    for(const row of [cfg.controller,...(cfg.assets||[]),...(cfg.chargers||[])]){
+      for(const [key,value] of Object.entries(row||{}))
+        if(key.endsWith("_entity")&&typeof value==="string")ids.add(value);
+    }
+    for(const row of [refs.controller,...Object.values(refs.assets||{}),
+                      ...Object.values(refs.chargers||{})])
+      for(const value of Object.values(row||{}))
+        if(typeof value==="string"&&value.includes("."))ids.add(value);
+    return ids;
+  }
+  scheduleSourceRefresh(){
+    if(this._refreshTimer!==null)return;
+    this._refreshTimer=setTimeout(()=>{
+      this._refreshTimer=null;
+      if(this._loading){this._refreshPending=true;return;}
+      this._last=0;this.load();
+    },350);
+  }
+  disconnectedCallback(){
+    if(this._refreshTimer!==null)clearTimeout(this._refreshTimer);
+    this._refreshTimer=null;
   }
   setConfig(config){this._cardConfig=config||{};this.render();}
   getCardSize(){return 10;}
   set hass(value){
+    const before=this._hass;
     this._hass=value;
-    if(!this._loading&&(!this._last||Date.now()-this._last>60000)) this.load();
-    else if(this._data) this.render();
+    if(this._pendingNative&&value?.states?.[this._pendingNative.entity]?.state===
+        this._pendingNative.expected){
+      this._pendingNative=null;
+      this._settingsFeedback={status:"confirmed",message:"Saved"};
+    }
+    const changed=before&&this._data&&[...this.watchedEntities()].some(
+      id=>before.states?.[id]!==value.states?.[id]
+    );
+    if(changed)this.scheduleSourceRefresh();
+    else if(!this._loading&&(!this._last||Date.now()-this._last>60000))this.load();
+    else if(this._data)this.render();
   }
   async load(){
     if(!this._hass||this._loading)return;
@@ -150,10 +189,15 @@ class RobotixMultiChargeCard extends HTMLElement {
       this._error=error && (error.message||error.code) ? String(error.message||error.code) : "Read access unavailable";
       this._data=null;
       this._last=Date.now();
-    }finally{this._loading=false;this.render();}
+    }finally{
+      this._loading=false;this.render();
+      if(this._refreshPending){
+        this._refreshPending=false;this.scheduleSourceRefresh();
+      }
+    }
   }
   async command(charger,action,manualRequest=null){
-    if(this._commandBusy||!this._hass)return;
+    if(this._commandBusy||!this._hass||!this.canManage())return;
     this._commandBusy=true;
     this._commandFeedback[charger]={status:"requested",reason:"Pending"};
     this.render();
@@ -177,7 +221,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     }finally{this._commandBusy=false;this.render();}
   }
   async saveSettings(scope,targetId,changes,action){
-    if(this._settingsBusy||!this._hass||!this._data)return;
+    if(this._settingsBusy||!this._hass||!this._data||!this.canManage())return;
     if(!this._data.configuration_revision){
       this._settingsFeedback={status:"rejected",message:"Unavailable"};
       this.render();return;
@@ -212,7 +256,7 @@ class RobotixMultiChargeCard extends HTMLElement {
   }
   async nativeSelect(scope,uid,field,option){
     const entity=this.ownerEntity(scope,uid,field);
-    if(!entity||!this._hass?.callService){
+    if(!this.canManage()||!entity||!this._hass?.callService){
       this._settingsFeedback={status:"rejected",message:"Unavailable"};
       this.render();return;
     }
@@ -220,19 +264,26 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._settingsFeedback={status:"requested",message:"Updating"};
     this.render();
     try{
+      const expected=field==="mode"?MC_MODE_SELECT[option]||option:option;
       await this._hass.callService("select","select_option",{
-        entity_id:entity,option:field==="mode"?MC_MODE_SELECT[option]||option:option
+        entity_id:entity,option:expected
       });
+      this._pendingNative={entity,expected};
       this._last=0;
       await this.load();
-      this._settingsFeedback={status:"accepted_unconfirmed",message:"Updating"};
+      if(this._hass?.states?.[entity]?.state===expected){
+        this._pendingNative=null;
+        this._settingsFeedback={status:"confirmed",message:"Saved"};
+      }else{
+        this._settingsFeedback={status:"accepted_unconfirmed",message:"Updating"};
+      }
     }catch(error){
       this._settingsFeedback={status:"rejected",message:"Unavailable"};
     }finally{this._settingsBusy=false;this.render();}
   }
   async nativeButton(scope,uid,field){
     const entity=this.ownerEntity(scope,uid,field);
-    if(!entity||!this._hass?.callService){
+    if(!this.canManage()||!entity||!this._hass?.callService){
       this._settingsFeedback={status:"rejected",message:"Unavailable"};
       this.render();return;
     }
@@ -250,7 +301,7 @@ class RobotixMultiChargeCard extends HTMLElement {
   }
   openNative(scope,uid,field){
     const entity=this.ownerEntity(scope,uid,field);
-    if(!entity){this._settingsFeedback={status:"rejected",message:"Unavailable"};this.render();return;}
+    if(!this.canManage()||!entity){this._settingsFeedback={status:"rejected",message:"Unavailable"};this.render();return;}
     this.dispatchEvent(new CustomEvent("hass-more-info",{
       bubbles:true,composed:true,detail:{entityId:entity}
     }));
@@ -260,7 +311,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     const entity=this.ownerEntity(scope,row.id,"plan_color");
     const options=Object.keys(palette).map(key=>[key,mcTr(key)]);
     const pick=this.field(container,"Plan color",row.plan_color,null,options);
-    pick.disabled=!entity||this._settingsBusy;
+    pick.disabled=!this.canManage()||!entity||this._settingsBusy;
     pick.addEventListener("change",()=>this.nativeSelect(
       scope,row.id,"plan_color",pick.value
     ));
@@ -299,6 +350,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     container.append(mcEl("div","notice"+(bad?" error":""),message));
   }
   configure(container){
+    if(!this.canManage())return;
     const link=mcEl("a","action","Home Assistant");
     link.href="/config/integrations/integration/robotix_multicharge";
     link.setAttribute("aria-label",mcTr("Home Assistant"));
@@ -358,7 +410,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     container.append(metrics);
     const mode=(c.controller||{}).mode||"Off";
     const chips=mcEl("div","chips");chips.append(mcEl("p","muted",mcTr("Charging mode")+" · "+mode));
-    for(const item of MC_MODES){
+    for(const item of this.canManage()?MC_MODES:[]){
       const button=mcButton(item,()=>this.nativeSelect("controller",(c.controller||{}).id,"mode",item));
       button.disabled=this._settingsBusy||item===mode||!this.ownerEntity("controller",(c.controller||{}).id,"mode");
       button.title=mcTr("Charging mode");
@@ -667,14 +719,14 @@ class RobotixMultiChargeCard extends HTMLElement {
         mcPair(detail,"Battery data",obs.soc?(obs.soc.quality+" · "+(a.soc_entity||"manual")):"Unknown");
         mcPair(detail,"Requested energy",a.requested_kwh===undefined?"Not set":a.requested_kwh+" kWh");
         mcPair(detail,"Duration",a.requested_duration_minutes===undefined?"Not set":a.requested_duration_minutes+" min");
-        this.ownerColorControl(detail,"asset",a);
+        if(this.canManage())this.ownerColorControl(detail,"asset",a);
         for(const [field,label] of [
           ["kind","Asset type"],["target_soc","Target"],["requested_kwh","Requested energy"],
           ["requested_duration_minutes","Duration"],["priority","Priority"],
           ["ready_by","Ready By"],["expected_connection_at","Expected"],
           ["ready_by_repeat","Repeat"]
         ]){
-          if(!this.ownerEntity("asset",a.id,field))continue;
+          if(!this.canManage()||!this.ownerEntity("asset",a.id,field))continue;
           const row=mcEl("div","row");
           row.append(mcEl("span","muted small",label),mcButton("Edit",
             ()=>this.openNative("asset",a.id,field)));
@@ -684,7 +736,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       }
       container.append(card);
     }
-    if(this._assetEditor==="new"){
+    if(this.canManage()&&this._assetEditor==="new"){
       const form=mcEl("form","card");form.append(mcEl("h3","","Add a chargeable asset"));
       const name=this.field(form,"Asset name","","text");
       const kind=this.field(form,"Asset type","car",null,[
@@ -710,7 +762,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       container.append(form);
     }
     this.feedback(container);
-    container.append(mcButton(this._assetEditor==="new"?"Cancel adding":"Add asset",()=>{
+    if(this.canManage())container.append(mcButton(this._assetEditor==="new"?"Cancel adding":"Add asset",()=>{
       this._assetEditor=this._assetEditor==="new"?"":"new";this.render();
     }));
   }
@@ -766,8 +818,8 @@ class RobotixMultiChargeCard extends HTMLElement {
         mcPair(detail,"Status",mcTr(actual.status==="confirmed"?"Confirmed":actual.status==="rejected"?"Rejected":actual.status==="execution_unknown"?"Unavailable":"No action"));
         if(actual.reason)mcPair(detail,"Reason",mcReason(actual.reason));
         if(actual.readback_at)mcPair(detail,"Measured confirmation",mcTime(actual.readback_at,d.timezone));
-        this.ownerColorControl(detail,"charger",c);
-        if(this.ownerEntity("charger",c.id,"asset")){
+        if(this.canManage())this.ownerColorControl(detail,"charger",c);
+        if(this.canManage()&&this.ownerEntity("charger",c.id,"asset")){
           const setting=mcEl("div","row");
           setting.append(mcEl("span","muted small","Selected vehicle"),
             mcButton("Edit",()=>this.openNative("charger",c.id,"asset")));
@@ -778,18 +830,18 @@ class RobotixMultiChargeCard extends HTMLElement {
       const capability=(d.command_capabilities||{})[c.id]||{};
       const outcome=this._commandFeedback[c.id]||(d.command_outcomes||{})[c.id];
       const controls=mcEl("div","controls");
-      if(capability.start_allowed){
+      if(this.canManage()&&capability.start_allowed){
         const start=mcButton("Start charging",()=>this.command(c.id,"start"));
         start.disabled=this._commandBusy;
         controls.append(start);
       }
-      if(capability.stop_allowed){
+      if(this.canManage()&&capability.stop_allowed){
         const stop=mcButton("Stop charging",()=>this.command(c.id,"stop"));
         stop.disabled=this._commandBusy;
         controls.append(stop);
       }
       if(controls.children.length)card.append(controls);
-      if(!c.asset&&capability.manual_one_off_allowed){
+      if(this.canManage()&&!c.asset&&capability.manual_one_off_allowed){
         const oneOff=mcEl("section","card");
         oneOff.append(mcEl("h3","",mcTr("Manual one-off charge")));
         const energy=this.field(oneOff,mcTr("Energy limit (kWh)"),"","number");
@@ -820,7 +872,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       }
       container.append(card);
     }
-    container.append(mcButton("Add charger",()=>this.settingsSelect(container,"Sources & bindings")));
+    if(this.canManage())container.append(mcButton("Add charger",()=>this.settingsSelect(container,"Sources & bindings")));
   }
   settings(container){
     const d=this._data,c=d.configuration||{},ctl=c.controller||{};
@@ -840,7 +892,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         if(title==="Charging site"){
           mcPair(detail,"Site name",ctl.name);
           for(const field of ["max_parallel","max_power_kw"]){
-            if(!this.ownerEntity("controller",ctl.id,field))continue;
+            if(!this.canManage()||!this.ownerEntity("controller",ctl.id,field))continue;
             const item=mcEl("div","row");
             item.append(mcEl("span","",field==="max_parallel"?"Parallel chargers":"Maximum group kW"),
               mcButton("Edit",()=>this.openNative("controller",ctl.id,field)));
@@ -848,7 +900,7 @@ class RobotixMultiChargeCard extends HTMLElement {
           }
         }else if(title==="Charging strategy"){
           const options=mcEl("div","chips");
-          for(const mode of MC_MODES){
+          for(const mode of this.canManage()?MC_MODES:[]){
             const btn=mcButton(mode,()=>this.nativeSelect("controller",ctl.id,"mode",mode));
             btn.disabled=this._settingsBusy||mode===ctl.mode||
               !this.ownerEntity("controller",ctl.id,"mode");
@@ -856,6 +908,7 @@ class RobotixMultiChargeCard extends HTMLElement {
             options.append(btn);
           }
           detail.append(options);
+          if(!this.canManage())mcPair(detail,"Charging mode",ctl.mode||"Unknown");
         }else if(title==="Integrations"){
           mcPair(detail,"Tariff",mcReason((d.observations||{}).sources?.tariff_quality));
           mcPair(detail,"Solar",mcReason((d.observations||{}).sources?.solar_quality));
