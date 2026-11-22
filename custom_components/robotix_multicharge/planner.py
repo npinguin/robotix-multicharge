@@ -31,9 +31,8 @@ def _utc(value: datetime) -> datetime:
 
 def _ceil_quarter(value: datetime) -> datetime:
     at = _utc(value)
-    seconds = int(at.timestamp())
-    remainder = seconds % 900
-    return datetime.fromtimestamp(seconds + (900 - remainder) % 900, timezone.utc)
+    seconds = at.timestamp()
+    return datetime.fromtimestamp(ceil(seconds / 900) * 900, timezone.utc)
 
 
 def _cover(slots: Sequence[PriceSlot | PowerLimitSlot], start: datetime,

@@ -1,11 +1,15 @@
 """Home Assistant lifecycle for one logical MultiCharge configuration.
 
-No physical writes, optimizer, source listeners or inferred charger readiness.
+Read-only live source evidence and plan evaluation; no physical execution.
 """
 
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
+
+from homeassistant.core import callback
+from homeassistant.helpers.event import async_track_time_interval
 
 import voluptuous as vol
 from homeassistant import config_entries
@@ -14,6 +18,7 @@ from homeassistant.core import HomeAssistant
 
 from .configuration import effective_configuration, validate_configuration
 from .const import DOMAIN
+from .runtime import MultiChargeRuntime
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor"]
@@ -43,13 +48,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except (ValueError, KeyError) as exc:
         _LOGGER.error("MultiCharge configuration rejected: %s", exc)
         return False
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = cfg
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    runtime = MultiChargeRuntime(hass, cfg)
+    runtime.refresh()
+
+    @callback
+    def on_tick(now):
+        runtime.refresh(now)
+
+    runtime.set_unsubscribe(
+        async_track_time_interval(hass, on_tick, timedelta(minutes=1))
+    )
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = runtime
+    try:
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    except Exception:
+        runtime.stop()
+        hass.data[DOMAIN].pop(entry.entry_id, None)
+        raise
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if ok:
-        hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+        runtime = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+        if runtime is not None:
+            runtime.stop()
     return ok
