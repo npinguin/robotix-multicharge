@@ -189,7 +189,7 @@
       },
       "yaml": {
         "title": "MultiCharge YAML-Konfiguration",
-        "description": "Gesamte Konfiguration oder gezielte Änderungen bearbeiten. Prüfung vor dem Speichern.",
+        "description": "Gesamte Konfiguration oder gezielte Änderungen bearbeiten. Prüfung vor dem Speichern. {note}",
         "data": {
           "mode": "Änderungsmodus",
           "yaml_text": "MultiCharge Konfiguration (YAML/JSON)"
