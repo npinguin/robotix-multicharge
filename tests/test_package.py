@@ -56,6 +56,15 @@ class PackageTest(unittest.TestCase):
         self.assertIn("import voluptuous as vol", text)
         self.assertNotIn("import probatio", text)
 
+    def test_resident_plan_is_readable_but_writes_require_admin(self):
+        """Authenticated HA users can view the dashboard; writes stay admin-only."""
+        read = (COMPONENT / "plan_query.py").read_text(encoding="utf8")
+        writes = (COMPONENT / "command_query.py").read_text(encoding="utf8")
+        self.assertIn('"robotix_multicharge/get_plan"', read)
+        self.assertNotIn("@websocket_api.require_admin", read)
+        self.assertIn('@websocket_api.websocket_command({', read)
+        self.assertEqual(writes.count("@websocket_api.require_admin"), 2)
+
     def test_manifest_is_standalone(self):
         m = json.loads((COMPONENT / "manifest.json").read_text(encoding="utf8"))
         self.assertEqual(m["domain"], "robotix_multicharge")
