@@ -394,6 +394,29 @@ class NativeSwitchExecutor:
         finally:
             self._supervising = False
 
+    async def shutdown(self):
+        """Stop each owned charger before unload, with actual power readback."""
+        for charger in self.runtime.configuration["chargers"]:
+            if (charger.get("kind") != "on_off"
+                    or charger.get("control_owner", "external") != "multicharge"
+                    or charger.get("physical_commissioned") is not True):
+                continue
+            state = self._switch(self.runtime.hass, charger.get("control_entity"))
+            if state is None:
+                _LOGGER.error("Cannot unload: charger state unknown for %s",
+                              charger["id"])
+                return False
+            power = number(self.runtime.hass, charger.get("power_entity"),
+                           "power", datetime.now(timezone.utc))
+            if state.state == "off" and power.quality == "ok" and power.value <= STOP_POWER_KW:
+                continue
+            outcome = await self.execute(charger["id"], "stop")
+            if outcome["status"] != "confirmed":
+                _LOGGER.error("Unconfirmed STOP blocks unload for %s: %s",
+                              charger["id"], outcome["reason"])
+                return False
+        return True
+
     def _readback(self, charger, action, requested_at):
         switch = self._switch(self.runtime.hass, charger["control_entity"])
         if switch is None or switch.state != ("on" if action == "start" else "off"):

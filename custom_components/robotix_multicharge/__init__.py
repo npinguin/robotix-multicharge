@@ -105,6 +105,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    runtime = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if runtime is not None and not await runtime.executor.shutdown():
+        _LOGGER.error("MultiCharge unload blocked by unconfirmed physical STOP")
+        return False
     ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if ok:
         reconcile_frontend(hass)
