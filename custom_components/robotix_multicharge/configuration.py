@@ -453,6 +453,10 @@ def is_plan_presentation_only_change(before, after):
         for row in (*rest["assets"], *rest["chargers"]):
             row.pop("plan_color", None)
             row.pop("name", None)
+        # Type is currently taxonomy only: no planner or electrical capability
+        # changes. Keep native asset type edits safe for active EVSE sessions.
+        for asset in rest["assets"]:
+            asset.pop("kind", None)
         for key in ("name", "plan_label_mode", "plan_color_by",
                     "show_indicative_forecast"):
             rest["controller"].pop(key, None)

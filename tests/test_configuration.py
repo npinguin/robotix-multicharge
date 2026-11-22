@@ -44,6 +44,23 @@ class ConfigurationTests(unittest.TestCase):
         self.assertFalse(is_plan_presentation_only_change(visual, physical))
         self.assertFalse(is_plan_presentation_only_change(original, physical))
 
+    def test_type_only_asset_edit_preserves_physical_runtime(self):
+        from multicharge_configuration_tests.configuration import (
+            is_plan_presentation_only_change, apply_settings_change,
+        )
+        cfg = default_configuration()
+        cfg["assets"] = [{"id": "bike", "name": "Bike", "kind": "bicycle",
+                          "requested_kwh": 2.0}]
+        cfg["chargers"] = [{"id": "plug", "name": "Plug", "kind": "on_off",
+                            "rated_power_kw": 0.5, "asset": "bike"}]
+        original = validate_configuration(cfg)
+        edited = apply_settings_change(original, "asset", "bike",
+                                       {"kind": "scooter"})
+        self.assertTrue(is_plan_presentation_only_change(original, edited))
+        structural = apply_settings_change(edited, "asset", "bike",
+                                           {"requested_kwh": 3.0})
+        self.assertFalse(is_plan_presentation_only_change(edited, structural))
+
     def test_auto_palette_unique_per_owner_and_stable_across_reorder(self):
         from multicharge_configuration_tests.configuration import PLAN_COLORS
         cfg = default_configuration()
