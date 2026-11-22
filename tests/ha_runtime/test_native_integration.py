@@ -49,6 +49,7 @@ async def test_native_setup_registry_diagnostics_and_unload(hass: HomeAssistant)
             "rated_power_kw": 3.6, "asset": "asset",
             "connected_entity": "binary_sensor.native_connected",
             "power_entity": "sensor.native_power",
+            "session_entity": "sensor.native_session",
             "control_owner": "external",
         }],
     })
@@ -76,6 +77,15 @@ async def test_native_setup_registry_diagnostics_and_unload(hass: HomeAssistant)
     assert diagnostic["schema_major"] == 1
     assert len(diagnostic["chargers"]) == 1
     assert diagnostic["integration"]["active"] is True
+    hass.states.async_set("sensor.native_session", "charging")
+    await hass.async_block_till_done()
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    runtime.refresh()
+    session = runtime.observations["chargers"]["charger"]["session"]
+    assert session.value == "charging"
+    assert session.quality == "ok"
+    assert runtime.executor.capabilities()["charger"]["start_allowed"] is False
+    # A provider session observation is never permission to command equipment.
     assert "Local name" not in str(diagnostic)
     assert "sensor.native_power" not in str(diagnostic)
     assert await hass.config_entries.async_unload(entry.entry_id)
