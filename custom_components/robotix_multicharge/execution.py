@@ -1203,7 +1203,7 @@ class NativeSwitchExecutor:
             or power.value > charger["rated_power_kw"] * 1.10
         ):
             return None
-        if action == "stop" and power.value > stop_power_limit(charger):
+        if action in ("stop", "pause") and power.value > stop_power_limit(charger):
             return None
         return power
 
