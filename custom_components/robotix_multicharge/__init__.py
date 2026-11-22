@@ -6,7 +6,7 @@ Native source/planning lifecycle and a physically guarded single charging writer
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime as utc_datetime, timedelta, timezone
 
 from homeassistant.core import callback
 from homeassistant.helpers.storage import Store
@@ -122,7 +122,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         async def apply_quarter():
             if not runtime.active:
                 return
-            at = datetime.now(timezone.utc)
+            at = utc_datetime.now(timezone.utc)
             quarter = at.replace(minute=(at.minute // 15) * 15,
                                  second=0, microsecond=0)
             runtime.refresh(quarter)
