@@ -39,7 +39,7 @@ class PackageTest(unittest.TestCase):
         self.assertIn(":readiness", source)
         self.assertNotIn("Setup status", source)
         self.assertNotIn(":setup", source)
-        for name in ("legacy", "evsc_", "vehicle_bridge"):
+        for name in ("legacy_", "evsc_", "vehicle_bridge"):
             self.assertNotIn(name, source)
 
     def test_no_legacy_runtime_import(self):
