@@ -25,7 +25,7 @@ from .const import DOMAIN
 @websocket_api.websocket_command({
     vol.Required("type"): "robotix_multicharge/command",
     vol.Required("charger_id"): str,
-    vol.Required("action"): vol.In(("start", "stop", "set_current")),
+    vol.Required("action"): vol.In(("start", "stop", "set_current", "pause", "resume")),
     vol.Optional("current_a"): vol.Coerce(float),
     vol.Optional("energy_kwh"): vol.Coerce(float),
     vol.Optional("duration_minutes"): vol.Coerce(int),
