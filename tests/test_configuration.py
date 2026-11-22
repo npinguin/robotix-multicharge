@@ -678,7 +678,9 @@ class YamlEditorConfigurationTests(unittest.TestCase):
         self.assertFalse(updated["chargers"][0]["physical_commissioned"])
         bad = {**old, "chargers": [{**old["chargers"][0],
                                   "control_owner": "multicharge",
-                                  "physical_commissioned": True}]}
+                                  "connected_entity": "binary_sensor.white_plug",
+                                  "power_entity": "sensor.white_power",
+                                  "physical_commissioned": False}]}
         with self.assertRaisesRegex(ValueError, "cannot transfer"):
             prepare_expert_yaml_revision(old, bad, "replace")
         with self.assertRaisesRegex(ValueError, "cannot change"):
