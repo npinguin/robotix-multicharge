@@ -1,8 +1,8 @@
 {
   "status": "AUTHORIZED_FOR_TEST",
   "distribution": "open_source_community",
-  "expected_tag": "v0.1.4",
+  "expected_tag": "v0.1.5",
   "precompile": false,
-  "qualification_scope": "Published community HACS UI usability TEST: native compact responsive Settings, actual source bindings and actionable expert YAML package guidance with unchanged guarded physical executor; HA 2026.11.2 installed-source and archive checks.",
-  "limitations": "TEST only; visual Safari/HA field acceptance remains open. Site YAML still must be installed separately, physical EVSC command ownership stays external/Off/uncommissioned, and physical writer cutover, responsive browser snapshots and all 29 installed UCs remain unqualified."
+  "qualification_scope": "Community native Home Assistant whole-configuration YAML mode TEST. Admin-only YAML editing, scoped merge or complete replace, server-side strict YAML parser and canonical validator, optimistic-lock review/save via the one native Config Entry Options Flow, writer ownership and idle readback gates, installed HA 2026.11.2 flow lifecycle and extracted HACS artifact smoke.",
+  "limitations": "TEST only, not STABLE or Wessels cutover. File-managed YAML/JSON entries remain externally authoritative and read-only in-card; actual Safari/iPad UX, live site YAML/template mappings, installed user upgrade/rollback and 29 field/physical UCs remain unqualified. External EVSC writer, Off default and uncommissioned hardware unchanged."
 }
