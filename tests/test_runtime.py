@@ -102,6 +102,37 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(live["charging_chargers"], 1)
         self.assertEqual(live["actual_power_kw"], 2.3)
 
+    def test_controller_settings_receipt_is_not_confirmed_before_config_reload(self):
+        from multicharge_runtime_test.configuration import (
+            apply_settings_change, configuration_revision
+        )
+        cfg = sample()
+        rt = MultiChargeRuntime(
+            SimpleNamespace(states=SimpleNamespace(get={}.get)), cfg
+        )
+        updated = apply_settings_change(cfg, "controller", cfg["controller"]["id"], {
+            "mode": "Economy",
+        })
+        expected = configuration_revision(updated)
+        notifications = []
+        rt.subscribe(lambda: notifications.append(rt.live_state()["settings_action"]))
+        rt.record_settings_action("controller", cfg["controller"]["id"], "save", {
+            "mode": "Economy"
+        }, expected)
+        pending = rt.live_state()["settings_action"]
+        self.assertEqual(pending["status"], "accepted_unconfirmed")
+        self.assertEqual(pending["fields"], ["mode"])
+        self.assertEqual(notifications[-1]["status"], "accepted_unconfirmed")
+        saved = {**rt.executor.export_state(), "settings_action": rt._settings_action}
+        new = MultiChargeRuntime(rt.hass, updated)
+        new.attach_control_store(None, saved)
+        self.assertEqual(new.live_state()["settings_action"]["status"], "confirmed")
+        self.assertEqual(new.live_state()["mode"], "Economy")
+        unchanged = MultiChargeRuntime(rt.hass, cfg)
+        unchanged.attach_control_store(None, saved)
+        self.assertEqual(unchanged.live_state()["settings_action"]["status"],
+                         "accepted_unconfirmed")
+
     def test_real_source_soc_produces_read_only_plan(self):
         data = {
             "sensor.soc": state("50", "%"),

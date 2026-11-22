@@ -42,6 +42,7 @@ class MultiChargeRuntime:
         self.executor = NativeSwitchExecutor(self)
         self._control_store = None
         self._save_lock = asyncio.Lock()
+        self._settings_action = None
         self._listeners = set()
         self._unsubscribers = []
         self.active = True
@@ -49,13 +50,46 @@ class MultiChargeRuntime:
     def attach_control_store(self, store, snapshot):
         self._control_store = store
         self.executor.restore_state(snapshot)
+        recorded = snapshot.get("settings_action") if isinstance(snapshot, dict) else None
+        if (isinstance(recorded, dict)
+                and isinstance(recorded.get("expected_revision"), str)
+                and recorded.get("scope") in ("controller", "asset", "charger")
+                and recorded.get("action") in ("save", "create", "delete")
+                and isinstance(recorded.get("requested_at"), str)):
+            self._settings_action = dict(recorded)
+
+    def settings_action_snapshot(self):
+        if self._settings_action is None:
+            return None
+        recorded = dict(self._settings_action)
+        observed_revision = configuration_revision(self.configuration)
+        recorded["observed_revision"] = observed_revision
+        if recorded.get("status") != "rejected":
+            recorded["status"] = (
+                "confirmed" if recorded["expected_revision"] == observed_revision
+                else "accepted_unconfirmed"
+            )
+        return recorded
+
+    def record_settings_action(self, scope, target_id, action, changes, expected_revision):
+        self._settings_action = {
+            "scope": scope, "target_id": target_id, "action": action,
+            "fields": sorted(changes),
+            "expected_revision": expected_revision,
+            "requested_at": datetime.now(timezone.utc).isoformat(),
+            "status": "accepted_unconfirmed",
+        }
+        self.notify()
 
     async def persist_control_state(self):
         if self._control_store is None:
             return True  # isolated developer tests, never a production HA fallback
         try:
             async with self._save_lock:
-                await self._control_store.async_save(self.executor.export_state())
+                await self._control_store.async_save({
+                    **self.executor.export_state(),
+                    "settings_action": self._settings_action,
+                })
             return True
         except (OSError, ValueError, RuntimeError):
             _LOGGER.exception("Failed to persist charging control evidence")
@@ -256,6 +290,7 @@ class MultiChargeRuntime:
             "last_action": dict(actions[-1]) if actions else None,
             "action_health": command_status,
             "command_outcomes": outcomes,
+            "settings_action": self.settings_action_snapshot(),
         }
 
     def summary(self):

@@ -100,6 +100,12 @@ async def websocket_update_settings(
                 msg["changes"], msg.get("action", "save"),
             )
             next_revision = configuration_revision(updated)
+            runtime.record_settings_action(
+                msg["scope"], msg["target_id"], msg.get("action", "save"),
+                msg["changes"], next_revision,
+            )
+            if not await runtime.persist_control_state():
+                raise ValueError("Cannot safely persist settings action evidence")
             hass.config_entries.async_update_entry(
                 entry,
                 options={**entry.options, "configuration": updated},

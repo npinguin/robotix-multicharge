@@ -29,7 +29,8 @@ async def async_setup_entry(
     )
     entities.append(_PlanStatusSensor(cfg["controller"], runtime))
     for field in ("mode", "configuration_revision", "connected_chargers",
-                  "charging_chargers", "action_health", "last_action"):
+                  "charging_chargers", "action_health", "last_action",
+                  "last_settings_action"):
         entities.append(_ControllerLiveSensor(cfg["controller"], runtime, field))
     entities.append(
         _LogicalEvidenceSensor("controller", cfg["controller"], runtime, "power")
@@ -352,7 +353,8 @@ class _ControllerLiveSensor(_NativeMultiChargeSensor):
             "connected_chargers": "Connected chargers",
             "charging_chargers": "Charging chargers",
             "action_health": "Action health",
-            "last_action": "Last action",
+            "last_action": "Last physical action",
+            "last_settings_action": "Last settings action",
         }[field]
         self._attr_unique_id = f"{DOMAIN}:controller:{controller['id']}:{field}"
         self._update_value()
@@ -367,7 +369,19 @@ class _ControllerLiveSensor(_NativeMultiChargeSensor):
                 else "observed" if live["last_action"] is not None else "not_requested"
             ),
         }
-        if self.field == "last_action":
+        if self.field == "last_settings_action":
+            setting = live["settings_action"]
+            self._attr_native_value = setting["action"] if setting else "none"
+            self._attr_extra_state_attributes.update({
+                "scope": setting.get("scope") if setting else None,
+                "target_id": setting.get("target_id") if setting else None,
+                "fields": setting.get("fields") if setting else None,
+                "status": setting.get("status") if setting else None,
+                "requested_at": setting.get("requested_at") if setting else None,
+                "expected_revision": setting.get("expected_revision") if setting else None,
+                "observed_revision": setting.get("observed_revision") if setting else None,
+            })
+        elif self.field == "last_action":
             action = live["last_action"]
             self._attr_native_value = action["action"] if action else "none"
             self._attr_extra_state_attributes.update({
@@ -381,6 +395,15 @@ class _ControllerLiveSensor(_NativeMultiChargeSensor):
             })
         else:
             self._attr_native_value = live[self.field]
+        if self.field == "configuration_revision":
+            ctl = self.runtime.configuration["controller"]
+            self._attr_extra_state_attributes.update({
+                "mode": ctl.get("mode"),
+                "max_parallel": ctl.get("max_parallel"),
+                "site_max_power_kw": ctl.get("max_power_kw"),
+                "phase_limits_a": ctl.get("phase_limits_a"),
+                "source": "native_config_entry",
+            })
         if self.field == "action_health":
             self._attr_extra_state_attributes.update({
                 "confirmed_count": sum(
