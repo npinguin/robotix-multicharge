@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Ladested",
-        "description": "Ladested",
+        "description": "Trinn 1/5 — Navngi ladestedet; elektriske grenser er valgfrie under installasjonen.",
         "data": {
           "name": "Navn (valgfritt)",
           "max_parallel": "Antall (valgfritt)",
@@ -13,7 +13,7 @@
       },
       "charger": {
         "title": "Lader",
-        "description": "Lader",
+        "description": "Trinn 2/5 — Legg til lader med navn og bryter, eller fullfør. Målinger og kabling er valgfrie; styring forblir av.",
         "data": {
           "action": "Handling",
           "name": "Navn (påkrevd ved tilføying)",
@@ -24,7 +24,7 @@
       },
       "asset": {
         "title": "Kjøretøy",
-        "description": "Kjøretøy",
+        "description": "Trinn 3/5 — Legg til ladeobjekter ved behov, eller fortsett.",
         "data": {
           "action": "Handling",
           "name": "Navn (påkrevd ved tilføying)",
@@ -47,7 +47,7 @@
       },
       "sources": {
         "title": "Kilder",
-        "description": "Kilder",
+        "description": "Trinn 4/5 — Kilder og tilordninger er valgfrie. Manglende data forblir ukjente.",
         "data": {
           "price_entity": "Pris (valgfritt)",
           "solar_entity": "Solenergi (valgfritt)",

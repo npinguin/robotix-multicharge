@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Site de recharge",
-        "description": "Site de recharge",
+        "description": "Étape 1/5 — Nommez le site de recharge; toutes les limites électriques sont facultatives.",
         "data": {
           "name": "Nom (facultatif)",
           "max_parallel": "Nombre (facultatif)",
@@ -13,7 +13,7 @@
       },
       "charger": {
         "title": "Borne",
-        "description": "Borne",
+        "description": "Étape 2/5 — Ajoutez une borne avec nom et interrupteur, ou terminez. Mesures et câblage facultatifs; commande inactive.",
         "data": {
           "action": "Action",
           "name": "Nom (obligatoire pour ajouter)",
@@ -24,7 +24,7 @@
       },
       "asset": {
         "title": "Véhicule",
-        "description": "Véhicule",
+        "description": "Étape 3/5 — Ajoutez des actifs si nécessaire, ou continuez.",
         "data": {
           "action": "Action",
           "name": "Nom (obligatoire pour ajouter)",
@@ -47,7 +47,7 @@
       },
       "sources": {
         "title": "Sources",
-        "description": "Sources",
+        "description": "Étape 4/5 — Sources et affectations facultatives. Les données manquantes restent inconnues.",
         "data": {
           "price_entity": "Tarif (facultatif)",
           "solar_entity": "Solaire (facultatif)",

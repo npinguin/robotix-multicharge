@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Instalación de carga",
-        "description": "Paso 1/5: configurar el lugar y los límites seguros. No se activa la carga física.",
+        "description": "Paso 1/5 — Nombre la instalación; los límites eléctricos son opcionales al configurarla.",
         "data": {
           "name": "Nombre (opcional)",
           "max_parallel": "Puntos de carga simultáneos (opcional)",
@@ -13,7 +13,7 @@
       },
       "charger": {
         "title": "Puntos de carga",
-        "description": "Paso 2/5: añadir puntos de carga. El control sigue desactivado.",
+        "description": "Paso 2/5 — Añada cargador con nombre y conmutador, o finalice. Mediciones y cableado opcionales; control desactivado.",
         "data": {
           "action": "Acción",
           "name": "Nombre (obligatorio para añadir)",
@@ -24,7 +24,7 @@
       },
       "asset": {
         "title": "Activos de carga",
-        "description": "Paso 3/5: añadir activos recargables. El nivel de batería es opcional si se indica energía o duración.",
+        "description": "Paso 3/5 — Añada activos de carga si los necesita, o continúe.",
         "data": {
           "action": "Acción",
           "name": "Nombre (obligatorio para añadir)",
@@ -47,7 +47,7 @@
       },
       "sources": {
         "title": "Fuentes y asignación",
-        "description": "Paso 4/5: elegir fuentes de medida y asignar activos. Sin datos no se supone potencia ilimitada.",
+        "description": "Paso 4/5 — Fuentes y asignaciones opcionales. Los datos ausentes siguen desconocidos.",
         "data": {
           "price_entity": "Fuente de precios (opcional)",
           "solar_entity": "Fuente solar (opcional)",

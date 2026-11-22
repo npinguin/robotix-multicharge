@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Laddplats",
-        "description": "Laddplats",
+        "description": "Steg 1/5 — Namnge laddplatsen; elektriska gränser är valfria vid installation.",
         "data": {
           "name": "Namn (valfritt)",
           "max_parallel": "Antal (valfritt)",
@@ -13,7 +13,7 @@
       },
       "charger": {
         "title": "Laddare",
-        "description": "Laddare",
+        "description": "Steg 2/5 — Lägg till laddare med namn och brytare, eller slutför. Mätning och kablage är valfria; styrning är av.",
         "data": {
           "action": "Åtgärd",
           "name": "Namn (krävs för att lägga till)",
@@ -24,7 +24,7 @@
       },
       "asset": {
         "title": "Fordon",
-        "description": "Fordon",
+        "description": "Steg 3/5 — Lägg till laddobjekt vid behov, eller fortsätt.",
         "data": {
           "action": "Åtgärd",
           "name": "Namn (krävs för att lägga till)",
@@ -47,7 +47,7 @@
       },
       "sources": {
         "title": "Källor",
-        "description": "Källor",
+        "description": "Steg 4/5 — Källor och tilldelningar är valfria. Saknade data förblir okända.",
         "data": {
           "price_entity": "Pris (valfritt)",
           "solar_entity": "Solenergi (valfritt)",

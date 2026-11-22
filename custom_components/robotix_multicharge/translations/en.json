@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Robotix MultiCharge",
-        "description": "Step 1/5 — Define your charging site and a conservative configured group budget. No physical charging is enabled.",
+        "description": "Step 1/5 — Name the charging site; all electrical limits are optional for setup.",
         "data": {
           "name": "Charging site name (optional)",
           "max_parallel": "Maximum simultaneous charging points (optional)",
@@ -13,7 +13,7 @@
       },
       "charger": {
         "title": "Step 2/5 — Charging points",
-        "description": "Add one physical charging point at a time, or Finish to continue. No control will be activated.",
+        "description": "Step 2/5 — Add a charger using name and command switch, or Finish. Measurements and wiring are optional; control stays disabled.",
         "data": {
           "action": "Add or finish",
           "name": "Charger name (required to add)",
@@ -24,7 +24,7 @@
       },
       "asset": {
         "title": "Step 3/5 — Chargeable assets",
-        "description": "Add a vehicle or rechargeable asset. SoC is optional when explicit kWh or duration is entered.",
+        "description": "Step 3/5 — Add chargeable assets if needed, or Finish to continue.",
         "data": {
           "action": "Add or finish",
           "name": "Asset name (required to add)",
@@ -47,7 +47,7 @@
       },
       "sources": {
         "title": "Step 4/5 — Sources & assignments",
-        "description": "Select optional qualified sources and explicitly assign assets to chargers. Missing critical bindings never imply unlimited power.",
+        "description": "Step 4/5 — Sources and assignments are optional. Missing evidence remains unknown.",
         "data": {
           "price_entity": "Effective price interval source (optional)",
           "solar_entity": "Available solar power interval source (optional)",

@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Laadlocatie",
-        "description": "Laadlocatie",
+        "description": "Stap 1/5 — Geef de laadlocatie een naam; alle elektrische limieten zijn bij de installatie optioneel.",
         "data": {
           "name": "Naam (optioneel)",
           "max_parallel": "Aantal (optioneel)",
@@ -13,7 +13,7 @@
       },
       "charger": {
         "title": "Laadpaal",
-        "description": "Laadpaal",
+        "description": "Stap 2/5 — Voeg een laadpunt toe met naam en schakelaar, of kies Afronden. Metingen en bekabeling zijn optioneel; de sturing blijft uit.",
         "data": {
           "action": "Actie",
           "name": "Naam (verplicht bij toevoegen)",
@@ -24,7 +24,7 @@
       },
       "asset": {
         "title": "Voertuig",
-        "description": "Voertuig",
+        "description": "Stap 3/5 — Voeg indien gewenst laadbare assets toe, of ga verder.",
         "data": {
           "action": "Actie",
           "name": "Naam (verplicht bij toevoegen)",
@@ -47,7 +47,7 @@
       },
       "sources": {
         "title": "Bronnen",
-        "description": "Bronnen",
+        "description": "Stap 4/5 — Bronnen en toewijzingen zijn optioneel. Ontbrekende gegevens blijven onbekend.",
         "data": {
           "price_entity": "Tarief (optioneel)",
           "solar_entity": "Zonne-energie (optioneel)",

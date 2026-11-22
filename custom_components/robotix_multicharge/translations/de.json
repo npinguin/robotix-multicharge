@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Ladestandort",
-        "description": "Schritt 1/5 – Standort und sichere Ladegrenzen festlegen. Kein physischer Ladevorgang wird aktiviert.",
+        "description": "Schritt 1/5 — Ladestandort benennen; elektrische Grenzwerte sind bei der Einrichtung optional.",
         "data": {
           "name": "Name (optional)",
           "max_parallel": "Gleichzeitige Ladepunkte (optional)",
@@ -13,7 +13,7 @@
       },
       "charger": {
         "title": "Ladepunkte",
-        "description": "Schritt 2/5 – Ladepunkte hinzufügen. Steuerung bleibt deaktiviert.",
+        "description": "Schritt 2/5 — Ladepunkt mit Name und Schalter hinzufügen oder fertigstellen. Messwerte und Verdrahtung sind optional; Steuerung bleibt aus.",
         "data": {
           "action": "Aktion",
           "name": "Name (beim Hinzufügen erforderlich)",
@@ -24,7 +24,7 @@
       },
       "asset": {
         "title": "Lade-Assets",
-        "description": "Schritt 3/5 – Wiederaufladbare Assets anlegen. Batteriestand ist bei festgelegter Energie oder Dauer optional.",
+        "description": "Schritt 3/5 — Bei Bedarf Lade-Assets hinzufügen oder fortfahren.",
         "data": {
           "action": "Aktion",
           "name": "Name (beim Hinzufügen erforderlich)",
@@ -47,7 +47,7 @@
       },
       "sources": {
         "title": "Quellen und Zuordnung",
-        "description": "Schritt 4/5 – Messquellen wählen und Assets Ladepunkten zuordnen. Fehlende Quellen bedeuten keine unbegrenzte Leistung.",
+        "description": "Schritt 4/5 — Quellen und Zuordnungen sind optional. Fehlende Nachweise bleiben unbekannt.",
         "data": {
           "price_entity": "Preisquelle (optional)",
           "solar_entity": "Solarquelle (optional)",

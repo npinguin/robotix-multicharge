@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Ladested",
-        "description": "Ladested",
+        "description": "Trin 1/5 — Navngiv ladestedet; elektriske grænser er valgfrie ved installation.",
         "data": {
           "name": "Navn (valgfrit)",
           "max_parallel": "Antal (valgfrit)",
@@ -13,7 +13,7 @@
       },
       "charger": {
         "title": "Lader",
-        "description": "Lader",
+        "description": "Trin 2/5 — Tilføj lader med navn og kontakt, eller afslut. Målinger og ledningsføring er valgfrie; styring er slået fra.",
         "data": {
           "action": "Handling",
           "name": "Navn (påkrævet ved tilføjelse)",
@@ -24,7 +24,7 @@
       },
       "asset": {
         "title": "Køretøj",
-        "description": "Køretøj",
+        "description": "Trin 3/5 — Tilføj ladeaktiver efter behov, eller fortsæt.",
         "data": {
           "action": "Handling",
           "name": "Navn (påkrævet ved tilføjelse)",
@@ -47,7 +47,7 @@
       },
       "sources": {
         "title": "Kilder",
-        "description": "Kilder",
+        "description": "Trin 4/5 — Kilder og tildelinger er valgfrie. Manglende data forbliver ukendte.",
         "data": {
           "price_entity": "Tarif (valgfrit)",
           "solar_entity": "Solenergi (valgfrit)",
