@@ -15,7 +15,7 @@ package = type(sys)(ROOT)
 package.__path__ = [str(PKG)]
 sys.modules[ROOT] = package
 for name in ("domain", "contracts", "configuration", "planner",
-             "source_evidence", "runtime"):
+             "source_evidence", "runtime", "const", "diagnostics"):
     spec = importlib.util.spec_from_file_location(f"{ROOT}.{name}", PKG / f"{name}.py")
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -52,6 +52,38 @@ def sample():
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_native_diagnostics_capture_errors_without_leaking_names(self):
+        import json
+        from multicharge_runtime_test.diagnostics import build_diagnostics
+
+        cfg = sample()
+        cfg["controller"]["name"] = "Private test home"
+        cfg["assets"][0]["name"] = "Personal vehicle"
+        states = {
+            "sensor.soc": state("65", "%"),
+            "sensor.power": state("unavailable", "W"),
+            "binary_sensor.cable": state("on"),
+        }
+        rt = MultiChargeRuntime(
+            SimpleNamespace(states=SimpleNamespace(get=states.get)), cfg
+        )
+        rt.refresh(NOW)
+        result = build_diagnostics(
+            rt, SimpleNamespace(source="user", version=1), captured_at=NOW
+        )
+        rendered = json.dumps(result)
+        self.assertEqual(result["schema_major"], 1)
+        self.assertEqual(result["observations"]["chargers"][
+            next(iter(result["observations"]["chargers"]))
+        ]["power_kw"]["quality"], "unknown")
+        self.assertIn("source", rendered)
+        for sensitive in ("Private test home", "Personal vehicle",
+                          "sensor.soc", "sensor.power", "binary_sensor.cable",
+                          '"asset_id": "car"', '"charger_id": "drive"'):
+            self.assertNotIn(sensitive, rendered)
+        self.assertIsNone(rt.live_state()["actual_power_kw"])
+        self.assertEqual(result["execution"]["action_health"], "idle")
+
     def test_controller_live_projection_is_source_qualified_not_guessed(self):
         cfg = sample()
         cfg["controller"]["mode"] = "Off"
