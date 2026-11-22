@@ -396,17 +396,23 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )}
 
     async def async_step_import(self, user_input):
-        """Import startup YAML; never replace an unrelated user-owned entry."""
+        """Import expert YAML through the existing HA entry, even after UI setup."""
         await self.async_set_unique_id(DOMAIN)
         cfg = validate_configuration(user_input)
         entries = self._async_current_entries()
         if entries:
+            # An existing setup can adopt expert YAML without deleting/readding
+            # the HA Config Entry: this preserves its entry ID, logical devices,
+            # registry identities, Recorder history and physical replay store.
             entry = entries[0]
-            if entry.data.get("source") != "yaml":
-                return self.async_abort(reason="configuration_conflict")
-            if entry.data.get("configuration") != cfg:
+            next_data = {"source": "yaml", "configuration": cfg}
+            next_options = {
+                key: value for key, value in entry.options.items()
+                if key != "configuration"
+            }
+            if (entry.data != next_data or entry.options != next_options):
                 self.hass.config_entries.async_update_entry(
-                    entry, data={"source": "yaml", "configuration": cfg}
+                    entry, data=next_data, options=next_options
                 )
                 self.hass.async_create_task(
                     self.hass.config_entries.async_reload(entry.entry_id)
