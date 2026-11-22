@@ -529,7 +529,7 @@ def normalize_expert_json(value):
     """Map human-readable direct JSON to one validated configuration authority."""
     if not isinstance(value, dict):
         raise ValueError("expert JSON: expected object")
-    if "Charger" not in value and "ChargingAsset" not in value:
+    if not any(key in value for key in ("Controller", "Charger", "ChargingAsset")):
         return validate_configuration(value)
     _allowed(value, ("Controller", "Charger", "ChargingAsset"), "expert JSON")
 
