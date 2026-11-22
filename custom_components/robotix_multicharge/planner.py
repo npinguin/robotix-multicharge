@@ -50,6 +50,7 @@ class PlanAssessment:
     shortfall_kwh: Mapping[str, float | None]
     proposed_kwh: Mapping[str, float]
     coverage: Mapping[str, str]
+    strategy: Mapping[str, str]
 
 
 def compile_plan(
@@ -83,6 +84,7 @@ def compile_plan(
     reasons: dict[str, str] = {}
     shortfall: dict[str, float | None] = {}
     coverage: dict[str, str] = {}
+    strategy: dict[str, str] = {}
     proposed: dict[str, float] = {}
     allocations: list[PlannedChargeSlot] = []
     ends = at + timedelta(hours=horizon_hours)
@@ -111,6 +113,12 @@ def compile_plan(
         if charger.controller_uid != controller.uid:
             raise ValueError("charger belongs to another Controller")
         proposed[uid] = 0.0
+        if mode == "Off":
+            reasons[uid] = "OFF"
+            strategy[uid] = "Off"
+            shortfall[uid] = demand.remaining_grid_kwh
+            coverage[uid] = "NOT_REQUIRED"
+            continue
         if demand.remaining_grid_kwh is None and demand.remaining_duration_minutes is None:
             reasons[uid] = "DEMAND_UNKNOWN"
             shortfall[uid] = None
@@ -121,21 +129,23 @@ def compile_plan(
             shortfall[uid] = 0.0
             coverage[uid] = "NOT_REQUIRED"
             continue
-        if demand.ready_by is None:
+        if demand.ready_by is None and mode == "Ready By":
             reasons[uid] = "DEADLINE_UNKNOWN"
             shortfall[uid] = demand.remaining_grid_kwh
             coverage[uid] = "UNAVAILABLE"
             continue
-        deadline = _utc(demand.ready_by)
+        # Economy, Solar and Automatic can plan to the bounded horizon when
+        # no departure is configured. Force Charge explicitly ignores a later
+        # deadline, but NEVER the electrical or evidence limits.
+        deadline = (
+            _utc(demand.ready_by)
+            if demand.ready_by is not None and mode != "Force Charge"
+            else ends
+        )
         if deadline <= begin:
             reasons[uid] = "DEADLINE_PASSED"
             shortfall[uid] = demand.remaining_grid_kwh
             coverage[uid] = "UNAVAILABLE"
-            continue
-        if mode == "Off":
-            reasons[uid] = "OFF"
-            shortfall[uid] = demand.remaining_grid_kwh
-            coverage[uid] = "NOT_REQUIRED"
             continue
         if controller.max_group_power_kw is None:
             reasons[uid] = "GROUP_CAPACITY_UNQUALIFIED"
@@ -155,7 +165,7 @@ def compile_plan(
             if demand.remaining_duration_minutes is not None
             else ceil(demand.remaining_grid_kwh / (power / 4) - 1e-10)
         )
-        possible: list[tuple[float, datetime]] = []
+        possible: list[tuple[tuple[int, float], datetime, str]] = []
         missing_price = False
         missing_solar = False
         missing_binding = False
@@ -188,16 +198,34 @@ def compile_plan(
             if mode == "Economy" and tariff is None:
                 missing_price = True
                 continue
-            rate = (
-                tariff.effective_price_per_kwh if tariff is not None
-                else 0.0  # ordering ONLY: never a claimed or published price
-            )
-            # Price sorting is permitted only for qualified slot values.
-            key = rate if mode == "Economy" else 0.0
-            possible.append((key, slot))
+            rate = tariff.effective_price_per_kwh if tariff is not None else None
+            if mode == "Automatic":
+                available_solar = _cover(solar or (), slot, finish)
+                solar_covers = (
+                    available_solar is not None
+                    and used_kw.get(slot, 0.0) + power
+                    <= available_solar.max_charging_kw + 1e-9
+                )
+                # Real negative tariffs may be more advantageous than solar.
+                # Never substitute a fabricated price into a financial result.
+                if rate is not None and rate < 0:
+                    key, chosen_strategy = (-1, rate), "negative_tariff"
+                elif solar_covers:
+                    key, chosen_strategy = (0, 0.0), "solar"
+                elif rate is not None:
+                    key, chosen_strategy = (1, rate), "economy"
+                else:
+                    key, chosen_strategy = (2, 0.0), "ready_by_fallback"
+            elif mode == "Economy":
+                key, chosen_strategy = (0, rate), "economy"
+            else:
+                key, chosen_strategy = (0, 0.0), mode
+            possible.append((key, slot, chosen_strategy))
         possible.sort(key=lambda item: (item[0], item[1]))
-        chosen = sorted(slot for _, slot in possible[:needed])
-        for slot in chosen:
+        selected = possible[:needed]
+        chosen = sorted((slot, selected_mode) for _, slot, selected_mode in selected)
+        strategy[uid] = ",".join(sorted({method for _, method in chosen})) if chosen else mode
+        for slot, _ in chosen:
             allocations.append(PlannedChargeSlot(
                 charger_uid=uid,
                 asset_uid=demand.asset_uid,
@@ -233,14 +261,18 @@ def compile_plan(
             f"{s.charger_uid}:{s.start.isoformat()}:{s.power_kw}"
             for s in allocations
         ),
-        *(f"{uid}:{reasons[uid]}" for uid in sorted(reasons)),
+        *(f"{uid}:{reasons[uid]}:{strategy.get(uid, '')}" for uid in sorted(reasons)),
     ))
     revision = sha256(signature.encode("utf-8")).hexdigest()[:16]
     plan = ChargePlan(
         controller_uid=controller.uid,
         revision=revision,
         generated_at=at,
-        status="proposed" if allocations else "unavailable",
+        status=(
+            "proposed" if allocations or mode == "Off"
+            or (reasons and all(reason == "TARGET_MET" for reason in reasons.values()))
+            else "unavailable"
+        ),
         slots=tuple(allocations),
     )
     return PlanAssessment(
@@ -249,4 +281,5 @@ def compile_plan(
         shortfall_kwh=shortfall,
         proposed_kwh=proposed,
         coverage=coverage,
+        strategy=strategy,
     )

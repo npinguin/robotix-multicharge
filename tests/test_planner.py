@@ -106,6 +106,65 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(result.plan.slots[0].start, NOW + timedelta(minutes=15))
         self.assertEqual(result.coverage["c0"], "COMPLETE")
 
+    def test_force_charge_accepts_explicit_demand_without_deadline(self):
+        ctl, chargers = build()
+        request = ChargeDemand("guest", "c0", 1.0, None)
+        result = compile_plan(ctl, chargers, [request], NOW, mode="Force Charge")
+        self.assertEqual(result.plan.status, "proposed")
+        self.assertEqual(len(result.plan.slots), 1)
+        self.assertEqual(result.strategy["c0"], "Force Charge")
+        self.assertEqual(result.plan.slots[0].start, NOW)
+
+    def test_off_without_deadline_is_a_safe_empty_proposal(self):
+        ctl, chargers = build()
+        request = ChargeDemand("guest", "c0", None, None)
+        result = compile_plan(ctl, chargers, [request], NOW, mode="Off")
+        self.assertEqual(result.plan.slots, ())
+        self.assertEqual(result.reasons["c0"], "OFF")
+        self.assertEqual(result.plan.status, "proposed")
+
+    def test_automatic_uses_qualified_solar_before_positive_tariff(self):
+        ctl, chargers = build()
+        request = [demand(0, kwh=1)]
+        tariff = [PriceSlot(NOW, NOW + timedelta(minutes=30), 0.3, "EUR")]
+        solar = [
+            PowerLimitSlot(
+                NOW + timedelta(minutes=15), NOW + timedelta(minutes=30), 4
+            )
+        ]
+        result = compile_plan(
+            ctl, chargers, request, NOW, mode="Automatic",
+            tariffs={"c0": tariff}, solar=solar,
+        )
+        self.assertEqual(result.plan.slots[0].start, NOW + timedelta(minutes=15))
+        self.assertEqual(result.strategy["c0"], "solar")
+
+    def test_automatic_explains_missing_price_and_solar_fallback(self):
+        ctl, chargers = build()
+        result = compile_plan(
+            ctl, chargers, [demand(0)], NOW, mode="Automatic"
+        )
+        self.assertEqual(result.reasons["c0"], "PROPOSED")
+        self.assertEqual(result.strategy["c0"], "ready_by_fallback")
+
+    def test_automatic_prioritizes_real_negative_prices(self):
+        ctl, chargers = build()
+        tariffs = [
+            PriceSlot(NOW, NOW + timedelta(minutes=15), -0.12, "EUR"),
+            PriceSlot(NOW + timedelta(minutes=15),
+                      NOW + timedelta(minutes=30), 0.11, "EUR"),
+        ]
+        solar = [
+            PowerLimitSlot(NOW + timedelta(minutes=15),
+                           NOW + timedelta(minutes=30), 4)
+        ]
+        result = compile_plan(
+            ctl, chargers, [demand(0)], NOW, mode="Automatic",
+            tariffs={"c0": tariffs}, solar=solar,
+        )
+        self.assertEqual(result.plan.slots[0].start, NOW)
+        self.assertEqual(result.strategy["c0"], "negative_tariff")
+
     def test_economy_without_price_is_not_fake_zero(self):
         ctl, chargers = build()
         result = compile_plan(ctl, chargers, [demand(0)], NOW, mode="Economy")

@@ -118,6 +118,7 @@ class _PlanStatusSensor(_NativeMultiChargeSensor):
             "revision": summary.get("revision"),
             "reason_by_charger": summary.get("reason_by_charger", {}),
             "coverage_by_charger": summary.get("coverage_by_charger", {}),
+            "strategy_by_charger": summary.get("strategy_by_charger", {}),
             "planned_kwh_by_charger": summary.get("planned_kwh_by_charger", {}),
             "read_only": True,
             "physical_actuation_authorized": False,

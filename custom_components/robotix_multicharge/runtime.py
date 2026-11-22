@@ -160,6 +160,7 @@ class MultiChargeRuntime:
             "planned_kwh_by_charger": dict(assessment.proposed_kwh),
             "shortfall_kwh_by_charger": dict(assessment.shortfall_kwh),
             "coverage_by_charger": dict(assessment.coverage),
+            "strategy_by_charger": dict(assessment.strategy),
             "read_only": True,
             "physical_actuation_authorized": False,
         }
@@ -230,6 +231,7 @@ class MultiChargeRuntime:
             "end": last.isoformat(),
             "status": assessment.plan.status if assessment else "unavailable",
             "coverage": dict(assessment.coverage) if assessment else {},
+            "strategy_by_charger": dict(assessment.strategy) if assessment else {},
             "reasons": {**self.excluded, **assessment.reasons} if assessment else dict(self.excluded),
             "slots": slots,
             "read_only": True,

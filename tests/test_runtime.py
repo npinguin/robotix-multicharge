@@ -64,6 +64,9 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(len(rt.assessment.plan.slots), 6)
         self.assertEqual(rt.observations["chargers"]["drive"]["power_kw"].value, 2.3)
         self.assertEqual(rt.summary()["status"], "proposed")
+        self.assertEqual(
+            rt.summary()["strategy_by_charger"]["drive"], "Ready By"
+        )
         self.assertFalse(rt.summary()["physical_actuation_authorized"])
 
     def test_unassigned_asset_still_exposes_source_observation(self):
