@@ -28,6 +28,15 @@ from .frontend import register_frontend, reconcile_frontend
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor"]
 
+
+async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Apply validated GUI changes through HA's single Config Entry reload.
+
+    Failures are reported; no second config store or silent change ignoring.
+    """
+    if not await hass.config_entries.async_reload(entry.entry_id):
+        _LOGGER.error("MultiCharge options changed but safe integration reload failed")
+
 CONFIG_SCHEMA = vol.Schema({vol.Optional(DOMAIN): dict}, extra=vol.ALLOW_EXTRA)
 
 
@@ -101,6 +110,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise
     reconcile_frontend(hass, entry)
     await runtime.executor.supervise()
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     return True
 
 
