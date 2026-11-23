@@ -254,6 +254,7 @@ def validate_configuration(value):
     for source in value.get("chargers", []):
         _allowed(source, ("id", "name", "kind", "rated_power_kw", "asset",
                           "control_entity", "connected_entity", "power_entity",
+                          "connected_states", "disconnected_states",
                           "energy_entity", "session_entity", "min_current_a", "max_current_a",
                           "phase_count", "control_owner", "physical_commissioned",
                           "phase_ids", "voltage_v", "current_step_a", "fixed_current_a",
@@ -290,6 +291,23 @@ def validate_configuration(value):
             raise ValueError("charger: native switch, connection and power source required")
         charger["control_owner"] = owner
         charger["physical_commissioned"] = commissioned
+        if ("connected_states" in source or "disconnected_states" in source):
+            entity = source.get("connected_entity")
+            if not isinstance(entity, str) or not entity.startswith("sensor."):
+                raise ValueError("charger: raw status mapping requires native sensor")
+            for field in ("connected_states", "disconnected_states"):
+                labels = source.get(field)
+                if (not isinstance(labels, list)
+                        or not 1 <= len(labels) <= 24
+                        or any(not isinstance(label, str)
+                               or not label.strip() for label in labels)):
+                    raise ValueError(f"charger.{field}: expected 1..24 state labels")
+                normalized = [label.strip().casefold() for label in labels]
+                if len(normalized) != len(set(normalized)):
+                    raise ValueError(f"charger.{field}: duplicate source status")
+                charger[field] = normalized
+            if set(charger["connected_states"]) & set(charger["disconnected_states"]):
+                raise ValueError("charger: ambiguous overlapping status mapping")
         if source.get("phase_count") is not None:
             p = source["phase_count"]
             if isinstance(p, bool) or not isinstance(p, int) or p not in (1, 2, 3):
@@ -771,6 +789,7 @@ def normalize_expert_json(value):
             "Phase-IDs", "Voltage-V", "Min-current-A", "Max-current-A",
             "Current-step-A", "Fixed-current-A", "Circuit-ID",
             "Circuit-limit-A", "Plan-color",
+            "Charging-connected-states", "Charging-disconnected-states",
         ), "Charger")
         name = _text(source.get("Name"), "Charger.Name")
         uid = _text(source.get("ID") or _slug(name), "Charger.ID")
@@ -801,6 +820,12 @@ def normalize_expert_json(value):
             ("Max-current-A", "max_current_a"), ("Current-step-A", "current_step_a"),
             ("Fixed-current-A", "fixed_current_a"), ("Circuit-ID", "circuit_id"),
             ("Circuit-limit-A", "circuit_limit_a"), ("Plan-color", "plan_color"),
+        ):
+            if key in source:
+                charger[field] = source[key]
+        for key, field in (
+            ("Charging-connected-states", "connected_states"),
+            ("Charging-disconnected-states", "disconnected_states"),
         ):
             if key in source:
                 charger[field] = source[key]
