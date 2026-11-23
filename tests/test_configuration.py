@@ -54,6 +54,11 @@ class ConfigurationTests(unittest.TestCase):
         ):
             with self.subTest(field=field, value=value), self.assertRaises(ValueError):
                 apply_settings_change(updated, "charger", "drive", {field: value})
+        with self.assertRaisesRegex(ValueError, "no supported current step"):
+            apply_settings_change(updated, "charger", "drive", {
+                "min_charging_power_kw": 2.001,
+                "max_charging_power_kw": 2.009,
+            })
         fixed = default_configuration()
         fixed["chargers"] = [{"id": "plug", "name": "Plug",
                               "kind": "on_off", "rated_power_kw": 2.0,
