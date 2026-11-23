@@ -379,6 +379,12 @@
       },
       "opportunistic_kind": {
         "name": "Opportunistic price mode"
+      },
+      "solar_source_kind": {
+        "name": "Solar source type"
+      },
+      "grid_power_direction": {
+        "name": "Grid meter direction"
       }
     },
     "number": {
@@ -601,6 +607,24 @@
       },
       "price_currency": {
         "name": "Price currency"
+      },
+      "solar_power_entity": {
+        "name": "Solar generation"
+      },
+      "home_power_entity": {
+        "name": "Home consumption"
+      },
+      "grid_power_entity": {
+        "name": "Grid power"
+      },
+      "solar_surplus_entity": {
+        "name": "Solar surplus"
+      },
+      "current_price_entity": {
+        "name": "Current import price"
+      },
+      "export_price_entity": {
+        "name": "Current export price"
       }
     },
     "binary_sensor": {
