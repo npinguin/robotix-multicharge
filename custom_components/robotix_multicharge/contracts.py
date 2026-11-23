@@ -93,10 +93,13 @@ class ChargeDemand:
     not_before: datetime | None = None
     remaining_budget_amount: float | None = None
     budget_currency: str | None = None
+    continuous_charging: bool = False
 
     def __post_init__(self) -> None:
         if not self.asset_uid.strip():
             raise ValueError("asset identity required")
+        if type(self.continuous_charging) is not bool:
+            raise ValueError("charging continuity requires a boolean")
         if self.remaining_grid_kwh is not None and (
             not isfinite(self.remaining_grid_kwh) or self.remaining_grid_kwh < 0
         ):
