@@ -8,6 +8,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 PKG = Path(__file__).resolve().parents[1] / "custom_components" / "robotix_multicharge"
 ROOT = "multicharge_runtime_test"
@@ -229,6 +230,36 @@ class RuntimeTests(unittest.TestCase):
         unchanged.attach_control_store(None, saved)
         self.assertEqual(unchanged.live_state()["settings_action"]["status"],
                          "accepted_unconfirmed")
+
+    def test_two_calendar_days_cover_dst_47_and_49_hours(self):
+        """Basic-style 48h means two civil days, not always 48 UTC hours."""
+        cfg = sample()
+        rt = MultiChargeRuntime(
+            SimpleNamespace(states=SimpleNamespace(get={}.get)), cfg
+        )
+        zone = ZoneInfo("Europe/Brussels")
+        for start_day, end_day, hours in (
+            (datetime(2026, 3, 28, tzinfo=zone),
+             datetime(2026, 3, 30, tzinfo=zone), 47),
+            (datetime(2026, 10, 24, tzinfo=zone),
+             datetime(2026, 10, 26, tzinfo=zone), 49),
+        ):
+            with self.subTest(day=start_day.date()):
+                self.assertEqual(
+                    (end_day.astimezone(timezone.utc)
+                     - start_day.astimezone(timezone.utc)).total_seconds(),
+                    hours * 3600,
+                )
+                result = rt.read_plan(start_day, end_day)
+                self.assertEqual(result["start"],
+                                 start_day.astimezone(timezone.utc).isoformat())
+                self.assertEqual(result["end"],
+                                 end_day.astimezone(timezone.utc).isoformat())
+        with self.assertRaisesRegex(ValueError, "49h"):
+            rt.read_plan(
+                datetime(2026, 10, 24, tzinfo=zone),
+                datetime(2026, 10, 26, tzinfo=zone)+timedelta(minutes=15),
+            )
 
     def test_plan_query_uses_single_config_palette(self):
         from multicharge_runtime_test.configuration import PLAN_COLORS
