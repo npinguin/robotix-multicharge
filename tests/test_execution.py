@@ -1181,6 +1181,9 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(receipt["budget_accrued_cost"], 10.0)
         self.assertEqual(receipt["actual_energy_kwh"], 1.0)
         self.assertTrue(receipt["physical_stop_confirmed"])
+        blocked_repeat = await rt.executor.execute("evse", "start")
+        self.assertEqual(blocked_repeat["reason"], "TARGET_ALREADY_MET",
+                         "Verified €10 must not be silently charged twice")
         # Historical receipt does not change when later a different asset
         # is selected on the same physical Charger.
         rt.configuration["chargers"][0]["asset"] = None
