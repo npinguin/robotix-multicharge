@@ -1110,18 +1110,6 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional("phase_limits_a",
                              default=",".join(f"{p}:{x}" for p,x in
                                     cfg["controller"].get("phase_limits_a", {}).items())): str,
-                vol.Optional("price_entity"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Optional("solar_entity"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Optional("binding_entity"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Optional("site_power_entity"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
-                ),
             }),
             errors={"base": "invalid_config"} if user_input else {},
         )
