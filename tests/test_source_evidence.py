@@ -116,6 +116,45 @@ class EvidenceTests(unittest.TestCase):
         self.assertTrue(connection(obj, "binary_sensor.cable", NOW).value)
         self.assertTrue(connection(obj, "sensor.cable", NOW).value)
 
+    def test_explicit_native_enum_charger_connection_mapping_is_quality_gated(self):
+        observations = hass({
+            "sensor.charger": state("Charging"),
+            "sensor.available": state("Available"),
+            "sensor.other": state("Faulted"),
+            "switch.fake_cable": state("on"),
+            "sensor.stale": state("Charging", observed=NOW - timedelta(hours=1)),
+        })
+        selected = ["Charging", "Preparing", "SuspendedEVSE"]
+        empty = ["Available"]
+        self.assertIs(connection(
+            observations, "sensor.charger", NOW,
+            connected_states=selected, disconnected_states=empty,
+        ).value, True)
+        self.assertIs(connection(
+            observations, "sensor.available", NOW,
+            connected_states=selected, disconnected_states=empty,
+        ).value, False)
+        unknown = connection(
+            observations, "sensor.other", NOW,
+            connected_states=selected, disconnected_states=empty,
+        )
+        self.assertIsNone(unknown.value)
+        self.assertEqual(unknown.reason, "CONNECTION_AMBIGUOUS")
+        self.assertEqual(connection(
+            observations, "sensor.stale", NOW,
+            connected_states=selected, disconnected_states=empty,
+        ).quality, "stale")
+        denied = connection(
+            observations, "switch.fake_cable", NOW,
+            connected_states=["on"], disconnected_states=["off"],
+        )
+        self.assertEqual(denied.reason, "CONNECTION_MAPPING_INVALID")
+        overlap = connection(
+            observations, "sensor.charger", NOW,
+            connected_states=["charging"], disconnected_states=["CHARGING"],
+        )
+        self.assertEqual(overlap.reason, "CONNECTION_MAPPING_AMBIGUOUS")
+
     def test_session_status_is_only_read_only_source_evidence(self):
         obj = hass({
             "sensor.session": state("Charging"),
