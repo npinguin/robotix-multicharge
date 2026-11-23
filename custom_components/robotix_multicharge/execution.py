@@ -582,6 +582,17 @@ class NativeSwitchExecutor:
             return None
         return state
 
+    def _qualified_budget_price(self, at, currency):
+        """One covered, actual effective native tariff, never spot/reference."""
+        if self.runtime.observations.get("sources", {}).get("tariff_quality") != "OK":
+            return None
+        quotes = [
+            item for item in self.runtime.price_slots
+            if item.basis == "effective" and item.currency == currency
+            and item.start <= at < item.end
+        ]
+        return quotes[0] if len(quotes) == 1 else None
+
     def _admit_start(self, charger, at, *, planned=False, target_current=None,
                      manual_request=None):
         cfg = self.runtime.configuration
@@ -602,14 +613,26 @@ class NativeSwitchExecutor:
         if manual_request is not None:
             if planned or charger.get("asset") is not None:
                 return "MANUAL_ONE_OFF_REQUIRES_UNASSIGNED_CHARGER"
-            if not isinstance(manual_request, dict) or len(manual_request) != 1:
+            if not isinstance(manual_request, dict):
                 return "ONE_FINITE_MANUAL_LIMIT_REQUIRED"
             amount = manual_request.get("energy_kwh")
             duration = manual_request.get("duration_minutes")
+            money = manual_request.get("cost_amount")
+            currency = manual_request.get("currency")
+            if money is not None:
+                if (set(manual_request) != {"cost_amount", "currency"}
+                        or type(money) not in (int, float)
+                        or not isfinite(money) or not 0 < money <= 10000
+                        or not isinstance(currency, str)
+                        or len(currency) != 3 or not currency.isascii()
+                        or not currency.isalpha() or not currency.isupper()):
+                    return "MANUAL_BUDGET_INVALID"
+            elif len(manual_request) != 1:
+                return "ONE_FINITE_MANUAL_LIMIT_REQUIRED"
             if amount is not None:
                 if type(amount) not in (float, int) or not isfinite(amount) or not 0 < amount <= 1000:
                     return "MANUAL_ENERGY_LIMIT_INVALID"
-            elif (type(duration) is not int or not 1 <= duration <= 1440):
+            elif money is None and (type(duration) is not int or not 1 <= duration <= 1440):
                 return "MANUAL_DURATION_LIMIT_INVALID"
         else:
             if asset is None:
@@ -619,6 +642,8 @@ class NativeSwitchExecutor:
                 return "TEMPORARY_ASSET_EXPIRED"
             amount = asset.get("requested_kwh")
             duration = asset.get("requested_duration_minutes")
+            money = asset.get("requested_budget_amount")
+            currency = asset.get("requested_budget_currency")
         # Check the actual source before accounting or intent reconciliation:
         # a confirmed disconnect must report the physical blocker, not an
         # unrelated missing energy-meter progress from a completed session.
@@ -671,7 +696,17 @@ class NativeSwitchExecutor:
                 return "MEASURED_ENERGY_UNAVAILABLE"
         if amount is not None and amount <= 0:
             return "TARGET_ALREADY_MET"
-        if manual_request is None and duration is None and amount is None:
+        if money is not None:
+            if not charger.get("energy_entity"):
+                return "BUDGET_ENERGY_METER_REQUIRED"
+            observed_meter = number(
+                self.runtime.hass, charger["energy_entity"], "energy", at
+            )
+            if observed_meter.quality != "ok":
+                return "BUDGET_ENERGY_METER_UNAVAILABLE"
+            if self._qualified_budget_price(at, currency) is None:
+                return "BUDGET_EFFECTIVE_TARIFF_UNAVAILABLE"
+        if manual_request is None and duration is None and amount is None and money is None:
             if not all(k in asset for k in (
                 "soc_entity", "capacity_kwh", "target_soc", "charge_efficiency"
             )):
@@ -1013,6 +1048,14 @@ class NativeSwitchExecutor:
             manual_request.get("duration_minutes") if manual_request is not None
             else asset.get("requested_duration_minutes")
         )
+        budget = (
+            manual_request.get("cost_amount") if manual_request is not None
+            else asset.get("requested_budget_amount")
+        )
+        budget_currency = (
+            manual_request.get("currency") if manual_request is not None
+            else asset.get("requested_budget_currency")
+        )
         intent_key = None
         if asset is not None:
             raw_due = asset.get("ready_by")
@@ -1038,7 +1081,8 @@ class NativeSwitchExecutor:
                     duration = max(0, duration - progress["duration_minutes"])
         soc_target = (
             asset.get("target_soc")
-            if asset is not None and explicit_energy is None and duration is None
+            if (asset is not None and explicit_energy is None
+                    and duration is None and budget is None)
             else None
         )
         starting_energy = None
@@ -1048,10 +1092,13 @@ class NativeSwitchExecutor:
             )
             if baseline.quality == "ok":
                 starting_energy = baseline.value
-            elif explicit_energy is not None:
+            elif explicit_energy is not None or budget is not None:
                 return "SESSION_ENERGY_METER_UNAVAILABLE"
-        elif explicit_energy is not None:
+        elif explicit_energy is not None or budget is not None:
             return "MEASURED_ENERGY_METER_REQUIRED"
+        if budget is not None and self._qualified_budget_price(
+                now, budget_currency) is None:
+            return "BUDGET_EFFECTIVE_TARIFF_UNAVAILABLE"
         # Session cannot run longer than 24h on one manual authorization.
         end = now + timedelta(hours=24)
         if duration is not None:
@@ -1078,6 +1125,15 @@ class NativeSwitchExecutor:
             "hard_stop_at": end,
             "requested_kwh": explicit_energy,
             "requested_duration_minutes": duration,
+            "requested_budget_amount": budget,
+            "requested_budget_currency": budget_currency,
+            "budget_cost": 0.0 if budget is not None else None,
+            "budget_quality": (
+                "qualified_effective_meter_increments"
+                if budget is not None else "not_applicable"
+            ),
+            "budget_last_meter_value": starting_energy,
+            "budget_last_meter_at": now if budget is not None else None,
             "soc_target": soc_target,
             "starting_energy_kwh": starting_energy,
             "actual_energy_kwh": 0.0 if starting_energy is not None else None,
