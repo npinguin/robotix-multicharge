@@ -237,6 +237,10 @@ def _native_spot_price_intervals(obj, now):
     if not isinstance(unit, str) or unit.count("/") != 1:
         return (), "INTERVAL_CURRENCY_OR_UNIT_UNVERIFIED"
     currency, denominator = unit.split("/", 1)
+    # The explicit Euro symbol is Home Assistant's native electricity-price
+    # unit on several providers; unlike $, it names exactly one ISO currency.
+    if currency == "€":
+        currency = "EUR"
     if (len(currency) != 3 or not currency.isascii()
             or not currency.isupper() or not currency.isalpha()
             or denominator not in ("kWh", "MWh")
