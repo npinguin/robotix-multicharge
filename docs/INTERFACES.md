@@ -93,6 +93,12 @@ These `dev` optional Asset fields stay in the **same existing Config Entry and n
 
 Upstream `Keep charger on`/preconditioning has **no generic actuator claim** in this contract. Without hardware evidence distinguishing vehicle supply/preconditioning from charging, it is intentionally unavailable. A future fully qualified native capability may be added through the same Charger interface and one writer, without EVSC runtime, second planner or exposing a private site adapter.
 
+#### Beginner graph read scope (same native plan query)
+
+`robotix_multicharge/get_plan` supports `day=today|tomorrow|both` and returns exact site-local civil-day UTC bounds; the two-day result is at most **49 actual hours** across DST. These are read-only, already qualified `slots` (proposed/accepted by immutable Charger+Asset IDs), `actual_slots` (Recorder + session-time attribution, may have unknown asset), `forecast_slots` (non-binding disconnected indicative), `price_slots` (rate, currency, basis and timestamp) and the original `configuration`/observations/reason/shortfall references. The standalone five-tab UX uses one combined **kW + independently scaled price** overview followed by dynamically filtered Charger/Vehicle lanes. The source-neutral card never issues a physical write from chart interaction.
+
+Asset `target_soc`, `requested_kwh`, `requested_duration_minutes` and `requested_budget_amount` are visible as a novice-level exclusive choice with **one atomic** `update_settings` request and authoritative Config Entry readback. Specific weekday Ready By and allowed charging windows reuse the same Asset native ownership. STOP from Overview uses only the existing `command` path and is shown when the backend specifically advertises stop capability; no second hardware service. `source`/connection/readback/price remains authoritative, and 0, 1, 4 or 10 Charger/Asset counts do not change the public contract. Browser/installed-HA/physical acceptance remains a separate gate.
+
 ## Native HA contracts for independently installed consumers
 
 - Source-neutral native HA entities for new logical properties and qualifying control actions. Stable unique IDs keyed on logical IDs and semantic property, never mutable names. No copied historical controls.
