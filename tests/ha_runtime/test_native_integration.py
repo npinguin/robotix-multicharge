@@ -522,8 +522,9 @@ async def test_options_flow_is_device_setup_not_daily_charge_operations(
 
     scope = {
         "controller": (
-            {"name", "phase_limits_a", "price_entity"},
-            {"mode", "max_parallel", "max_power_kw"},
+            {"name", "phase_limits_a"},
+            {"mode", "max_parallel", "max_power_kw", "price_entity",
+             "solar_entity", "grid_power_entity"},
         ),
         "asset": (
             {"name", "kind", "soc_entity", "capacity_kwh"},
