@@ -615,7 +615,7 @@ class MultiChargeRuntime:
             "price_slots": [
                 {"start": row.start.isoformat(), "end": row.end.isoformat(),
                  "price_per_kwh": row.effective_price_per_kwh,
-                 "currency": row.currency}
+                 "currency": row.currency, "basis": row.basis}
                 for row in self.price_slots
                 if row.start < last and row.end > first
             ],
