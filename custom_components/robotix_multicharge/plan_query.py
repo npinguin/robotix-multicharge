@@ -19,7 +19,7 @@ from .history import read_actual_history
     vol.Optional("controller_id"): str,
     vol.Optional("start"): str,
     vol.Optional("end"): str,
-    vol.Optional("day"): vol.In(("today", "tomorrow")),
+    vol.Optional("day"): vol.In(("today", "tomorrow", "both")),
     vol.Optional("charger_id"): str,
     vol.Optional("asset_id"): str,
 })
@@ -48,7 +48,7 @@ async def websocket_get_plan(
                 days=1 if msg["day"] == "tomorrow" else 0
             )
             start = datetime.combine(chosen, time.min, local_tz)
-            end = datetime.combine(chosen + timedelta(days=1), time.min, local_tz)
+            end = datetime.combine(chosen + timedelta(days=2 if msg["day"] == "both" else 1), time.min, local_tz)
         elif "start" in msg and "end" in msg:
             start = datetime.fromisoformat(msg["start"].replace("Z", "+00:00"))
             end = datetime.fromisoformat(msg["end"].replace("Z", "+00:00"))
