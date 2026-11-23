@@ -94,6 +94,7 @@ class ChargeDemand:
     remaining_budget_amount: float | None = None
     budget_currency: str | None = None
     continuous_charging: bool = False
+    budget_remaining_minutes: float | None = None
     minimum_priority_kwh: float = 0.0
     low_soc_priority_kwh: float = 0.0
     maximum_price_per_kwh: float | None = None
@@ -157,6 +158,12 @@ class ChargeDemand:
             not isfinite(self.max_power_kw) or self.max_power_kw <= 0
         ):
             raise ValueError("asset charging power cap must be positive and finite")
+        if self.budget_remaining_minutes is not None:
+            if (type(self.budget_remaining_minutes) not in (float, int)
+                    or not isfinite(self.budget_remaining_minutes)
+                    or not 0 <= self.budget_remaining_minutes <= 24 * 60
+                    or self.remaining_budget_amount is None):
+                raise ValueError("budget time limit is independent safety field")
         if self.remaining_budget_amount is not None:
             if (type(self.remaining_budget_amount) not in (int, float)
                     or not isfinite(self.remaining_budget_amount)
