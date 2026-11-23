@@ -56,7 +56,7 @@ class _SafeStopButton(ButtonEntity):
         if not self.available:
             raise RuntimeError("CHARGER_NOT_COMMISSIONED")
         outcome = await self.runtime.executor.execute(
-            self._charger_id, "stop", context=self.context
+            self._charger_id, "stop", context=self._context
         )
         if outcome["status"] != "confirmed":
             raise RuntimeError(
@@ -68,7 +68,7 @@ class _AdminChargeActionButton(_SafeStopButton):
     """A native HA button must not bypass the admin-only command WebSocket."""
 
     async def _require_admin_context(self):
-        actor = getattr(self.context, "user_id", None)
+        actor = getattr(self._context, "user_id", None)
         user = await self.hass.auth.async_get_user(actor) if actor else None
         if user is None or not user.is_admin:
             raise RuntimeError("This charging action requires an HA administrator")
@@ -88,7 +88,7 @@ class _PauseButton(_AdminChargeActionButton):
         if not self.available:
             raise RuntimeError("CHARGER_NOT_COMMISSIONED")
         outcome = await self.runtime.executor.execute(
-            self._charger_id, "pause", context=self.context
+            self._charger_id, "pause", context=self._context
         )
         if outcome["status"] != "confirmed":
             raise RuntimeError(
@@ -110,7 +110,7 @@ class _ResumeButton(_AdminChargeActionButton):
         if not self.available:
             raise RuntimeError("CHARGER_NOT_COMMISSIONED")
         outcome = await self.runtime.executor.execute(
-            self._charger_id, "resume", context=self.context
+            self._charger_id, "resume", context=self._context
         )
         if outcome["status"] != "confirmed":
             raise RuntimeError(
