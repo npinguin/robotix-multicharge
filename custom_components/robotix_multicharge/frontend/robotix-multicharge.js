@@ -443,6 +443,159 @@ function mcCombinedChargingChart(data, visibleChargers, slots, actuals){
   return wrapper;
 }
 
+// A schema-aligned read-only projection of the ONE persisted Config Entry.
+// Native entity controls and Options Flow below stay the only real writers.
+const MC_OWNER_GROUPS = {
+  controller: [
+    ["Identity & strategy",[
+      "id","name","mode","max_parallel","max_power_kw",
+      "phase_limits_a","plan_label_mode","plan_color_by",
+      "show_indicative_forecast"
+    ]],
+    ["Energy & tariff sources",[
+      "price_entity","current_price_entity","export_price_entity",
+      "solar_entity","solar_source_kind","solar_power_entity",
+      "solar_surplus_entity","home_power_entity","grid_power_entity",
+      "grid_power_direction","site_power_entity","binding_entity"
+    ]]
+  ],
+  asset: [
+    ["Vehicle identity & lifetime",[
+      "id","name","kind","temporary","expires_at","plan_color"
+    ]],
+    ["Goal & timing",[
+      "target_soc","requested_kwh","requested_duration_minutes",
+      "requested_budget_amount","requested_budget_currency",
+      "ready_by","ready_by_repeat","ready_by_weekdays",
+      "charging_windows","earliest_start_at","expected_connection_at"
+    ]],
+    ["Price & charging decisions",[
+      "continuous_charging","minimum_soc_pct","low_soc_trigger_pct",
+      "maximum_price_per_kwh","price_currency","low_price_trigger_per_kwh",
+      "opportunistic_kind","opportunistic_level_pct","priority"
+    ]],
+    ["Battery & source references",[
+      "soc_entity","soc_stale_entity",
+      "vehicle_control_entity","vehicle_current_entity",
+      "capacity_kwh","max_charge_kw","charge_efficiency"
+    ]]
+  ],
+  charger: [
+    ["Identity & ownership",[
+      "id","name","kind","asset","plan_color",
+      "control_owner","physical_commissioned"
+    ]],
+    ["Connection & meter sources",[
+      "control_entity","connected_entity","connected_states",
+      "disconnected_states","power_entity","energy_entity",
+      "session_entity","current_control_entity","current_readback_entity"
+    ]],
+    ["Electrical hardware & circuit",[
+      "rated_power_kw","phase_count","phase_ids","voltage_v",
+      "min_current_a","max_current_a","current_step_a","fixed_current_a",
+      "circuit_id","circuit_limit_a","min_charging_power_kw",
+      "max_charging_power_kw"
+    ]]
+  ]
+};
+const MC_OWNER_NAMES = {
+  id:"Object ID",name:"Name",kind:"Type",asset:"Assigned vehicle",
+  mode:"Charging mode",max_parallel:"Simultaneous chargers",
+  max_power_kw:"Site power ceiling",phase_limits_a:"Maximum per-phase current",
+  plan_label_mode:"Plan labels",plan_color_by:"Colors represent",
+  show_indicative_forecast:"Show unreserved forecast",
+  price_entity:"Future tariff interval source",
+  current_price_entity:"Current import price source",
+  export_price_entity:"Current export price source",
+  solar_entity:"Solar interval source",solar_source_kind:"Solar strategy",
+  solar_power_entity:"Solar production sensor",
+  solar_surplus_entity:"Available solar surplus sensor",
+  home_power_entity:"Home consumption sensor",
+  grid_power_entity:"Grid import/export sensor",
+  grid_power_direction:"Grid sensor sign",
+  site_power_entity:"Site capacity meter",
+  binding_entity:"Power envelope source",
+  temporary:"Temporary guest",expires_at:"Guest expires",
+  plan_color:"Timeline color",target_soc:"Battery target",
+  requested_kwh:"Extra energy goal",
+  requested_duration_minutes:"Charging duration goal",
+  requested_budget_amount:"Indicative budget goal",
+  requested_budget_currency:"Budget currency",
+  ready_by:"One-time Ready By",
+  ready_by_repeat:"Ready By frequency",
+  ready_by_weekdays:"Specific weekday Ready By times",
+  charging_windows:"Allowed charging time windows",
+  earliest_start_at:"Earliest charging start",
+  expected_connection_at:"Expected connection time",
+  continuous_charging:"Require continuous charging",
+  minimum_soc_pct:"Minimum battery priority",
+  low_soc_trigger_pct:"Early low-battery trigger",
+  maximum_price_per_kwh:"Maximum price per kWh",
+  price_currency:"Tariff currency",
+  low_price_trigger_per_kwh:"Immediate low-price trigger",
+  opportunistic_kind:"Opportunistic strategy",
+  opportunistic_level_pct:"Opportunistic percentage",
+  priority:"Vehicle charging priority",
+  soc_entity:"Battery SoC sensor",
+  soc_stale_entity:"Battery freshness sensor",
+  vehicle_control_entity:"Vehicle-native command",
+  vehicle_current_entity:"Vehicle-native current setting",
+  capacity_kwh:"Usable battery capacity",
+  max_charge_kw:"Vehicle charging limit",
+  charge_efficiency:"Charging efficiency",
+  control_owner:"Physical command owner",
+  physical_commissioned:"Physical commissioning",
+  control_entity:"Native Charger control switch",
+  connected_entity:"Cable/connection sensor",
+  connected_states:"Connected sensor states",
+  disconnected_states:"Disconnected sensor states",
+  power_entity:"Actual Charger power meter",
+  energy_entity:"Cumulative Charger energy meter",
+  session_entity:"Native session sensor",
+  current_control_entity:"Current setpoint Number",
+  current_readback_entity:"Actual current sensor",
+  rated_power_kw:"Rated Charger power",
+  phase_count:"Connected phase count",
+  phase_ids:"Connected phases",voltage_v:"Nominal voltage",
+  min_current_a:"Hardware minimum current",
+  max_current_a:"Hardware maximum current",
+  current_step_a:"Supported current step",
+  fixed_current_a:"Fixed current when connected",
+  circuit_id:"Supply circuit",circuit_limit_a:"Circuit breaker limit",
+  min_charging_power_kw:"Configured minimum charging power",
+  max_charging_power_kw:"Configured maximum charging power"
+};
+const MC_OWNER_UNITS={
+  max_power_kw:" kW",rated_power_kw:" kW",max_charge_kw:" kW",
+  min_charging_power_kw:" kW",max_charging_power_kw:" kW",
+  capacity_kwh:" kWh",requested_kwh:" kWh",
+  requested_duration_minutes:" min",maximum_price_per_kwh:" /kWh",
+  low_price_trigger_per_kwh:" /kWh",min_current_a:" A",
+  max_current_a:" A",fixed_current_a:" A",current_step_a:" A",
+  circuit_limit_a:" A",voltage_v:" V",target_soc:"%",
+  minimum_soc_pct:"%",low_soc_trigger_pct:"%",opportunistic_level_pct:"%"
+};
+function mcOwnerReadValue(value,field,timeZone){
+  if(value===undefined||value===null||value==="")return mcTr("Not configured");
+  if(typeof value==="boolean")return mcTr(value?"Yes":"No");
+  if(Array.isArray(value))return value.length?value.join(", "):mcTr("Not configured");
+  if(typeof value==="object"){
+    const pairs=Object.entries(value);
+    if(!pairs.length)return mcTr("Not configured");
+    return pairs.map(([key,v])=>{
+      const detail=typeof v==="object"&&v!==null?
+        (v.start&&v.end?v.start+"–"+v.end:
+          Object.entries(v).map(([a,b])=>a+": "+b).join(", ")):
+        String(v);
+      return key.toUpperCase()+": "+detail;
+    }).join(" · ");
+  }
+  if(/^(ready_by|earliest_start_at|expected_connection_at|expires_at)$/.test(field))
+    return mcTime(value,timeZone);
+  const unit=MC_OWNER_UNITS[field]||"";
+  return String(value)+unit;
+}
+
 class RobotixMultiChargeCard extends HTMLElement {
   constructor(){
     super();
