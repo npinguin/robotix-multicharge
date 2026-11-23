@@ -448,27 +448,43 @@ class NativeSwitchExecutor:
                 and charger.get("physical_commissioned") is True
                 and self._switch(self.runtime.hass, charger.get("control_entity")) is not None
             )
-            manual_reason = (
-                self._admit_start(charger, at, target_current=(
-                    charger.get("min_current_a")
-                    if charger.get("kind") == "variable_current" else None
-                ), manual_request={"duration_minutes": 30})
-                if charger.get("asset") is None and not self._stopped
-                and charger.get("physical_commissioned") is True
-                and charger.get("control_owner") == "multicharge"
-                and self._switch(self.runtime.hass, charger.get("control_entity"))
-                is not None
-                and self._switch(self.runtime.hass, charger.get("control_entity")).state == "off"
-                else "MANUAL_ONE_OFF_NOT_AVAILABLE"
-            )
+            # Keep a real, actionable readiness reason even on an
+            # uncommissioned/empty site. Finite manual intent is a legitimate
+            # UI preparation; physical START remains guarded by the executor.
+            if charger.get("asset") is not None:
+                manual_reason = "MANUAL_ONE_OFF_REQUIRES_UNASSIGNED_CHARGER"
+            elif self._stopped:
+                manual_reason = "INTEGRATION_UNLOADED"
+            elif not self._persistence_verified:
+                manual_reason = "CONTROL_STATE_UNVERIFIED"
+            elif charger.get("control_owner") != "multicharge":
+                manual_reason = "EXTERNAL_WRITER_OWNS_CHARGER"
+            elif charger.get("physical_commissioned") is not True:
+                manual_reason = "PHYSICAL_COMMISSIONING_REQUIRED"
+            elif not str(charger.get("control_entity", "")).startswith("switch."):
+                manual_reason = "NATIVE_SWITCH_REQUIRED"
+            elif self._switch(self.runtime.hass, charger["control_entity"]) is None:
+                manual_reason = "NATIVE_SWITCH_UNAVAILABLE"
+            elif self._switch(self.runtime.hass, charger["control_entity"]).state != "off":
+                manual_reason = "SWITCH_ALREADY_ON"
+            else:
+                manual_reason = self._admit_start(
+                    charger, at,
+                    target_current=(
+                        charger.get("min_current_a")
+                        if charger.get("kind") == "variable_current" else None
+                    ),
+                    manual_request={"duration_minutes": 30},
+                )
+            if manual_reason is None and uid in self._quarantine:
+                manual_reason = "PREVIOUS_COMMAND_UNCONFIRMED"
             result[uid] = {
                 "paused": uid in self._paused,
                 "pause_allowed": stop_allowed and uid not in self._paused
                     and self._persistence_verified,
                 "resume_allowed": stop_allowed and uid in self._paused
                     and uid not in self._quarantine and self._persistence_verified,
-                "manual_one_off_allowed": manual_reason is None
-                    and uid not in self._quarantine,
+                "manual_one_off_allowed": manual_reason is None,
                 "manual_one_off_reason": manual_reason or "READY",
                 "start_allowed": reason is None and uid not in self._quarantine,
                 "stop_allowed": stop_allowed,
