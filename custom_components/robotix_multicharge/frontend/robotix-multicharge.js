@@ -1901,7 +1901,6 @@ class RobotixMultiChargeCard extends HTMLElement {
     shell.append(tabs);
     if(this.canEditSettings()&&this._inlineEditor)this.inlineEditor(shell);
     if(this.canEditSettings()&&this._commissionEditor)this.commissionEditor(shell);
-    if(this.canEditSettings()&&this._yamlEditor)this.yamlEditor(shell);
     if(this._loading&&!this._data)this.notice(shell,"Loading",false);
     if(this._error){
       this.notice(shell,"Unavailable",true);
