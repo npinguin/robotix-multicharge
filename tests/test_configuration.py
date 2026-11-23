@@ -803,6 +803,37 @@ class ConfigurationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_configuration(cfg)
 
+    def test_guest_create_with_free_charger_is_atomic_and_fail_closed(self):
+        from multicharge_configuration_tests.configuration import apply_settings_change
+        cfg = default_configuration()
+        cfg["chargers"] = [
+            {"id": "free", "name": "Free", "rated_power_kw": 2.0,
+             "kind": "on_off"},
+            {"id": "occupied", "name": "Occupied", "rated_power_kw": 2.0,
+             "kind": "on_off", "asset": "resident"},
+        ]
+        cfg["assets"] = [{"id": "resident", "name": "Resident", "requested_kwh": 2.0}]
+        before = validate_configuration(cfg)
+        guest = apply_settings_change(before, "asset", "visitor", {
+            "name": "Visitor", "kind": "car", "requested_budget_amount": 10.0,
+            "requested_budget_currency": "EUR", "temporary": True,
+            "expires_at": "2026-11-25T10:00:00+00:00",
+            "assign_charger_id": "free",
+        }, "create")
+        self.assertEqual(guest["chargers"][0]["asset"], "visitor")
+        self.assertEqual(guest["chargers"][1]["asset"], "resident")
+        self.assertNotIn("assign_charger_id", guest["assets"][-1])
+        self.assertEqual(guest["assets"][-1]["requested_budget_amount"], 10)
+        for chosen in ("occupied", "missing"):
+            with self.subTest(chosen=chosen), self.assertRaises(ValueError):
+                apply_settings_change(before, "asset", "visitor", {
+                    "name": "Visitor", "assign_charger_id": chosen,
+                }, "create")
+        with self.assertRaises(ValueError):
+            apply_settings_change(before, "asset", "resident", {
+                "assign_charger_id": "free",
+            }, "save")
+
     def test_money_budget_goal_is_one_native_finite_intent(self):
         from copy import deepcopy
         from multicharge_configuration_tests.configuration import (
