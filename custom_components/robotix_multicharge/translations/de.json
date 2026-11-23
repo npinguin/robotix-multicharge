@@ -461,6 +461,21 @@
     "text": {
       "name": {
         "name": "Name"
+      },
+      "price_entity": {
+        "name": "Tarifquelle"
+      },
+      "solar_entity": {
+        "name": "Solarquelle"
+      },
+      "site_power_entity": {
+        "name": "Standortleistungsquelle"
+      },
+      "binding_entity": {
+        "name": "Leistungsbegrenzungsquelle"
+      },
+      "soc_entity": {
+        "name": "Batteriestandsquelle"
       }
     },
     "binary_sensor": {
