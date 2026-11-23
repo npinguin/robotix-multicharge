@@ -1297,6 +1297,10 @@ class RobotixMultiChargeCard extends HTMLElement {
         ["budget",mcTr("Budget (€)")],["none",mcTr("Set later")]
       ]);
       const amount=this.field(form,mcTr("Charging amount"),"","number");
+      const free=(d.configuration.chargers||[]).filter(ch=>!ch.asset);
+      const assigned=this.field(form,mcTr("Select free charger (optional)"),
+        "none",null,[["none",mcTr("Assign later")],
+                    ...free.map(ch=>[ch.id,ch.name])]);
       const temporary=this.field(form,"Temporary guest","yes",null,
         [["yes","Yes — temporary guest"],["no","No — permanent asset"]]);
       const expiry=this.field(form,mcTr("Guest for"),"24",null,[
@@ -1306,6 +1310,8 @@ class RobotixMultiChargeCard extends HTMLElement {
       form.append(mcButton("Create asset",()=>{
         const id=name.value.trim().toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"");
         const changes={name:name.value.trim(),kind:kind.value};
+        if(assigned.value!=="none")
+          changes.assign_charger_id=assigned.value;
         const requested=amount.value.trim();
         if(goal.value!=="none"&&requested){
           const value=Number(requested);
