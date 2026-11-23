@@ -65,6 +65,14 @@ chargers:
 
 Config/Options Flow code, YAML structural validation and read-only logical setup devices have been committed. Real HA setup, import/reload, Options editing and rollback still require qualification. On `dev`, physical actuation is source-tested but remains gated by explicit owner selection, verified capabilities, a commissioning declaration and real independent readback. No field commissioning is approved.
 
+### Full owning-object configuration projection (UC14-UX-OWNER-02)
+
+The bundled standalone five-tab card is still one presentation consumer of the single validated Config Entry and native HA Registry. Site/ChargeController, ChargeableAsset/Guest and Charger each own one identity and all of their persisted fields. The same `configuration.py` canonical schema, `MC_OWNER_GROUPS` per-object UI projection and source-only drift check ensure a supported setting cannot be silently lost between schema and object Details. Fields absent from configuration display `Not configured` rather than fabricated defaults, and optional future keys show under the same owner's additional-settings group. Device-specific sources and physical circuit/commissioning remain attached to the corresponding native Device and existing Options Flow, never to the site dashboard as an independently editable second authority.
+
+Native Site `solar_source_kind` and `grid_power_direction` Selects and the complete existing Controller energy-source Text entities fill previously missing source authoring paths. Source-kind transitions only admit an already selected required native sensor. The separate Guest/Vehicle card displays goals, source quality, locally scheduled weekdays, pricing and original charging history; Charger cards display physical writer/commissioning, independent measured state, electrical source facts and per-session duration/energy/STOP receipt. A quick Overview goal or schedule action opens the **specific selected** Vehicle, not whichever asset comes first in the list. Real HA admin identity is checked by the backend for every native preference mutator, not only by hiding frontend controls.
+
+No additional framework, HACS ApexCharts dependency, external runtime, source registry or parallel command writer was introduced. A passing source/isolated-HA check is not a real-browser, qualified provider or physical EVSE result.
+
 ## User experience and native entities
 
 | View | Primary task |
