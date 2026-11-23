@@ -29,7 +29,7 @@ async def async_setup_entry(
 class _AssetDateTime(DateTimeEntity):
     _attr_has_entity_name = True
     _attr_should_poll = False
-    _attr_entity_category = EntityCategory.CONFIG
+    _attr_entity_category = None
 
     def __init__(self, entry, runtime, asset, field):
         self.entry, self.runtime, self.uid, self.field = (
