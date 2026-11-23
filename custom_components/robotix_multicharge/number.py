@@ -268,6 +268,15 @@ class _ChargerPowerNumber(NumberEntity):
         step = charger.get("current_step_a")
         if factor <= 0 or not step:
             raise ValueError("CURRENT_CAPABILITY_UNVERIFIED")
+        from math import isfinite
+        floor_kw = charger.get("min_charging_power_kw", minimum * factor)
+        ceiling_kw = charger.get(
+            "max_charging_power_kw",
+            min(charger["rated_power_kw"], charger["max_current_a"] * factor),
+        )
+        if (not isfinite(value) or value < floor_kw - 1e-6
+                or value > ceiling_kw + 1e-6):
+            raise ValueError("REQUESTED_POWER_OUTSIDE_VERIFIED_OPERATING_RANGE")
         # Round down to the nearest actual Amp step. The existing executor
         # validates the real current and rejects any unsafe/unsupported value.
         from math import floor
