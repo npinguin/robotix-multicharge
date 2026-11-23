@@ -34,6 +34,10 @@ async def _energy_dashboard_defaults(hass):
     The optional first-party Energy integration is not required for manual
     setup or to run the standalone MultiCharge controller.
     """
+    # Do not initialize an Energy Dashboard the owner never configured.
+    # The manually selected native HA entities work with no Energy loaded.
+    if "energy" not in hass.config.components:
+        return {}
     try:
         from homeassistant.components.energy.data import async_get_manager
 
