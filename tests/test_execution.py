@@ -1189,6 +1189,58 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         rt.configuration["chargers"][0]["asset"] = None
         self.assertEqual(rt.executor.completed_sessions()[0]["asset_id"], "car")
 
+    async def test_money_meter_delta_across_dynamic_price_boundary_is_upper_bound(self):
+        from multicharge_physical_execution_test.contracts import PriceSlot
+        rt, sources, _ = rig()
+        asset = rt.configuration["assets"][0]
+        asset.pop("requested_kwh")
+        asset.update(requested_budget_amount=10.0,
+                     requested_budget_currency="EUR")
+        now = datetime.now(timezone.utc)
+        provider = state("ready")
+        provider.attributes = {
+            "kind": "effective_price_kwh", "currency": "EUR",
+            "valid_until": (now + timedelta(hours=3)).isoformat(),
+            "intervals": [{
+                "start": (now - timedelta(hours=1)).isoformat(),
+                "end": (now + timedelta(hours=3)).isoformat(),
+                "value": 0.2,
+            }],
+        }
+        sources["sensor.price"] = provider
+        rt.configuration["controller"]["price_entity"] = "sensor.price"
+        rt.refresh()
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"],
+                         "confirmed")
+        session = rt.executor._sessions["evse"]
+        now = datetime.now(timezone.utc)
+        session["budget_last_meter_value"] = 5.0
+        session["budget_last_meter_at"] = now - timedelta(minutes=1)
+        rt.price_slots = (
+            PriceSlot(now - timedelta(hours=1), now - timedelta(seconds=30),
+                      0.2, "EUR", "effective"),
+            PriceSlot(now - timedelta(seconds=30), now + timedelta(hours=1),
+                      0.4, "EUR", "effective"),
+        )
+        sources["sensor.meter"].state = "6.0"
+        sources["sensor.meter"].last_updated = now
+        reason = rt.executor._session_stop_reason(
+            rt.configuration["chargers"][0], now)
+        self.assertIsNone(reason)
+        self.assertEqual(session["budget_quality"],
+                         "conservative_effective_upper_bound")
+        self.assertAlmostEqual(session["budget_cost"], 0.4, places=4)
+        self.assertEqual((await rt.executor.execute("evse", "stop"))["status"],
+                         "confirmed")
+        receipt = rt.executor.completed_sessions()[0]
+        self.assertEqual(receipt["budget_cost_quality"],
+                         "conservative_effective_upper_bound")
+        self.assertAlmostEqual(receipt["budget_accrued_cost"], 0.4)
+        self.assertAlmostEqual(
+            rt.executor.measured_intent_usage(
+                asset, rt.configuration["chargers"][0], None)["budget_amount"],
+            0.4)
+
     async def test_eur_budget_spot_reference_and_missing_meter_fail_closed(self):
         rt, states, service = rig()
         asset = rt.configuration["assets"][0]
