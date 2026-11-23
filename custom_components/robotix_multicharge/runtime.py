@@ -310,7 +310,7 @@ class MultiChargeRuntime:
         current = [row for row in tariff if row.start <= at < row.end]
         current_price = (
             {"quality": "ok", "value": current[0].effective_price_per_kwh,
-             "currency": current[0].currency}
+             "currency": current[0].currency, "basis": current[0].basis}
             if tariff_quality == "OK" and len(current) == 1 else
             {"quality": "unknown", "value": None, "currency": None}
         )
