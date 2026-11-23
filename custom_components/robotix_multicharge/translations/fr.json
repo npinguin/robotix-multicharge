@@ -462,6 +462,21 @@
     "text": {
       "name": {
         "name": "Nom"
+      },
+      "price_entity": {
+        "name": "Source tarifaire"
+      },
+      "solar_entity": {
+        "name": "Source solaire"
+      },
+      "site_power_entity": {
+        "name": "Source puissance du site"
+      },
+      "binding_entity": {
+        "name": "Source limite de puissance"
+      },
+      "soc_entity": {
+        "name": "Source niveau de batterie"
       }
     },
     "binary_sensor": {
