@@ -153,6 +153,50 @@ def session_status(hass, entity_id: str | None, now: datetime) -> Evidence:
         return Evidence(None, "invalid", evidence.observed_at, "SESSION_STATUS_AMBIGUOUS")
     return Evidence(labels[value], "ok", evidence.observed_at, "OK")
 
+def _native_spot_price_intervals(obj, now):
+    """Read native raw_today/raw_tomorrow without a Robotix template bridge.
+
+    This layout is used by some HA-native price providers. Prices are SPOT
+    estimates for Economy ranking only, never qualified all-in session cost.
+    Every value carries a source-declared ISO currency/energy unit.
+    """
+    attrs = obj.attributes
+    unit = attrs.get("unit_of_measurement")
+    if not isinstance(unit, str) or unit.count("/") != 1:
+        return (), "INTERVAL_CURRENCY_OR_UNIT_UNVERIFIED"
+    currency, denominator = unit.split("/", 1)
+    if (len(currency) != 3 or not currency.isascii()
+            or not currency.isupper() or not currency.isalpha()
+            or denominator not in ("kWh", "MWh")
+            or attrs.get("currency", currency) != currency):
+        return (), "INTERVAL_CURRENCY_OR_UNIT_UNVERIFIED"
+    raw_today = attrs.get("raw_today")
+    raw_tomorrow = attrs.get("raw_tomorrow")
+    if not isinstance(raw_today, list) or raw_tomorrow is not None and not isinstance(
+            raw_tomorrow, list):
+        return (), "INTERVAL_PAYLOAD_INVALID"
+    raw = [*raw_today, *(raw_tomorrow or [])]
+    if not raw or len(raw) > 256:
+        return (), "INTERVAL_PAYLOAD_INVALID"
+    multiplier = 0.001 if denominator == "MWh" else 1.0
+    try:
+        slots = [
+            PriceSlot(
+                _date(row["start"]), _date(row["end"]),
+                float(row["value"]) * multiplier, currency, basis="spot",
+            )
+            for row in raw
+        ]
+        slots.sort(key=lambda x: x.start)
+        if any(a.end > b.start for a, b in zip(slots, slots[1:])):
+            return (), "INTERVAL_OVERLAP"
+        if slots[-1].end <= now:
+            return (), "INTERVAL_SOURCE_EXPIRED"
+        return tuple(slots), "OK"
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return (), "INTERVAL_PAYLOAD_INVALID"
+
+
 def intervals(hass, entity_id: str | None, kind: str, now: datetime):
     """Accept only a versioned, source-qualified series of real interval data.
 
@@ -168,6 +212,10 @@ def intervals(hass, entity_id: str | None, kind: str, now: datetime):
     if kind not in expected:
         raise ValueError("unsupported interval kind")
     if obj.attributes.get("kind") != expected[kind]:
+        # A native HA spot-price provider can be bound directly; it is
+        # NEVER promoted to an effective/all-in monetary source.
+        if kind == "price" and "raw_today" in obj.attributes:
+            return _native_spot_price_intervals(obj, now)
         return (), "INTERVAL_SEMANTICS_UNVERIFIED"
     try:
         expires = _date(obj.attributes["valid_until"])
