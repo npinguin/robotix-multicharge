@@ -287,178 +287,210 @@ function mcPlanName(slot,configuration,labels){
 // One Basic-style power/price overview above the existing per-Charger lanes.
 // Never invent unavailable meter samples, convert a quote to a bill, or
 // attribute anonymous historical power to today's selected vehicle.
+// One local immutable MIT library shared by the native panel and card.
+// The browser must never fetch a third-party CDN or masquerade SVG as Apex.
+let mcApexLibrary=null;
+function mcEnsureApex(){
+  if(typeof window!=="undefined"&&typeof window.ApexCharts==="function")
+    return Promise.resolve(window.ApexCharts);
+  if(mcApexLibrary)return mcApexLibrary;
+  mcApexLibrary=new Promise((resolve,reject)=>{
+    if(typeof document==="undefined"||!document.head){
+      reject(Error("Local ApexCharts requires a real browser"));return;
+    }
+    const existing=document.querySelector?.('script[data-multicharge-apex]');
+    if(existing){
+      existing.addEventListener("load",()=>resolve(window.ApexCharts),{once:true});
+      existing.addEventListener("error",()=>reject(Error("Local ApexCharts unavailable")),{once:true});
+      return;
+    }
+    const node=document.createElement("script");
+    node.async=true;
+    node.src="/robotix_multicharge/frontend/vendor/apexcharts.min.js";
+    node.dataset.multichargeApex="3.49.1";
+    node.addEventListener("load",()=>{
+      if(typeof window.ApexCharts==="function")resolve(window.ApexCharts);
+      else reject(Error("Bundled ApexCharts did not initialize"));
+    },{once:true});
+    node.addEventListener("error",()=>reject(Error("Bundled ApexCharts unavailable")),{once:true});
+    document.head.append(node);
+  }).catch(error=>{mcApexLibrary=null;throw error;});
+  return mcApexLibrary;
+}
+function mcMountApex(plot,options){
+  plot.className+=" mc-apex";
+  plot.setAttribute("role","img");
+  plot.setAttribute("aria-label",options.chart?.id||"MultiCharge power timeline");
+  plot.setAttribute("data-chart-engine","apexcharts-3.49.1");
+  // Node-only DOM checks cannot assert that a browser rendered a graph:
+  // real Chromium tests below inspect the Apex-generated SVG and tooltips.
+  if(typeof window==="undefined"||typeof document==="undefined"||!document.head)
+    return;
+  void mcEnsureApex().then(Chart=>{
+    if(plot.isConnected===false)return;
+    const chart=new Chart(plot,options);
+    plot._mcApex=chart;
+    return chart.render().catch(error=>{
+      chart.destroy();plot._mcApex=null;
+      plot.append(mcEl("p","plan-caution","ApexCharts render failed: "+String(error?.message||error)));
+    });
+  }).catch(error=>{
+    if(plot.isConnected!==false)
+      plot.append(mcEl("p","plan-caution","ApexCharts unavailable: "+String(error?.message||error)));
+  });
+}
+function mcApexCommon(from,until,height,title,withPrice=false){
+  const colors=["#7890aa","#478ab8","#18856d","#b78330"];
+  return {
+    chart:{id:title,type:"line",height,background:"transparent",
+      fontFamily:"inherit",foreColor:"#687784",parentHeightOffset:0,
+      animations:{enabled:false},toolbar:{show:true,tools:{
+        download:true,selection:false,zoom:true,zoomin:true,zoomout:true,pan:false,reset:true
+      }},zoom:{enabled:true,autoScaleYaxis:false},
+      // Keep the same source/time truth across panels and stacked Lovelace cards.
+      redrawOnParentResize:true,redrawOnWindowResize:true},
+    theme:{mode:(typeof window!=="undefined"&&
+      window.matchMedia?.("(prefers-color-scheme: dark)")?.matches)?"dark":"light"},
+    colors,
+    stroke:{curve:"straight",width:[2,2,2.8,1.8],dashArray:[5,2,0,5]},
+    fill:{opacity:[0.07,1,0.15,1]},
+    dataLabels:{enabled:false},
+    markers:{size:0,hover:{size:5}},
+    grid:{strokeDashArray:3,borderColor:"#8b97a62b",padding:{left:3,right:8}},
+    xaxis:{type:"datetime",min:from,max:until,labels:{datetimeUTC:false},
+      axisBorder:{show:false},axisTicks:{show:false}},
+    yaxis:[{
+      title:{text:"Measured / proposed / accepted · kW"},
+      min:0,decimalsInFloat:2,
+      labels:{formatter:v=>Number(v).toFixed(1)}
+    },...(withPrice?[{
+      opposite:true,seriesName:"Reference price (EUR/kWh)",
+      title:{text:"Price · EUR/kWh"},decimalsInFloat:4,
+      labels:{formatter:v=>Number(v).toFixed(3)}
+    }]:[])],
+    tooltip:{shared:true,intersect:false,x:{format:"dd MMM HH:mm"},
+      y:{formatter:(v,{seriesIndex})=>v===null||v===undefined?"Not measured":
+        (withPrice&&seriesIndex===3?Number(v).toFixed(4)+" EUR/kWh":
+          Number(v).toFixed(2)+" kW")}},
+    legend:{show:true,fontSize:"12px",position:"bottom"},
+    noData:{text:"No qualified measurements / schedule for this period"}
+  };
+}
+function mcSeriesFromRows(rows,key,from,until,owner){
+  // Source rows remain independently qualified, no interpolation or fake zeros.
+  return rows.filter(item=>
+    (!owner||item.charger_id===owner)&&
+    typeof item[key]==="number"&&Number.isFinite(item[key])&&
+    item[key]>=0&&Date.parse(item.start)>=from&&Date.parse(item.end)<=until&&
+    Date.parse(item.end)>Date.parse(item.start))
+    .map(item=>({x:Date.parse(item.start),y:item[key]}))
+    .sort((a,b)=>a.x-b.x);
+}
+function mcApexLane(data,charger,rows,actuals,forecast){
+  const from=Date.parse(data.start),until=Date.parse(data.end);
+  const plot=mcEl("div","chart");
+  if(!Number.isFinite(from)||!Number.isFinite(until)||until<=from)return plot;
+  const fields=[
+    ["Proposed","proposed_power_kw",rows],
+    ["Accepted","accepted_power_kw",rows],
+    ["Measured · physical","actual_power_kw",actuals],
+    ["Indicative · not reserved","indicative_power_kw",forecast]
+  ];
+  const series=fields.map(([name,key,source])=>({
+    name,data:mcSeriesFromRows(source,key,from,until,charger.id)
+  }));
+  const options=mcApexCommon(from,until,190,"Charger "+charger.id);
+  options.chart.type="line";
+  options.series=series;
+  options.stroke={curve:"stepline",width:[1.8,2,3,1.6],dashArray:[5,0,0,7]};
+  options.fill={opacity:[0.06,1,0.18,0.05]};
+  mcMountApex(plot,options);
+  return plot;
+}
 function mcCombinedChargingChart(data, visibleChargers, slots, actuals){
   const wrapper=mcEl("section","card combined-plan");
   wrapper.append(mcEl("h3","",mcTr("All charging · Power & price")));
   wrapper.append(mcEl("p","muted small",
-    mcTr("Shaded planned · outlined accepted · solid measured · price line")));
-  const from=Date.parse(data.start), until=Date.parse(data.end);
+    mcTr("Measured physical · accepted · proposed · independently scaled price")));
+  const from=Date.parse(data.start),until=Date.parse(data.end);
   if(!Number.isFinite(from)||!Number.isFinite(until)||until<=from){
-    wrapper.append(mcEl("p","muted",mcTr("No qualified timeline")));
-    return wrapper;
+    wrapper.append(mcEl("p","muted",mcTr("No qualified timeline")));return wrapper;
   }
   const count=Math.ceil((until-from)/900000);
-  if(count>200){
-    wrapper.append(mcEl("p","muted",mcTr("Unavailable")));
-    return wrapper;
-  }
-  const visible=new Set(visibleChargers.map(x=>x.id));
-  const buckets=Array.from({length:count},()=>({
-    proposed:null,accepted:null,actual:null,price:null
+  if(count>200||count<1){wrapper.append(mcEl("p","muted",mcTr("Unavailable")));return wrapper;}
+  const visible=new Set(visibleChargers.map(c=>c.id));
+  const buckets=Array.from({length:count},(_,i)=>({
+    at:from+i*900000,proposed:null,accepted:null,measured:null,price:null
   }));
-  function collect(rows,key){
-    for(const row of rows){
-      if(!visible.has(row.charger_id)||typeof row[key]!=="number"||
-         !Number.isFinite(row[key])||row[key]<0)continue;
-      const start=Date.parse(row.start),end=Date.parse(row.end);
-      if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start)continue;
+  for(const [source,key,bucket] of [
+    [slots,"proposed_power_kw","proposed"],
+    [slots,"accepted_power_kw","accepted"],
+    [actuals,"actual_power_kw","measured"]
+  ]){
+    const seen=new Set();
+    for(const item of source){
+      if(!visible.has(item.charger_id)||typeof item[key]!=="number"||
+         !Number.isFinite(item[key])||item[key]<0)continue;
+      const start=Date.parse(item.start),end=Date.parse(item.end);
       const ix=Math.round((start-from)/900000);
-      if(ix<0||ix>=count||Math.abs(start-(from+ix*900000))>50)continue;
-      // Data contract has one sourced 15-minute row per Charger per field.
-      if(end-start!==900000)continue;
-      const k=key==="actual_power_kw"?"actual":
-        key==="accepted_power_kw"?"accepted":"proposed";
-      buckets[ix][k]=(buckets[ix][k]??0)+row[key];
+      if(ix<0||ix>=count||!Number.isFinite(start)||
+         Math.abs(start-buckets[ix].at)>50||end-start!==900000)continue;
+      const identity=item.charger_id+"|"+ix;
+      if(seen.has(identity))continue;
+      seen.add(identity);
+      buckets[ix][bucket]=(buckets[ix][bucket]??0)+item[key];
     }
   }
-  collect(slots,"proposed_power_kw");
-  collect(slots,"accepted_power_kw");
-  collect(actuals,"actual_power_kw");
-  const quotes=Array.isArray(data.price_slots)?data.price_slots.filter(q=>
-    typeof q.price_per_kwh==="number"&&Number.isFinite(q.price_per_kwh)&&
-    typeof q.currency==="string"&&q.currency.length===3):[];
-  const currencies=[...new Set(quotes.map(x=>x.currency))];
+  const quotes=(data.price_slots||[]).filter(x=>
+    typeof x.price_per_kwh==="number"&&Number.isFinite(x.price_per_kwh)&&
+    /^[A-Z]{3}$/.test(x.currency||""));
+  const currency=[...new Set(quotes.map(x=>x.currency))];
   const basis=[...new Set(quotes.map(x=>x.basis||"unqualified"))];
-  let priceReady=currencies.length===1&&basis.length===1;
-  if(priceReady){
-    for(let i=0;i<count;i++){
-      const start=from+i*900000;
-      const matched=quotes.filter(q=>Date.parse(q.start)<=start&&
-        Date.parse(q.end)>=start+900000);
-      if(matched.length===1)buckets[i].price=matched[0].price_per_kwh;
-    }
+  const priceReady=currency.length===1&&currency[0]==="EUR"&&basis.length===1;
+  if(priceReady)for(const item of buckets){
+    const matched=quotes.filter(q=>Date.parse(q.start)<=item.at&&
+      Date.parse(q.end)>=item.at+900000);
+    if(matched.length===1)item.price=matched[0].price_per_kwh;
   }
-  const values=buckets.flatMap(x=>
-    [x.proposed,x.accepted,x.actual].filter(Number.isFinite));
-  const cap=Math.max(0.5,...values,0);
-  const priceValues=priceReady?buckets.map(x=>x.price).filter(Number.isFinite):[];
-  const lo=priceValues.length?Math.min(...priceValues):0;
-  const hi=priceValues.length?Math.max(...priceValues):0;
-  const spread=hi-lo||1;
-  const x0=69,width=807,top=34,bottom=190,height=bottom-top;
-  const svg=mcSVG("svg",{
-    viewBox:"0 0 960 246",role:"img",class:"timeline",
-    "aria-label":mcTr("Combined actual charging power, planned and accepted charging, and independently scaled electricity price")
+  const powerNames=["Proposed","Accepted","Measured"];
+  const sources=["proposed","accepted","measured"];
+  const series=powerNames.map((name,i)=>({
+    name,data:buckets.filter(q=>q[sources[i]]!==null)
+      .map(q=>({x:q.at,y:q[sources[i]]}))
+  }));
+  const validPrice=priceReady&&buckets.some(x=>x.price!==null);
+  // Apex secondary axis only when source basis and currency genuinely align.
+  if(validPrice)series.push({
+    name:"Reference price (EUR/kWh)",
+    data:buckets.filter(x=>x.price!==null).map(q=>({x:q.at,y:q.price}))
   });
-  svg.append(mcSVG("text",{x:4,y:16,"font-size":13},mcTr("Power")+" · kW"));
-  svg.append(mcSVG("text",{x:955,y:16,"text-anchor":"end","font-size":12},
-    priceValues.length?basis[0]+" · "+currencies[0]+"/kWh":
-      mcTr("Price unavailable")));
-  svg.append(mcSVG("line",{x1:x0,y1:bottom,x2:x0+width,y2:bottom,
-    stroke:"currentColor","stroke-opacity":0.35}));
-  for(let t=0;t<=4;t++){
-    const y=bottom-t*height/4;
-    svg.append(mcSVG("line",{x1:x0,y1:y,x2:x0+width,y2:y,
-      stroke:"currentColor","stroke-opacity":0.12}));
-    svg.append(mcSVG("text",{x:x0-7,y:y+4,"text-anchor":"end",
-      "font-size":11},(t*cap/4).toFixed(1)));
-  }
-  const colors={proposed:"#667e9f",accepted:"#326f9d",actual:"#18856d"};
-  const layers=[["proposed",0.18],["accepted",0.8],["actual",1]];
-  for(let i=0;i<count;i++){
-    const tick=buckets[i];
-    const x=x0+i*width/count,bar=width/count;
-    for(const [key,opacity] of layers){
-      const kw=tick[key];
-      if(!Number.isFinite(kw))continue;
-      const bh=Math.min(height,(kw/cap)*height);
-      const rect=mcSVG("rect",{
-        x:x+(key==="proposed"?0:key==="accepted"?bar*0.10:bar*0.20),
-        y:bottom-bh,width:Math.max(0.6,bar*(key==="proposed"?0.88:0.68)),
-        height:bh,fill:key==="accepted"?"none":colors[key],
-        "fill-opacity":opacity,stroke:key==="accepted"?colors[key]:"none",
-        "stroke-width":key==="accepted"?1:0
-      });
-      rect.append(mcSVG("title",{},
-        mcTr(key==="actual"?"Measured":key==="accepted"?"Accepted":"Proposed")+
-        " · "+mcTime(new Date(from+i*900000).toISOString(),data.timezone)+
-        " · "+kw.toFixed(2)+" kW"));
-      svg.append(rect);
-    }
-  }
-  if(priceValues.length){
-    let d="",last=-2;
-    for(let i=0;i<count;i++){
-      const price=buckets[i].price;
-      if(!Number.isFinite(price)){last=-2;continue;}
-      const x=x0+(i+0.5)*width/count;
-      const y=bottom-(price-lo)/spread*height;
-      d+=(i===last+1?" L":" M")+x.toFixed(2)+" "+y.toFixed(2);
-      last=i;
-    }
-    if(d)svg.append(mcSVG("path",{d,fill:"none",stroke:"#ab6d13",
-      "stroke-width":2,"stroke-linecap":"round","stroke-linejoin":"round"}));
-    for(let i=0;i<count;i++){
-      const price=buckets[i].price;
-      if(!Number.isFinite(price))continue;
-      const circle=mcSVG("circle",{
-        cx:x0+(i+0.5)*width/count,
-        cy:bottom-(price-lo)/spread*height,
-        r:Math.max(1.5,Math.min(2.5,width/count/2)),
-        fill:"#ab6d13"
-      });
-      circle.append(mcSVG("title",{},
-        mcTime(new Date(from+i*900000).toISOString(),data.timezone)+
-        " · "+price.toFixed(4)+" "+currencies[0]+"/kWh"+
-        " · "+basis[0]+", "+mcTr("reference price, not an invoice")));
-      svg.append(circle);
-    }
-    svg.append(mcSVG("text",{x:950,y:top+2,"text-anchor":"end",
-      "font-size":11},hi.toFixed(3)));
-    svg.append(mcSVG("text",{x:950,y:bottom+4,"text-anchor":"end",
-      "font-size":11},lo.toFixed(3)));
-  }
-  const now=Date.now();
-  if(now>=from&&now<until){
-    const at=x0+(now-from)/(until-from)*width;
-    svg.append(mcSVG("line",{x1:at,y1:top,x2:at,y2:bottom,
-      stroke:"var(--warning-color,#b76b64)","stroke-width":2}));
-    svg.append(mcSVG("text",{x:at+3,y:top-6,"font-size":10},mcTr("Now")));
-  }
-  for(let i=0;i<=4;i++){
-    const stamp=new Date(from+(until-from)*i/4);
-    svg.append(mcSVG("text",{
-      x:x0+i*width/4,y:225,
-      "text-anchor":i===0?"start":i===4?"end":"middle",
-      "font-size":11
-    },stamp.toLocaleString(undefined,{timeZone:data.timezone||"UTC",
-      weekday:"short",hour:"2-digit",minute:"2-digit"})));
-  }
-  const plot=mcEl("div","chart");plot.append(svg);wrapper.append(plot);
-  const legend=mcEl("div","legend");
-  for(const name of ["Proposed","Accepted","Measured"]){
-    legend.append(mcEl("span","",mcTr(name)));
-  }
-  legend.append(mcEl("span","",priceValues.length?
-    basis[0]+" · "+currencies[0]+"/kWh":mcTr("Price unavailable")));
-  wrapper.append(legend);
-  if(priceReady&&priceValues.length&&priceValues.length<count)
+  const plot=mcEl("div","chart");
+  const options=mcApexCommon(from,until,310,"MultiCharge combined power and price",validPrice);
+  options.series=series;
+  options.annotations={xaxis:Date.now()>=from&&Date.now()<until?
+    [{x:Date.now(),borderColor:"#b86a44",label:{text:"Now"}}]:[]};
+  mcMountApex(plot,options);
+  wrapper.append(plot);
+  if(!validPrice)wrapper.append(mcEl("p","muted small",
+    mcTr("Price unavailable · no price series is fabricated")));
+  else if(buckets.some(q=>q.price===null))
     wrapper.append(mcEl("p","muted small",
       mcTr("Price intervals incomplete; missing periods are not zero")));
-  const future=slots.filter(row=>visible.has(row.charger_id)&&
-    Date.parse(row.start)>=Date.now()&&typeof row.proposed_power_kw==="number"&&
-    Number.isFinite(row.proposed_power_kw)&&row.proposed_power_kw>=0);
+  const future=slots.filter(s=>visible.has(s.charger_id)&&
+    Date.parse(s.start)>=Date.now()&&Number.isFinite(s.proposed_power_kw)&&
+    s.proposed_power_kw>=0);
   if(future.length){
-    const kwh=future.reduce((sum,row)=>sum+(
-      typeof row.proposed_energy_kwh==="number"?
-        row.proposed_energy_kwh:row.proposed_power_kw/4),0);
-    const chargers=new Set(future.map(row=>row.charger_id));
+    const kwh=future.reduce((sum,row)=>sum+
+      (Number.isFinite(row.proposed_energy_kwh)?
+       row.proposed_energy_kwh:row.proposed_power_kw/4),0);
     wrapper.append(mcEl("p","small",mcTr("Still planned")+" · "+
-      kwh.toFixed(2)+" kWh · "+chargers.size+" "+
-      mcTr(chargers.size===1?"charger":"chargers")));
+      kwh.toFixed(2)+" kWh · "+
+      new Set(future.map(x=>x.charger_id)).size+" "+
+      mcTr("chargers")));
   }
-  if(!values.length)wrapper.append(mcEl("p","muted small",
-    mcTr("No qualified physical or planned power in this period")));
+  if(!series.some(item=>item.data.length))
+    wrapper.append(mcEl("p","muted small",
+      mcTr("No qualified physical or planned power in this period")));
   return wrapper;
 }
 
@@ -1438,7 +1470,13 @@ class RobotixMultiChargeCard extends HTMLElement {
   render(){
     mcLanguage=String(this._hass?.locale?.language||this._hass?.language||"en").slice(0,2).toLowerCase();
     if(!this.shadowRoot)return;
-    const root=this.shadowRoot;root.replaceChildren();
+    const root=this.shadowRoot;
+    if(typeof root.querySelectorAll==="function")
+      for(const chart of root.querySelectorAll(".mc-apex")){
+        try{chart._mcApex?.destroy();}catch(_){}
+        chart._mcApex=null;
+      }
+    root.replaceChildren();
     this._fieldSequence=0;
     const style=mcEl("style");style.textContent=MC_STYLE;root.append(style);
     const shell=mcEl("section","root");
@@ -1692,69 +1730,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(!hasData){
         card.append(mcEl("p","muted small","No qualified slots for this day."));
       }else{
-        const area=mcEl("div","chart");
-        const svg=mcSVG("svg",{
-          viewBox:"0 0 960 149",class:"timeline",role:"img",
-          "aria-label":fullName+" — proposed, accepted, measured and indicative quarter-hour charging"
-        });
-        const cap=Math.max(0.2,charger.rated_power_kw||0.2,
-          ...activeRows.flatMap(s=>[s.proposed_power_kw||0,s.accepted_power_kw||0]),
-          ...actualRows.map(s=>s.actual_power_kw||0),
-          ...previewRows.map(s=>s.indicative_power_kw||0));
-        values.forEach(([key,samples,description],index)=>{
-          const y=yRows[index];
-          svg.append(mcSVG("text",{x:2,y:y+2},description.replace("Physically accepted","Accepted")
-            .replace("Measured physical","Measured").replace("Indicative only","Indicative")));
-          svg.append(mcSVG("line",{
-            x1:x0,y1:y+7,x2:x0+width,y2:y+7,
-            stroke:"currentColor","stroke-opacity":0.15
-          }));
-          for(const item of samples){
-            if(item.charger_id!==charger.id||typeof item[key]!=="number")continue;
-            const slotIndex=Math.floor((new Date(item.start).getTime()-from)/900000);
-            if(slotIndex<0||slotIndex>=count)continue;
-            const kw=item[key];
-            const barHeight=Math.max(0,Math.min(height,kw/cap*height));
-            const x=x0+slotIndex*width/count;
-            const isForecast=key==="indicative_power_kw";
-            const isMeasured=key==="actual_power_kw";
-            const proven=isMeasured &&
-              item.asset_provenance==="confirmed_closed_session"&&item.asset_id;
-            const entityColor=colorBy==="charger"?
-              mcOwnerColor("charger",charger.id,c,d.plan_palette):
-              mcOwnerColor("asset",item.asset_id||charger.asset,c,d.plan_palette);
-            const tint=isMeasured&&!proven&&colorBy==="vehicle"?
-              "#757d87":entityColor;
-            const rect=mcSVG("rect",{
-              x,y:y+7-barHeight,
-              width:Math.max(1,width/count-0.35),
-              height:barHeight,
-              fill:isForecast?"none":tint,
-              "fill-opacity":key==="proposed_power_kw"?0.4:1,
-              stroke:isForecast?tint:"none",
-              "stroke-width":isForecast?1.4:0,
-              "stroke-dasharray":isForecast?"3 2":"none"
-            });
-            const name=isMeasured&&!proven?
-              charger.name+" · "+mcTr("Vehicle unknown"):
-              mcPlanName(item,c,labelMode);
-            const caveat=isForecast?" · "+mcTr("Not reserved"):"";
-            rect.append(mcSVG("title",{},
-              description+" · "+name+" · "+mcTime(item.start,d.timezone)+
-              " · "+kw+" kW"+caveat));
-            svg.append(rect);
-          }
-        });
-        for(let i=0;i<=4;i++){
-          const stamp=new Date(from+(until-from)*i/4);
-          svg.append(mcSVG("text",{
-            x:x0+i*width/4,y:139,
-            "text-anchor":i===0?"start":i===4?"end":"middle"
-          },stamp.toLocaleTimeString(undefined,{
-            timeZone:d.timezone||"UTC",hour:"2-digit",minute:"2-digit"
-          })));
-        }
-        area.append(svg);card.append(area);
+        card.append(mcApexLane(d,charger,activeRows,actualRows,previewRows));
       }
       if(assumptions[charger.id]&&forecastVisible){
         const item=assumptions[charger.id];
