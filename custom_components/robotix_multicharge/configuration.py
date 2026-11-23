@@ -220,6 +220,7 @@ def validate_configuration(value):
                           "requested_kwh", "requested_duration_minutes",
                           "requested_budget_amount", "requested_budget_currency", "ready_by",
                           "ready_by_repeat", "ready_by_weekdays", "charging_windows",
+            "continuous_charging",
             "charge_efficiency", "priority",
                           "temporary", "expires_at", "expected_connection_at",
                           "plan_color"), "asset")
@@ -341,6 +342,10 @@ def validate_configuration(value):
         if source.get("charging_windows") is not None:
             asset["charging_windows"] = _charging_windows(
                 source["charging_windows"])
+        if source.get("continuous_charging") is not None:
+            if type(source["continuous_charging"]) is not bool:
+                raise ValueError("asset.continuous_charging: expected boolean")
+            asset["continuous_charging"] = source["continuous_charging"]
         if source.get("ready_by_repeat") is not None:
             asset["ready_by_repeat"] = repeat
         ChargeableAsset(uid=uid, name=asset["name"], kind=asset["kind"],
@@ -636,6 +641,7 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
             "max_charge_kw", "requested_kwh", "requested_duration_minutes",
                           "requested_budget_amount", "requested_budget_currency",
             "ready_by", "ready_by_repeat", "ready_by_weekdays", "charging_windows",
+            "continuous_charging",
             "charge_efficiency", "priority",
             "temporary", "expires_at", "expected_connection_at",
             "plan_color",
@@ -768,6 +774,7 @@ def is_in_place_runtime_preference_change(before, after):
                           "requested_duration_minutes", "requested_budget_amount",
                            "requested_budget_currency", "ready_by",
                           "ready_by_repeat", "ready_by_weekdays", "charging_windows",
+            "continuous_charging",
             "charge_efficiency", "priority",
                           "temporary", "expires_at", "expected_connection_at"):
                 asset.pop(field, None)
@@ -934,6 +941,7 @@ def normalize_expert_json(value):
             "Requested-kWh", "Requested-duration-minutes", "Ready-by",
             "Requested-budget-amount", "Requested-budget-currency",
             "Ready-by-repeat", "Ready-by-weekdays", "Charging-windows",
+            "Continuous-charging",
             "Charging-efficiency", "Priority",
             "Temporary", "Expires-at", "Expected-connection-at", "Plan-color",
         ), "ChargingAsset")
@@ -966,6 +974,7 @@ def normalize_expert_json(value):
             ("Ready-by", "ready_by"), ("Ready-by-repeat", "ready_by_repeat"),
             ("Ready-by-weekdays", "ready_by_weekdays"),
             ("Charging-windows", "charging_windows"),
+            ("Continuous-charging", "continuous_charging"),
             ("Charging-efficiency", "charge_efficiency"),
             ("Priority", "priority"), ("Temporary", "temporary"),
             ("Expires-at", "expires_at"),
