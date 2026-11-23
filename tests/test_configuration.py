@@ -108,6 +108,27 @@ class ConfigurationTests(unittest.TestCase):
             "direct_surplus",
         )
 
+    def test_oem_soc_quality_flag_is_native_optional_and_requires_oem_sensor(self):
+        from copy import deepcopy
+        source = default_configuration()
+        source["assets"] = [{
+            "id": "vehicle", "name": "Vehicle", "kind": "car",
+            "soc_entity": "sensor.vehicle_battery_pct",
+            "soc_stale_entity": "binary_sensor.vehicle_data_stale",
+        }]
+        normalized = validate_configuration(source)
+        self.assertEqual(normalized["assets"][0]["soc_stale_entity"],
+                         "binary_sensor.vehicle_data_stale")
+        for value in ("sensor.not_binary", "switch.not_binary", "missing"):
+            bad = deepcopy(source)
+            bad["assets"][0]["soc_stale_entity"] = value
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                validate_configuration(bad)
+        incomplete = deepcopy(source)
+        del incomplete["assets"][0]["soc_entity"]
+        with self.assertRaises(ValueError):
+            validate_configuration(incomplete)
+
     def test_native_status_mapping_config_requires_disjoint_known_sensor_states(self):
         from copy import deepcopy
 
