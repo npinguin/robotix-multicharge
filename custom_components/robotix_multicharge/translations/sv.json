@@ -374,6 +374,9 @@
       },
       "ready_day_sun": {
         "name": "Söndag Ready By"
+      },
+      "continuous_charging": {
+        "name": "Laddmönster"
       }
     },
     "number": {
