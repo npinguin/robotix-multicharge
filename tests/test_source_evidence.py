@@ -22,6 +22,7 @@ for name in ("contracts", "source_evidence"):
 
 from multicharge_source_test.source_evidence import (  # noqa: E402 - isolated bootstrap
     binding, connection, intervals, number, session_status, live_power, live_price,
+    soc_with_health,
 )
 
 NOW = datetime(2026, 11, 22, 12, tzinfo=timezone.utc)
@@ -68,6 +69,44 @@ class EvidenceTests(unittest.TestCase):
         invalid, currency = live_price(source, "sensor.price_unknown", NOW)
         self.assertEqual(invalid.quality, "invalid")
         self.assertIsNone(currency)
+
+    def test_native_oem_soc_rejects_stale_or_unknown_health_without_bridge(self):
+        fresh = hass({
+            "sensor.vehicle": state("80", "%"),
+            "binary_sensor.oem_stale": state("off"),
+        })
+        ok = soc_with_health(
+            fresh, "sensor.vehicle", "binary_sensor.oem_stale", NOW,
+        )
+        self.assertEqual((ok.value, ok.quality), (80, "ok"))
+        fresh.states.get("binary_sensor.oem_stale").state = "on"
+        denied = soc_with_health(
+            fresh, "sensor.vehicle", "binary_sensor.oem_stale", NOW,
+        )
+        self.assertIsNone(denied.value)
+        self.assertEqual((denied.quality, denied.reason),
+                         ("stale", "SOC_OEM_DATA_STALE"))
+        for flag in ("unknown", "unavailable"):
+            fresh.states.get("binary_sensor.oem_stale").state = flag
+            bad = soc_with_health(
+                fresh, "sensor.vehicle", "binary_sensor.oem_stale", NOW,
+            )
+            self.assertIsNone(bad.value)
+        wrong = soc_with_health(fresh, "sensor.vehicle", "sensor.stale", NOW)
+        self.assertEqual(wrong.reason, "SOC_HEALTH_DOMAIN_INVALID")
+        fresh.states.get("binary_sensor.oem_stale").state = "off"
+        fresh.states.get("binary_sensor.oem_stale").last_updated = (
+            NOW - timedelta(hours=3)
+        )
+        aged = soc_with_health(
+            fresh, "sensor.vehicle", "binary_sensor.oem_stale", NOW,
+        )
+        self.assertIsNone(aged.value)
+        self.assertEqual(aged.quality, "stale")
+        # An unbound quality flag preserves legacy HA SoC behavior.
+        self.assertEqual(
+            soc_with_health(fresh, "sensor.vehicle", None, NOW).value, 80,
+        )
 
     def test_measured_zero_and_units_are_not_guessed(self):
         obj = hass({
