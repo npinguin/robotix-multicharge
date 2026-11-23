@@ -618,6 +618,65 @@ async def test_options_flow_is_device_setup_not_daily_charge_operations(
 
 
 @pytest.mark.asyncio
+async def test_energy_dashboard_opt_in_reuses_native_sources_without_copying_energy_settings(
+    hass: HomeAssistant,
+):
+    """Official HA Options: import Energy Dashboard refs only when opted in."""
+    from unittest.mock import patch
+
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    cfg = validate_configuration({
+        "controller": {"id": "home", "name": "Energy choice",
+                       "mode": "Off", "max_parallel": 1},
+        "assets": [], "chargers": [],
+    })
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Standalone MultiCharge",
+        data={"source": "ui", "configuration": cfg}, unique_id=DOMAIN,
+    )
+    entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+    proposals = {
+        "solar_power_entity": "sensor.ha_pv_live",
+        "grid_power_entity": "sensor.ha_grid_live",
+        "current_price_entity": "sensor.ha_import_price",
+    }
+    with patch(
+        "custom_components.robotix_multicharge.config_flow._energy_dashboard_defaults",
+        return_value=proposals,
+    ):
+        start = await hass.config_entries.options.async_init(entry.entry_id)
+        form = await hass.config_entries.options.async_configure(
+            start["flow_id"], {"next_step_id": "energy"}
+        )
+        assert form["step_id"] == "energy"
+        assert "sensor.ha_pv_live" in form["description_placeholders"]["note"]
+        assert entry.options.get("configuration") is None
+        saved = await hass.config_entries.options.async_configure(
+            form["flow_id"], {
+                "use_energy_dashboard": True,
+                "solar_source_kind": "grid_export",
+                "grid_power_direction": "import_positive",
+                "home_power_entity": "sensor.explicit_home_w",
+            },
+        )
+        assert saved["type"] == FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    stored = entry.options["configuration"]["controller"]
+    assert stored["solar_power_entity"] == "sensor.ha_pv_live"
+    assert stored["grid_power_entity"] == "sensor.ha_grid_live"
+    assert stored["current_price_entity"] == "sensor.ha_import_price"
+    assert stored["home_power_entity"] == "sensor.explicit_home_w"
+    assert stored["solar_source_kind"] == "grid_export"
+    assert len(hass.config_entries.async_entries(DOMAIN)) == 1
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
 async def test_native_empty_configuration_still_installs(hass: HomeAssistant):
     source = (Path(__file__).resolve().parents[2] / "custom_components" /
               "robotix_multicharge")
