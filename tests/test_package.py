@@ -18,17 +18,17 @@ class PackageTest(unittest.TestCase):
             encoding="utf8"
         )
         for prefix, expression, count in (
-            ("UC", r"^### UC(\\d{2}) —", 29),
-            ("FLEX", r"^\\| FLEX-(\\d{2}) \\|", 21),
-            ("FORECAST", r"^\\| FORECAST-(\\d{2}) \\|", 12),
-            ("UI-OWNER", r"^\\| UI-OWNER-(\\d{2}) \\|", 10),
+            ("UC", r"^### UC(\d{2}) —", 29),
+            ("FLEX", r"^\| FLEX-(\d{2}) \|", 21),
+            ("FORECAST", r"^\| FORECAST-(\d{2}) \|", 12),
+            ("UI-OWNER", r"^\| UI-OWNER-(\d{2}) \|", 10),
         ):
             indices = [int(x) for x in re.findall(expression, spec, re.M)]
             self.assertEqual(
                 indices, list(range(1, count + 1)),
                 f"{prefix}: every approved use case must remain traceable",
             )
-        for block in re.split(r"(?=^### UC\\d{2} —)", spec, flags=re.M)[1:]:
+        for block in re.split(r"(?=^### UC\d{2} —)", spec, flags=re.M)[1:]:
             for label in (
                 "Persona / eigenaar", "GIVEN", "WHEN", "THEN",
                 "Negatief / fail-closed", "Bewijs",
