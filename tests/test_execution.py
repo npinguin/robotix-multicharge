@@ -875,6 +875,39 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(services.calls, [])
         self.assertTrue(rt.executor.capabilities()["evse"]["stop_allowed"])
 
+    async def test_corrupt_trailing_receipt_never_partially_restores_control_state(self):
+        """UC23/26: validate every persisted field before mutating live truth."""
+        rt, _, services = rig()
+        rt.executor._completed["car"] = "prior-valid-intent"
+        rt.executor._inflight["car"] = "prior-unresolved-intent"
+        rt.executor._paused.add("evse")
+        rt.executor._session_history = [{
+            "charger_id": "evse", "asset_id": "car",
+            "started_at": "2026-11-22T12:00:00+00:00",
+            "ended_at": "2026-11-22T12:30:00+00:00",
+            "duration_minutes": 30.0, "actual_energy_kwh": 0.3,
+            "physical_stop_confirmed": True,
+        }]
+        original = rt.executor.export_state()
+        candidate = {
+            **original,
+            "completed": {"car": "replacement-intent"},
+            "inflight": {"car": "replacement-unsafe-intent"},
+            "paused": [],
+            "sessions": [
+                dict(original["sessions"][0]),
+                {**original["sessions"][0],
+                 "ended_at": "not-an-ISO-date"},
+            ],
+        }
+        rt.executor.restore_state(candidate)
+        self.assertFalse(rt.executor._persistence_verified)
+        self.assertEqual(rt.executor.export_state(), original,
+                         "Late corrupt receipt cannot partially adopt intent/holds/history")
+        denied = await rt.executor.execute("evse", "start")
+        self.assertEqual(denied["reason"], "CONTROL_STATE_UNVERIFIED")
+        self.assertEqual(services.calls, [])
+
     async def test_completed_measured_demand_is_retained_after_restart(self):
         class MemoryStore:
             def __init__(self):
