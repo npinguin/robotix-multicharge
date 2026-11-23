@@ -29,7 +29,8 @@ async def async_setup_entry(
     entities = [
         _OwnedSelect(entry, runtime, "controller", choices["controller"], field)
         for field in ("plan_label_mode", "plan_color_by",
-                      "show_indicative_forecast", "mode")
+                      "show_indicative_forecast", "mode",
+                      "solar_source_kind", "grid_power_direction")
     ]
     for asset in choices["assets"]:
         entities.append(_OwnedSelect(entry, runtime, "asset", asset, "plan_color"))
@@ -115,6 +116,10 @@ class _OwnedSelect(SelectEntity):
             return ["on", "off"]
         if self.field == "mode":
             return list(MODES)
+        if self.field == "solar_source_kind":
+            return ["none", "intervals", "grid_export", "direct_surplus"]
+        if self.field == "grid_power_direction":
+            return ["import_positive", "export_positive"]
         if self.field == "ready_by_repeat":
             return ["none", "daily", "specific_days"]
         if self.field == "continuous_charging":
@@ -155,6 +160,12 @@ class _OwnedSelect(SelectEntity):
                     f"{selected['name']} ({selected['id']})" if duplicates
                     else selected["name"]
                 )
+        elif self.field == "solar_source_kind":
+            self._attr_current_option = current.get("solar_source_kind",
+                "intervals" if current.get("solar_entity") else "none")
+        elif self.field == "grid_power_direction":
+            self._attr_current_option = current.get("grid_power_direction",
+                "import_positive")
         elif self.field == "mode":
             self._attr_current_option = next((
                 name for name, source in MODES.items()
