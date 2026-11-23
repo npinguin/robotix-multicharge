@@ -1103,6 +1103,35 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(receipt["cost"])
         self.assertEqual(receipt["energy_quality"], "unknown")
 
+    async def test_charging_weekday_window_blocks_start_and_stops_running_session(self):
+        from zoneinfo import ZoneInfo
+        from multicharge_physical_execution_test.configuration import WEEKDAYS
+        rt, states, services = rig()
+        today = datetime.now(ZoneInfo(rt.hass.config.time_zone))
+        other = WEEKDAYS[(today.weekday() + 2) % 7]
+        asset = rt.configuration["assets"][0]
+        asset["charging_windows"] = {
+            other: {"start": "09:00", "end": "10:00"}
+        }
+        rejected = await rt.executor.execute("evse", "start")
+        self.assertEqual(rejected["reason"], "CHARGING_WINDOW_CLOSED")
+        self.assertEqual(services.calls, [])
+        asset.pop("charging_windows")
+        rt.refresh()
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"],
+                         "confirmed")
+        asset["charging_windows"] = {
+            other: {"start": "09:00", "end": "10:00"}
+        }
+        self.assertEqual(
+            rt.executor._session_stop_reason(
+                rt.configuration["chargers"][0], datetime.now(timezone.utc)),
+            "CHARGING_WINDOW_CLOSED",
+        )
+        await rt.executor.supervise()
+        self.assertEqual(services.calls[-1][1], "turn_off")
+        self.assertFalse(rt.executor.session_snapshot())
+
     async def test_temporary_guest_expiry_rejects_start_and_stops_active_guest(self):
         rt, states, services = rig()
         guest = rt.configuration["assets"][0]
