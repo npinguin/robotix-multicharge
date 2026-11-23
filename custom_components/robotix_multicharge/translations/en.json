@@ -38,7 +38,8 @@
           "ready_by_repeat": "Repeat Ready By (none/daily/weekly, site time zone) (optional)",
           "temporary": "Temporary guest (requires an expiry) (optional)",
           "expires_at": "Guest expiry date/time with timezone (optional)",
-          "expected_connection_at": "Optional expected connection time (timezone-aware) — indicative only (optional)"
+          "expected_connection_at": "Optional expected connection time (timezone-aware) — indicative only (optional)",
+          "soc_stale_entity": "OEM data-stale binary sensor (on = stale)"
         }
       },
       "sources": {
@@ -171,7 +172,8 @@
           "soc_entity": "Battery level entity",
           "capacity_kwh": "Battery capacity (kWh)",
           "vehicle_control_entity": "Vehicle native control switch (source binding)",
-          "vehicle_current_entity": "Vehicle native current number (source binding)"
+          "vehicle_current_entity": "Vehicle native current number (source binding)",
+          "soc_stale_entity": "OEM data-stale binary sensor (on = stale)"
         }
       },
       "charger": {
