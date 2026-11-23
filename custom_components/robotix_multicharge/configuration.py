@@ -372,15 +372,14 @@ def validate_configuration(value):
         if (asset.get("opportunistic_kind") in ("type1", "type2")
                 and "maximum_price_per_kwh" not in asset):
             raise ValueError("asset.opportunistic_kind: price cap required")
-        if any(k in asset for k in (
-                "maximum_price_per_kwh", "low_price_trigger_per_kwh")):
+        if (any(k in asset for k in (
+                "maximum_price_per_kwh", "low_price_trigger_per_kwh"))
+                or source.get("price_currency") is not None):
             currency = source.get("price_currency")
             if (not isinstance(currency, str)
                     or fullmatch(r"[A-Z]{3}", currency) is None):
                 raise ValueError("asset.price_currency: ISO-4217 required")
             asset["price_currency"] = currency
-        elif source.get("price_currency") is not None:
-            raise ValueError("asset.price_currency: price policy required")
         if (asset.get("minimum_soc_pct") is not None
                 and asset.get("target_soc") is not None
                 and asset["minimum_soc_pct"] > asset["target_soc"]):
