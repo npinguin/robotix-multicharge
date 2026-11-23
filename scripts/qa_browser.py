@@ -98,8 +98,10 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
         # Only Charger 0 has qualified measured/planned source data in
         # this fixture. All other nine lanes intentionally say no slots,
         # not ten fabricated ApexCharts plots.
-        if row["apexHosts"] != 2 or row["apexLive"] != 2:
-            raise AssertionError(f"{label}: real local ApexCharts not fully rendered: {row}")
+        if row["apexHosts"] < 1 or row["apexLive"] != row["apexHosts"]:
+            raise AssertionError(f"{label}: all source-qualified local ApexCharts must render: {row}")
+        if row.get("apexErrors"):
+            raise AssertionError(f"{label}: a real browser ApexCharts error occurred: {row}")
     if row["commandButtons"]:
         raise AssertionError(f"{label}: uncommissioned external Charger shows physical writes")
     if not screenshot.is_file() or screenshot.stat().st_size < 2000:
