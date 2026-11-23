@@ -73,6 +73,40 @@ class NativeSwitchExecutor:
             disconnected_states=charger.get("disconnected_states"),
         )
 
+    def observe_connection_event(self, charger, old_state, new_state):
+        """Track ordered native HA state transitions before refresh coalescing.
+
+        A positive-to-positive mapped EVSE substate transition can keep an
+        already confirmed plug only when the prior raw state/timestamp exactly
+        matches the epoch we actually witnessed. Any gap, unavailable state,
+        disconnect, rebind or unexpected transition immediately drops identity.
+        This handles an unplug/replug that occurs between two refresh ticks.
+        The callback never issues a charger command.
+        """
+        uid = charger["id"]
+        entity = charger.get("connected_entity")
+        mapped = charger.get("connected_states")
+        existing = self._plug_epochs.get(uid)
+        raw_old = str(getattr(old_state, "state", "")).strip().casefold()
+        raw_new = str(getattr(new_state, "state", "")).strip().casefold()
+        new_at = getattr(new_state, "last_changed", None)
+        old_at = getattr(old_state, "last_changed", None)
+        if (mapped and existing and existing.get("entity") == entity
+                and raw_old in mapped and raw_new in mapped
+                and existing.get("raw_state") == raw_old
+                and isinstance(old_at, datetime) and old_at.utcoffset() is not None
+                and isinstance(new_at, datetime) and new_at.utcoffset() is not None
+                and existing.get("last_changed") ==
+                    old_at.astimezone(timezone.utc).isoformat()):
+            existing["raw_state"] = raw_new
+            existing["last_changed"] = new_at.astimezone(timezone.utc).isoformat()
+            return
+        # Preserve no identity on an unobserved or non-continuous transition.
+        # A subsequent fresh connected reading may start a NEW plug epoch,
+        # but only an explicit confirmation can attach an Asset to it.
+        self._plug_epochs.pop(uid, None)
+        self._plug_confirmations.pop(uid, None)
+
     def observe_connection(self, charger, observed):
         """Observe continuity of a physical plug, not arbitrary EVSE substates.
 
@@ -99,17 +133,10 @@ class NativeSwitchExecutor:
             if existing["last_changed"] == changed_at and (
                     existing["raw_state"] == raw_state):
                 return existing["connected_at"]
-            # Only a documented native enum mapping supports *positive*
-            # connected-substate transitions. Native binary_sensor/literal
-            # connected/disconnected changes retain strict plug-instance
-            # invalidation, including a real replug with the same state.
-            mapped = bool(charger.get("connected_states"))
-            substate_changed = existing["raw_state"] != raw_state
-            if mapped and substate_changed and (
-                    existing["last_changed"] != changed_at):
-                existing["last_changed"] = changed_at
-                existing["raw_state"] = raw_state
-                return existing["connected_at"]
+            # Even mapped positive substates must not preserve an Asset based
+            # solely on the latest snapshot: an unseen disconnect/replug
+            # may have occurred. Only observe_connection_event can advance
+            # this epoch using the ordered native HA event old/new pair.
         self._plug_epochs[uid] = {
             "entity": entity, "connected_at": changed_at,
             "last_changed": changed_at, "raw_state": raw_state,
