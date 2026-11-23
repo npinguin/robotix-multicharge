@@ -124,6 +124,12 @@ async def websocket_get_plan(
                         field: native_select("charger", row["id"], field)
                         for field in ("plan_color", "asset")
                     },
+                    **{
+                        field: native_entity("number", "charger", row["id"], field)
+                        for field in ("min_charging_power_kw",
+                                      "max_charging_power_kw",
+                                      "set_charging_power_kw")
+                    },
                     "confirm_connection": native_entity(
                         "button", "charger", row["id"], "confirm_connection"
                     ),
