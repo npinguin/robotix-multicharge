@@ -30,7 +30,10 @@ async def async_setup_entry(
     entities.extend(
         _SourceBindingText(entry, runtime, "controller", config["controller"], field)
         for field in ("price_entity", "solar_entity", "site_power_entity",
-                      "binding_entity")
+                      "binding_entity", "solar_power_entity",
+                      "home_power_entity", "grid_power_entity",
+                      "solar_surplus_entity", "current_price_entity",
+                      "export_price_entity")
     )
     entities.extend(
         _SourceBindingText(entry, runtime, "asset", asset, field)
