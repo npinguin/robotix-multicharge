@@ -2,14 +2,9 @@
   "config": {
     "step": {
       "user": {
-        "title": "Ladested",
-        "description": "Trin 1/5 — Navngiv ladestedet; elektriske grænser er valgfrie ved installation.",
-        "data": {
-          "name": "Navn (valgfrit)",
-          "max_parallel": "Antal (valgfrit)",
-          "max_power_kw": "Effekt (valgfrit)",
-          "phase_limits_a": "Faser (valgfrit)",
-          "mode": "Indledende ladetilstand"
+        "menu_options": {
+          "guided": "Guidet opsætning",
+          "expert": "Konfigurer hele ladeanlægget"
         }
       },
       "charger": {
@@ -89,6 +84,32 @@
           "circuit_limit_a": "Strøm (valgfrit)",
           "current_control_entity": "Strøm (valgfrit)",
           "current_readback_entity": "Strøm (valgfrit)"
+        }
+      },
+      "guided": {
+        "title": "Ladested",
+        "description": "Trin 1/5 — Navngiv ladestedet; elektriske grænser er valgfrie ved installation.",
+        "data": {
+          "name": "Navn (valgfrit)",
+          "max_parallel": "Antal (valgfrit)",
+          "max_power_kw": "Effekt (valgfrit)",
+          "phase_limits_a": "Faser (valgfrit)",
+          "mode": "Indledende ladetilstand"
+        }
+      },
+      "expert": {
+        "title": "Komplet opsætning",
+        "description": "Kontroller ladere, køretøjer og kilder før lagring. Ingen fysiske kommandoer. {note}",
+        "data": {
+          "yaml_text": "Komplet MultiCharge YAML (controller/assets/chargers)"
+        }
+      },
+      "expert_review": {
+        "title": "Gennemgå komplet konfiguration",
+        "description": "{summary} Bekræft efter kontrol af hele opsætningen.",
+        "data": {
+          "confirm": "Jeg har gennemgået hele konfigurationen",
+          "edit_again": "Tilbage til YAML"
         }
       }
     },
