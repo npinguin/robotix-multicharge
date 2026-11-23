@@ -341,7 +341,39 @@ def compile_plan(
             shortfall[uid] = demand.remaining_grid_kwh
             coverage[uid] = "UNAVAILABLE"
             continue
+        # Upstream v2.6.1 price policies are Asset-owned preferences,
+        # interpreted by the ONE 15-min Controller planner. A price limit
+        # never invents a currency or source interval.
+        effective_cap = demand.maximum_price_per_kwh
+        if demand.opportunistic_kind != "off":
+            future = [
+                q for q in (tariffs or {}).get(uid, ())
+                if q.end > begin and q.start < deadline
+                and q.currency == demand.price_currency
+            ]
+            if not future:
+                reasons[uid] = "PRICE_SOURCE_UNAVAILABLE"
+                shortfall[uid] = demand.remaining_grid_kwh
+                coverage[uid] = "UNAVAILABLE"
+                continue
+            last = max(future, key=lambda q: q.start)
+            level = (demand.opportunistic_level_pct
+                     if demand.opportunistic_level_pct is not None
+                     else (50.0 if demand.opportunistic_kind == "type1"
+                           else 90.0))
+            if demand.opportunistic_kind == "type1":
+                threshold = effective_cap * level / 100
+                if last.effective_price_per_kwh < threshold:
+                    effective_cap = threshold
+            else:
+                last_rate = last.effective_price_per_kwh
+                adjusted = (last_rate * level / 100
+                            if last_rate >= 0
+                            else last_rate * (200 - level) / 100)
+                effective_cap = min(effective_cap, adjusted)
         possible = []
+        blocked_price = set()
+        low_price_eligible = set()
         missing_price = False
         missing_solar = False
         missing_binding = False
@@ -438,6 +470,16 @@ def compile_plan(
                     missing_price = True
                     continue
             rate = tariff.effective_price_per_kwh if tariff is not None else None
+            if (effective_cap is not None
+                    or demand.low_price_trigger_per_kwh is not None):
+                if tariff is None or tariff.currency != demand.price_currency:
+                    missing_price = True
+                    continue
+                if effective_cap is not None and rate > effective_cap + 1e-9:
+                    blocked_price.add(slot)
+                if (demand.low_price_trigger_per_kwh is not None
+                        and rate <= demand.low_price_trigger_per_kwh + 1e-9):
+                    low_price_eligible.add(slot)
             if mode == "Automatic":
                 available_solar = _cover(solar or (), slot, finish)
                 solar_covers = (
@@ -459,12 +501,13 @@ def compile_plan(
                 key, chosen_strategy = (0, 0.0), mode
             possible.append((key, slot, chosen_strategy, power, current, rate))
         possible.sort(key=lambda item: (item[0], item[1]))
+        urgent_kwh = max(
+            demand.minimum_priority_kwh, demand.low_soc_priority_kwh,
+        )
         if demand.continuous_charging:
-            # The existing one-Controller allocator must select a physically
-            # feasible *single run*, not merely relabel disjoint cheapest
-            # quarters. Every candidate already passed group/circuit/phase,
-            # source, calendar and binding checks. The run still reserves
-            # capacity globally only once at the end.
+            # Select one real feasible price/SoC-compliant consecutive run.
+            # A minimum-SoC override may use expensive early quarters ONLY
+            # until the separately measured minimum energy is reached.
             if demand.remaining_budget_amount is not None:
                 reasons[uid] = "CONTINUOUS_BUDGET_REQUIRES_FINITE_TIME"
                 shortfall[uid] = None
@@ -474,27 +517,33 @@ def compile_plan(
             best = None
             for index in range(len(chronological)):
                 segment = []
-                energy, minutes, price_total, preference_total = 0.0, 0, 0.0, 0
+                energy, minutes, cost, priority = 0.0, 0, 0.0, 0
                 for item in chronological[index:]:
                     _, stamp, _, power, _, rate = item
                     if segment and stamp != segment[-1][1] + QUARTER:
                         break
+                    if (stamp in blocked_price
+                            and energy + 1e-9 >= urgent_kwh
+                            and not (stamp == begin
+                                     and stamp in low_price_eligible)):
+                        break
                     segment.append(item)
-                    energy += power / 4.0
+                    energy += power / 4
                     minutes += 15
-                    price_total += (rate if rate is not None else 0.0) * power / 4
-                    preference_total += item[0][0]
+                    cost += (rate if rate is not None else 0) * power / 4
+                    priority += item[0][0]
                     reached = (
                         minutes >= demand.remaining_duration_minutes
                         if demand.remaining_duration_minutes is not None
                         else energy + 1e-9 >= demand.remaining_grid_kwh
                     )
                     if reached:
-                        candidate = (
-                            preference_total, round(price_total, 8),
-                            segment[0][1], tuple(segment),
-                        )
-                        if best is None or candidate[:3] < best[:3]:
+                        candidate = (priority,
+                                     0 if segment[0][1] == begin
+                                     and begin in low_price_eligible else 1,
+                                     round(cost, 8), segment[0][1],
+                                     tuple(segment))
+                        if best is None or candidate[:4] < best[:4]:
                             best = candidate
                         break
             if best is None:
@@ -502,7 +551,33 @@ def compile_plan(
                 shortfall[uid] = demand.remaining_grid_kwh
                 coverage[uid] = "INCOMPLETE"
                 continue
-            possible = list(best[3])
+            possible = list(best[4])
+        else:
+            # Minimum SoC and a separate low-SoC trigger must be delivered
+            # as early as possible; their energy is strictly bounded by
+            # actual remaining target energy. Remaining demand respects
+            # the explicit user price limit and cheapest global allocation.
+            priority_rows = []
+            used = set()
+            critical_delivered = 0.0
+            for item in sorted(possible, key=lambda x: x[1]):
+                if critical_delivered + 1e-9 >= urgent_kwh:
+                    break
+                priority_rows.append(item)
+                used.add(item[1])
+                critical_delivered += item[3] / 4
+            start_low = next((
+                item for item in possible
+                if item[1] == begin and item[1] in low_price_eligible
+                and item[1] not in used
+            ), None)
+            if start_low is not None:
+                priority_rows.append(start_low)
+                used.add(start_low[1])
+            possible = priority_rows + [
+                item for item in possible
+                if item[1] not in used and item[1] not in blocked_price
+            ]
         chosen = []
         delivered = 0.0
         budget_consumed = 0.0
@@ -564,6 +639,8 @@ def compile_plan(
                 else "SOLAR_UNAVAILABLE" if mode == "Solar" and missing_solar
                 else "BUDGET_EFFECTIVE_TARIFF_UNAVAILABLE" if (
                     demand.remaining_budget_amount is not None and missing_price)
+                else "PRICE_SOURCE_UNAVAILABLE" if missing_price
+                else "PRICE_LIMIT_BLOCKED" if blocked_price
                 else "PRICE_UNAVAILABLE" if mode == "Economy" and missing_price
                 else "CHARGING_WINDOW_LIMITED" if outside_window
                 else "INSUFFICIENT_CAPACITY_OR_TIME"
