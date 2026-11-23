@@ -357,6 +357,8 @@ def validate_configuration(value):
                 phase_ids=tuple(charger.get("phase_ids", ())),
                 voltage_v=charger.get("voltage_v"),
                 current_step_a=charger.get("current_step_a"),
+                min_charging_power_kw=charger.get("min_charging_power_kw"),
+                max_charging_power_kw=charger.get("max_charging_power_kw"),
                 fixed_current_a=charger.get("fixed_current_a"),
                 circuit_id=charger.get("circuit_id"),
                 circuit_limit_a=charger.get("circuit_limit_a"))
@@ -446,7 +448,8 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
             "temporary", "expires_at", "expected_connection_at",
             "plan_color",
         },
-        "charger": {"name", "asset", "plan_color"},
+        "charger": {"name", "asset", "plan_color",
+                    "min_charging_power_kw", "max_charging_power_kw"},
     }
     if scope not in allowed or set(changes) - allowed[scope]:
         raise ValueError("settings field not editable in this scope")
@@ -536,7 +539,8 @@ def is_in_place_runtime_preference_change(before, after):
                           "temporary", "expires_at", "expected_connection_at"):
                 asset.pop(field, None)
         for charger in result["chargers"]:
-            for field in ("name", "plan_color", "asset"):
+            for field in ("name", "plan_color", "asset",
+                          "min_charging_power_kw", "max_charging_power_kw"):
                 charger.pop(field, None)
         return result
 
