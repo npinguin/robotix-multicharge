@@ -379,6 +379,12 @@
       },
       "opportunistic_kind": {
         "name": "Modo de precio oportunista"
+      },
+      "solar_source_kind": {
+        "name": "Tipo de fuente solar"
+      },
+      "grid_power_direction": {
+        "name": "Sentido del medidor de red"
       }
     },
     "number": {
@@ -601,6 +607,24 @@
       },
       "price_currency": {
         "name": "Moneda de precio"
+      },
+      "solar_power_entity": {
+        "name": "Producción solar"
+      },
+      "home_power_entity": {
+        "name": "Consumo doméstico"
+      },
+      "grid_power_entity": {
+        "name": "Potencia de red"
+      },
+      "solar_surplus_entity": {
+        "name": "Excedente solar"
+      },
+      "current_price_entity": {
+        "name": "Precio de importación actual"
+      },
+      "export_price_entity": {
+        "name": "Precio de exportación actual"
       }
     },
     "binary_sensor": {
