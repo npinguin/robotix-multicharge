@@ -1219,11 +1219,26 @@ class RobotixMultiChargeCard extends HTMLElement {
         }
         mcPair(detail,"Requested energy",a.requested_kwh===undefined?"Not set":a.requested_kwh+" kWh");
         mcPair(detail,"Duration",a.requested_duration_minutes===undefined?"Not set":a.requested_duration_minutes+" min");
+        mcPair(detail,mcTr("Charging budget"),
+          a.requested_budget_amount===undefined?mcTr("Not set"):
+          a.requested_budget_amount+" "+(a.requested_budget_currency||"EUR"));
+        if(charger&&a.requested_budget_amount!==undefined){
+          const current=(d.active_sessions||{})[charger.id];
+          if(current?.budget_quality==="qualified_effective_meter_increments"){
+            mcPair(detail,mcTr("Indicative variable spending"),
+              Number(current.budget_cost||0).toFixed(2)+" "+
+              (current.requested_budget_currency||"EUR"));
+            mcPair(detail,mcTr("Budget remaining"),
+              Math.max(0,a.requested_budget_amount-(current.budget_cost||0)).toFixed(2)+
+              " "+(current.requested_budget_currency||"EUR"));
+          }
+        }
         detail.append(mcEl("h4","",mcTr("Charging preferences")));
         for(const [field,label,unit] of [
           ["target_soc","Charging limit","%"],
           ["requested_kwh","Requested energy","kWh"],
           ["requested_duration_minutes","Requested charging duration","minutes"],
+          ["requested_budget_amount","Requested budget (€)","EUR"],
           ["max_charge_kw","Maximum vehicle charging power","kW"],
           ["priority","Priority",""],
           ["capacity_kwh","Battery capacity","kWh"],
@@ -1259,18 +1274,40 @@ class RobotixMultiChargeCard extends HTMLElement {
         ["motorcycle",mcTr("Motorcycle")],["scooter",mcTr("Scooter")],
         ["other",mcTr("Other")]
       ]);
-      const energy=this.field(form,"Requested energy (kWh)","", "number");
+      const goal=this.field(form,mcTr("Charging goal"),"energy",null,[
+        ["energy",mcTr("Energy (kWh)")],["duration",mcTr("Duration (minutes)")],
+        ["budget",mcTr("Budget (€)")],["none",mcTr("Set later")]
+      ]);
+      const amount=this.field(form,mcTr("Charging amount"),"","number");
       const temporary=this.field(form,"Temporary guest","yes",null,
         [["yes","Yes — temporary guest"],["no","No — permanent asset"]]);
-      const expiry=this.field(form,"Guest expiry ISO time","", "text");
-      const arrival=this.field(form,"Expected plug-in time (optional)","", "text");
+      const expiry=this.field(form,mcTr("Guest for"),"24",null,[
+        ["4",mcTr("4 hours")],["24",mcTr("24 hours")],
+        ["48",mcTr("48 hours")],["168",mcTr("7 days")]
+      ]);
       form.append(mcButton("Create asset",()=>{
         const id=name.value.trim().toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"");
         const changes={name:name.value.trim(),kind:kind.value};
-        if(energy.value!=="")changes.requested_kwh=Number(energy.value);
-        if(arrival.value.trim())changes.expected_connection_at=arrival.value.trim();
+        const requested=amount.value.trim();
+        if(goal.value!=="none"&&requested){
+          const value=Number(requested);
+          if(!Number.isFinite(value)||value<=0||
+              goal.value==="duration"&&!Number.isInteger(value)){
+            this._settingsFeedback={status:"rejected",message:"Invalid charging amount"};
+            this.render();return;
+          }
+          if(goal.value==="energy")changes.requested_kwh=value;
+          if(goal.value==="duration")changes.requested_duration_minutes=value;
+          if(goal.value==="budget"){
+            changes.requested_budget_amount=value;
+            changes.requested_budget_currency="EUR";
+          }
+        }
         if(temporary.value==="yes"){
-          changes.temporary=true;changes.expires_at=expiry.value.trim();
+          changes.temporary=true;
+          // Relative expiry is a real absolute UTC instant; browser local
+          // timezone cannot silently reinterpret a household wall clock.
+          changes.expires_at=new Date(Date.now()+Number(expiry.value)*3600000).toISOString();
         }
         this.saveSettings("asset",id,changes,"create");
       }));
