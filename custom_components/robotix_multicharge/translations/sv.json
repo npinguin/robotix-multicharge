@@ -462,6 +462,21 @@
     "text": {
       "name": {
         "name": "Name"
+      },
+      "price_entity": {
+        "name": "Tariffkälla"
+      },
+      "solar_entity": {
+        "name": "Solenergikälla"
+      },
+      "site_power_entity": {
+        "name": "Källa för anläggningseffekt"
+      },
+      "binding_entity": {
+        "name": "Källa för effektgräns"
+      },
+      "soc_entity": {
+        "name": "Batterinivåkälla"
       }
     },
     "binary_sensor": {
