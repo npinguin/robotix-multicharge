@@ -353,6 +353,27 @@
           "scooter": "Scooter",
           "other": "Overig"
         }
+      },
+      "ready_day_mon": {
+        "name": "Maandag Ready By"
+      },
+      "ready_day_tue": {
+        "name": "Dinsdag Ready By"
+      },
+      "ready_day_wed": {
+        "name": "Woensdag Ready By"
+      },
+      "ready_day_thu": {
+        "name": "Donderdag Ready By"
+      },
+      "ready_day_fri": {
+        "name": "Vrijdag Ready By"
+      },
+      "ready_day_sat": {
+        "name": "Zaterdag Ready By"
+      },
+      "ready_day_sun": {
+        "name": "Zondag Ready By"
       }
     },
     "number": {
@@ -391,6 +412,9 @@
       },
       "set_charging_power_kw": {
         "name": "Laadvermogen instellen"
+      },
+      "requested_budget_amount": {
+        "name": "Laadbudget (€)"
       }
     },
     "datetime": {
@@ -501,7 +525,8 @@
           "energy": "Energie",
           "duration": "Duur",
           "target_soc": "Batterijdoel",
-          "unconfigured": "Doel instellen"
+          "unconfigured": "Doel instellen",
+          "budget": "Budget"
         }
       },
       "confirmed_current_setpoint": {
@@ -529,6 +554,27 @@
       },
       "soc_entity": {
         "name": "Bron batterijniveau"
+      },
+      "charging_window_mon": {
+        "name": "Maandag charging hours"
+      },
+      "charging_window_tue": {
+        "name": "Dinsdag charging hours"
+      },
+      "charging_window_wed": {
+        "name": "Woensdag charging hours"
+      },
+      "charging_window_thu": {
+        "name": "Donderdag charging hours"
+      },
+      "charging_window_fri": {
+        "name": "Vrijdag charging hours"
+      },
+      "charging_window_sat": {
+        "name": "Zaterdag charging hours"
+      },
+      "charging_window_sun": {
+        "name": "Zondag charging hours"
       }
     },
     "binary_sensor": {
