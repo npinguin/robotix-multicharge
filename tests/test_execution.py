@@ -111,6 +111,30 @@ def rig(*, owner="multicharge", commissioned=True, group_kw=4.0,
 
 
 class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_native_spot_price_cannot_be_billed_as_effective_session_cost(self):
+        """Source-neutral Economy quotes are NOT all-in monetary evidence."""
+        from multicharge_physical_execution_test.contracts import PriceSlot
+
+        runtime, sources, services = rig()
+        started = await runtime.executor.execute("evse", "start")
+        self.assertEqual(started["status"], "confirmed")
+        sources["sensor.meter"].state = "5.5"
+        sources["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
+        runtime.price_slots = (PriceSlot(
+            now - timedelta(hours=1), now + timedelta(hours=1),
+            -0.04, "EUR", basis="spot",
+        ),)
+        runtime.observations["sources"]["tariff_quality"] = "OK"
+        finished = await runtime.executor.execute("evse", "stop")
+        self.assertEqual(finished["status"], "confirmed")
+        result = runtime.executor.completed_sessions()[-1]
+        self.assertAlmostEqual(result["actual_energy_kwh"], 0.5)
+        self.assertIsNone(result["cost"])
+        self.assertIsNone(result["currency"])
+        self.assertEqual(result["cost_quality"], "unknown")
+        self.assertTrue(result["physical_stop_confirmed"])
+
     async def test_manual_force_start_is_durably_held_across_restart(self):
         rt, states, services = rig()
         class MemoryStore:
