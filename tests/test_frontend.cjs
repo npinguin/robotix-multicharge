@@ -966,7 +966,9 @@ async function main(){
     String(x.type).includes("dashboard_config")),
     "Typed everyday configuration never uses raw document editors or physical commands");
 
-  // No JSON/YAML text editor may be rendered in the dashboard.
+  // Typed daily actions never use raw documents; one optional advanced
+  // YAML editor is available only under the dashboard Settings tab.
+  editorCard._tab="Settings";editorCard._settingsOpen="";editorCard.render();
   assert.ok(find(editorCard.shadowRoot,"button","Edit YAML"));
   assert.ok(!content(editorCard.shadowRoot).includes("Edit JSON"));
   // Expert YAML is a draft in the same dashboard, not an Options-flow dialog,
