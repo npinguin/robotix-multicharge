@@ -48,7 +48,7 @@ function mcReason(value){
   return mcTr("Unavailable");
 }
 const MC_TABS = ["Overview", "Charging Plan", "Chargeable Assets", "Chargers", "Settings"];
-const MC_SETTINGS = ["Charging site", "Sources & bindings", "Charging strategy", "Safety & limits", "Integrations"];
+const MC_SETTINGS = ["Charging site", "Sources & bindings", "Charging strategy", "Safety & limits", "Integrations", "YAML configuration"];
 // Pause is a persistent Charger admission hold, not a second strategy.
 for (const [locale, terms] of Object.entries({
   nl:{"Pause charging":"Laden pauzeren","Resume charging":"Laden hervatten","Paused":"Gepauzeerd","Ready for next plan":"Klaar voor volgend laadplan"},
@@ -951,7 +951,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._confirmDelete="";
     this._createCharger=false;
     this._inlineEditor=null; // ephemeral, never a second settings authority
-    this._jsonEditor=null; // unsaved draft + returned server preview only
+    this._yamlEditor=null; // unsaved draft + returned server preview only
     this._commissionEditor=null;
   }
   canManage(){return this._hass?.user?.is_admin===true;}
@@ -1496,7 +1496,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       this.render();return;
     }
     this._inlineEditor={scope,uid,field,entity};
-    this._jsonEditor=null;this._commissionEditor=null;
+    this._yamlEditor=null;this._commissionEditor=null;
     this.render();
   }
   ownerColorControl(container,scope,row){
@@ -1617,7 +1617,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       enable:charger.control_owner!=="multicharge",
       busy:false,error:""
     };
-    this._inlineEditor=null;this._jsonEditor=null;
+    this._inlineEditor=null;this._yamlEditor=null;
     this.render();
   }
   async applyCommission(exclusive,electrical){
@@ -1685,134 +1685,149 @@ class RobotixMultiChargeCard extends HTMLElement {
     }
     container.append(card);
   }
-  openJsonEditor(scope=null,uid=null){
-    if(!this.canEditSettings()||!this._data?.configuration)return;
-    const cfg=this._data.configuration;
-    const row=scope==="controller"?cfg.controller:
-      scope==="charger"?cfg.chargers?.find(c=>c.id===uid):
-      scope==="asset"?cfg.assets?.find(a=>a.id===uid):null;
-    if(scope&&!row){
-      this._settingsFeedback={status:"rejected",message:"Unknown object"};
-      this.render();return;
-    }
-    const payload=scope?
-      {[scope==="controller"?"controller":scope==="charger"?"chargers":"assets"]:
-       scope==="controller"?row:[row]}:cfg;
-    this._jsonEditor={
-      text:JSON.stringify(payload,null,2),
-      mode:scope?"merge":"replace",
-      base:this._data.configuration_revision,
-      review:null,error:"",busy:false,confirmed:false,
-      scope:scope||"all",uid:uid||"",
-    };
+  async openYamlEditor(){
+    if(!this.canManage()||!this._data?.configuration)return;
+    this._tab="Settings";
+    this._settingsOpen="YAML configuration";
     this._inlineEditor=null;this._commissionEditor=null;
-    this._tab="Settings";this.render();
+    if(this._yamlEditor){this.render();return;}
+    const draft={text:"",mode:"replace",base:"",review:null,
+      error:"",busy:true,confirmed:false,readonly:false};
+    this._yamlEditor=draft;
+    this.render();
+    try{
+      const source=await this._hass.callWS({
+        type:"robotix_multicharge/yaml_configuration",action:"read"
+      });
+      if(!source.configuration_revision||typeof source.yaml_text!=="string")
+        throw Error("Current Config Entry unavailable");
+      draft.text=source.yaml_text;
+      draft.original=source.yaml_text;
+      draft.base=source.configuration_revision;
+      draft.readonly=source.status==="read_only";
+    }catch(error){
+      draft.error=String(error?.message||"Could not load current YAML").slice(0,260);
+    }finally{draft.busy=false;this.render();}
   }
-  async previewJson(){
-    const draft=this._jsonEditor;
-    if(!draft||draft.busy||!this.canEditSettings())return;
+  async previewYaml(){
+    const draft=this._yamlEditor;
+    if(!draft||draft.busy||draft.readonly||!draft.base||
+       !this.canEditSettings())return;
+    const snapshot={text:draft.text,mode:draft.mode,base:draft.base};
     draft.busy=true;draft.error="";draft.review=null;
     this.render();
     try{
       const proof=await this._hass.callWS({
-        type:"robotix_multicharge/dashboard_config",
-        operation:"preview",document:draft.text,mode:draft.mode,
-        expected_revision:draft.base
+        type:"robotix_multicharge/yaml_configuration",
+        action:"preview",yaml_text:snapshot.text,mode:snapshot.mode,
+        expected_revision:snapshot.base
       });
-      if(proof.status!=="preview_only"||!proof.review_fingerprint)
-        throw new Error("Dashboard JSON preview not accepted");
-      draft.review=proof;
+      if(proof.status!=="preview"||!proof.reviewed_revision||
+         proof.baseline_revision!==snapshot.base)
+        throw Error("YAML validation did not complete");
+      if(draft.text!==snapshot.text||draft.mode!==snapshot.mode)
+        throw Error("YAML changed; validate again");
+      draft.review={...proof,...snapshot};
       draft.confirmed=false;
     }catch(error){
-      draft.error=String(error?.message||error?.code||"JSON preview rejected").slice(0,250);
+      draft.error=String(error?.message||"YAML validation rejected").slice(0,260);
     }finally{draft.busy=false;this.render();}
   }
-  async applyJson(){
-    const draft=this._jsonEditor;
-    if(!draft||!draft.review||!draft.confirmed||draft.busy||
-       !this.canEditSettings())return;
-    draft.busy=true;draft.error="";
-    this.render();
+  async applyYaml(){
+    const draft=this._yamlEditor,review=draft?.review;
+    if(!draft||!review||!draft.confirmed||draft.busy||
+       !this.canEditSettings()||draft.readonly)return;
+    if(review.text!==draft.text||review.mode!==draft.mode||
+       review.base!==draft.base){
+      draft.review=null;draft.confirmed=false;
+      draft.error="YAML changed since review; validate again";
+      this.render();return;
+    }
+    draft.busy=true;draft.error="";this.render();
     try{
       const result=await this._hass.callWS({
-        type:"robotix_multicharge/dashboard_config",
-        operation:"apply",document:draft.text,mode:draft.mode,
-        expected_revision:draft.base,
-        review_fingerprint:draft.review.review_fingerprint,
-        confirm:true
+        type:"robotix_multicharge/yaml_configuration",
+        action:"apply",yaml_text:review.text,mode:review.mode,
+        expected_revision:review.base,
+        reviewed_revision:review.reviewed_revision
       });
-      if(result.status!=="accepted_unconfirmed"||!result.expected_revision)
-        throw new Error("Configuration save not admitted");
+      if(result.status!=="accepted_unconfirmed"||
+         result.expected_revision!==review.reviewed_revision)
+        throw Error("Reviewed YAML was not accepted");
       this._pendingSettings={expected_revision:result.expected_revision};
       this._settingsFeedback={status:"accepted_unconfirmed",
-        message:"Saved in HA; waiting for Config Entry readback"};
+        message:"Home Assistant Save accepted; verifying Config Entry readback"};
       this._last=0;
       await this.load();
       if(this._data?.configuration_revision===result.expected_revision){
-        this._jsonEditor=null;
+        this._yamlEditor=null;
         this._settingsFeedback={status:"confirmed",message:"Saved"};
       }else{
         draft.error="HA Config Entry reload pending · refresh to verify";
       }
     }catch(error){
-      draft.error=String(error?.message||error?.code||"JSON commit rejected").slice(0,250);
+      draft.error=String(error?.message||"YAML Save rejected").slice(0,260);
       draft.confirmed=false;
-    }finally{
-      draft.busy=false;this.render();
-    }
+    }finally{draft.busy=false;this.render();}
   }
-  jsonEditor(container){
-    const draft=this._jsonEditor;
-    if(!draft||!this.canEditSettings())return;
+  yamlEditor(container){
+    const draft=this._yamlEditor;
+    if(!draft)return;
     const card=mcEl("section","card dashboard-editor");
-    card.setAttribute("data-dashboard-json-editor","true");
+    card.setAttribute("data-dashboard-yaml-editor","true");
     const top=mcEl("div","row");
-    top.append(mcEl("h3","",mcTr("Edit full configuration · JSON")),
+    top.append(mcEl("h3","",mcTr("Edit full configuration · YAML")),
       mcButton(mcTr("Close"),()=>{
-        this._jsonEditor=null;this.render();
+        this._yamlEditor=null;this.render();
       }));
     card.append(top);
     card.append(mcEl("p","muted small",
-      "One authoritative Home Assistant Config Entry · no YAML or HA Options. "+
-      "Physical commissioning is a separate verified dashboard action."));
-    const mode=this.field(card,mcTr("JSON change mode"),draft.mode,null,[
-      ["replace",mcTr("Complete configuration · replace omitted objects")],
-      ["merge",mcTr("Scoped changes · keep omitted objects")]
-    ]);
-    mode.disabled=draft.busy;
-    mode.addEventListener("change",()=>{
-      draft.mode=mode.value;draft.review=null;draft.confirmed=false;
-      draft.error="";this.render();
-    });
-    const label=mcEl("label","",mcTr("Configuration JSON"));
-    const field=mcEl("textarea","dashboard-json-text");
-    field.setAttribute("rows","18");
-    field.setAttribute("spellcheck","false");
-    field.setAttribute("aria-label",mcTr("Configuration JSON"));
-    field.value=draft.text;field.disabled=draft.busy;
-    field.addEventListener("input",()=>{
-      draft.text=field.value;draft.review=null;draft.confirmed=false;
-      draft.error="";
-    });
-    card.append(label,field);
-    const actions=mcEl("div","row");
-    const preview=mcButton(mcTr("Review changes"),()=>this.previewJson());
-    preview.disabled=draft.busy;
-    actions.append(preview);
-    card.append(actions);
+      "Actual Controller, Assets and Chargers from the single HA Config Entry. "+
+      "No configuration.yaml, packages, templates or HA Options Flow. "+
+      "Preview and Save never commission a physical EVSE."));
+    if(draft.readonly)card.append(mcEl("p","muted small",
+      "This legacy file-owned site is read-only; source authority cannot silently transfer."));
+    if(draft.base){
+      const mode=this.field(card,mcTr("YAML change mode"),draft.mode,null,[
+        ["replace",mcTr("Complete configuration · replace omitted objects")],
+        ["merge",mcTr("Scoped changes · preserve omitted objects")]
+      ]);
+      mode.disabled=draft.busy||draft.readonly;
+      mode.addEventListener("change",()=>{
+        draft.mode=mode.value;draft.review=null;draft.confirmed=false;
+        draft.error="";this.render();
+      });
+      const label=mcEl("label","",mcTr("Configuration YAML"));
+      const field=mcEl("textarea","dashboard-yaml-text");
+      field.setAttribute("rows","18");
+      field.setAttribute("spellcheck","false");
+      field.setAttribute("aria-label",mcTr("Configuration YAML"));
+      field.value=draft.text;field.disabled=draft.busy||draft.readonly;
+      field.addEventListener("input",()=>{
+        draft.text=field.value;draft.review=null;draft.confirmed=false;
+        draft.error="";
+      });
+      card.append(label,field);
+      const actions=mcEl("div","row");
+      if(!draft.readonly){
+        const preview=mcButton(mcTr("Validate / Review YAML"),()=>this.previewYaml());
+        preview.disabled=draft.busy;
+        actions.append(preview);
+        const discard=mcButton(mcTr("Discard changes"),()=>{
+          draft.text=draft.original;draft.mode="replace";
+          draft.review=null;draft.confirmed=false;draft.error="";this.render();
+        });
+        discard.disabled=draft.busy;actions.append(discard);
+      }
+      card.append(actions);
+    }else if(draft.busy){
+      card.append(mcEl("p","muted",mcTr("Loading current YAML")));
+    }
     if(draft.review){
       const review=mcEl("section","dashboard-review");
-      review.setAttribute("data-reviewed-json","true");
+      review.setAttribute("data-reviewed-yaml","true");
       review.append(mcEl("h4","",mcTr("Review before saving")));
       review.append(mcEl("pre","review-summary",draft.review.summary));
-      const groups=draft.review.groups||{};
-      for(const name of ["chargers","assets"]){
-        const group=groups[name]||{};
-        review.append(mcEl("p","small",
-          name+" · "+group.total+" total · "+
-          ["add","modify","remove"].map(type=>
-            type+": "+(group[type]?.join(", ")||"—")).join(" · ")));
-      }
       if(draft.review.changes_present){
         const confirm=mcEl("label","dashboard-confirm");
         const tick=mcEl("input");tick.setAttribute("type","checkbox");
@@ -1823,7 +1838,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         confirm.append(tick,mcEl("span","",
           mcTr("I reviewed all changes and removals")));
         review.append(confirm);
-        const save=mcButton(mcTr("Apply reviewed configuration"),()=>this.applyJson());
+        const save=mcButton(mcTr("Apply reviewed YAML"),()=>this.applyYaml());
         save.disabled=draft.busy||!draft.confirmed;
         review.append(save);
       }else review.append(mcEl("p","muted",mcTr("No changes to save")));
@@ -1831,8 +1846,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     }
     if(draft.error){
       const error=mcEl("p","message error",draft.error);
-      error.setAttribute("role","alert");
-      card.append(error);
+      error.setAttribute("role","alert");card.append(error);
     }
     container.append(card);
   }
@@ -1887,7 +1901,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     shell.append(tabs);
     if(this.canEditSettings()&&this._inlineEditor)this.inlineEditor(shell);
     if(this.canEditSettings()&&this._commissionEditor)this.commissionEditor(shell);
-    if(this.canEditSettings()&&this._jsonEditor)this.jsonEditor(shell);
+    if(this.canEditSettings()&&this._yamlEditor)this.yamlEditor(shell);
     if(this._loading&&!this._data)this.notice(shell,"Loading",false);
     if(this._error){
       this.notice(shell,"Unavailable",true);
@@ -2307,7 +2321,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       next.append(mcEl("p","muted small",
         mcTr("All configuration is edited in this dashboard and saved to one Home Assistant Config Entry")));
       if(this.canEditSettings())next.append(mcButton(
-        mcTr("Edit JSON"),()=>this.openJsonEditor(scope,record.id)
+        mcTr("Edit YAML"),()=>this.openYamlEditor(scope,record.id)
       ));
       wrapper.append(next);
     }
@@ -2895,7 +2909,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     );
     const toolbar=mcEl("div","settings-toolbar");
     if(this.canEditSettings())toolbar.append(mcButton(
-      mcTr("Edit JSON"),()=>this.openJsonEditor()
+      mcTr("Edit YAML"),()=>this.openYamlEditor()
     ));
     container.append(toolbar);
     this.feedback(container);
@@ -2914,6 +2928,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         title==="Charging strategy"?ctl.mode||"Off":
         title==="Safety & limits"?(ctl.max_power_kw===undefined?"No capacity":ctl.max_power_kw+" kW")+" · "+(ctl.max_parallel||1)+" parallel":
         title==="Integrations"?(c.chargers||[]).length+" chargers":
+        title==="YAML configuration"?"Complete advanced runtime setup":
         d.configuration_managed_by_yaml?"Legacy file source · read-only":"One dashboard-owned configuration";
       heading.append(mcEl("p","muted small",summary));
       const row=mcEl("div","row");
@@ -3022,6 +3037,9 @@ class RobotixMultiChargeCard extends HTMLElement {
           }
           mcPair(detail,"Solar source",ctl.solar_source_kind||"none");
           mcPair(detail,"Grid direction",ctl.grid_power_direction||"import_positive");
+        }else if(title==="YAML configuration"){
+          if(this._yamlEditor)this.yamlEditor(detail);
+          else if(this.canManage())detail.append(mcButton("Load current YAML",()=>this.openYamlEditor()));
         }else if(title==="Safety & limits"){
           mcPair(detail,"Maximum group kW",ctl.max_power_kw===undefined?
             "Unknown":ctl.max_power_kw+" kW");
@@ -3033,9 +3051,9 @@ class RobotixMultiChargeCard extends HTMLElement {
           mcPair(detail,"Electrical limits",
             phases.length?phases.map(([id,amps])=>id+": "+amps+" A").join(" · "):mcTr("Not set"));
           detail.append(mcEl("p","muted small",
-            mcTr("Edit JSON in Settings to change phase and wiring parameters after physical verification")));
+            mcTr("Review YAML in Settings before changing phase and wiring after physical verification")));
           if(this.canEditSettings())detail.append(mcButton(
-            mcTr("Edit JSON"),()=>this.openJsonEditor()
+            mcTr("Edit YAML"),()=>this.openYamlEditor()
           ));
         }
         group.append(detail);
