@@ -188,6 +188,23 @@ async def test_native_setup_registry_diagnostics_and_unload(hass: HomeAssistant)
         assert devices.async_get_device_by_identifier(
             (DOMAIN, f"{kind}/{uid}"), entry.entry_id
         ) is not None
+    from homeassistant.helpers import entity_registry as er
+    registry = er.async_get(hass)
+    for kind, uid, field in (
+        ("controller", "site", "price_entity"),
+        ("controller", "site", "solar_entity"),
+        ("controller", "site", "site_power_entity"),
+        ("controller", "site", "binding_entity"),
+        ("asset", "asset", "soc_entity"),
+    ):
+        entity_id = registry.async_get_entity_id(
+            "text", DOMAIN, f"{DOMAIN}:{kind}:{uid}:{field}"
+        )
+        assert entity_id is not None, (kind, uid, field)
+        owning = devices.async_get_device_by_identifier(
+            (DOMAIN, f"{kind}/{uid}"), entry.entry_id
+        )
+        assert registry.async_get(entity_id).device_id == owning.id
     diagnostic = await async_get_config_entry_diagnostics(hass, entry)
     assert diagnostic["schema_major"] == 1
     assert len(diagnostic["chargers"]) == 1
