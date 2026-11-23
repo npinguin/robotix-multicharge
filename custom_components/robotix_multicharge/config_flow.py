@@ -202,6 +202,9 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # The unverified electrical ceiling is genuinely optional.
         return vol.Schema({
             vol.Optional("name", default="Home charging"): str,
+            vol.Optional("mode", default="Automatic"): vol.In(
+                ["Automatic", "Solar", "Economy", "Ready By", "Force Charge", "Off"]
+            ),
             vol.Optional("max_parallel", default=1): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=1, max=16, step=1, mode=selector.NumberSelectorMode.BOX
@@ -538,8 +541,9 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                  if ceiling is not None else "Group power ceiling not yet configured")
         return {"summary": (
             f"{len(cfg['chargers'])} charging points, {len(cfg['assets'])} assets. "
-            f"{limit}. Charging remains physically disabled until "
-            "separately commissioned."
+            f"{limit}. Physical controls can be commissioned from "
+            "Home Assistant Options > Commission, using independent native "
+            "sensor and safe-idle readback. No RHI modules are required."
         )}
 
     async def async_step_import(self, user_input):
@@ -737,7 +741,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         if self.config_entry.data.get("source") in ("yaml", "json"):
             return self.async_abort(reason="yaml_managed")
         return self.async_show_menu(
-            step_id="init", menu_options=["controller", "asset", "charger", "display", "yaml"]
+            step_id="init", menu_options=["controller", "asset", "charger", "commission", "display", "yaml"]
         )
 
     async def async_step_controller(self, user_input=None):
@@ -753,7 +757,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 cfg["controller"]["mode"] = user_input["mode"]
             if user_input.get("phase_limits_a"):
                 cfg["controller"]["phase_limits_a"] = _phase_limits(user_input["phase_limits_a"])
-            for key in ("price_entity", "solar_entity", "binding_entity"):
+            for key in ("price_entity", "solar_entity", "site_power_entity", "binding_entity"):
                 if user_input.get(key):
                     cfg["controller"][key] = user_input[key]
                 else:
