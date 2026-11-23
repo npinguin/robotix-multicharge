@@ -96,7 +96,18 @@
           "max_parallel": "Antal (valfritt)",
           "max_power_kw": "Effekt (valfritt)",
           "phase_limits_a": "Faser (valfritt)",
-          "mode": "Inledande laddningsläge"
+          "mode": "Inledande laddningsläge",
+          "solar_power_entity": "Aktuell solproduktion (W/kW)",
+          "home_power_entity": "Husets totala förbrukning (W/kW)",
+          "grid_power_entity": "Nätimport/-export (W/kW)",
+          "solar_surplus_entity": "Uppmätt solöverskott (W/kW)",
+          "solar_entity": "Validerade solintervall (kW)",
+          "price_entity": "Validerade framtida priser",
+          "current_price_entity": "Aktuellt inköpspris (valuta/kWh)",
+          "export_price_entity": "Aktuellt exportpris (valuta/kWh)",
+          "solar_source_kind": "Källa för solstyrning",
+          "grid_power_direction": "Tecken för nätmätare",
+          "use_energy_dashboard": "Använd källor från Energipanelen"
         }
       },
       "expert": {
@@ -134,7 +145,8 @@
           "charger": "Chargers",
           "display": "Dashboard card",
           "yaml": "Edit YAML (review before save)",
-          "commission": "Driftsätt laddare"
+          "commission": "Driftsätt laddare",
+          "energy": "Energi och priser"
         },
         "title": "Inställningar"
       },
@@ -223,6 +235,23 @@
           "commission": "Aktivera MultiCharge-styrning",
           "exclusive_writer_confirmed": "Andra styrsystem har släppt kontrollen över laddaren",
           "electrical_limits_confirmed": "Elgränser, effekt och oberoende sensorer verifierade"
+        }
+      },
+      "energy": {
+        "title": "Energi och priser",
+        "description": "{note}",
+        "data": {
+          "solar_power_entity": "Aktuell solproduktion (W/kW)",
+          "home_power_entity": "Husets totala förbrukning (W/kW)",
+          "grid_power_entity": "Nätimport/-export (W/kW)",
+          "solar_surplus_entity": "Uppmätt solöverskott (W/kW)",
+          "solar_entity": "Validerade solintervall (kW)",
+          "price_entity": "Validerade framtida priser",
+          "current_price_entity": "Aktuellt inköpspris (valuta/kWh)",
+          "export_price_entity": "Aktuellt exportpris (valuta/kWh)",
+          "solar_source_kind": "Källa för solstyrning",
+          "grid_power_direction": "Tecken för nätmätare",
+          "use_energy_dashboard": "Använd källor från Energipanelen"
         }
       }
     },
