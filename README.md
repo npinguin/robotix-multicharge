@@ -55,8 +55,12 @@ For full positive/negative and original upstream EV Smart Charging v2.6.1 parity
 integration once under Home Assistant **Settings → Devices & services** to
 create its empty Config Entry. From then on, use only the bundled
 **MultiCharge dashboard** for all configuration and charging actions. No
-YAML/JSON document editor, manual templates, `/config/packages`, Home Assistant
-Options screens, helper entities, or a separate Lovelace chart card are required.
+external YAML/JSON files, manual templates, `/config/packages`, Home Assistant
+Options screens, helper entities, or separate Lovelace chart card are required.
+Experts may optionally paste complete YAML in the folded **Settings → Advanced
+YAML** section *inside MultiCharge*, with strict preview/review and Save to the
+same Config Entry; this is not a second configuration authority or a prerequisite
+for ordinary operations.
 
 The automatic sidebar at `/robotix-multicharge` uses the same five
 tabs for novice and expert use:
