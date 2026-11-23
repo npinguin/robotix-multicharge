@@ -17,6 +17,8 @@ from .const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 RESOURCE = "/robotix_multicharge/frontend/robotix-multicharge.js"
 SCRIPT = Path(__file__).parent / "frontend" / "robotix-multicharge.js"
+APEX_RESOURCE = "/robotix_multicharge/frontend/vendor/apexcharts.min.js"
+APEX_SCRIPT = Path(__file__).parent / "frontend" / "vendor" / "apexcharts.min.js"
 KEY = f"{DOMAIN}_frontend"
 PANEL_PATH = "robotix-multicharge"
 PANEL_ELEMENT = "robotix-multicharge-panel"
@@ -38,10 +40,28 @@ class MultiChargeScriptView(HomeAssistantView):
                             headers={"Cache-Control": "no-store",
                                      "X-Content-Type-Options": "nosniff"})
 
+class MultiChargeApexView(HomeAssistantView):
+    """Version-pinned MIT ApexCharts, served locally for offline HACS UX."""
+
+    url = APEX_RESOURCE
+    name = "robotix_multicharge:apexcharts"
+    requires_auth = False  # Static vendor JS only; no HA entity data.
+
+    def __init__(self, hass):
+        self.hass = hass
+
+    async def get(self, request):
+        data = await self.hass.async_add_executor_job(APEX_SCRIPT.read_bytes)
+        return web.Response(body=data, content_type="text/javascript",
+                            headers={"Cache-Control": "public, max-age=86400",
+                                     "X-Content-Type-Options": "nosniff"})
+
+
 def register_frontend(hass):
     """Register one static JavaScript source for card and standalone panel."""
     if getattr(hass, "http", None) is None or hass.data.get(KEY + "_route"):
         return
+    hass.http.register_view(MultiChargeApexView(hass))
     hass.http.register_view(MultiChargeScriptView(hass))
     hass.data[KEY + "_route"] = True
 
@@ -53,9 +73,11 @@ def reconcile_frontend(hass, entry=None):
         return
     try:
         if enabled:
+            frontend.add_extra_js_url(hass, APEX_RESOURCE)
             frontend.add_extra_js_url(hass, RESOURCE)
         else:
             frontend.remove_extra_js_url(hass, RESOURCE)
+            frontend.remove_extra_js_url(hass, APEX_RESOURCE)
     except (AttributeError, ValueError, KeyError) as exc:
         _LOGGER.warning("MultiCharge optional UI registration pending: %s", exc)
         return
