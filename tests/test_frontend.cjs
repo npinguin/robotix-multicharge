@@ -79,6 +79,89 @@ function content(node){
   let text="";visit(node,x=>{if(x.textContent)text+=x.textContent+"\n";});return text;
 }
 async function main(){
+  // UX-ROW-01 novice goals: four goal types are visible on a normal Asset
+  // without opening a hidden Settings or Details view. Exactly one atomic
+  // Config Entry revision; no physical command or frontend goal database.
+  function cardField(root,title){
+    let field=null;
+    visit(root,node=>{
+      if(node.className==="field"&&node.children[0]?.textContent===title)
+        field=node.children[1];
+    });
+    return field;
+  }
+  for(const [kind,value,field] of [
+    ["soc",75,"target_soc"],
+    ["energy",8.5,"requested_kwh"],
+    ["duration",45,"requested_duration_minutes"],
+    ["budget",10,"requested_budget_amount"],
+  ]){
+    const source=JSON.parse(JSON.stringify(fixture));
+    source.configuration_revision="goal-1";
+    const writes=[];
+    const novice=new Card();
+    novice.setConfig({});
+    novice.hass={user:{is_admin:true},states:{},
+      callWS:async request=>{
+        writes.push(request);
+        return request.type==="robotix_multicharge/update_settings"?
+          {status:"accepted_unconfirmed",expected_revision:"goal-2"}:source;
+      }
+    };
+    await new Promise(resolve=>setImmediate(resolve));
+    novice._tab="Chargeable Assets";novice.render();
+    assert.ok(find(novice.shadowRoot,"button","Save charging goal"),
+      "A novice must see the primary Goal control on the Asset card");
+    assert.ok(find(novice.shadowRoot,"button","Schedule charging"),
+      "Charging days and times are one explicitly named action away");
+    const choice=cardField(novice.shadowRoot,"I want to charge to");
+    assert.ok(choice);
+    assert.deepEqual(choice.children.map(x=>x.value),
+                     ["soc","energy","duration","budget"]);
+    choice.value=kind;choice.events.change();
+    const amount=cardField(novice.shadowRoot,"Amount");
+    assert.ok(amount);
+    amount.value=String(value);amount.events.input();
+    find(novice.shadowRoot,"button","Save charging goal").click();
+    await new Promise(resolve=>setImmediate(resolve));
+    const saves=writes.filter(x=>x.type==="robotix_multicharge/update_settings");
+    assert.equal(saves.length,1,"one goal produces one transaction");
+    assert.equal(saves[0].scope,"asset");
+    assert.equal(saves[0].target_id,"car");
+    assert.equal(saves[0].changes[field],value);
+    for(const other of ["requested_kwh","requested_duration_minutes",
+                        "requested_budget_amount"]){
+      if(other!==field)assert.equal(saves[0].changes[other],null,
+        "exclusive finite goal clears the previous requested type");
+    }
+    if(kind==="budget")assert.equal(saves[0].changes.requested_budget_currency,"EUR");
+    assert.equal(writes.filter(x=>x.type==="robotix_multicharge/command").length,0);
+  }
+  // UX-ROW-02 the same visible Schedule action opens *both* native
+  // weekday/deadline and allowed charging-time controls on the Asset card.
+  const scheduleQuick=JSON.parse(JSON.stringify(fixture));
+  scheduleQuick.configuration_revision="weekday-a";
+  scheduleQuick.preference_entities.assets.car.ready_day_mon="select.mon_ready";
+  scheduleQuick.preference_entities.assets.car.charging_window_mon="text.mon_window";
+  const quickCard=new Card();
+  quickCard.setConfig({});
+  quickCard.hass={user:{is_admin:true},states:{},callWS:async()=>scheduleQuick};
+  await new Promise(resolve=>setImmediate(resolve));
+  quickCard._tab="Chargeable Assets";quickCard.render();
+  find(quickCard.shadowRoot,"button","Schedule charging").click();
+  assert.ok(content(quickCard.shadowRoot).includes("Charging days"),
+    "Ready By weekday selector is shown without Details");
+  assert.ok(content(quickCard.shadowRoot).includes("Allowed charging times"),
+    "Actual permitted time windows are separately visible");
+  assert.ok(find(quickCard.shadowRoot,"button","Hide charging schedule"));
+  const readOnlyQuick=new Card();
+  readOnlyQuick.setConfig({});
+  readOnlyQuick.hass={user:{is_admin:false},states:{},callWS:async()=>scheduleQuick};
+  await new Promise(resolve=>setImmediate(resolve));
+  readOnlyQuick._tab="Chargeable Assets";readOnlyQuick.render();
+  assert.equal(find(readOnlyQuick.shadowRoot,"button","Save charging goal"),undefined,
+    "Non-admin only observes true goal and never gains write authority");
+
   // SCHEDULE-06 owner-native Specific days and time windows.
   const scheduleData=JSON.parse(JSON.stringify(fixture));
   const asset=scheduleData.configuration.assets[0];
