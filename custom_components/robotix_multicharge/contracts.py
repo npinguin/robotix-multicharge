@@ -126,8 +126,13 @@ class ChargeDemand:
                     or not self.price_currency.isupper()
                     or not self.price_currency.isalpha()):
                 raise ValueError("explicit price-policy currency required")
-        elif self.price_currency is not None:
-            raise ValueError("price currency without a price policy")
+        elif self.price_currency is not None and (
+                not isinstance(self.price_currency, str)
+                or len(self.price_currency) != 3
+                or not self.price_currency.isascii()
+                or not self.price_currency.isupper()
+                or not self.price_currency.isalpha()):
+            raise ValueError("invalid selected source currency")
         if self.opportunistic_kind not in ("off", "type1", "type2"):
             raise ValueError("unsupported opportunistic price policy")
         if (self.opportunistic_kind != "off"
