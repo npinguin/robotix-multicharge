@@ -38,7 +38,8 @@
           "ready_by_repeat": "Gjenta (valgfritt)",
           "temporary": "Gjest (valgfritt)",
           "expires_at": "Utløp (valgfritt)",
-          "expected_connection_at": "Forventet tilkobling (valgfritt)"
+          "expected_connection_at": "Forventet tilkobling (valgfritt)",
+          "soc_stale_entity": "OEM-data foreldet (binærsensor: på = foreldet)"
         }
       },
       "sources": {
@@ -172,7 +173,8 @@
           "soc_entity": "Batteri",
           "capacity_kwh": "Batteri",
           "vehicle_control_entity": "Kjøretøyets styrebryter (kilde)",
-          "vehicle_current_entity": "Kjøretøyets strøminnstilling (kilde)"
+          "vehicle_current_entity": "Kjøretøyets strøminnstilling (kilde)",
+          "soc_stale_entity": "OEM-data foreldet (binærsensor: på = foreldet)"
         }
       },
       "charger": {
