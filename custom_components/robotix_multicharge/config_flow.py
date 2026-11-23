@@ -1100,7 +1100,8 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 cfg["controller"]["phase_limits_a"] = _phase_limits(user_input["phase_limits_a"])
             # Other source bindings are owned by the dedicated Energy step.
             # Editing a site name or phase limits must not silently erase them.
-            result = self._saved(cfg)
+            # Electrical changes must use the existing guarded native writer.
+            result = await self._safe_structural_save(cfg)
             if result is not None:
                 return result
         return self.async_show_form(
