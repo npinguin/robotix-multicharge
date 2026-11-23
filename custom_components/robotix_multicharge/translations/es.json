@@ -2,14 +2,9 @@
   "config": {
     "step": {
       "user": {
-        "title": "Instalación de carga",
-        "description": "Paso 1/5 — Nombre la instalación; los límites eléctricos son opcionales al configurarla.",
-        "data": {
-          "name": "Nombre (opcional)",
-          "max_parallel": "Puntos de carga simultáneos (opcional)",
-          "max_power_kw": "Potencia máxima (kW) (opcional)",
-          "phase_limits_a": "Límites de fase (A) (opcional)",
-          "mode": "Modo de carga inicial"
+        "menu_options": {
+          "guided": "Configuración guiada",
+          "expert": "Configurar todo el sitio de carga"
         }
       },
       "charger": {
@@ -89,6 +84,32 @@
           "circuit_limit_a": "Límite del circuito (A) (opcional)",
           "current_control_entity": "Consigna de corriente (number) (opcional)",
           "current_readback_entity": "Corriente medida (A) (opcional)"
+        }
+      },
+      "guided": {
+        "title": "Instalación de carga",
+        "description": "Paso 1/5 — Nombre la instalación; los límites eléctricos son opcionales al configurarla.",
+        "data": {
+          "name": "Nombre (opcional)",
+          "max_parallel": "Puntos de carga simultáneos (opcional)",
+          "max_power_kw": "Potencia máxima (kW) (opcional)",
+          "phase_limits_a": "Límites de fase (A) (opcional)",
+          "mode": "Modo de carga inicial"
+        }
+      },
+      "expert": {
+        "title": "Configuración completa",
+        "description": "Revise cargadores, vehículos y fuentes antes de guardar. Sin comandos físicos. {note}",
+        "data": {
+          "yaml_text": "YAML completo de MultiCharge (controller/assets/chargers)"
+        }
+      },
+      "expert_review": {
+        "title": "Revisar configuración completa",
+        "description": "{summary} Confirme después de revisar todos los ajustes.",
+        "data": {
+          "confirm": "He revisado toda la configuración",
+          "edit_again": "Volver a YAML"
         }
       }
     },
