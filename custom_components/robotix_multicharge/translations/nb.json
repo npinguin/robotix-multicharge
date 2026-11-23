@@ -2,14 +2,9 @@
   "config": {
     "step": {
       "user": {
-        "title": "Ladested",
-        "description": "Trinn 1/5 — Navngi ladestedet; elektriske grenser er valgfrie under installasjonen.",
-        "data": {
-          "name": "Navn (valgfritt)",
-          "max_parallel": "Antall (valgfritt)",
-          "max_power_kw": "Effekt (valgfritt)",
-          "phase_limits_a": "Faser (valgfritt)",
-          "mode": "Innledende lademodus"
+        "menu_options": {
+          "guided": "Veiledet oppsett",
+          "expert": "Konfigurer hele ladestedet"
         }
       },
       "charger": {
@@ -89,6 +84,32 @@
           "circuit_limit_a": "Strøm (valgfritt)",
           "current_control_entity": "Strøm (valgfritt)",
           "current_readback_entity": "Strøm (valgfritt)"
+        }
+      },
+      "guided": {
+        "title": "Ladested",
+        "description": "Trinn 1/5 — Navngi ladestedet; elektriske grenser er valgfrie under installasjonen.",
+        "data": {
+          "name": "Navn (valgfritt)",
+          "max_parallel": "Antall (valgfritt)",
+          "max_power_kw": "Effekt (valgfritt)",
+          "phase_limits_a": "Faser (valgfritt)",
+          "mode": "Innledende lademodus"
+        }
+      },
+      "expert": {
+        "title": "Komplett oppsett",
+        "description": "Kontroller ladere, kjøretøy og kilder før lagring. Ingen fysiske kommandoer. {note}",
+        "data": {
+          "yaml_text": "Full MultiCharge YAML (controller/assets/chargers)"
+        }
+      },
+      "expert_review": {
+        "title": "Gjennomgå hele konfigurasjonen",
+        "description": "{summary} Bekreft etter gjennomgang av alle innstillinger.",
+        "data": {
+          "confirm": "Jeg har gjennomgått hele konfigurasjonen",
+          "edit_again": "Tilbake til YAML"
         }
       }
     },
