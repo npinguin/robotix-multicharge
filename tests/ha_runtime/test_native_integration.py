@@ -540,6 +540,13 @@ async def test_options_flow_is_device_setup_not_daily_charge_operations(
              "electrical_limits_confirmed"},
             {"mode", "max_parallel", "ready_by"},
         ),
+        "energy": (
+            {"use_energy_dashboard", "solar_source_kind", "grid_power_direction",
+             "solar_power_entity", "home_power_entity", "grid_power_entity",
+             "solar_surplus_entity", "current_price_entity", "export_price_entity",
+             "solar_entity", "price_entity"},
+            {"mode", "control_owner", "physical_commissioned"},
+        ),
     }
     for step, (required, prohibited) in scope.items():
         menu = await hass.config_entries.options.async_init(entry.entry_id)
@@ -555,6 +562,38 @@ async def test_options_flow_is_device_setup_not_daily_charge_operations(
         }
         assert required <= available, (step, required - available)
         assert not (prohibited & available), (step, prohibited & available)
+
+    # One HA Energy source options transaction uses actual official Options
+    # Flow, never template helpers, files or another Config Entry.
+    menu = await hass.config_entries.options.async_init(entry.entry_id)
+    energy_form = await hass.config_entries.options.async_configure(
+        menu["flow_id"], {"next_step_id": "energy"}
+    )
+    assert energy_form["step_id"] == "energy"
+    configured = await hass.config_entries.options.async_configure(
+        energy_form["flow_id"], {
+            "use_energy_dashboard": False,
+            "solar_source_kind": "grid_export",
+            "grid_power_direction": "import_positive",
+            "solar_power_entity": "sensor.pv_power",
+            "home_power_entity": "sensor.whole_home_power",
+            "grid_power_entity": "sensor.grid_power",
+            "current_price_entity": "sensor.import_tariff",
+            "export_price_entity": "sensor.feed_in_tariff",
+        }
+    )
+    assert configured["type"] == FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    live = entry.options["configuration"]["controller"]
+    assert live["solar_source_kind"] == "grid_export"
+    assert live["solar_power_entity"] == "sensor.pv_power"
+    assert live["home_power_entity"] == "sensor.whole_home_power"
+    assert live["grid_power_entity"] == "sensor.grid_power"
+    assert live["current_price_entity"] == "sensor.import_tariff"
+    assert live["export_price_entity"] == "sensor.feed_in_tariff"
+    assert live["grid_power_direction"] == "import_positive"
+    assert entry.data["configuration"] == cfg
+    assert len(hass.config_entries.async_entries(DOMAIN)) == 1
 
     # User confirmation alone does not prove physical command readiness.
     # An unqualified generic charger remains external, with no HA write.
