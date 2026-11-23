@@ -599,8 +599,14 @@ def compile_plan(
         chosen = []
         delivered = 0.0
         budget_consumed = 0.0
+        budget_time_available = (
+            24 * 60 if demand.budget_remaining_minutes is None
+            else demand.budget_remaining_minutes
+        )
         for _, slot, selected_mode, power, current, rate in possible:
             if demand.remaining_budget_amount is not None:
+                if (len(chosen) + 1) * 15 > budget_time_available + 1e-9:
+                    break
                 # A complete quarter must fit the remaining positive spend.
                 # Negative tariffs never give unlimited credit or permission.
                 if (rate is None or rate < 0 and not isfinite(rate)):
@@ -653,7 +659,11 @@ def compile_plan(
             coverage[uid] = "COMPLETE"
         else:
             reasons[uid] = (
-                "BINDING_CAPACITY_UNAVAILABLE" if missing_binding
+                "BUDGET_DURATION_SAFETY_LIMIT" if (
+                    demand.remaining_budget_amount is not None
+                    and len(chosen) * 15 + 15 > budget_time_available
+                    and budget_consumed + 1e-9 < demand.remaining_budget_amount)
+                else "BINDING_CAPACITY_UNAVAILABLE" if missing_binding
                 else "SOLAR_UNAVAILABLE" if mode == "Solar" and missing_solar
                 else "BUDGET_EFFECTIVE_TARIFF_UNAVAILABLE" if (
                     demand.remaining_budget_amount is not None and missing_price)
