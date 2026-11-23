@@ -62,6 +62,7 @@ class NativeSwitchExecutor:
         # Current physical plug identity is volatile by design. Never assume a
         # stored vehicle assignment remains valid after restart or re-plug.
         self._plug_confirmations = {}
+        self._plug_epochs = {}
 
 
     def _connection(self, charger, at):
@@ -72,20 +73,44 @@ class NativeSwitchExecutor:
             disconnected_states=charger.get("disconnected_states"),
         )
 
+    def observe_connection(self, charger, observed):
+        """Observe continuity of a physical plug, not arbitrary EVSE substates.
+
+        A native provider may change Preparing -> Charging while the same
+        connector remains occupied. Disconnect, unknown, stale, rebind and
+        restart clear the transient epoch; no previous identity is persisted.
+        """
+        uid = charger["id"]
+        if observed.quality != "ok" or observed.value is not True:
+            self._plug_epochs.pop(uid, None)
+            self._plug_confirmations.pop(uid, None)
+            return None
+        entity = charger.get("connected_entity")
+        source = self.runtime.hass.states.get(entity)
+        changed = getattr(source, "last_changed", None)
+        if not isinstance(changed, datetime) or changed.utcoffset() is None:
+            self._plug_epochs.pop(uid, None)
+            self._plug_confirmations.pop(uid, None)
+            return None
+        existing = self._plug_epochs.get(uid)
+        if existing and existing["entity"] == entity:
+            return existing["connected_at"]
+        epoch = changed.astimezone(timezone.utc).isoformat()
+        self._plug_epochs[uid] = {"entity": entity, "connected_at": epoch}
+        self._plug_confirmations.pop(uid, None)
+        return epoch
+
     def connection_confirmation(self, charger, at):
         """Return only an explicit confirmation for the current plug instance."""
         uid = charger["id"]
         observed = self._connection(charger, at)
-        if observed.quality != "ok" or observed.value is not True:
-            self._plug_confirmations.pop(uid, None)
+        epoch = self.observe_connection(charger, observed)
+        if epoch is None:
             return None
-        source = self.runtime.hass.states.get(charger.get("connected_entity"))
-        changed = getattr(source, "last_changed", None)
         receipt = self._plug_confirmations.get(uid)
-        if (not isinstance(changed, datetime) or changed.utcoffset() is None
-                or not receipt
+        if (not receipt
                 or receipt["asset_id"] != charger.get("asset")
-                or receipt["connected_at"] != changed.astimezone(timezone.utc).isoformat()):
+                or receipt["connected_at"] != epoch):
             self._plug_confirmations.pop(uid, None)
             return None
         return dict(receipt)
@@ -107,15 +132,14 @@ class NativeSwitchExecutor:
             return {"status": "rejected", "reason": "SELECT_VEHICLE_FIRST"}
         observed = self._connection(charger, now)
         if observed.quality != "ok" or observed.value is not True:
-            self._plug_confirmations.pop(charger_id, None)
+            self.observe_connection(charger, observed)
             return {"status": "rejected", "reason": "CURRENT_PHYSICAL_CONNECTION_UNKNOWN"}
-        source = self.runtime.hass.states.get(charger.get("connected_entity"))
-        changed = getattr(source, "last_changed", None)
-        if not isinstance(changed, datetime) or changed.utcoffset() is None:
+        epoch = self.observe_connection(charger, observed)
+        if epoch is None:
             return {"status": "rejected", "reason": "PLUG_INSTANCE_UNVERIFIED"}
         record = {
             "asset_id": asset,
-            "connected_at": changed.astimezone(timezone.utc).isoformat(),
+            "connected_at": epoch,
             "confirmed_at": now.astimezone(timezone.utc).isoformat(),
         }
         self._plug_confirmations[charger_id] = record
