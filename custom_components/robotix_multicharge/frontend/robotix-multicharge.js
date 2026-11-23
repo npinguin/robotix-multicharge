@@ -363,6 +363,10 @@ function mcApexCommon(from,until,height,title,withPrice=false){
     xaxis:{type:"datetime",min:from,max:until,labels:{datetimeUTC:false},
       axisBorder:{show:false},axisTicks:{show:false}},
     yaxis:[{
+      // Apex 3.49 uses the *visible* nonempty series count for its y-axis
+      // matching. Explicitly group the three power series so adding a
+      // separate price axis cannot index an absent series on sparse days.
+      ...(withPrice?{seriesName:["Proposed","Accepted","Measured"]}:{}),
       title:{text:"Measured / proposed / accepted · kW"},
       min:0,decimalsInFloat:2,
       labels:{formatter:v=>Number(v).toFixed(1)}
