@@ -14,6 +14,7 @@ FIELDS = {
     "target_soc": (0, 100, 1, "%"),
     "requested_kwh": (0, 200, 0.1, "kWh"),
     "requested_duration_minutes": (0, 1440, 15, "min"),
+    "requested_budget_amount": (0, 10000, 0.01, "EUR"),
     "priority": (0, 100, 1, None),
     "max_charge_kw": (0.1, 100, 0.1, "kW"),
     "capacity_kwh": (0.1, 1000, 0.1, "kWh"),
@@ -99,12 +100,22 @@ class _AssetNumber(NumberEntity):
         changes = {self.field: value}
         if self.field == "requested_duration_minutes":
             changes["requested_kwh"] = None
+            changes["requested_budget_amount"] = None
+            changes["requested_budget_currency"] = None
             if value == 0:
                 changes["requested_duration_minutes"] = None
         elif self.field == "requested_kwh":
             changes["requested_duration_minutes"] = None
+            changes["requested_budget_amount"] = None
+            changes["requested_budget_currency"] = None
             if value == 0:
                 changes["requested_kwh"] = None
+        elif self.field == "requested_budget_amount":
+            changes["requested_kwh"] = None
+            changes["requested_duration_minutes"] = None
+            changes["requested_budget_currency"] = "EUR" if value > 0 else None
+            if value == 0:
+                changes["requested_budget_amount"] = None
         await apply_native_preference(
             self.hass, self.entry, self.runtime, "asset", self.uid, changes
         )
