@@ -797,7 +797,7 @@ async function main(){
     "Today, Tomorrow and 48h period choice must be visible");
   let combined=[];
   visit(card.shadowRoot,node=>{
-    if(node.className==="combined-plan")combined.push(node);
+    if(String(node.className||"").split(" ").includes("combined-plan"))combined.push(node);
   });
   assert.equal(combined.length,1,
     "exactly one power/price overview, not separate duplicate graphs");
@@ -840,7 +840,7 @@ async function main(){
   let lanes=[],plot;
   visit(many.shadowRoot,node=>{
     if(node.className==="plan-lane")lanes.push(node);
-    if(node.className==="combined-plan")plot=node;
+    if(String(node.className||"").split(" ").includes("combined-plan"))plot=node;
   });
   assert.equal(lanes.length,10,
     "All 10 real Charger objects get their own dynamic detail lane");
@@ -857,7 +857,7 @@ async function main(){
   many.render();
   let without;
   visit(many.shadowRoot,node=>{
-    if(node.className==="combined-plan")without=node;
+    if(String(node.className||"").split(" ").includes("combined-plan"))without=node;
   });
   assert.ok(content(without).includes("Price unavailable"),
     "No missing price is silently rendered as zero");
