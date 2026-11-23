@@ -212,19 +212,35 @@ class NativeSwitchExecutor:
                 occurrence, datetime
             ) else occurrence,
         }
+        # Preserve fingerprints for every existing non-budget legacy intent.
+        # Additional fields are incorporated only when actually configured.
+        for field in ("requested_budget_amount", "requested_budget_currency",
+                      "ready_by_weekdays", "charging_windows"):
+            if asset.get(field) is not None:
+                data[field] = asset[field]
         return sha256(dumps(data, sort_keys=True).encode()).hexdigest()
 
     def measured_intent_usage(self, asset, charger, occurrence, at=None):
         """Measured progress follows the Asset's intent, never its former EVSE."""
         now = at or datetime.now(timezone.utc)
         key = self._intent_key(asset, charger, occurrence)
-        energy, duration = 0.0, 0.0
+        energy, duration, budget_amount = 0.0, 0.0, 0.0
+        money_requested = asset.get("requested_budget_amount") is not None
         for receipt in self._session_history:
             if (receipt.get("intent_key") != key
                     or receipt.get("asset_id") != asset["id"]):
                 continue
             if receipt.get("physical_stop_confirmed") is not True:
-                return {"energy_kwh": None, "duration_minutes": None}
+                return {"energy_kwh": None, "duration_minutes": None,
+                        "budget_amount": None}
+            if money_requested:
+                cost = receipt.get("budget_accrued_cost")
+                if (receipt.get("budget_cost_quality") !=
+                        "qualified_effective_meter_increments"
+                        or cost is None):
+                    return {"energy_kwh": None, "duration_minutes": None,
+                            "budget_amount": None}
+                budget_amount += cost
             duration += receipt["duration_minutes"]
             value = receipt.get("actual_energy_kwh")
             if asset.get("requested_kwh") is not None:
@@ -236,6 +252,11 @@ class NativeSwitchExecutor:
                     or session.get("intent_key") != key):
                 continue
             duration += max(0, (now - session["started_at"]).total_seconds() / 60)
+            if money_requested:
+                if session.get("budget_quality") != "qualified_effective_meter_increments":
+                    return {"energy_kwh": None, "duration_minutes": None,
+                            "budget_amount": None}
+                budget_amount += session.get("budget_cost", 0.0)
             if asset.get("requested_kwh") is not None:
                 source = next((c.get("energy_entity") for c in
                                self.runtime.configuration["chargers"]
@@ -247,7 +268,8 @@ class NativeSwitchExecutor:
                     return {"energy_kwh": None, "duration_minutes": None}
                 energy += max(0, sample.value - session["starting_energy_kwh"])
         return {"energy_kwh": round(energy, 6),
-                "duration_minutes": round(duration, 4)}
+                "duration_minutes": round(duration, 4),
+                "budget_amount": round(budget_amount, 6)}
 
     def intent_completed(self, asset, charger, deadline):
         key = self._intent_key(asset, charger, deadline)
@@ -314,6 +336,14 @@ class NativeSwitchExecutor:
                     or amount is None or not isinstance(row.get("currency"), str)
                 ):
                     raise ValueError("invalid session valuation")
+                budget = row.get("budget_accrued_cost")
+                if budget is not None and (
+                        type(budget) not in (float, int) or not isfinite(budget)
+                        or budget < 0
+                        or row.get("budget_cost_quality") !=
+                        "qualified_effective_meter_increments"
+                        or not isinstance(row.get("budget_currency"), str)):
+                    raise ValueError("invalid budget progress receipt")
                 receipts.append(dict(row))
             # Adopt ALL persisted decision evidence only after the *last*
             # field has passed validation. A corrupt trailing receipt cannot
@@ -401,6 +431,13 @@ class NativeSwitchExecutor:
             "cost": cost, "currency": currency,
             "cost_quality": "qualified_effective_tariff" if cost is not None else "unknown",
             "stop_reason": reason, "physical_stop_confirmed": True,
+            "budget_accrued_cost": (
+                session.get("budget_cost")
+                if session.get("budget_quality") == "qualified_effective_meter_increments"
+                else None
+            ),
+            "budget_cost_quality": session.get("budget_quality", "not_applicable"),
+            "budget_currency": session.get("requested_budget_currency"),
         })
         self._session_history = self._session_history[-200:]
 
