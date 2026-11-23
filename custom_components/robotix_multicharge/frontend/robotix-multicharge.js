@@ -408,6 +408,14 @@ function mcApexLane(data,charger,rows,actuals,forecast){
   })).filter(row=>row.data.length);
   // Old ApexCharts may reject zero-length subordinate series in a stacked
   // multi-lane Shadow DOM; absent evidence is an absent series, never a 0.
+  // An owner with no measured/planned/indicative source has no series.
+  // Apex 3.x cannot build its Y-axis mapping for an empty series array.
+  // Do not render a fake zero line to work around this vendor limitation.
+  if(!available.length){
+    plot.append(mcEl("p","muted small",
+      mcTr("No qualified physical or planned power in this period")));
+    return plot;
+  }
   const options=mcApexCommon(from,until,190,"Charger "+charger.id);
   options.chart.type="line";
   options.series=available.map(({name,data})=>({name,data}));
@@ -483,7 +491,9 @@ function mcCombinedChargingChart(data, visibleChargers, slots, actuals){
   options.series=series;
   options.annotations={xaxis:Date.now()>=from&&Date.now()<until?
     [{x:Date.now(),borderColor:"#b86a44",label:{text:"Now"}}]:[]};
-  mcMountApex(plot,options);
+  if(series.some(item=>item.data.length))mcMountApex(plot,options);
+  else plot.append(mcEl("p","muted small",
+    mcTr("No qualified physical or planned power in this period")));
   wrapper.append(plot);
   if(validPrice)wrapper.append(mcEl("p","muted small",
     basis[0]+" · "+currency[0]+"/kWh · "+mcTr("reference price, not an invoice")));
