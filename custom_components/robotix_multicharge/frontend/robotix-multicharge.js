@@ -976,16 +976,27 @@ class RobotixMultiChargeCard extends HTMLElement {
         }
         mcPair(detail,"Requested energy",a.requested_kwh===undefined?"Not set":a.requested_kwh+" kWh");
         mcPair(detail,"Duration",a.requested_duration_minutes===undefined?"Not set":a.requested_duration_minutes+" min");
+        detail.append(mcEl("h4","",mcTr("Charging preferences")));
+        for(const [field,label,unit] of [
+          ["target_soc","Charging limit","%"],
+          ["requested_kwh","Requested energy","kWh"],
+          ["requested_duration_minutes","Requested charging duration","minutes"],
+          ["max_charge_kw","Maximum vehicle charging power","kW"],
+          ["priority","Priority",""],
+          ["capacity_kwh","Battery capacity","kWh"],
+          ["charge_efficiency","Charging efficiency",""]
+        ])this.nativeNumberEditor(detail,"asset",a.id,field,label,a[field],unit);
+        const deadline=mcEl("div","row");
+        deadline.append(mcEl("span","",mcTr("Ready By")+" · "+mcTime(a.ready_by,d.timezone)));
+        if(this.canEditSettings()&&this.ownerEntity("asset",a.id,"ready_by"))
+          deadline.append(mcButton(mcTr("Set charging deadline"),()=>
+            this.openNative("asset",a.id,"ready_by")));
+        detail.append(deadline);
+        this.nativeRepeatEditor(detail,a);
         if(this.canEditSettings())this.ownerColorControl(detail,"asset",a);
         for(const [field,label] of [
-          ["kind","Asset type"],["target_soc","Target"],["requested_kwh","Requested energy"],
-          ["requested_duration_minutes","Duration"],["priority","Priority"],
-          ["max_charge_kw","Maximum vehicle charging power"],
-          ["capacity_kwh","Battery capacity"],
-          ["charge_efficiency","Charging efficiency"],
-          ["ready_by","Ready By"],["expected_connection_at","Expected"],
-          ["ready_by_repeat","Repeat"],["expires_at","Guest expiry"],
-          ["name","Asset name"]
+          ["kind","Asset type"],["expected_connection_at","Expected"],
+          ["expires_at","Guest expiry"],["name","Asset name"]
         ]){
           if(!this.canEditSettings()||!this.ownerEntity("asset",a.id,field))continue;
           const row=mcEl("div","row");
