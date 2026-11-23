@@ -100,7 +100,7 @@ class _OwnerName(TextEntity):
         await super().async_will_remove_from_hass()
 
     async def async_set_value(self, value: str) -> None:
-        await require_native_admin(self.hass, self.context)
+        await require_native_admin(self.hass, self._context)
         if not isinstance(value, str) or not value.strip():
             raise ValueError("name_required")
         await apply_native_preference(
@@ -158,7 +158,7 @@ class _SourceBindingText(TextEntity):
         await super().async_will_remove_from_hass()
 
     async def async_set_value(self, value: str):
-        await require_native_admin(self.hass, self.context)
+        await require_native_admin(self.hass, self._context)
         value = value.strip() if isinstance(value, str) else ""
         await apply_native_preference(
             self.hass, self.entry, self.runtime,
@@ -216,7 +216,7 @@ class _AssetWindowText(TextEntity):
         await super().async_will_remove_from_hass()
 
     async def async_set_value(self, value: str):
-        await require_native_admin(self.hass, self.context)
+        await require_native_admin(self.hass, self._context)
         if not isinstance(value, str) or len(value) > 11:
             raise ValueError("window_format_invalid")
         asset = next((a for a in self.runtime.configuration["assets"]
