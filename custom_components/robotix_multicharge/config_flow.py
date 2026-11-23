@@ -183,7 +183,7 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._draft["controller"]["max_parallel"] = int(user_input.get("max_parallel", 1))
                 if user_input.get("max_power_kw") is not None:
                     self._draft["controller"]["max_power_kw"] = user_input["max_power_kw"]
-                self._draft["controller"]["mode"] = "Off"
+                self._draft["controller"]["mode"] = user_input.get("mode", "Automatic")
                 if user_input.get("phase_limits_a"):
                     self._draft["controller"]["phase_limits_a"] = _phase_limits(
                         user_input["phase_limits_a"])
