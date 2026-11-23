@@ -192,7 +192,7 @@ const MC_STYLE = [
   ".tabs,.controls,.chips{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.tabs{gap:3px;border-bottom:1px solid var(--divider-color,#e5e7eb);margin-bottom:20px}",
   "input,button,select,textarea,a.action{font:inherit;border:1px solid var(--divider-color,#cfd6de);background:var(--card-background-color,#fff);color:inherit;border-radius:8px;padding:9px 11px;cursor:pointer;text-decoration:none;min-height:40px}.tabs button{border:0;border-bottom:3px solid transparent;border-radius:0;background:transparent;padding:10px 13px;color:var(--secondary-text-color,#667085)}",
   ".tabs button[aria-selected=true]{color:var(--primary-color,#1976d2);border-bottom-color:var(--primary-color,#1976d2);background:transparent;font-weight:650}button.active{background:var(--primary-color,#1976d2);color:var(--text-primary-color,#fff);border-color:var(--primary-color,#1976d2)}",
-  "button:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid var(--primary-color,#1976d2);outline-offset:2px}",
+  "button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid var(--primary-color,#1976d2);outline-offset:2px}",
   ".grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}",
   ".card{border:1px solid var(--divider-color,#e1e4e8);border-radius:10px;padding:14px;min-width:0;margin:8px 0}.settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr));gap:12px;margin-top:14px}.settings-card{margin:0;min-height:72px}.settings-card.expanded{grid-column:1/-1}.settings-heading{min-width:0;flex:1}.settings-heading p{margin-top:5px}.settings-card .row{align-items:flex-start}.config-code{white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;border:1px solid var(--divider-color,#e1e4e8);border-radius:8px;background:var(--secondary-background-color,#f7f8fa);font-size:12px;line-height:1.5}",
   ".metric{background:var(--secondary-background-color,#f6f8fa);border:1px solid var(--divider-color,#e1e4e8);border-radius:10px;padding:15px;min-width:0}",
@@ -435,6 +435,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._assignmentEditor="";
     this._goalDrafts={};
     this._scheduleEditor="";
+    this._fieldSequence=0;
     this._refreshTimer=null;
     this._refreshPending=false;
     this._pendingNative=null;
@@ -835,6 +836,9 @@ class RobotixMultiChargeCard extends HTMLElement {
     const input=mcEl("input");
     input.setAttribute("type","number");
     input.setAttribute("aria-label",mcTr(label));
+    const controlId="multicharge-native-number-"+(this._fieldSequence++);
+    input.setAttribute("id",controlId);
+    labelNode.setAttribute("for",controlId);
     input.value=observed===undefined||observed===null?"":String(observed);
     const attr=native?.attributes||{};
     if(Number.isFinite(Number(attr.min))&&attr.min!==undefined)
@@ -963,7 +967,7 @@ class RobotixMultiChargeCard extends HTMLElement {
   field(container,title,value,type,choices){
     const wrapper=mcEl("div","field"),label=mcEl("label","",title);
     const input=mcEl(choices?"select":"input");
-    const id="multicharge-"+title.toLowerCase().replace(/[^a-z0-9]+/g,"-");
+    const id="multicharge-"+title.toLowerCase().replace(/[^a-z0-9]+/g,"-")+"-"+(this._fieldSequence++);
     input.setAttribute("id",id);label.setAttribute("for",id);
     if(choices){
       for(const [key,caption] of choices){
@@ -1004,6 +1008,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     mcLanguage=String(this._hass?.locale?.language||this._hass?.language||"en").slice(0,2).toLowerCase();
     if(!this.shadowRoot)return;
     const root=this.shadowRoot;root.replaceChildren();
+    this._fieldSequence=0;
     const style=mcEl("style");style.textContent=MC_STYLE;root.append(style);
     const shell=mcEl("section","root");
     const head=mcEl("div","heading");const heading=mcEl("div");
@@ -1091,8 +1096,9 @@ class RobotixMultiChargeCard extends HTMLElement {
       }
       if(charger&&this.canManage()){
         const physical=(observations[charger.id]||{}).power_kw;
-        if(physical?.quality==="ok"&&typeof physical.value==="number"&&
-            physical.value>0){
+        const capabilities=(d.command_capabilities||{})[charger.id]||{};
+        if(capabilities.stop_allowed&&physical?.quality==="ok"&&
+            typeof physical.value==="number"&&physical.value>0){
           const stop=mcButton(mcTr("Stop charging"),()=>
             this.command(charger.id,"stop"));
           stop.disabled=this._commandBusy;
