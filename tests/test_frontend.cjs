@@ -240,6 +240,22 @@ async function main(){
                       "Allowed charging time windows","Opportunistic strategy"]){
     assert.ok(vehicleText.includes(label),"Vehicle object must expose "+label);
   }
+  // Object-first D0 keeps novice actions visible; D3/D4 grouped properties
+  // are native keyboard-accessible folds, not an intimidating long form.
+  const vehicleFolds=[];
+  visit(vehicle.shadowRoot,node=>{
+    if(node.tag==="details"&&node.attributes["data-owner-group"])
+      vehicleFolds.push(node);
+  });
+  assert.equal(vehicleFolds.length,4,
+    "Every persisted Asset group must be in one owning foldable row");
+  assert.ok(vehicleFolds.every(row=>row.open===false),
+    "Expert Asset fields are initially collapsed without hiding novice actions");
+  assert.ok(vehicleFolds.every(row=>
+    row.children[0]?.tag==="summary"&&row.children[1]?.className==="owner-fields"),
+    "Native summary/fields semantics support keyboard and dense layout");
+  assert.ok(find(vehicle.shadowRoot,"button","Save charging goal"),
+    "Novice Goal is not hidden in a technical fold");
   assert.ok(vehicleText.includes("binary_sensor.car_soc_stale"));
   assert.ok(vehicleText.includes("FRI: 18:00"),
     "Per-day Ready By remains under owning Vehicle");
@@ -260,6 +276,22 @@ async function main(){
                       "historical_guest","External control (monitor only)"]){
     assert.ok(evseText.includes(label),"Charger owner must expose "+label);
   }
+  const chargerFolds=[];
+  visit(evse.shadowRoot,node=>{
+    if(node.tag==="details"&&node.attributes["data-owner-group"])
+      chargerFolds.push(node);
+  });
+  assert.equal(chargerFolds.length,3,
+    "Every persisted Charger group must remain in its owning foldable row");
+  assert.ok(chargerFolds.every(row=>row.open===false));
+  const historyFold=[];
+  visit(evse.shadowRoot,node=>{
+    if(node.tag==="details"&&node.attributes["data-disclosure"]===
+       "charger:drive:history")historyFold.push(node);
+  });
+  assert.equal(historyFold.length,1,"Historical session must stay available");
+  assert.equal(historyFold[0].open,false,
+    "Previous sessions do not overwhelm the daily Charger status");
   assert.ok(evseText.includes("sensor.charge_energy"));
   assert.ok(evseText.includes("garage"));
   assert.ok(evseText.includes("USER_STOP")||evseText.includes("User stop"),
