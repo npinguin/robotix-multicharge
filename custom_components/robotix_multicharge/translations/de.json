@@ -329,6 +329,15 @@
       },
       "charge_efficiency": {
         "name": "Ladewirkungsgrad"
+      },
+      "min_charging_power_kw": {
+        "name": "Minimale Ladeleistung"
+      },
+      "max_charging_power_kw": {
+        "name": "Maximale Ladeleistung"
+      },
+      "set_charging_power_kw": {
+        "name": "Ladeleistung einstellen"
       }
     },
     "datetime": {
