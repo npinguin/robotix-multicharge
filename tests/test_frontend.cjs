@@ -195,7 +195,7 @@ async function main(){
     callWS:async request=>{
       manualWS.push(request);
       return request.type==="robotix_multicharge/command"?
-        {status:"confirmed",action:"start"}:minimalData;
+        {status:"confirmed",action:"start"}:JSON.parse(JSON.stringify(minimalData));
     }
   };
   await new Promise(resolve=>setImmediate(resolve));
