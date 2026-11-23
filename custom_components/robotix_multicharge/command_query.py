@@ -88,6 +88,10 @@ async def apply_native_preference(hass, entry, runtime, scope, target_id, change
         if not is_plan_presentation_only_change(runtime.configuration, updated):
             # A charger assignment changes both its own command boundary and
             # the former charger's assignment. Other active chargers are safe.
+            atomic_guest_assignment = (
+                scope == "asset" and action == "create"
+                and changes.get("assign_charger_id") is not None
+            )
             if scope == "charger" and set(changes) <= {"asset"}:
                 affected = {target_id}
                 selected = changes.get("asset")
@@ -102,7 +106,11 @@ async def apply_native_preference(hass, entry, runtime, scope, target_id, change
             else:
                 candidates = runtime.configuration["chargers"]
             for charger in candidates:
-                rebind = scope == "charger" and set(changes) <= {"asset"}
+                rebind = (
+                    (scope == "charger" and set(changes) <= {"asset"})
+                    or (atomic_guest_assignment
+                        and charger["id"] == changes["assign_charger_id"])
+                )
                 owned = (charger.get("control_owner") == "multicharge"
                          and charger.get("physical_commissioned") is True)
                 if not rebind and not owned:
