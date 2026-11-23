@@ -115,7 +115,7 @@
         "title": "Vollständige Einrichtung",
         "description": "Prüfen Sie Ladepunkte, Fahrzeuge und Quellen vor dem Speichern. Keine physischen Ladebefehle. {note}",
         "data": {
-          "yaml_text": "Vollständige MultiCharge-YAML (controller/assets/chargers)"
+          "yaml_text": "Vollständige MultiCharge-JSON (controller/assets/chargers)"
         }
       },
       "expert_review": {
@@ -123,7 +123,7 @@
         "description": "{summary} Bestätigen Sie nach Prüfung aller Einstellungen.",
         "data": {
           "confirm": "Ich habe die gesamte Konfiguration geprüft",
-          "edit_again": "Zurück zum YAML"
+          "edit_again": "Zurück zum JSON"
         }
       }
     },
@@ -145,7 +145,7 @@
           "asset": "Lade-Asset",
           "charger": "Ladepunkt",
           "display": "Dashboardkarte",
-          "yaml": "YAML bearbeiten (vor dem Speichern prüfen)",
+          "yaml": "JSON bearbeiten (vor dem Speichern prüfen)",
           "commission": "Ladepunkt in Betrieb nehmen",
           "energy": "Energie und Preise"
         }
@@ -213,19 +213,19 @@
         }
       },
       "yaml": {
-        "title": "MultiCharge YAML-Konfiguration",
+        "title": "MultiCharge JSON-Konfiguration",
         "description": "Gesamte Konfiguration oder gezielte Änderungen bearbeiten. Prüfung vor dem Speichern. {note}",
         "data": {
           "mode": "Änderungsmodus",
-          "yaml_text": "MultiCharge Konfiguration (YAML/JSON)"
+          "yaml_text": "MultiCharge Konfiguration (JSON)"
         }
       },
       "yaml_review": {
-        "title": "YAML-Änderungen prüfen",
+        "title": "JSON-Änderungen prüfen",
         "description": "{summary}\nErst nach Prüfung bestätigen.",
         "data": {
           "confirm": "Geprüfte Änderungen anwenden",
-          "edit_again": "Zurück zum YAML"
+          "edit_again": "Zurück zum JSON"
         }
       },
       "commission": {
