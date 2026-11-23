@@ -353,6 +353,27 @@
           "scooter": "Scooter",
           "other": "Autre"
         }
+      },
+      "ready_day_mon": {
+        "name": "Lundi Ready By"
+      },
+      "ready_day_tue": {
+        "name": "Mardi Ready By"
+      },
+      "ready_day_wed": {
+        "name": "Mercredi Ready By"
+      },
+      "ready_day_thu": {
+        "name": "Jeudi Ready By"
+      },
+      "ready_day_fri": {
+        "name": "Vendredi Ready By"
+      },
+      "ready_day_sat": {
+        "name": "Samedi Ready By"
+      },
+      "ready_day_sun": {
+        "name": "Dimanche Ready By"
       }
     },
     "number": {
@@ -391,6 +412,9 @@
       },
       "set_charging_power_kw": {
         "name": "Régler la puissance de charge"
+      },
+      "requested_budget_amount": {
+        "name": "Budget de recharge (€)"
       }
     },
     "datetime": {
@@ -501,7 +525,8 @@
           "energy": "Énergie",
           "duration": "Durée",
           "target_soc": "Cible batterie",
-          "unconfigured": "Définir une cible"
+          "unconfigured": "Définir une cible",
+          "budget": "Budget"
         }
       },
       "confirmed_current_setpoint": {
@@ -529,6 +554,27 @@
       },
       "soc_entity": {
         "name": "Source niveau de batterie"
+      },
+      "charging_window_mon": {
+        "name": "Lundi charging hours"
+      },
+      "charging_window_tue": {
+        "name": "Mardi charging hours"
+      },
+      "charging_window_wed": {
+        "name": "Mercredi charging hours"
+      },
+      "charging_window_thu": {
+        "name": "Jeudi charging hours"
+      },
+      "charging_window_fri": {
+        "name": "Vendredi charging hours"
+      },
+      "charging_window_sat": {
+        "name": "Samedi charging hours"
+      },
+      "charging_window_sun": {
+        "name": "Dimanche charging hours"
       }
     },
     "binary_sensor": {
