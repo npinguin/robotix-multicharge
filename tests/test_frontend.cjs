@@ -1182,18 +1182,16 @@ async function main(){
     c.action==="resume"&&c.charger_id==="drive"));
   fixture.command_capabilities={};
   card.render();
-  const addCharger=find(card.shadowRoot,"a","Add charger");
-  assert.ok(addCharger&&addCharger.href==="/config/integrations/integration/robotix_multicharge",
-    "Add Charger routes to the one native HA setup");
+  const addCharger=find(card.shadowRoot,"button","Add charger");
+  assert.ok(addCharger,
+    "Add Charger is configured entirely through this dashboard");
   find(card.shadowRoot,"button","Settings").click();
   card._settingsOpen="";card.render();
   for(const name of ["Charging site","Sources & bindings","Charging strategy",
-                     "Safety & limits","Integrations","YAML configuration"]){
+                     "Safety & limits","Integrations"]){
     assert.ok(content(card.shadowRoot).includes(name),name);
   }
-  assert.ok(find(card.shadowRoot,"button","Edit YAML"),"Settings expose native embedded YAML editor");
-  assert.ok(content(card.shadowRoot).includes("YAML configuration"),
-    "Settings expose actual YAML runtime configuration");
+
   assert.ok(!content(card.shadowRoot).includes("YAML configuration"),
     "No free-text YAML/JSON configuration editor is present");
   assert.ok(!content(card.shadowRoot).includes("/config/packages/multicharge.yaml"),
@@ -1218,7 +1216,7 @@ async function main(){
   const siteEdit=find(card.shadowRoot,"button","Edit");
   assert.ok(siteEdit,"Site name exposes its native HA text editor");
   siteEdit.click();
-  assert.equal(card._editingField,"controller:home:name",
+  assert.equal(card._editingField,"controller:site:name",
     "Native entity shortcut expands the in-dashboard Controller field");
   card._settingsOpen="Safety & limits";card.render();
   assert.ok(content(card.shadowRoot).includes("Electrical limits"),
