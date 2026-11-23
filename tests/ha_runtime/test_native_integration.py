@@ -974,6 +974,13 @@ async def test_new_install_expert_single_ui_config_entry_four_chargers_four_asse
             "id": "home", "name": "Independent charge site",
             "mode": "Automatic", "max_parallel": 4,
             "max_power_kw": 3.6, "price_entity": "sensor.prices",
+            "solar_power_entity": "sensor.pv",
+            "home_power_entity": "sensor.house_consumption",
+            "grid_power_entity": "sensor.net_grid",
+            "current_price_entity": "sensor.import_price",
+            "export_price_entity": "sensor.export_price",
+            "solar_source_kind": "grid_export",
+            "grid_power_direction": "import_positive",
             "plan_color_by": "vehicle",
         },
         "chargers": chargers, "assets": assets,
@@ -1006,6 +1013,10 @@ async def test_new_install_expert_single_ui_config_entry_four_chargers_four_asse
     entry = approved["result"]
     assert entry.data["source"] == "ui", "GUI owns the source, not file YAML"
     assert entry.data["configuration"] == validate_configuration(proposed)
+    assert entry.data["configuration"]["controller"]["home_power_entity"] == (
+        "sensor.house_consumption"
+    )
+    assert entry.data["configuration"]["controller"]["grid_power_entity"] == "sensor.net_grid"
     assert len(hass.config_entries.async_entries(DOMAIN)) == 1
     reg = dr.async_get(hass)
     for key in ("white", "black", "peblar", "utility"):
