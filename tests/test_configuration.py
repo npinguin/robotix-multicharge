@@ -803,6 +803,57 @@ class ConfigurationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_configuration(cfg)
 
+    def test_upstream_source_qualified_price_soc_and_departure_policies(self):
+        from copy import deepcopy
+        from multicharge_configuration_tests.configuration import (
+            apply_settings_change, is_in_place_runtime_preference_change,
+        )
+        base = default_configuration()
+        base["assets"] = [{
+            "id": "car", "name": "Car", "capacity_kwh": 50.0,
+            "target_soc": 80, "minimum_soc_pct": 30,
+            "maximum_price_per_kwh": 0.20, "price_currency": "EUR",
+            "low_price_trigger_per_kwh": 0.08,
+            "low_soc_trigger_pct": 20,
+            "opportunistic_kind": "type1",
+            "opportunistic_level_pct": 50,
+            "earliest_start_at": "2026-11-25T06:45:00+01:00",
+        }]
+        checked = validate_configuration(base)
+        car = checked["assets"][0]
+        self.assertEqual(car["minimum_soc_pct"], 30)
+        self.assertEqual(car["maximum_price_per_kwh"], 0.20)
+        self.assertEqual(car["price_currency"], "EUR")
+        self.assertEqual(car["earliest_start_at"],
+                         "2026-11-25T06:45:00+01:00")
+        changed = apply_settings_change(
+            checked, "asset", "car", {"opportunistic_kind": "type2",
+                                     "opportunistic_level_pct": 90},
+        )
+        self.assertTrue(is_in_place_runtime_preference_change(checked, changed))
+        self.assertEqual(changed["assets"][0]["opportunistic_kind"], "type2")
+        prepared = default_configuration()
+        prepared["assets"] = [{"id": "guest", "name": "Guest",
+                               "price_currency": "GBP"}]
+        self.assertEqual(validate_configuration(
+            prepared)["assets"][0]["price_currency"], "GBP")
+        invalids = (
+            {"minimum_soc_pct": 101},
+            {"minimum_soc_pct": 90},
+            {"low_soc_trigger_pct": -1},
+            {"maximum_price_per_kwh": 0.20, "price_currency": "eur"},
+            {"maximum_price_per_kwh": 0.20, "price_currency": None},
+            {"opportunistic_kind": "type2", "maximum_price_per_kwh": None},
+            {"opportunistic_kind": "type3"},
+            {"earliest_start_at": "2026-11-25T06:45:00"},
+            {"opportunistic_level_pct": 110},
+        )
+        for invalid in invalids:
+            sample = deepcopy(base)
+            sample["assets"][0].update(invalid)
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                validate_configuration(sample)
+
     def test_continuity_is_optional_one_asset_preference(self):
         from multicharge_configuration_tests.configuration import (
             apply_settings_change, is_in_place_runtime_preference_change,
