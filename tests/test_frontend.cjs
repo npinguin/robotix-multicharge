@@ -107,6 +107,30 @@ async function main(){
   find(fixedCard.shadowRoot,"button","Chargers").click();
   find(fixedCard.shadowRoot,"button","Details").click();
   assert.ok(content(fixedCard.shadowRoot).includes("On/off only"));
+  // Power controls live directly in the Charger view and write ONLY the
+  // MultiCharge-owned HA Number entity (never a provider Amp endpoint).
+  const chargeNative=[];
+  adjustableCard._hass.callService=async(domain,service,payload)=>{
+    chargeNative.push({domain,service,payload});
+  };
+  let powerInput, powerApply;
+  visit(adjustableCard.shadowRoot,node=>{
+    if(node.tag==="div"&&node.children?.some(child=>
+      child.tag==="input"&&child.attributes["aria-label"]==="Set charging power")){
+      powerInput=node.children.find(child=>child.tag==="input");
+      powerApply=node.children.find(child=>child.tag==="button");
+    }
+  });
+  assert.ok(powerInput&&powerApply,"Set power is directly editable in Charger dashboard");
+  powerInput.value="2.30";
+  powerApply.click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(chargeNative[0],{
+    domain:"number",service:"set_value",
+    payload:{entity_id:"number.drive_set_kw",value:2.3}
+  });
+  assert.equal(adjustableCard._settingsFeedback.status,"accepted_unconfirmed",
+    "An HA service call cannot invent physical power readback");
 
   const commands=[];
   const card=new Card();
@@ -339,6 +363,13 @@ async function main(){
   find(card.shadowRoot,"button","Chargeable Assets").click();
   assert.ok(content(card.shadowRoot).includes("Family car"));
   assert.ok(content(card.shadowRoot).includes("20%"));
+  find(card.shadowRoot,"button","Details").click();
+  assert.ok(content(card.shadowRoot).includes("Charging limit"),
+    "Asset dashboard directly presents user 80% target");
+  assert.ok(content(card.shadowRoot).includes("Charging schedule"),
+    "Daily/weekly recurrence is on the Asset dashboard, not Options Flow");
+  assert.ok(find(card.shadowRoot,"button","Set charging deadline"),
+    "HA device-owned Ready By datetime is reachable directly from dashboard");
   find(card.shadowRoot,"button","Chargers").click();
   assert.ok(content(card.shadowRoot).includes("Driveway"));
   assert.ok(content(card.shadowRoot).includes("2.3 kW"));
@@ -398,8 +429,8 @@ async function main(){
   card._settingsOpen="Safety & limits";card.render();
   assert.ok(content(card.shadowRoot).includes("Electrical limits"),
     "Safety Settings show the configured electrical limits");
-  assert.ok(find(card.shadowRoot,"button","Edit"),
-    "Site power limits are editable through native Number entities");
+  assert.ok(find(card.shadowRoot,"button","Apply"),
+    "Site power limits are directly editable through Controller native Numbers");
   card._settingsOpen="Sources & bindings";card.render();
   assert.ok(content(card.shadowRoot).includes("Tariff"),
     "Source bindings disclose real configured source presence");
