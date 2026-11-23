@@ -11,7 +11,7 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .command_query import apply_native_preference
+from .command_query import apply_native_preference, require_native_admin
 from .configuration import PLAN_COLORS, WEEKDAYS
 from .const import DOMAIN
 
@@ -213,6 +213,7 @@ class _OwnedSelect(SelectEntity):
         await super().async_will_remove_from_hass()
 
     async def async_select_option(self, option: str) -> None:
+        await require_native_admin(self.hass, self.context)
         if option not in self._options():
             raise ValueError("unsupported_choice")
         if self.field.startswith("ready_day_"):
