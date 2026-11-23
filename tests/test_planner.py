@@ -316,6 +316,43 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(reason, "RECURRING")
         self.assertEqual(deadline.astimezone(zone).date().isoformat(), "2026-11-30")
 
+    def test_upstream_continuous_and_non_contiguous_cheapest_quarters(self):
+        ctl, chargers = build()
+        prices = [0.05, 0.90, 0.05, 0.90, 0.05, 0.05]
+        tariff = [PriceSlot(NOW + i * timedelta(minutes=15),
+                            NOW + (i + 1) * timedelta(minutes=15),
+                            price, "EUR") for i, price in enumerate(prices)]
+        flexible = compile_plan(
+            ctl, chargers,
+            [ChargeDemand("car", "c0", 2.0, NOW + timedelta(hours=2))],
+            NOW, mode="Economy", tariffs={"c0": tariff})
+        self.assertEqual(
+            [x.start for x in flexible.plan.slots],
+            [NOW, NOW + timedelta(minutes=30)],
+        )
+        contiguous = compile_plan(
+            ctl, chargers,
+            [ChargeDemand("car", "c0", 2.0, NOW + timedelta(hours=2),
+                          continuous_charging=True)],
+            NOW, mode="Economy", tariffs={"c0": tariff})
+        self.assertEqual(
+            [x.start for x in contiguous.plan.slots],
+            [NOW + timedelta(hours=1),
+             NOW + timedelta(hours=1, minutes=15)],
+        )
+        self.assertEqual(contiguous.coverage["c0"], "COMPLETE")
+        with self.assertRaises(ValueError):
+            ChargeDemand("car", "c0", 2, None, continuous_charging="true")
+        unfillable = compile_plan(
+            ctl, chargers,
+            [ChargeDemand("car", "c0", 2.0, NOW + timedelta(hours=2),
+                          continuous_charging=True)],
+            NOW, mode="Economy",
+            tariffs={"c0": [tariff[0], tariff[2], tariff[4]]})
+        self.assertEqual(unfillable.reasons["c0"],
+                         "CONTIGUOUS_WINDOW_UNAVAILABLE")
+        self.assertFalse(unfillable.plan.slots)
+
     def test_money_budget_only_effective_tariffs_and_full_quarter_caps(self):
         ctl, chargers = build()
         tariff = [
