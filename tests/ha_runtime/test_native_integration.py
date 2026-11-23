@@ -929,48 +929,15 @@ async def test_minimal_native_setup_then_yaml_takes_over_same_entry(hass: HomeAs
         shutil.copytree(source, installed)
     assert await async_setup_component(hass, DOMAIN, {})
 
-    wizard = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
-    )
-    assert wizard["type"] == FlowResultType.MENU
-    assert wizard["step_id"] == "user"
-    assert set(wizard["menu_options"]) == {"guided", "expert"}
-    wizard = await hass.config_entries.flow.async_configure(
-        wizard["flow_id"], {"next_step_id": "guided"}
-    )
-    assert wizard["type"] == FlowResultType.FORM
-    assert wizard["step_id"] == "guided"
-    # All site electrical limits may be absent.
-    wizard = await hass.config_entries.flow.async_configure(
-        wizard["flow_id"], {"name": "Home charging", "max_parallel": 1}
-    )
-    assert wizard["step_id"] == "charger"
-    # Exactly name + physical command entity are required to add a charger.
-    wizard = await hass.config_entries.flow.async_configure(
-        wizard["flow_id"], {
-            "action": "add", "name": "Garage White",
-            "control_entity": "switch.garage_white",
-        }
-    )
-    assert wizard["step_id"] == "asset"
-    wizard = await hass.config_entries.flow.async_configure(
-        wizard["flow_id"], {"action": "finish"}
-    )
-    assert wizard["step_id"] == "sources"
-    wizard = await hass.config_entries.flow.async_configure(
-        wizard["flow_id"], {}
-    )
-    assert wizard["step_id"] == "verify"
-    completed = await hass.config_entries.flow.async_configure(
-        wizard["flow_id"], {"confirm": True}
+    completed = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER},
     )
     assert completed["type"] == FlowResultType.CREATE_ENTRY
     entry = completed["result"]
     before_id = entry.entry_id
     assert entry.data["source"] == "ui"
-    assert entry.data["configuration"]["chargers"][0]["name"] == "Garage White"
-    assert entry.data["configuration"]["chargers"][0]["control_owner"] == "external"
-    assert entry.data["configuration"]["chargers"][0]["physical_commissioned"] is False
+    assert entry.data["configuration"]["chargers"] == []
+    assert entry.data["configuration"]["controller"]["id"] == "home"
     assert "max_power_kw" not in entry.data["configuration"]["controller"]
 
     # User adds YAML at a subsequent HA startup; there is no deletion,
@@ -979,8 +946,14 @@ async def test_minimal_native_setup_then_yaml_takes_over_same_entry(hass: HomeAs
         **entry.data["configuration"],
         "controller": {
             **entry.data["configuration"]["controller"],
-            "name": "Wessels Expert",
+            "name": "Legacy Wessels source",
         },
+        "chargers": [{
+            "id": "garage_white", "name": "Garage White",
+            "kind": "on_off", "rated_power_kw": 3.6,
+            "control_entity": "switch.garage_white",
+            "control_owner": "external", "physical_commissioned": False,
+        }],
     })
     # Reproduce the next boot after Home Assistant has loaded the YAML
     # package: the imported source must be present before an entry can run.
