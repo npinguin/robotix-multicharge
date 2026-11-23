@@ -330,6 +330,15 @@
       },
       "charge_efficiency": {
         "name": "Rendement de charge"
+      },
+      "min_charging_power_kw": {
+        "name": "Puissance de charge minimale"
+      },
+      "max_charging_power_kw": {
+        "name": "Puissance de charge maximale"
+      },
+      "set_charging_power_kw": {
+        "name": "Régler la puissance de charge"
       }
     },
     "datetime": {
