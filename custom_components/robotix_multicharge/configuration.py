@@ -611,6 +611,11 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
     if scope == "asset" and action == "create":
         apply_new_asset_defaults(target)
     if scope == "charger" and changes.get("asset"):
+        # Never silently evict a different asset from the target Charger.
+        # The resident must explicitly unassign that Vehicle first, then
+        # perform one qualified idle-only transfer of the selected Asset.
+        if target.get("asset") not in (None, changes["asset"]):
+            raise ValueError("charger_occupied")
         # One selected Charger per vehicle. Reassignment is one atomic
         # configuration edit, not delete/recreate or a second ownership store.
         for old in cfg["chargers"]:
