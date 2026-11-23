@@ -860,6 +860,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._assetEditor="";
     this._assignmentEditor="";
     this._goalDrafts={};
+    this._goalEditor=""; // one visible novice goal form at a time
     this._scheduleEditor="";
     this._focusAsset="";
     this._fieldSequence=0;
@@ -1518,6 +1519,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         controls.append(mcButton(mcTr("Set charging goal"),()=>{
           this._tab="Chargeable Assets";this._open="";
           this._focusAsset=a.id;
+          this._goalEditor=a.id;
           this.render();
         }));
         controls.append(mcButton(mcTr("Schedule charging"),()=>{
@@ -1803,6 +1805,19 @@ class RobotixMultiChargeCard extends HTMLElement {
   }
   // One visible resident-readable goal control, one authorized atomic
   // settings transaction. Unsubmitted drafts are local form state only.
+  disclosure(container,key,title,content,hint=""){
+    // Native <details>/<summary> provides browser keyboard semantics and
+    // independent compact disclosure, without an alternate page or state store.
+    const fold=mcEl("details","owner-group object-disclosure");
+    fold.open=this._folds[key]===true;
+    fold.setAttribute("data-disclosure",key);
+    fold.addEventListener("toggle",()=>{this._folds[key]=fold.open;});
+    const summary=mcEl("summary","",mcTr(title));
+    if(hint)summary.append(mcEl("span","owner-summary-count",hint));
+    fold.append(summary,content);
+    container.append(fold);
+    return fold;
+  }
   ownerFacts(container,scope,record){
     // Every accepted persisted field appears under the one owning Device.
     // Details are compact by default and fold independently by stable ID.
@@ -1973,7 +1988,15 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(a.maximum_price_per_kwh!==undefined)mcPair(card,
         mcTr("Price ceiling per kWh"),
         a.maximum_price_per_kwh+" "+(a.price_currency||"")+"/kWh");
-      this.assetGoalEditor(card,a);
+      // Novice: one complete visible goal editor on the first/focused
+      // object, the same one-click action for every other asset.
+      const goalVisible=this._goalEditor===a.id||
+        (this._goalEditor===""&&arranged[0]?.id===a.id);
+      if(goalVisible)this.assetGoalEditor(card,a);
+      else if(this.canEditSettings())card.append(mcButton(
+        mcTr("Set charging goal"),()=>{
+          this._goalEditor=a.id;this.render();
+        }));
       if(this.canEditSettings()){
         const calendar=mcButton(
           this._scheduleEditor===a.id?mcTr("Hide charging schedule"):
@@ -2073,7 +2096,7 @@ class RobotixMultiChargeCard extends HTMLElement {
           }else if(current?.requested_budget_amount!=null)
             mcPair(detail,mcTr("Budget progress"),mcTr("Unavailable"));
         }
-        detail.append(mcEl("h4","",mcTr("Charging preferences")));
+        const preferences=mcEl("div","owner-fields preference-grid");
         for(const [field,label,unit] of [
           ["target_soc","Charging limit","%"],
           ["requested_kwh","Requested energy","kWh"],
@@ -2088,7 +2111,9 @@ class RobotixMultiChargeCard extends HTMLElement {
           ["priority","Priority",""],
           ["capacity_kwh","Battery capacity","kWh"],
           ["charge_efficiency","Charging efficiency",""]
-        ])this.nativeNumberEditor(detail,"asset",a.id,field,label,a[field],unit);
+        ])this.nativeNumberEditor(preferences,"asset",a.id,field,label,a[field],unit);
+        this.disclosure(detail,"asset:"+a.id+":preferences",
+          "Charging preferences",preferences);
         const deadline=mcEl("div","row");
         deadline.append(mcEl("span","",mcTr("Ready By")+" · "+mcTime(a.ready_by,d.timezone)));
         if(this.canEditSettings()&&this.ownerEntity("asset",a.id,"ready_by"))
@@ -2149,8 +2174,8 @@ class RobotixMultiChargeCard extends HTMLElement {
         const recent=(d.completed_sessions||[])
           .filter(entry=>entry.asset_id===a.id&&entry.physical_stop_confirmed===true)
           .slice(-3).reverse();
-        detail.append(mcEl("h4","",mcTr("Vehicle charging history")));
-        if(!recent.length)detail.append(mcEl("p","muted small",
+        const historyPanel=mcEl("div","history-values");
+        if(!recent.length)historyPanel.append(mcEl("p","muted small",
           mcTr("No confirmed charging history")));
         for(const receipt of recent){
           const row=mcEl("div","owner-group");
@@ -2164,8 +2189,11 @@ class RobotixMultiChargeCard extends HTMLElement {
           mcPair(row,mcTr("Physical STOP confirmed"),mcTr("Yes"));
           if(receipt.stop_reason)mcPair(row,mcTr("Session stop reason"),
             mcReason(receipt.stop_reason));
-          detail.append(row);
+          historyPanel.append(row);
         }
+        this.disclosure(detail,"asset:"+a.id+":history",
+          "Vehicle charging history",historyPanel,
+          recent.length+" "+mcTr("configured fields"));
         card.append(detail);
       }
       container.append(card);
@@ -2289,23 +2317,27 @@ class RobotixMultiChargeCard extends HTMLElement {
       const history=(d.completed_sessions||[]).filter(x=>x.charger_id===c.id);
       const latest=history.length?history[history.length-1]:null;
       if(latest){
-        mcPair(card,"Last confirmed session",mcTime(latest.ended_at,d.timezone));
-        mcPair(card,"Measured energy",latest.actual_energy_kwh===null?"Unknown":latest.actual_energy_kwh+" kWh");
-        mcPair(card,"Verified cost",latest.cost===null?
+        const historyPanel=mcEl("div","history-values");
+        mcPair(historyPanel,"Last confirmed session",mcTime(latest.ended_at,d.timezone));
+        mcPair(historyPanel,"Measured energy",latest.actual_energy_kwh===null?"Unknown":latest.actual_energy_kwh+" kWh");
+        mcPair(historyPanel,"Verified cost",latest.cost===null?
           mcTr("Unknown"):latest.cost+" "+latest.currency);
-        mcPair(card,mcTr("Original vehicle at session time"),
+        mcPair(historyPanel,mcTr("Original vehicle at session time"),
           latest.asset_id||mcTr("Anonymous charger-only session"));
-        mcPair(card,mcTr("Physical STOP confirmed"),
+        mcPair(historyPanel,mcTr("Physical STOP confirmed"),
           latest.physical_stop_confirmed===true?mcTr("Yes"):mcTr("Unknown"));
         if(latest.stop_reason)
-          mcPair(card,mcTr("Session stop reason"),mcReason(latest.stop_reason));
+          mcPair(historyPanel,mcTr("Session stop reason"),mcReason(latest.stop_reason));
         if(latest.cost===null && latest.estimated_variable_cost!==undefined){
-          mcPair(card,mcTr("Indicative variable energy cost"),
+          mcPair(historyPanel,mcTr("Indicative variable energy cost"),
             latest.estimated_variable_cost+" "+
             latest.estimated_variable_cost_currency);
-          card.append(mcEl("p","muted small",
+          historyPanel.append(mcEl("p","muted small",
             mcTr("Power-derived estimate, not a bill")));
         }
+        this.disclosure(card,"charger:"+c.id+":history",
+          "Last charging session",historyPanel,
+          mcTime(latest.ended_at,d.timezone));
       }
       if(this._open===c.id){
         const detail=mcEl("div","details");
@@ -2373,8 +2405,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(this.canManage()&&!c.asset){
         // Always allow preparing a finite manual request. The backend is
         // authoritative for native source/safety/physical permission.
-        const oneOff=mcEl("section","card");
-        oneOff.append(mcEl("h3","",mcTr("Manual one-off charge")));
+        const oneOff=mcEl("div","details");
         const draft=this._manualDrafts[c.id]||{energy:"",minutes:"",budget:""};
         this._manualDrafts[c.id]=draft;
         const energy=this.field(oneOff,mcTr("Energy limit (kWh)"),draft.energy,"number");
@@ -2406,7 +2437,10 @@ class RobotixMultiChargeCard extends HTMLElement {
           oneOff.append(mcEl("p","muted small",
             mcTr("Start unavailable")+" · "+
             mcReason(capability.manual_one_off_reason||"SOURCE_NOT_SELECTED")));
-        card.append(oneOff);
+        this.disclosure(card,"charger:"+c.id+":oneoff",
+          "Manual one-off charge",oneOff,
+          capability.manual_one_off_allowed?"":
+          mcReason(capability.manual_one_off_reason||"SOURCE_NOT_SELECTED"));
       }
       if(!capability.start_allowed && capability.reason && c.asset)
         card.append(mcEl("p","muted small",mcTr("Unavailable")+" · "+mcReason(capability.reason)));
