@@ -235,8 +235,9 @@ class NativeSwitchExecutor:
                         "budget_amount": None}
             if money_requested:
                 cost = receipt.get("budget_accrued_cost")
-                if (receipt.get("budget_cost_quality") !=
-                        "qualified_effective_meter_increments"
+                if (receipt.get("budget_cost_quality") not in (
+                        "qualified_effective_meter_increments",
+                        "conservative_effective_upper_bound")
                         or cost is None):
                     return {"energy_kwh": None, "duration_minutes": None,
                             "budget_amount": None}
@@ -253,7 +254,9 @@ class NativeSwitchExecutor:
                 continue
             duration += max(0, (now - session["started_at"]).total_seconds() / 60)
             if money_requested:
-                if session.get("budget_quality") != "qualified_effective_meter_increments":
+                if session.get("budget_quality") not in (
+                        "qualified_effective_meter_increments",
+                        "conservative_effective_upper_bound"):
                     return {"energy_kwh": None, "duration_minutes": None,
                             "budget_amount": None}
                 budget_amount += session.get("budget_cost", 0.0)
@@ -340,8 +343,9 @@ class NativeSwitchExecutor:
                 if budget is not None and (
                         type(budget) not in (float, int) or not isfinite(budget)
                         or budget < 0
-                        or row.get("budget_cost_quality") !=
-                        "qualified_effective_meter_increments"
+                        or row.get("budget_cost_quality") not in (
+                            "qualified_effective_meter_increments",
+                            "conservative_effective_upper_bound")
                         or not isinstance(row.get("budget_currency"), str)):
                     raise ValueError("invalid budget progress receipt")
                 receipts.append(dict(row))
@@ -446,7 +450,9 @@ class NativeSwitchExecutor:
             "stop_reason": reason, "physical_stop_confirmed": True,
             "budget_accrued_cost": (
                 session.get("budget_cost")
-                if session.get("budget_quality") == "qualified_effective_meter_increments"
+                if session.get("budget_quality") in (
+                    "qualified_effective_meter_increments",
+                    "conservative_effective_upper_bound")
                 else None
             ),
             "budget_cost_quality": session.get("budget_quality", "not_applicable"),
@@ -1063,19 +1069,33 @@ class NativeSwitchExecutor:
                 if sample.observed_at <= since:
                     session["budget_quality"] = "unknown"
                     return "BUDGET_METER_TIMESTAMP_UNVERIFIED"
-                matches = [
-                    p for p in self.runtime.price_slots
-                    if p.basis == "effective" and p.currency == currency
-                    and p.start <= since and p.end >= sample.observed_at
-                ]
-                if len(matches) != 1:
-                    session["budget_quality"] = "unknown"
-                    return "BUDGET_TARIFF_BOUNDARY_UNVERIFIED"
-                # Price credit cannot turn a monetary limit into unbounded
-                # permission for infinite charging at negative rates.
-                session["budget_cost"] += delta * max(
-                    0.0, matches[0].effective_price_per_kwh
-                )
+                # Meter delta may span several effective-price windows.
+                # Without meter readings at the boundary, exact kWh split
+                # is unknowable: consume the conservative MAX rate across
+                # each actually covered interval, never an average invoice.
+                covered_until = since
+                max_rate = 0.0
+                covered_periods = 0
+                while covered_until < sample.observed_at:
+                    matches = [
+                        p for p in self.runtime.price_slots
+                        if p.basis == "effective" and p.currency == currency
+                        and p.start <= covered_until < p.end
+                    ]
+                    if len(matches) != 1:
+                        session["budget_quality"] = "unknown"
+                        return "BUDGET_TARIFF_BOUNDARY_UNVERIFIED"
+                    price = matches[0]
+                    max_rate = max(max_rate, price.effective_price_per_kwh)
+                    next_boundary = min(price.end, sample.observed_at)
+                    if next_boundary <= covered_until:
+                        session["budget_quality"] = "unknown"
+                        return "BUDGET_TARIFF_BOUNDARY_UNVERIFIED"
+                    covered_until = next_boundary
+                    covered_periods += 1
+                session["budget_cost"] += delta * max(0.0, max_rate)
+                if covered_periods > 1:
+                    session["budget_quality"] = "conservative_effective_upper_bound"
                 session["budget_last_meter_value"] = sample.value
                 session["budget_last_meter_at"] = sample.observed_at
             current = self._qualified_budget_price(now, currency)
