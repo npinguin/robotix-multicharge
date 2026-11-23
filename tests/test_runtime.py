@@ -543,7 +543,7 @@ class RuntimeTests(unittest.TestCase):
     def test_plan_read_rejects_unknown_and_oversized_ranges(self):
         rt = MultiChargeRuntime(None, sample())
         with self.assertRaises(ValueError):
-            rt.read_plan(NOW, NOW + timedelta(hours=49))
+            rt.read_plan(NOW, NOW + timedelta(hours=49, minutes=15))
         with self.assertRaises(ValueError):
             rt.read_plan(NOW.replace(tzinfo=None), NOW + timedelta(hours=1))
         with self.assertRaises(ValueError):
