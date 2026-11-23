@@ -68,8 +68,11 @@ global.document={
 require("../custom_components/robotix_multicharge/frontend/robotix-multicharge.js");
 assert.ok(uiSource.includes("this.dashboardEditField(parent,scope,record,field)"),
   "Every persisted owner field is edited directly inside MultiCharge");
-assert.ok(!uiSource.includes("openYamlEditor(")&&!uiSource.includes("openJsonEditor("),
-  "No free-text configuration editor or HA Options detour is exposed");
+assert.ok(uiSource.includes("async openYamlEditor()")&&
+  uiSource.includes("async previewYaml()")&&uiSource.includes("async applyYaml()"),
+  "Complete configuration uses one embedded dashboard YAML editor");
+assert.ok(!uiSource.includes("config/config_entries/options/flow"),
+  "YAML must not open Home Assistant Options Flow");
 assert.ok(uiSource.includes("this.dashboardChargerCreate(container)"),
   "New Chargers are created inside MultiCharge with native source selectors");
 const Card=customElements.get("robotix-multicharge-card");
@@ -1192,8 +1195,10 @@ async function main(){
     assert.ok(content(card.shadowRoot).includes(name),name);
   }
 
-  assert.ok(!content(card.shadowRoot).includes("YAML configuration"),
-    "No free-text YAML/JSON configuration editor is present");
+  assert.ok(content(card.shadowRoot).includes("YAML configuration"),
+    "An optional YAML editor is available inside MultiCharge Settings");
+  assert.ok(find(card.shadowRoot,"button","Edit YAML"),
+    "YAML editor opens from the dashboard, not from HA Options");
   assert.ok(!content(card.shadowRoot).includes("/config/packages/multicharge.yaml"),
     "No YAML package is required to configure standalone MultiCharge");
   card._settingsOpen="Sources & bindings";card.render();
