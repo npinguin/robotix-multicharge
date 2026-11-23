@@ -676,8 +676,8 @@ class MultiChargeRuntime:
                 or end.tzinfo is None or end.utcoffset() is None):
             raise ValueError("aware interval required")
         first, last = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
-        if not first < last or last - first > timedelta(hours=48):
-            raise ValueError("plan query must be a positive interval <=48h")
+        if not first < last or last - first > timedelta(hours=49):
+            raise ValueError("plan query must be a positive interval <=49h (two real civil days)")
         if charger_id is not None and not any(
             c["id"] == charger_id for c in self.configuration["chargers"]
         ):
