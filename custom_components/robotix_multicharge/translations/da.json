@@ -353,6 +353,27 @@
           "other": "Other"
         },
         "name": "Type ladeenhed"
+      },
+      "ready_day_mon": {
+        "name": "Mandag Ready By"
+      },
+      "ready_day_tue": {
+        "name": "Tirsdag Ready By"
+      },
+      "ready_day_wed": {
+        "name": "Onsdag Ready By"
+      },
+      "ready_day_thu": {
+        "name": "Torsdag Ready By"
+      },
+      "ready_day_fri": {
+        "name": "Fredag Ready By"
+      },
+      "ready_day_sat": {
+        "name": "Lørdag Ready By"
+      },
+      "ready_day_sun": {
+        "name": "Søndag Ready By"
       }
     },
     "number": {
@@ -391,6 +412,9 @@
       },
       "set_charging_power_kw": {
         "name": "Indstil ladeeffekt"
+      },
+      "requested_budget_amount": {
+        "name": "Ladebudget (€)"
       }
     },
     "datetime": {
@@ -501,7 +525,8 @@
           "energy": "Energy",
           "duration": "Duration",
           "target_soc": "Battery target",
-          "unconfigured": "Set goal"
+          "unconfigured": "Set goal",
+          "budget": "Budget"
         }
       },
       "confirmed_current_setpoint": {
@@ -529,6 +554,27 @@
       },
       "soc_entity": {
         "name": "Batteriniveaukilde"
+      },
+      "charging_window_mon": {
+        "name": "Mandag charging hours"
+      },
+      "charging_window_tue": {
+        "name": "Tirsdag charging hours"
+      },
+      "charging_window_wed": {
+        "name": "Onsdag charging hours"
+      },
+      "charging_window_thu": {
+        "name": "Torsdag charging hours"
+      },
+      "charging_window_fri": {
+        "name": "Fredag charging hours"
+      },
+      "charging_window_sat": {
+        "name": "Lørdag charging hours"
+      },
+      "charging_window_sun": {
+        "name": "Søndag charging hours"
       }
     },
     "binary_sensor": {
