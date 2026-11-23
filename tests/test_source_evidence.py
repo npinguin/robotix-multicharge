@@ -250,6 +250,9 @@ class EvidenceTests(unittest.TestCase):
             "sensor.wholesale": state(
                 "-30", unit="EUR/MWh", raw_today=raw, raw_tomorrow=[],
             ),
+            "sensor.native_euro_symbol": state(
+                "-0.03", unit="€/kWh", raw_today=raw, raw_tomorrow=[],
+            ),
         })
         values, status = intervals(obj, "sensor.native_prices", "price", NOW)
         self.assertEqual(status, "OK")
@@ -261,6 +264,10 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(status, "OK")
         self.assertAlmostEqual(mwh[0].effective_price_per_kwh, -0.00003)
         self.assertEqual(mwh[0].basis, "spot")
+        euro, status = intervals(obj, "sensor.native_euro_symbol", "price", NOW)
+        self.assertEqual(status, "OK")
+        self.assertEqual(euro[0].currency, "EUR")
+        self.assertEqual(euro[0].basis, "spot")
 
     def test_native_spot_never_infers_currency_unit_or_rewrites_bad_intervals(self):
         row = {"start": NOW.isoformat(),
