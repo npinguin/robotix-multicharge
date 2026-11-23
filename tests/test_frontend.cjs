@@ -79,6 +79,74 @@ function content(node){
   let text="";visit(node,x=>{if(x.textContent)text+=x.textContent+"\n";});return text;
 }
 async function main(){
+  // FLEX-06/08/11/17: Asset-side charger assignment writes to the one
+  // Charger-owned Config Entry, never to a physical switch or duplicate store.
+  const assignData=JSON.parse(JSON.stringify(fixture));
+  assignData.configuration_revision="revision-a";
+  assignData.configuration.assets.push(
+    {id:"other_car",name:"Other car",kind:"car",requested_kwh:1}
+  );
+  assignData.configuration.chargers.push(
+    {id:"patio",name:"Patio",kind:"on_off",rated_power_kw:3.6},
+    {id:"occupied",name:"Occupied",kind:"on_off",rated_power_kw:3.6,
+     asset:"other_car"}
+  );
+  const assignmentWS=[];
+  const assignCard=new Card();
+  assignCard.setConfig({});
+  assignCard.hass={
+    user:{is_admin:true},states:{},
+    callWS:async request=>{
+      assignmentWS.push(request);
+      return request.type==="robotix_multicharge/update_settings"?
+        {status:"accepted_unconfirmed",expected_revision:"revision-b"}:assignData;
+    }
+  };
+  await new Promise(resolve=>setImmediate(resolve));
+  find(assignCard.shadowRoot,"button","Chargeable Assets").click();
+  const changeCharger=find(assignCard.shadowRoot,"button","Change charger");
+  assert.ok(changeCharger,
+    "Asset offers a direct Charger assignment action on its normal card");
+  changeCharger.click();
+  let choice;
+  visit(assignCard.shadowRoot,x=>{
+    if(x.tag==="select"&&x.attributes["aria-label"]==="Select charger")choice=x;
+  });
+  assert.ok(choice,"Asset-side assignment offers a real native select");
+  assert.deepEqual(choice.children.map(x=>x.value),["drive","patio"],
+    "Occupied Charger must not silently evict its existing Vehicle");
+  choice.value="patio";
+  choice.events.change();
+  const assignButton=find(assignCard.shadowRoot,"button","Assign selected charger");
+  assert.equal(assignButton.disabled,false);
+  assignButton.click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(assignmentWS.some(x=>
+    x.type==="robotix_multicharge/update_settings"&&x.scope==="charger"&&
+    x.target_id==="patio"&&x.changes.asset==="car"&&
+    x.expected_revision==="revision-a"
+  ),"Asset-side move uses existing Charger writer with optimistic revision");
+  const detach=find(assignCard.shadowRoot,"button","Unassign charger");
+  assert.ok(detach,"Existing selected Charger offers explicit unassign");
+  detach.click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(assignmentWS.some(x=>
+    x.type==="robotix_multicharge/update_settings"&&x.scope==="charger"&&
+    x.target_id==="drive"&&Object.hasOwn(x.changes,"asset")&&
+    x.changes.asset===null
+  ),"Unassign clears the authoritative Charger.asset instead of deleting Asset");
+  assert.equal(assignmentWS.filter(x=>x.type==="robotix_multicharge/command").length,0,
+    "Move/unassign never sends hidden physical STOP or START");
+  const readonlyAssign=new Card();
+  readonlyAssign.setConfig({});
+  readonlyAssign.hass={
+    user:{is_admin:false},states:{},callWS:async()=>assignData
+  };
+  await new Promise(resolve=>setImmediate(resolve));
+  find(readonlyAssign.shadowRoot,"button","Chargeable Assets").click();
+  assert.equal(find(readonlyAssign.shadowRoot,"button","Change charger"),undefined,
+    "Resident may view assignment but may not edit Charger-owned relation");
+
   const adjustableFixture=JSON.parse(JSON.stringify(fixture));
   adjustableFixture.configuration.chargers[0].kind="variable_current";
   Object.assign(adjustableFixture.configuration.chargers[0],{
