@@ -120,7 +120,8 @@ def apply_new_asset_defaults(row):
     if (row.get("kind", "car") == "car"
             and row.get("target_soc") is None
             and row.get("requested_kwh") is None
-            and row.get("requested_duration_minutes") is None):
+            and row.get("requested_duration_minutes") is None
+            and row.get("requested_budget_amount") is None):
         row["target_soc"] = 80
     return row
 
@@ -216,7 +217,8 @@ def validate_configuration(value):
         _allowed(source, ("id", "name", "kind", "soc_entity",
                           "soc_stale_entity", "vehicle_control_entity", "vehicle_current_entity",
                           "capacity_kwh", "target_soc", "max_charge_kw",
-                          "requested_kwh", "requested_duration_minutes", "ready_by",
+                          "requested_kwh", "requested_duration_minutes",
+                          "requested_budget_amount", "requested_budget_currency", "ready_by",
                           "ready_by_repeat", "ready_by_weekdays", "charging_windows",
             "charge_efficiency", "priority",
                           "temporary", "expires_at", "expected_connection_at",
@@ -261,8 +263,24 @@ def validate_configuration(value):
             if isinstance(minutes, bool) or not isinstance(minutes, int) or minutes <= 0:
                 raise ValueError("asset.requested_duration_minutes: positive integer required")
             asset["requested_duration_minutes"] = minutes
-        if "requested_kwh" in asset and "requested_duration_minutes" in asset:
-            raise ValueError("asset: choose kWh or minutes, not both")
+        if source.get("requested_budget_amount") is not None:
+            asset["requested_budget_amount"] = _number(
+                source["requested_budget_amount"],
+                "asset.requested_budget_amount",
+            )
+            currency = source.get("requested_budget_currency", "EUR")
+            if (not isinstance(currency, str) or
+                    fullmatch(r"[A-Z]{3}", currency) is None):
+                raise ValueError("asset.requested_budget_currency: ISO-4217 required")
+            asset["requested_budget_currency"] = currency
+        elif source.get("requested_budget_currency") is not None:
+            raise ValueError("asset.requested_budget_currency: amount required")
+        finite_goals = sum(key in asset for key in (
+            "requested_kwh", "requested_duration_minutes",
+            "requested_budget_amount",
+        ))
+        if finite_goals > 1:
+            raise ValueError("asset: choose kWh, duration OR money")
         if source.get("temporary") is not None:
             if type(source["temporary"]) is not bool:
                 raise ValueError("asset.temporary: expected boolean")
@@ -616,6 +634,7 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
         "asset": {
             "name", "kind", "soc_entity", "soc_stale_entity", "capacity_kwh", "target_soc",
             "max_charge_kw", "requested_kwh", "requested_duration_minutes",
+                          "requested_budget_amount", "requested_budget_currency",
             "ready_by", "ready_by_repeat", "ready_by_weekdays", "charging_windows",
             "charge_efficiency", "priority",
             "temporary", "expires_at", "expected_connection_at",
@@ -656,6 +675,19 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
     if (scope == "charger" and changes.get("asset")
             and target.get("asset") not in (None, changes["asset"])):
         raise ValueError("charger_occupied")
+    if scope == "asset" and action in ("save", "create"):
+        # Three finite intents share ONE Config Entry and cannot silently
+        # coexist; target SoC remains a separate long-term vehicle preference.
+        if changes.get("requested_budget_amount") is not None:
+            target.pop("requested_kwh", None)
+            target.pop("requested_duration_minutes", None)
+            if not changes.get("requested_budget_currency"):
+                changes = {**changes, "requested_budget_currency":
+                           target.get("requested_budget_currency", "EUR")}
+        elif changes.get("requested_kwh") is not None or (
+                changes.get("requested_duration_minutes") is not None):
+            target.pop("requested_budget_amount", None)
+            target.pop("requested_budget_currency", None)
     for name, value in changes.items():
         if value is None or value == "":
             if name == "name":
@@ -715,7 +747,8 @@ def is_in_place_runtime_preference_change(before, after):
         for asset in result["assets"]:
             for field in ("name", "kind", "plan_color", "capacity_kwh",
                           "target_soc", "max_charge_kw", "requested_kwh",
-                          "requested_duration_minutes", "ready_by",
+                          "requested_duration_minutes", "requested_budget_amount",
+                           "requested_budget_currency", "ready_by",
                           "ready_by_repeat", "ready_by_weekdays", "charging_windows",
             "charge_efficiency", "priority",
                           "temporary", "expires_at", "expected_connection_at"):
@@ -881,6 +914,7 @@ def normalize_expert_json(value):
             "Vehicle-Charging-amp-entity", "Vehicle-soc-sensor",
             "Vehicle-soc-stale-binary-sensor", "Usable-capacity-kWh", "Target-SoC-percent", "Max-charge-kW",
             "Requested-kWh", "Requested-duration-minutes", "Ready-by",
+            "Requested-budget-amount", "Requested-budget-currency",
             "Ready-by-repeat", "Ready-by-weekdays", "Charging-windows",
             "Charging-efficiency", "Priority",
             "Temporary", "Expires-at", "Expected-connection-at", "Plan-color",
@@ -909,6 +943,8 @@ def normalize_expert_json(value):
             ("Max-charge-kW", "max_charge_kw"),
             ("Requested-kWh", "requested_kwh"),
             ("Requested-duration-minutes", "requested_duration_minutes"),
+            ("Requested-budget-amount", "requested_budget_amount"),
+            ("Requested-budget-currency", "requested_budget_currency"),
             ("Ready-by", "ready_by"), ("Ready-by-repeat", "ready_by_repeat"),
             ("Ready-by-weekdays", "ready_by_weekdays"),
             ("Charging-windows", "charging_windows"),
