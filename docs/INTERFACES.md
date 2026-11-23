@@ -1,5 +1,7 @@
 # Community contracts — development candidate
 
+> **Functional authority:** [FUNCTIONAL_SPECIFICATION.md](FUNCTIONAL_SPECIFICATION.md) defines the UC01–UC29, FLEX/FORECAST/UI-OWNER required user journeys and positive/negative acceptance. This document owns only implementation-facing interface constraints and candidate HA API contracts, never an independent functional backlog. Current gaps/CI/field status belong in [Issue #1](https://github.com/npinguin/robotix-multicharge/issues/1) and the existing PR/release workflow.
+
 The integration's `domain.py`, `contracts.py` and `interfaces.py` currently define **candidate** Python types. They are not a released, compatible or Home Assistant-published API.
 
 | Public-facing concern | Candidate interface | Intended invariant |
