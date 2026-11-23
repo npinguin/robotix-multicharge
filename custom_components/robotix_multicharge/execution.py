@@ -1506,6 +1506,36 @@ class NativeSwitchExecutor:
         request_id = request_id or uuid4().hex
         if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
             raise ValueError("request ID must be 1..128 characters")
+        # An independently owned and already-active B must not wait for A's
+        # potentially 45s unconfirmed START readback. Only use the existing
+        # protective STOP writer when the global lock is demonstrably held
+        # by a DIFFERENT pending START. This is NOT a second executor and
+        # never fabricates confirmed physical STOP or races same-EVSE START.
+        urgent_cross_charger_stop = (
+            action == "stop" and self._lock.locked()
+            and bool(self._start_pending)
+            and charger_id not in self._start_pending
+            and request_id not in self._requests
+            and not self._stopped
+        )
+        if urgent_cross_charger_stop:
+            candidate = next(
+                (c for c in self.runtime.configuration["chargers"]
+                 if c["id"] == charger_id), None,
+            )
+            if (candidate is not None
+                    and candidate.get("control_owner") == "multicharge"
+                    and candidate.get("physical_commissioned") is True
+                    and candidate.get("kind") in ("on_off", "variable_current")
+                    and self._switch(
+                        self.runtime.hass, candidate.get("control_entity"),
+                    ) is not None
+                    and self._switch(
+                        self.runtime.hass, candidate.get("control_entity"),
+                    ).state == "on"):
+                # Physical STOP dispatch only; later serialized execute()
+                # still verifies independent power readback and persistence.
+                await self._protective_stop(candidate, context)
         async with self._lock:
             previous = self._requests.get(request_id)
             if previous is not None:
