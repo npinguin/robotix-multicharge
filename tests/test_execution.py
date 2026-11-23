@@ -135,6 +135,37 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["cost_quality"], "unknown")
         self.assertTrue(result["physical_stop_confirmed"])
 
+    async def test_direct_native_evse_enum_connected_status_controls_real_executor(self):
+        """No site template: the guarded sole executor reads native raw status."""
+        runtime, sources, services = rig()
+        charger = runtime.configuration["chargers"][0]
+        charger["connected_entity"] = "sensor.native_charger_state"
+        charger["connected_states"] = ["charging", "preparing"]
+        charger["disconnected_states"] = ["available"]
+        sources["sensor.native_charger_state"] = state("Charging")
+        runtime.executor._plug_confirmations.clear()
+        self.assertEqual(
+            runtime.executor.confirm_current_connection("evse")["status"],
+            "confirmed",
+        )
+        runtime.refresh()
+        self.assertEqual(
+            (await runtime.executor.execute("evse", "start"))["status"],
+            "confirmed",
+        )
+        self.assertEqual(
+            (await runtime.executor.execute("evse", "stop"))["status"],
+            "confirmed",
+        )
+        before = len(services.calls)
+        sources["sensor.native_charger_state"].state = "Available"
+        sources["sensor.native_charger_state"].last_updated = datetime.now(timezone.utc)
+        sources["sensor.native_charger_state"].last_changed = datetime.now(timezone.utc)
+        runtime.refresh()
+        rejected = await runtime.executor.execute("evse", "start")
+        self.assertEqual(rejected["reason"], "PHYSICAL_CONNECTION_UNVERIFIED")
+        self.assertEqual(len(services.calls), before)
+
     async def test_manual_force_start_is_durably_held_across_restart(self):
         rt, states, services = rig()
         class MemoryStore:
