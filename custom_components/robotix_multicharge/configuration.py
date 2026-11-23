@@ -135,9 +135,13 @@ def validate_configuration(value):
     controller = {"id": cid, "name": _text(ctl.get("name"), "controller.name"),
                   "max_parallel": parallel, "mode": mode,
                   "plan_label_mode": label_mode, "plan_color_by": color_by,
-                  "show_indicative_forecast": show_forecast,
-                  "solar_source_kind": solar_kind,
-                  "grid_power_direction": grid_direction}
+                  "show_indicative_forecast": show_forecast}
+    # Unselected energy features are not new persistent authority. Preserve
+    # legacy Config Entries that later bind a qualified solar interval source.
+    if "solar_source_kind" in ctl or ctl.get("solar_entity"):
+        controller["solar_source_kind"] = solar_kind
+    if "grid_power_direction" in ctl or ctl.get("grid_power_entity"):
+        controller["grid_power_direction"] = grid_direction
     if ctl.get("max_power_kw") is not None:
         controller["max_power_kw"] = _number(ctl["max_power_kw"], "controller.max_power_kw")
     if ctl.get("phase_limits_a") is not None:
