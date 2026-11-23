@@ -803,6 +803,55 @@ class ConfigurationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_configuration(cfg)
 
+    def test_native_specific_day_calendar_and_charging_window_validation(self):
+        from copy import deepcopy
+        from multicharge_configuration_tests.configuration import (
+            apply_settings_change, is_in_place_runtime_preference_change,
+        )
+        source = default_configuration()
+        source["assets"] = [{
+            "id": "guest", "name": "Guest", "kind": "car",
+            "ready_by_repeat": "specific_days",
+            "ready_by_weekdays": {"mon": "06:45", "wed": "08:30", "fri": "17:15"},
+            "charging_windows": {
+                "mon": {"start": "22:00", "end": "06:00"},
+                "wed": {"start": "11:00", "end": "15:00"},
+            },
+            "requested_duration_minutes": 30,
+        }]
+        canonical = validate_configuration(source)
+        asset = canonical["assets"][0]
+        self.assertEqual(asset["ready_by_weekdays"]["wed"], "08:30")
+        self.assertEqual(asset["charging_windows"]["mon"]["end"], "06:00")
+        revised = apply_settings_change(
+            canonical, "asset", "guest",
+            {"ready_by_weekdays": {"tue": "10:15"},
+             "charging_windows": {"tue": {"start": "08:00", "end": "11:00"}}},
+        )
+        self.assertTrue(is_in_place_runtime_preference_change(canonical, revised))
+        self.assertEqual(revised["assets"][0]["ready_by_weekdays"], {"tue": "10:15"})
+        clean = apply_settings_change(revised, "asset", "guest",
+                                      {"charging_windows": None})
+        self.assertNotIn("charging_windows", clean["assets"][0])
+        legacy = deepcopy(source)
+        legacy["assets"][0].pop("ready_by_weekdays")
+        legacy["assets"][0]["ready_by_repeat"] = "weekly"
+        legacy["assets"][0]["ready_by"] = "2026-11-23T09:00:00+01:00"
+        self.assertEqual(validate_configuration(legacy)["assets"][0]["ready_by_repeat"],
+                         "weekly")  # Retained on disk until user edits; IDs preserved.
+        for bad in (
+            {"ready_by_weekdays": {}},
+            {"ready_by_weekdays": {"hol": "08:00"}},
+            {"ready_by_weekdays": {"mon": "24:00"}},
+            {"charging_windows": {"mon": {"start": "07:00", "end": "07:00"}}},
+            {"charging_windows": {"mon": {"start": "25:00", "end": "06:00"}}},
+            {"charging_windows": {"sunday": {"start": "10:00", "end": "18:00"}}},
+        ):
+            example = deepcopy(source)
+            example["assets"][0].update(bad)
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                validate_configuration(example)
+
     def test_recurrence_requires_a_real_ready_by_anchor(self):
         cfg = default_configuration()
         cfg["assets"] = [{"id": "guest", "name": "Guest",
