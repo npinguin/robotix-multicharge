@@ -380,6 +380,12 @@
       },
       "opportunistic_kind": {
         "name": "Opportunistische prijsmodus"
+      },
+      "solar_source_kind": {
+        "name": "Type zonnebron"
+      },
+      "grid_power_direction": {
+        "name": "Richting netmeter"
       }
     },
     "number": {
@@ -602,6 +608,24 @@
       },
       "price_currency": {
         "name": "Prijsvaluta"
+      },
+      "solar_power_entity": {
+        "name": "Zonneproductie"
+      },
+      "home_power_entity": {
+        "name": "Huisverbruik"
+      },
+      "grid_power_entity": {
+        "name": "Netvermogen"
+      },
+      "solar_surplus_entity": {
+        "name": "Zonne-overschot"
+      },
+      "current_price_entity": {
+        "name": "Huidige afnameprijs"
+      },
+      "export_price_entity": {
+        "name": "Huidige injectieprijs"
       }
     },
     "binary_sensor": {
