@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
@@ -9,7 +12,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .command_query import apply_native_preference
-from .configuration import PLAN_COLORS
+from .configuration import PLAN_COLORS, WEEKDAYS
 from .const import DOMAIN
 
 MODES = {
@@ -32,10 +35,28 @@ async def async_setup_entry(
         entities.append(_OwnedSelect(entry, runtime, "asset", asset, "plan_color"))
         entities.append(_OwnedSelect(entry, runtime, "asset", asset, "ready_by_repeat"))
         entities.append(_OwnedSelect(entry, runtime, "asset", asset, "kind"))
+        entities.extend(
+            _OwnedSelect(entry, runtime, "asset", asset, "ready_day_" + day)
+            for day in WEEKDAYS
+        )
     for charger in choices["chargers"]:
         entities.append(_OwnedSelect(entry, runtime, "charger", charger, "plan_color"))
         entities.append(_OwnedSelect(entry, runtime, "charger", charger, "asset"))
     async_add_entities(entities)
+
+
+def _saved_weekday_times(asset, site_zone):
+    """Only presentation/edit migration of historical single-weekday intent.
+
+    Do not interpret a persisted timestamp using the server's OS timezone.
+    """
+    if asset.get("ready_by_weekdays"):
+        return dict(asset["ready_by_weekdays"])
+    if asset.get("ready_by_repeat") != "weekly" or not asset.get("ready_by"):
+        return {}
+    instant = datetime.fromisoformat(asset["ready_by"])
+    local = instant.astimezone(ZoneInfo(site_zone))
+    return {WEEKDAYS[local.weekday()]: local.strftime("%H:%M")}
 
 
 class _OwnedSelect(SelectEntity):
@@ -54,7 +75,7 @@ class _OwnedSelect(SelectEntity):
         self._attr_translation_key = (
             "selected_vehicle" if field == "asset" else field
         )
-        if field in ("mode", "ready_by_repeat", "asset", "plan_color"):
+        if field in ("mode", "ready_by_repeat", "asset", "plan_color") or field.startswith("ready_day_"):
             self._attr_entity_category = None
         self._attr_device_info = {
             "identifiers": {(DOMAIN, f"{kind}/{self.uid}")},
@@ -78,6 +99,10 @@ class _OwnedSelect(SelectEntity):
         return next((row for row in collection if row["id"] == self.uid), None)
 
     def _options(self):
+        if self.field.startswith("ready_day_"):
+            return ["off"] + [f"{hour:02d}:{minute:02d}"
+                              for hour in range(24)
+                              for minute in (0, 15, 30, 45)]
         if self.field == "plan_color":
             return list(PLAN_COLORS)
         if self.field == "plan_label_mode":
@@ -89,7 +114,7 @@ class _OwnedSelect(SelectEntity):
         if self.field == "mode":
             return list(MODES)
         if self.field == "ready_by_repeat":
-            return ["none", "daily", "weekly"]
+            return ["none", "daily", "specific_days"]
         if self.field == "kind":
             return ["car", "bicycle", "motorcycle", "scooter", "other"]
         # The selected Charger owns the ONLY editable assignment relationship.
@@ -133,6 +158,18 @@ class _OwnedSelect(SelectEntity):
             self._attr_current_option = (
                 "on" if current.get(self.field, True) else "off"
             )
+        elif self.field == "ready_by_repeat":
+            # Keep legacy Weekly on disk until an explicit edit; never show it
+            # as a new resident option or silently rewrite HA identities.
+            mode = current.get("ready_by_repeat", "none")
+            self._attr_current_option = (
+                "specific_days" if mode == "weekly" else mode
+            )
+        elif self.field.startswith("ready_day_"):
+            saved = _saved_weekday_times(
+                current, self.runtime.hass.config.time_zone,
+            )
+            self._attr_current_option = saved.get(self.field[-3:], "off")
         else:
             self._attr_current_option = current.get(
                 self.field, "none" if self.field == "ready_by_repeat" else None
@@ -156,6 +193,24 @@ class _OwnedSelect(SelectEntity):
     async def async_select_option(self, option: str) -> None:
         if option not in self._options():
             raise ValueError("unsupported_choice")
+        if self.field.startswith("ready_day_"):
+            asset = self._record()
+            selected = _saved_weekday_times(
+                asset, self.runtime.hass.config.time_zone,
+            )
+            if option == "off":
+                selected.pop(self.field[-3:], None)
+            else:
+                selected[self.field[-3:]] = option
+            if not selected:
+                raise ValueError("at_least_one_specific_day_required")
+            await apply_native_preference(
+                self.hass, self.entry, self.runtime,
+                "asset", self.uid,
+                {"ready_by_repeat": "specific_days",
+                 "ready_by_weekdays": selected},
+            )
+            return
         if self.field == "asset":
             assets = self.runtime.configuration["assets"]
             selected = None if option == "none" else next((
