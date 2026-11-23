@@ -374,6 +374,9 @@
       },
       "ready_day_sun": {
         "name": "Dimanche Ready By"
+      },
+      "continuous_charging": {
+        "name": "Mode de recharge"
       }
     },
     "number": {
