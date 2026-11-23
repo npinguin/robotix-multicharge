@@ -26,11 +26,11 @@ class PriceSlot:
     end: datetime
     effective_price_per_kwh: float  # negative allowed; no spot-to-all-in inference
     currency: str  # explicit ISO-4217 currency; never a country assumption
-    basis: Literal["effective", "spot"] = "effective"
+    basis: Literal["effective", "spot", "variable_reference"] = "effective"
 
     def __post_init__(self) -> None:
         _interval(self.start, self.end)
-        if self.basis not in ("effective", "spot"):
+        if self.basis not in ("effective", "spot", "variable_reference"):
             raise ValueError("price basis must be effective or spot")
         if not isfinite(self.effective_price_per_kwh):
             raise ValueError("price must be finite")
