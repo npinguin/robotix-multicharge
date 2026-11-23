@@ -316,6 +316,45 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(reason, "RECURRING")
         self.assertEqual(deadline.astimezone(zone).date().isoformat(), "2026-11-30")
 
+    def test_zero_price_budget_also_has_cumulative_physical_time_ceiling(self):
+        ctl, chargers = build()
+        quotes = tuple(
+            PriceSlot(
+                NOW + i * timedelta(minutes=15),
+                NOW + (i + 1) * timedelta(minutes=15),
+                -0.08, "EUR", "effective",
+            ) for i in range(192)
+        )
+        demand = ChargeDemand(
+            "visitor", "c0", None, None,
+            remaining_budget_amount=10.0, budget_currency="EUR",
+            budget_remaining_minutes=30,
+        )
+        result = compile_plan(
+            ctl, chargers, [demand], NOW, mode="Economy",
+            tariffs={"c0": quotes},
+        )
+        self.assertEqual(len(result.plan.slots), 2)
+        self.assertEqual(result.reasons["c0"], "BUDGET_DURATION_SAFETY_LIMIT")
+        self.assertEqual(result.coverage["c0"], "INCOMPLETE")
+        self.assertEqual(result.proposed_kwh["c0"], 2.0)
+        full = compile_plan(
+            ctl, chargers,
+            [ChargeDemand("visitor", "c0", None, None,
+                          remaining_budget_amount=10.0,
+                          budget_currency="EUR")],
+            NOW, mode="Economy", tariffs={"c0": quotes},
+        )
+        self.assertEqual(len(full.plan.slots), 96,
+                         "Even free/negative quotes cannot reserve more than 24h")
+        for minutes in (-1, 1441, float("nan")):
+            with self.subTest(minutes=minutes), self.assertRaises(ValueError):
+                ChargeDemand(
+                    "visitor", "c0", None, None,
+                    remaining_budget_amount=10.0, budget_currency="EUR",
+                    budget_remaining_minutes=minutes,
+                )
+
     def test_upstream_price_cap_minimum_soc_and_low_price_immediate(self):
         ctl, chargers = build()
         quotes = [0.30, 0.05, 0.10, 0.25, 0.03]
