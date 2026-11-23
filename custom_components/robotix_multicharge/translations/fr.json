@@ -96,7 +96,18 @@
           "max_parallel": "Nombre (facultatif)",
           "max_power_kw": "Puissance (facultatif)",
           "phase_limits_a": "Phases (facultatif)",
-          "mode": "Mode de charge initial"
+          "mode": "Mode de charge initial",
+          "solar_power_entity": "Puissance solaire actuelle (W/kW)",
+          "home_power_entity": "Puissance consommée par le logement (W/kW)",
+          "grid_power_entity": "Puissance du réseau import/export (W/kW)",
+          "solar_surplus_entity": "Surplus solaire mesuré (W/kW)",
+          "solar_entity": "Intervalles solaires qualifiés (kW)",
+          "price_entity": "Intervalles futurs de prix qualifiés",
+          "current_price_entity": "Prix d'achat actuel (devise/kWh)",
+          "export_price_entity": "Tarif d'injection actuel (devise/kWh)",
+          "solar_source_kind": "Source de pilotage solaire",
+          "grid_power_direction": "Signe du compteur réseau",
+          "use_energy_dashboard": "Reprendre les sources du tableau Énergie"
         }
       },
       "expert": {
@@ -134,7 +145,8 @@
           "charger": "Chargers",
           "display": "Dashboard card",
           "yaml": "Modifier YAML (vérification avant enregistrement)",
-          "commission": "Mise en service de la borne"
+          "commission": "Mise en service de la borne",
+          "energy": "Énergie et tarifs"
         },
         "title": "Réglages"
       },
@@ -223,6 +235,23 @@
           "commission": "Activer la commande MultiCharge",
           "exclusive_writer_confirmed": "Les autres contrôleurs et automatisations ne commandent plus cette borne",
           "electrical_limits_confirmed": "Limites électriques, puissance et capteurs indépendants vérifiés"
+        }
+      },
+      "energy": {
+        "title": "Énergie et tarifs",
+        "description": "{note}",
+        "data": {
+          "solar_power_entity": "Puissance solaire actuelle (W/kW)",
+          "home_power_entity": "Puissance consommée par le logement (W/kW)",
+          "grid_power_entity": "Puissance du réseau import/export (W/kW)",
+          "solar_surplus_entity": "Surplus solaire mesuré (W/kW)",
+          "solar_entity": "Intervalles solaires qualifiés (kW)",
+          "price_entity": "Intervalles futurs de prix qualifiés",
+          "current_price_entity": "Prix d'achat actuel (devise/kWh)",
+          "export_price_entity": "Tarif d'injection actuel (devise/kWh)",
+          "solar_source_kind": "Source de pilotage solaire",
+          "grid_power_direction": "Signe du compteur réseau",
+          "use_energy_dashboard": "Reprendre les sources du tableau Énergie"
         }
       }
     },
