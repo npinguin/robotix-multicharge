@@ -162,6 +162,99 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(accepted[0].effective_price_per_kwh, -0.1)
         self.assertEqual(intervals(obj, "sensor.spot", "price", NOW)[0], ())
 
+    def test_native_spot_price_intervals_work_without_template_or_robotix_packages(self):
+        """Provider-owned raw intervals qualify Economy, never all-in billing."""
+        raw = [
+            {"start": NOW.isoformat(),
+             "end": (NOW + timedelta(minutes=15)).isoformat(),
+             "value": -0.03},
+            {"start": (NOW + timedelta(minutes=15)).isoformat(),
+             "end": (NOW + timedelta(minutes=30)).isoformat(),
+             "value": 0.08},
+        ]
+        obj = hass({
+            "sensor.native_prices": state(
+                "-0.03", unit="EUR/kWh", raw_today=raw, raw_tomorrow=[],
+            ),
+            "sensor.wholesale": state(
+                "-30", unit="EUR/MWh", raw_today=raw, raw_tomorrow=[],
+            ),
+        })
+        values, status = intervals(obj, "sensor.native_prices", "price", NOW)
+        self.assertEqual(status, "OK")
+        self.assertEqual(len(values), 2)
+        self.assertEqual(values[0].effective_price_per_kwh, -0.03)
+        self.assertEqual(values[0].basis, "spot")
+        self.assertEqual(values[0].currency, "EUR")
+        mwh, status = intervals(obj, "sensor.wholesale", "price", NOW)
+        self.assertEqual(status, "OK")
+        self.assertAlmostEqual(mwh[0].effective_price_per_kwh, -0.00003)
+        self.assertEqual(mwh[0].basis, "spot")
+
+    def test_native_spot_never_infers_currency_unit_or_rewrites_bad_intervals(self):
+        row = {"start": NOW.isoformat(),
+               "end": (NOW + timedelta(minutes=15)).isoformat(),
+               "value": 0.1}
+        sources = hass({
+            "sensor.missing_unit": state("0.1", raw_today=[row]),
+            "sensor.wrong_unit": state("0.1", unit="EUR", raw_today=[row]),
+            "sensor.mismatch": state(
+                "0.1", unit="EUR/kWh", currency="USD", raw_today=[row]
+            ),
+            "sensor.overlap": state(
+                "0.1", unit="EUR/kWh", raw_today=[row, row]
+            ),
+            "sensor.stale": state(
+                "0.1", unit="EUR/kWh", raw_today=[row],
+                observed=NOW - timedelta(hours=25),
+            ),
+            "sensor.no_future": state(
+                "0.1", unit="EUR/kWh", raw_today=[{
+                    "start": (NOW - timedelta(hours=2)).isoformat(),
+                    "end": (NOW - timedelta(hours=1)).isoformat(), "value": 0.1,
+                }],
+            ),
+        })
+        for entity in ("missing_unit", "wrong_unit", "mismatch"):
+            self.assertEqual(
+                intervals(sources, f"sensor.{entity}", "price", NOW)[1],
+                "INTERVAL_CURRENCY_OR_UNIT_UNVERIFIED",
+            )
+        self.assertEqual(
+            intervals(sources, "sensor.overlap", "price", NOW)[1],
+            "INTERVAL_OVERLAP",
+        )
+        self.assertEqual(
+            intervals(sources, "sensor.stale", "price", NOW)[1],
+            "SOURCE_STALE",
+        )
+        self.assertEqual(
+            intervals(sources, "sensor.no_future", "price", NOW)[1],
+            "INTERVAL_SOURCE_EXPIRED",
+        )
+
+    def test_native_spot_dst_25_hour_day_has_no_phantom_local_time(self):
+        from zoneinfo import ZoneInfo
+
+        brussels = ZoneInfo("Europe/Brussels")
+        beginning = datetime(2026, 10, 24, 22, tzinfo=timezone.utc)
+        rows = [{
+            "start": (beginning + timedelta(hours=i)).astimezone(brussels),
+            "end": (beginning + timedelta(hours=i + 1)).astimezone(brussels),
+            "value": 0.1 if i % 2 else -0.01,
+        } for i in range(25)]
+        at = beginning + timedelta(hours=7)
+        source = hass({"sensor.native": state(
+            "0.1", unit="EUR/kWh", observed=at,
+            raw_today=rows,
+        )})
+        slots, quality = intervals(source, "sensor.native", "price", at)
+        self.assertEqual(quality, "OK")
+        self.assertEqual(len(slots), 25)
+        self.assertEqual(slots[0].start.utcoffset(), timedelta(0))
+        self.assertEqual(slots[-1].end, beginning + timedelta(hours=25))
+        self.assertEqual(slots[0].basis, "spot")
+
     def test_binding_requires_fresh_authoritative_intervals(self):
         attrs = {
             "kind": "binding_power_envelope", "authority": "binding",
