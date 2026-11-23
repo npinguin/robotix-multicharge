@@ -373,6 +373,9 @@
       },
       "ready_day_sun": {
         "name": "Sonntag Ready By"
+      },
+      "continuous_charging": {
+        "name": "Lademuster"
       }
     },
     "number": {
