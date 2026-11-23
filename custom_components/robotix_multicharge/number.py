@@ -31,6 +31,15 @@ async def async_setup_entry(
     ]
     for field in ("max_parallel", "max_power_kw"):
         entities.append(_SiteNumber(entry, runtime, field))
+    for charger in runtime.configuration["chargers"]:
+        if (charger.get("kind") == "variable_current"
+                and charger.get("phase_ids") and charger.get("voltage_v")
+                and charger.get("current_step_a")
+                and charger.get("min_current_a") is not None
+                and charger.get("max_current_a") is not None):
+            for field in ("min_charging_power_kw", "max_charging_power_kw",
+                          "set_charging_power_kw"):
+                entities.append(_ChargerPowerNumber(entry, runtime, charger, field))
     async_add_entities(entities)
 
 
@@ -157,3 +166,118 @@ class _SiteNumber(NumberEntity):
             "controller", self.runtime.configuration["controller"]["id"],
             {self.field: value},
         )
+
+
+
+class _ChargerPowerNumber(NumberEntity):
+    """Charger-owned kW limits and verified physical setpoint through one writer.
+
+    Hardware Amp capabilities are not user preferences. Operating min/max are
+    persisted within their verified envelope. Set power is a live action on a
+    confirmed owned session, not a shadow scheduler or an invented measurement.
+    """
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_mode = NumberMode.BOX
+
+    def __init__(self, entry, runtime, charger, field):
+        self.entry, self.runtime = entry, runtime
+        self.uid, self.field = charger["id"], field
+        self._attr_unique_id = f"{DOMAIN}:charger:{self.uid}:{field}"
+        self._attr_translation_key = field
+        self._attr_entity_category = (
+            None if field == "set_charging_power_kw" else EntityCategory.CONFIG
+        )
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, f"charger/{self.uid}")},
+            "name": charger["name"], "manufacturer": "Robotix",
+            "model": "Charger",
+        }
+        self._attr_native_unit_of_measurement = "kW"
+        self._attr_native_step = 0.01
+        self._unsubscribe = None
+        self._refresh_value()
+
+    def _refresh_value(self):
+        charger = next((c for c in self.runtime.configuration["chargers"]
+                        if c["id"] == self.uid), None)
+        if charger is None:
+            self._attr_available = False
+            self._attr_native_value = None
+            return
+        factor = charger["voltage_v"] * len(charger["phase_ids"]) / 1000
+        physical_min = charger["min_current_a"] * factor
+        physical_max = min(charger["rated_power_kw"],
+                           charger["max_current_a"] * factor)
+        self._attr_native_min_value = round(physical_min, 4)
+        self._attr_native_max_value = round(physical_max, 4)
+        if self.field in ("min_charging_power_kw", "max_charging_power_kw"):
+            default = physical_min if self.field == "min_charging_power_kw" else physical_max
+            self._attr_native_value = charger.get(self.field, default)
+            self._attr_available = True
+        else:
+            session = self.runtime.executor.session_snapshot().get(self.uid)
+            current = session.get("target_current_a") if session else None
+            self._attr_native_min_value = round(
+                charger.get("min_charging_power_kw", physical_min), 4
+            )
+            self._attr_native_max_value = round(
+                charger.get("max_charging_power_kw", physical_max), 4
+            )
+            self._attr_native_value = (
+                round(current * factor, 4) if current is not None else None
+            )
+            self._attr_available = bool(
+                charger.get("control_owner") == "multicharge"
+                and charger.get("physical_commissioned") is True
+                and current is not None
+            )
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        self._unsubscribe = self.runtime.subscribe(self._refresh)
+
+    @callback
+    def _refresh(self):
+        self._refresh_value()
+        self.async_write_ha_state()
+
+    async def async_will_remove_from_hass(self):
+        if self._unsubscribe is not None:
+            self._unsubscribe()
+            self._unsubscribe = None
+        await super().async_will_remove_from_hass()
+
+    async def async_set_native_value(self, value: float):
+        actor = getattr(self.context, "user_id", None)
+        user = await self.hass.auth.async_get_user(actor) if actor else None
+        if user is None or not user.is_admin:
+            raise RuntimeError("Charging power control requires an HA administrator")
+        if self.field != "set_charging_power_kw":
+            await apply_native_preference(
+                self.hass, self.entry, self.runtime, "charger", self.uid,
+                {self.field: float(value)},
+            )
+            return
+        charger = next((c for c in self.runtime.configuration["chargers"]
+                        if c["id"] == self.uid), None)
+        if charger is None or charger.get("kind") != "variable_current":
+            raise ValueError("CHARGER_NOT_ADJUSTABLE")
+        factor = charger["voltage_v"] * len(charger["phase_ids"]) / 1000
+        minimum = charger["min_current_a"]
+        step = charger.get("current_step_a")
+        if factor <= 0 or not step:
+            raise ValueError("CURRENT_CAPABILITY_UNVERIFIED")
+        # Round down to the nearest actual Amp step. The existing executor
+        # validates the real current and rejects any unsafe/unsupported value.
+        from math import floor
+        current = round(
+            minimum + max(0, floor((float(value) / factor - minimum) / step
+                                   + 1e-9)) * step, 6
+        )
+        outcome = await self.runtime.executor.execute(
+            self.uid, "set_current", current_a=current, context=self.context
+        )
+        if outcome["status"] != "confirmed":
+            raise RuntimeError("Charging power not confirmed: " + outcome["reason"])
+        self._refresh()
