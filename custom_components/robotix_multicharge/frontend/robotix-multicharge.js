@@ -83,6 +83,10 @@ for(const [locale,translation] of Object.entries({"nl":"Wijs eerst het andere vo
 const keysForMinimalCharger=["Start unavailable","External charging controller","Verify charger safety","Connection not verified","Power measurement missing","Charger control missing","Select Force Charge","Control state unverified","Previous command unresolved","Charger unavailable"];
 for(const [locale,labels] of Object.entries({"nl":["Start niet beschikbaar","Externe laadsturing actief","Controleer eerst de veiligheid van de laadpaal","Aansluiting niet bevestigd","Vermogensmeting ontbreekt","Laadsturing ontbreekt","Selecteer Force Charge","Controlestatus onbekend","Vorige opdracht onbeslist","Laadpaal niet beschikbaar"],"fr":["Démarrage indisponible","Contrôleur de charge externe","Vérifier la sécurité de la borne","Connexion non vérifiée","Mesure de puissance absente","Commande de borne absente","Choisir Force Charge","État de commande non vérifié","Commande précédente non résolue","Borne indisponible"],"da":["Start ikke tilgængelig","Ekstern ladestyring","Kontroller laderens sikkerhed","Forbindelse ikke bekræftet","Effektmåling mangler","Ladestyring mangler","Vælg Force Charge","Styringstilstand ukendt","Tidligere kommando uafklaret","Lader utilgængelig"],"nb":["Start ikke tilgjengelig","Ekstern ladekontroll","Bekreft laderens sikkerhet","Tilkobling ikke bekreftet","Effektmåling mangler","Ladekontroll mangler","Velg Force Charge","Kontrollstatus ubekreftet","Forrige kommando uavklart","Lader utilgjengelig"],"sv":["Start ej tillgänglig","Extern laddstyrning","Verifiera laddarens säkerhet","Anslutning ej bekräftad","Effektmätning saknas","Laddstyrning saknas","Välj Force Charge","Styrstatus ej verifierad","Föregående kommando olöst","Laddare otillgänglig"],"de":["Start nicht verfügbar","Externe Ladesteuerung","Sicherheit des Ladepunkts prüfen","Verbindung nicht bestätigt","Leistungsmessung fehlt","Ladesteuerung fehlt","Force Charge auswählen","Steuerstatus ungeprüft","Vorheriger Befehl ungeklärt","Ladepunkt nicht verfügbar"],"es":["Inicio no disponible","Control de carga externo","Verifique la seguridad del cargador","Conexión no verificada","Falta medición de potencia","Falta control del cargador","Seleccione Force Charge","Estado de control no verificado","Comando anterior sin resolver","Cargador no disponible"]}))
   keysForMinimalCharger.forEach((key,i)=>{MC_TEXT[locale][key]=labels[i];});
+for(const [locale,terms] of Object.entries({"nl":["Indicatieve variabele energiekosten","Schatting op basis van gemeten vermogen, geen factuur"],"fr":["Coût énergétique variable indicatif","Estimation fondée sur la puissance mesurée, pas une facture"],"de":["Geschätzte variable Energiekosten","Aus Messleistung berechnete Schätzung, keine Rechnung"],"es":["Coste variable de energía estimado","Estimación de potencia medida, no es una factura"],"da":["Anslået variabel energiomkostning","Estimat fra målt effekt, ikke en faktura"],"nb":["Anslått variabel energikostnad","Estimat fra målt effekt, ikke en faktura"],"sv":["Beräknad rörlig energikostnad","Uppskattning från uppmätt effekt, inte en faktura"]})){
+  MC_TEXT[locale]["Indicative variable energy cost"]=terms[0];
+  MC_TEXT[locale]["Power-derived estimate, not a bill"]=terms[1];
+}
 const MC_MODES = ["Automatic", "Solar", "Economy", "Ready By", "Force Charge", "Off"];
 const MC_STYLE = [
   ":host{display:block;color:var(--primary-text-color,#20252b);font:inherit}",
@@ -1183,6 +1187,13 @@ class RobotixMultiChargeCard extends HTMLElement {
         mcPair(card,"Last confirmed session",mcTime(latest.ended_at,d.timezone));
         mcPair(card,"Measured energy",latest.actual_energy_kwh===null?"Unknown":latest.actual_energy_kwh+" kWh");
         mcPair(card,"Verified cost",latest.cost===null?"Unknown":latest.cost+" "+latest.currency);
+        if(latest.cost===null && latest.estimated_variable_cost!==undefined){
+          mcPair(card,mcTr("Indicative variable energy cost"),
+            latest.estimated_variable_cost+" "+
+            latest.estimated_variable_cost_currency);
+          card.append(mcEl("p","muted small",
+            mcTr("Power-derived estimate, not a bill")));
+        }
       }
       if(this._open===c.id){
         const detail=mcEl("div","details");
