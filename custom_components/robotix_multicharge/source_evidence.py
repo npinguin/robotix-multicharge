@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from math import isfinite
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .contracts import PowerEnvelope, PowerLimitSlot, PriceSlot
 
@@ -80,7 +81,88 @@ def number(hass, entity_id, kind: str, now: datetime) -> Evidence:
     return Evidence(round(value, 6), "ok", evidence.observed_at, "OK")
 
 
-def connection(hass, entity_id: str | None, now: datetime) -> Evidence:
+def soc_with_health(hass, soc_entity, stale_entity, now) -> Evidence:
+    """One native SoC with optional independent OEM stale/validity evidence.
+
+    A stale flag is not a value source; a stale numeric SoC must never become
+    a trustworthy target or remaining-demand signal.
+    """
+    reading = number(hass, soc_entity, "soc", now)
+    if not stale_entity:
+        return reading
+    if not isinstance(stale_entity, str) or not stale_entity.startswith(
+            "binary_sensor."):
+        return Evidence(None, "invalid", None, "SOC_HEALTH_DOMAIN_INVALID")
+    state, flag = _state(hass, stale_entity, now, timedelta(hours=2))
+    if state is None:
+        return Evidence(None, flag.quality, flag.observed_at,
+                        "SOC_HEALTH_" + flag.reason)
+    if state.state == "on":
+        return Evidence(None, "stale", flag.observed_at, "SOC_OEM_DATA_STALE")
+    if state.state != "off":
+        return Evidence(None, "invalid", flag.observed_at, "SOC_HEALTH_AMBIGUOUS")
+    return reading
+
+
+def live_power(hass, entity_id: str | None, now: datetime, *,
+               signed=False) -> Evidence:
+    """Instantaneous native HA W/kW power, never energy (Wh/kWh) or forecasts.
+
+    Limit observation age to two minutes for live energy decisions and display.
+    Signed grid import/export power is permitted only when sign semantics
+    are explicitly selected in the charging-site configuration.
+    """
+    obj, evidence = _state(hass, entity_id, now, timedelta(minutes=2))
+    if obj is None:
+        return evidence
+    factor = {"W": 0.001, "kW": 1.0}.get(
+        obj.attributes.get("unit_of_measurement")
+    )
+    if factor is None:
+        return Evidence(None, "invalid", evidence.observed_at, "POWER_UNIT_UNVERIFIED")
+    try:
+        value = float(obj.state) * factor
+        if not isfinite(value) or (value < 0 and not signed):
+            raise ValueError("power reading not physically valid")
+    except (TypeError, ValueError, OverflowError):
+        return Evidence(None, "invalid", evidence.observed_at, "POWER_VALUE_INVALID")
+    return Evidence(round(value, 6), "ok", evidence.observed_at, "OK")
+
+
+def live_price(hass, entity_id: str | None, now: datetime):
+    """Indicative current native HA tariff, not a future pricing schedule.
+
+    Return a separately qualified currency and never infer billing basis.
+    The actual effective tariff receipts still require covered price slots.
+    """
+    obj, evidence = _state(hass, entity_id, now, timedelta(minutes=20))
+    if obj is None:
+        return evidence, None
+    unit = obj.attributes.get("unit_of_measurement")
+    currency, divisor = None, None
+    if isinstance(unit, str) and unit.count("/") == 1:
+        currency, denom = unit.split("/")
+        if currency == "€":
+            currency = "EUR"
+        if (len(currency) == 3 and currency.isascii()
+                and currency.isalpha() and currency.isupper()):
+            divisor = {"kWh": 1, "MWh": 1000}.get(denom)
+    if divisor is None:
+        return Evidence(None, "invalid", evidence.observed_at,
+                        "PRICE_UNIT_UNVERIFIED"), None
+    try:
+        value = float(obj.state) / divisor
+        if not isfinite(value):
+            raise ValueError("invalid price")
+    except (TypeError, ValueError, OverflowError):
+        return Evidence(None, "invalid", evidence.observed_at,
+                        "PRICE_VALUE_INVALID"), None
+    return Evidence(round(value, 8), "ok", evidence.observed_at,
+                    "CURRENT_PRICE_ONLY"), currency
+
+
+def connection(hass, entity_id: str | None, now: datetime, *,
+               connected_states=None, disconnected_states=None) -> Evidence:
     obj, evidence = _state(hass, entity_id, now, timedelta(minutes=30))
     if obj is None and evidence.reason == "SOURCE_STALE":
         # A site-owned semantic cable template can remain *unchanged* in HA
@@ -120,7 +202,21 @@ def connection(hass, entity_id: str | None, now: datetime) -> Evidence:
         else {"connected": True, "disconnected": False} if domain == "sensor"
         else {}
     )
-    value = allowed.get(str(obj.state).lower())
+    if connected_states is not None or disconnected_states is not None:
+        if (domain != "sensor"
+                or not isinstance(connected_states, list)
+                or not isinstance(disconnected_states, list)
+                or not connected_states or not disconnected_states):
+            return Evidence(None, "invalid", evidence.observed_at,
+                            "CONNECTION_MAPPING_INVALID")
+        positive = {label.casefold() for label in connected_states}
+        negative = {label.casefold() for label in disconnected_states}
+        if positive & negative:
+            return Evidence(None, "invalid", evidence.observed_at,
+                            "CONNECTION_MAPPING_AMBIGUOUS")
+        allowed = {**dict.fromkeys(positive, True),
+                   **dict.fromkeys(negative, False)}
+    value = allowed.get(str(obj.state).strip().casefold())
     if value is None:
         return Evidence(None, "invalid", evidence.observed_at, "CONNECTION_AMBIGUOUS")
     return Evidence(value, "ok", evidence.observed_at, "OK")
@@ -153,6 +249,137 @@ def session_status(hass, entity_id: str | None, now: datetime) -> Evidence:
         return Evidence(None, "invalid", evidence.observed_at, "SESSION_STATUS_AMBIGUOUS")
     return Evidence(labels[value], "ok", evidence.observed_at, "OK")
 
+def _native_spot_price_intervals(obj, now):
+    """Read native raw_today/raw_tomorrow without a Robotix template bridge.
+
+    This layout is used by some HA-native price providers. Prices are SPOT
+    estimates for Economy ranking only, never qualified all-in session cost.
+    Every value carries a source-declared ISO currency/energy unit.
+    """
+    attrs = obj.attributes
+    unit = attrs.get("unit_of_measurement")
+    if not isinstance(unit, str) or unit.count("/") != 1:
+        return (), "INTERVAL_CURRENCY_OR_UNIT_UNVERIFIED"
+    currency, denominator = unit.split("/", 1)
+    # The explicit Euro symbol is Home Assistant's native electricity-price
+    # unit on several providers; unlike $, it names exactly one ISO currency.
+    if currency == "€":
+        currency = "EUR"
+    if (len(currency) != 3 or not currency.isascii()
+            or not currency.isupper() or not currency.isalpha()
+            or denominator not in ("kWh", "MWh")
+            or attrs.get("currency", currency) != currency):
+        return (), "INTERVAL_CURRENCY_OR_UNIT_UNVERIFIED"
+    raw_today = attrs.get("raw_today")
+    raw_tomorrow = attrs.get("raw_tomorrow")
+    if not isinstance(raw_today, list) or raw_tomorrow is not None and not isinstance(
+            raw_tomorrow, list):
+        return (), "INTERVAL_PAYLOAD_INVALID"
+    raw = [*raw_today, *(raw_tomorrow or [])]
+    if not raw or len(raw) > 256:
+        return (), "INTERVAL_PAYLOAD_INVALID"
+    multiplier = 0.001 if denominator == "MWh" else 1.0
+    try:
+        slots = [
+            PriceSlot(
+                _date(row["start"]), _date(row["end"]),
+                float(row["value"]) * multiplier, currency, basis="spot",
+            )
+            for row in raw
+        ]
+        slots.sort(key=lambda x: x.start)
+        if any(a.end > b.start for a, b in zip(slots, slots[1:])):
+            return (), "INTERVAL_OVERLAP"
+        if slots[-1].end <= now:
+            return (), "INTERVAL_SOURCE_EXPIRED"
+        return tuple(slots), "OK"
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return (), "INTERVAL_PAYLOAD_INVALID"
+
+
+def _native_all_in_reference_intervals(hass, obj, now):
+    """Use full native electricity-price days without a Robotix bridge.
+
+    A provider that explicitly publishes timestamped all_in EUR/kWh values
+    supplies *variable reference* prices. These can order Economy plans;
+    neither name nor values establish billed tariffs or historical settlement.
+    """
+    attrs = obj.attributes
+    if attrs.get("unit_of_measurement") not in ("EUR/kWh", "€/kWh"):
+        return (), "INTERVAL_CURRENCY_OR_UNIT_UNVERIFIED"
+    if attrs.get("currency", "EUR") != "EUR":
+        return (), "INTERVAL_CURRENCY_OR_UNIT_UNVERIFIED"
+    if attrs.get("snapshot_stale") not in (None, False):
+        return (), "INTERVAL_SOURCE_STALE"
+    raw_today = attrs.get("today")
+    raw_tomorrow = attrs.get("tomorrow")
+    if (not isinstance(raw_today, list) or
+            raw_tomorrow is not None and not isinstance(raw_tomorrow, list)):
+        return (), "INTERVAL_PAYLOAD_INVALID"
+    if not raw_today:
+        return (), "INTERVAL_PAYLOAD_INVALID"
+    zone_name = attrs.get("time_zone") or getattr(
+        getattr(hass, "config", None), "time_zone", None
+    )
+    if not isinstance(zone_name, str) or not zone_name:
+        return (), "INTERVAL_TIMEZONE_UNVERIFIED"
+    try:
+        zone = ZoneInfo(zone_name)
+    except (ZoneInfoNotFoundError, ValueError):
+        return (), "INTERVAL_TIMEZONE_UNVERIFIED"
+    local_today = now.astimezone(zone).date()
+    raw_days = [raw_today] + ([raw_tomorrow] if raw_tomorrow else [])
+    all_slots = []
+    previous_end = None
+    try:
+        price_now = float(obj.state)
+        if not isfinite(price_now):
+            return (), "INTERVAL_PAYLOAD_INVALID"
+        for index_day, day in enumerate(raw_days):
+            count = len(day)
+            if count not in (23, 24, 25, 92, 96, 100):
+                return (), "INTERVAL_COVERAGE_INCOMPLETE"
+            step = timedelta(minutes=15) if count >= 90 else timedelta(hours=1)
+            local_date = local_today + timedelta(days=index_day)
+            next_date = local_date + timedelta(days=1)
+            expected_start = datetime(
+                local_date.year, local_date.month, local_date.day,
+                tzinfo=zone,
+            ).astimezone(timezone.utc)
+            expected_end = datetime(
+                next_date.year, next_date.month, next_date.day,
+                tzinfo=zone,
+            ).astimezone(timezone.utc)
+            if expected_end - expected_start != count * step:
+                return (), "INTERVAL_COVERAGE_INCOMPLETE"
+            first = _date(day[0]["start"])
+            if first != expected_start or (
+                    previous_end is not None and first != previous_end):
+                return (), "INTERVAL_TIME_INVALID"
+            for index, row in enumerate(day):
+                stamp = _date(row["start"])
+                expected = first + index * step
+                if stamp != expected:
+                    return (), "INTERVAL_COVERAGE_INCOMPLETE"
+                price = float(row["all_in"])
+                if not isfinite(price):
+                    return (), "INTERVAL_PAYLOAD_INVALID"
+                all_slots.append(PriceSlot(
+                    expected, expected + step, price, "EUR",
+                    basis="variable_reference",
+                ))
+            previous_end = first + count * step
+            if previous_end != expected_end:
+                return (), "INTERVAL_COVERAGE_INCOMPLETE"
+        if all_slots[-1].end <= now:
+            return (), "INTERVAL_SOURCE_EXPIRED"
+        if all_slots[0].start > now:
+            return (), "INTERVAL_COVERAGE_INCOMPLETE"
+        return tuple(all_slots), "OK"
+    except (KeyError, IndexError, TypeError, ValueError, OverflowError):
+        return (), "INTERVAL_PAYLOAD_INVALID"
+
+
 def intervals(hass, entity_id: str | None, kind: str, now: datetime):
     """Accept only a versioned, source-qualified series of real interval data.
 
@@ -168,6 +395,14 @@ def intervals(hass, entity_id: str | None, kind: str, now: datetime):
     if kind not in expected:
         raise ValueError("unsupported interval kind")
     if obj.attributes.get("kind") != expected[kind]:
+        # A native HA spot-price provider can be bound directly; it is
+        # NEVER promoted to an effective/all-in monetary source.
+        if kind == "price" and "raw_today" in obj.attributes:
+            return _native_spot_price_intervals(obj, now)
+        if (kind == "price" and "today" in obj.attributes
+                and obj.attributes.get("unit_of_measurement")
+                    in ("EUR/kWh", "€/kWh")):
+            return _native_all_in_reference_intervals(hass, obj, now)
         return (), "INTERVAL_SEMANTICS_UNVERIFIED"
     try:
         expires = _date(obj.attributes["valid_until"])

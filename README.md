@@ -8,7 +8,13 @@
 
 Robotix MultiCharge is an open-source Home Assistant integration being built to coordinate charging for electric cars, e-bikes and other compatible rechargeable assets. The goal: make smart use of electricity prices, solar energy, available power and charging deadlines—without locking you to a vehicle, charger or energy provider.
 
-> **HACS TEST candidate v0.1.6 — independent Community integration, not STABLE or field-qualified.** This increment adds device-owned native Home Assistant inputs/actions automatically on the logical ChargeController, Charger and ChargeableAsset, with everyday charging controls in the integrated dashboard instead of the Options Flow. Newly added car profiles default to an editable 80% target; recurring Ready By schedules and variable-current Charger min/max/set kW are supported where the hardware qualifies. Guided setup can select Automatic mode, but **real Charger ownership remains external until explicit qualified commissioning**. Never run two physical writers on the same charger. Actual charger operation, source quality, responsive UX and every field use-case still require acceptance. No other Robotix/RHI integration is required.
+> **HACS TEST v0.1.7 candidate — independent Community integration, not STABLE or field-qualified.** This increment adds device-owned native Home Assistant inputs/actions automatically on the logical ChargeController, Charger and ChargeableAsset, with everyday charging controls in the integrated dashboard instead of the Options Flow. Newly added car profiles default to an editable 80% target; recurring Ready By schedules and variable-current Charger min/max/set kW are supported where the hardware qualifies. Guided setup can select Automatic mode, but **real Charger ownership remains external until explicit qualified commissioning**. Never run two physical writers on the same charger. Actual charger operation, source quality, responsive UX and every field use-case still require acceptance. No other Robotix/RHI integration is required.
+
+## Functional product authority
+
+**Start with the [Functional Specification and Use-Case Contract](docs/FUNCTIONAL_SPECIFICATION.md).** It is the **single canonical functional document** for MultiCharge: UC01–UC29, FLEX-01–21, FORECAST-01–12, UI-OWNER-01–10, desired resident/admin behavior, positive/negative test journeys, source-neutral installation, electrical safety, native owners and evidence requirements. The [RHI Platform Vision](https://github.com/npinguin/robotix-home-intelligence/blob/main/docs/ENGINEERING_PLATFORM_VISION.md) remains authoritative for platform boundaries. [Architecture](docs/ARCHITECTURE.md) and [Interfaces](docs/INTERFACES.md) describe implementation, not duplicate use-case authority.
+
+**Issues/PRs are execution evidence, not functional specifications.** [Issue #1](https://github.com/npinguin/robotix-multicharge/issues/1) tracks actual remaining gaps and blockers; [Draft PR #9](https://github.com/npinguin/robotix-multicharge/pull/9) tracks changed UC IDs, code, exact-head CI and qualification. No UC text or UX acceptance may exist only in a PR body. Live hardware ownership, installed browser qualification, site handoff and a published HACS artifact have distinct statuses; a source-green branch is not Feature Complete.
 
 ## What we're building
 
@@ -18,6 +24,30 @@ Robotix MultiCharge is an open-source Home Assistant integration being built to 
 - **Capability-driven chargers** — safe on/off or variable-current control only when the hardware supports it.
 - **Real status** — physical charger readback, clear quality/availability and trustworthy plans.
 - **Works on its own** — choose optional data sources from native Home Assistant integrations.
+
+### Object-oriented native charging UX (development batch)
+
+The same five Home Assistant views now keep each setting and observation with its owning object. **Overview** presents actual state, the chosen vehicle's real SoC/kWh/minutes/EUR goal, planning/calendar actions and a safely eligible Charger STOP. **Charging Plan** combines the time-based site kW and currency-qualified price graph with Vehicle/Charger detail lanes. **Chargeable Assets** keeps Guest or Vehicle identity, scheduled weekday/local charging windows, battery/SoC source, preferences, price thresholds, history and Charger assignment on that Vehicle. **Chargers** keeps physical state, single-writer ownership, commissioning, native connection/power/energy sources, circuit/phase/current bounds, commands and original session attribution on the Charger. **Settings** owns the ChargeController: site limits, modes and all native solar/grid/tariff/meter references.
+
+One existing **Details** disclosure on each object also shows **every persisted Config Entry key** in named groups (including unconfigured keys and future additive keys). All source selection and structural hardware changes still go through the existing real Home Assistant Options Flow where appropriate, not a dummy edit control or second preference store. Frontend/native settings services require a genuine HA administrator; read-only users retain observation visibility and never inherit actuation rights. Developer checks statically enforce the configuration-field-to-owning-object correspondence and installed HA tests verify actual native Registry entities and administrator authorization.
+
+**Release distinction:** these source and isolated-HA tests do not establish actual Home Assistant browser usability, real provider readings, owner handoff or physical STOP. The current published immutable v0.1.6 community TEST is not silently replaced by the dev branch; the next TEST must be fully qualified and cut only from exact approved main.
+
+### Beginner-first UX and combined charging graph (dev)
+
+The same five-tab user experience now has direct resident-readable actions: an Asset card provides **SoC / kWh / minutes / EUR** with a single authorized **Save charging goal** transaction, plus one clearly labelled **Schedule charging** action for selected weekdays and allowed charging hours. Overview links directly to each vehicle's goal/plan, offers one-step Guest creation, and exposes STOP only when the native Charger reports safe stop capability. Less common native price limits, low-SoC policy, opportunistic strategy, power limits, source configuration and diagnostics remain discoverable on the owning card one deliberate detail step away; no extra wizard, tracker, physical writer or browser-owned preference.
+
+The **Charging Plan** combines Wessels Mobility Basic's simple, separate-scale *power + price* overview and Today/Tomorrow/48h period choices with MultiCharge's source-neutral, dynamically rendered **one row per Vehicle/Charger pairing**. Actual (native Recorder), accepted, proposed and disconnected indicative are not the same thing and remain visually distinct. The overview never assigns anonymous actual kW to the current Vehicle, never prices missing intervals at zero and never calls spot/reference prices a bill. The 48h choice is **two actual local civil days**, which can contain 47 or 49 real hours across DST, not always 48 UTC hours. No Basic YAML, ApexCharts add-on or external dependency is required. Real HA browser/mobile and native provider acceptance is still separate from passing source tests.
+
+### Development progress — differentiated scheduling and flexible charging
+
+On the active `dev` branch (separate from the published HACS v0.1.6 TEST candidate), the existing one-controller architecture now includes source-tested **Specific days** vehicle Ready By schedules (any selected weekdays, separate local times), optional allowed weekday/hour charging windows, and finite goals of **measured kWh, charging duration or EUR budget**, plus the existing independently adjustable kW hardware cap where safe. A Guest can be created with a normal relative expiry, while unassigned Charger-only sessions retain an optional finite goal with no invented vehicle. Native HA owner entities, the bundled five-tab card and the same guarded physical executor are the only SET/command surfaces. Readback, historical attribution and restart safety remain separate from requested intent.
+
+**Original upstream v2.6.1 capabilities on dev:** The same Asset and 15-minute Controller planner also expose a native **continuous versus split-quarter** preference, earliest start, minimum-SoC before applying an explicit price limit, low-SoC and low-price triggers, and both original opportunistic price-cap calculations. These policies are source-checked at the physical executor as well as in proposed slots; if price, SoC or current connection becomes unqualified, the executor holds or physically stops instead of granting an unsafe override. The optional upstream **Keep charger on for preconditioning** is **not falsely claimed as supported**: ordinary on/off Charger hardware does not prove that energizing it will only precondition and not continue battery charging. An independently qualified hardware-specific safe capability and real-device acceptance are prerequisites. The existing integration never silently takes over the old physical owner.
+
+**Financial semantics:** a euro goal uses verified `effective` €/kWh intervals and genuine native cumulative-energy meter deltas; spot-only and an ordinary price reference cannot authorize a billed-money promise. If one meter increment spans multiple fully qualified effective tariffs, the remaining budget is conservatively reduced at the highest applicable nonnegative rate, explicitly shown as an **upper bound**, not an invoice. A single EUR-budget intent has a **cumulative 24-hour charging-time ceiling**, enforced by its plan as well as its guarded physical writer, including zero/negative prices and restarts. Missing source, unqualified EVSE, stale identity or incomplete STOP/readback holds physical execution. Physical source and real browser qualification remain open; do not treat a source-green CI run as HACS STABLE, production or site-specific physical handoff.
+
+For full positive/negative and original upstream EV Smart Charging v2.6.1 parity requirements, see the [one canonical Functional Specification](docs/FUNCTIONAL_SPECIFICATION.md); implementation and remaining gates are recorded only in [Issue #1](https://github.com/npinguin/robotix-multicharge/issues/1) and the existing [Draft PR #9](https://github.com/npinguin/robotix-multicharge/pull/9).
 
 ## Simple in Home Assistant
 
@@ -62,6 +92,18 @@ HA provider entities. No Robotix Foundation, Basic, Premium, Wessels package,
 Finance integration or specific charger brand is required. Community source
 and native HA tests are necessary but do not replace real charger commissioning
 and physical acceptance for each installation.
+
+### Native Home Assistant energy and tariff inputs (development candidate)
+
+A fresh Add Integration now offers **Guided setup** or **Configure entire charging site (JSON)**. The first wizard page and the dedicated **Configure → Energy & prices** Options page expose direct native HA EntitySelectors for **Solar production power (W/kW), whole-home consumption power (W/kW), signed grid import/export power (W/kW), measured usable solar surplus (W/kW), qualified 15-minute Solar intervals, current import/export price entities and future tariff interval sources**. In the expert YAML route these are `controller.solar_power_entity`, `home_power_entity`, `grid_power_entity`, `solar_surplus_entity`, `solar_entity`, `current_price_entity`, `export_price_entity` and `price_entity` alongside `solar_source_kind` and `grid_power_direction`. A single Config Entry persists them.
+
+**Select existing Home Assistant Energy Dashboard** is an optional *read-only source-discovery shortcut*: it copies only unambiguous configured **live power** `stat_rate` references for PV/grid, and the Energy Dashboard's import/export current price *entity references* into MultiCharge's existing Config Entry, with direct manual overrides. It never changes Energy Dashboard preferences, copies a kWh energy counter as live kW, guesses total-house demand by summing device counters, invents an all-in future tariff from a current price, or adds a Robotix dependency. Home consumption power must be selected from an actual whole-site sensor. On a site with several grid connections, explicitly select a suitable grid meter: MultiCharge will not choose one automatically.
+
+**Direct native full-day electricity prices:** If an existing HA price sensor exposes explicit `€/kWh` or `EUR/kWh` and complete `today`/`tomorrow` rows with `start` and `all_in`, select **that sensor itself** as the future `price_entity`. MultiCharge validates each real site-local 23/24/25-hour day (or 92/96/100 real quarters), source freshness, units and exact interval coverage using the HA timezone. The resulting `variable_reference` rates can drive Economy planning **without a Robotix Energy/Basic bridge or a `template:` helper**; the Overview labels them as a reference, not an invoice. Native `raw_today/raw_tomorrow` spot quotes remain supported separately. An all-in-looking provider reference is **not** verified supplier settlement, fixed fees or capacity charges; historical bills remain unknown without qualified evidence. Unsupported or incomplete sources remain HOLD rather than silently inventing prices.
+
+**Solar operating source** is selected independently: `none`, genuine qualified `intervals`, a fresh signed `grid_export` power meter (with explicit import-positive or export-positive convention), or a provider's measured `direct_surplus`. Native grid/surplus power can offer at most a *near-term* quarter while fresh, not tomorrow's invented solar forecast. Physical START remains gated by native control ownership, electrical limits, current-plug identity, source freshness and real independent readback. Price `current_price_entity` is only an indicative instantaneous quote; Economy future scheduling requires actual bounded price intervals, and all-in session receipts never derive from spot/current-only data. **No HA templates, external YAML packages or Robotix Core/Basic/Premium runtime are necessary for standard GUI setup.**
+
+These are code and source/HA-test development changes in Draft PR #9; the public v0.1.6 release has not been replaced. A green CI does not prove installed browser/EVSE behavior or authorize physical commissioning.
 
 The planned everyday experience has five sections:
 
@@ -257,19 +299,21 @@ Keep the existing controller `id` when converting from a GUI-created entry (the 
 
 ### Edit complete MultiCharge configuration inside Home Assistant
 
-For a **GUI-managed** MultiCharge Config Entry, an administrator can now open **MultiCharge → Settings → Edit YAML**. The full currently saved canonical MultiCharge configuration is loaded into a data-only YAML editor inside the five-view card. Choose **Complete configuration** to replace all Charger/Asset rows exactly (including explicit removals), or **Scoped changes** to merge only specified IDs while preserving omitted assets and chargers. Click **Continue / review** to have Home Assistant validate the whole candidate; inspect the actual added/changed/removed IDs and fields, then **Apply reviewed changes**, **Back to YAML** or **Cancel**. The UI does not modify any configuration until the official HA **Options Flow** approves the confirmed reviewed draft. No second file, store, writer or charging command is introduced.
+A new installation offers **Guided setup** or **Complete charging site (JSON)**. For a **GUI-managed** Config Entry, an HA administrator can use **MultiCharge → Settings → Edit JSON**. The editor shows the exact current validated `controller / assets / chargers` configuration, including IDs, source bindings, power limits, per-Asset goals and scheduling. Choose **Complete configuration** to replace all rows (review removals carefully), or **Scoped changes** to merge only supplied IDs and preserve the remaining objects. **Continue / review** shows changed/added/removed objects; only **Apply reviewed changes** commits through the existing native Home Assistant Options Flow. Safe legacy YAML documents remain accepted through the same validator.
 
-The editor preserves the existing controller ID, rejects unknown/duplicate YAML keys, stale edits, commissioning changes and physical owner transfer, and requires safe runtime/readback before physical wiring or association changes. HA configuration reloads preserve stable logical identities; actively controlled equipment is never silently reconfigured. The editor accepts **MultiCharge configuration data only** (controller/assets/chargers, optionally wrapped in `robotix_multicharge:`) or supported expert Controller/Charger/ChargingAsset JSON fields in Complete mode. It does **not** create or modify unrelated HA `template:` sensors, automation packages or external providers: keep those in their normal HA native owner files. Once a YAML/JSON file owns the Config Entry, the in-card YAML is intentionally read-only to avoid conflicting configuration authorities.
+The five existing tabs expose everyday charging without learning JSON: **Overview** for real state and quick actions, **Charging Plan** for measured/accepted/proposed/indicative quarters and prices, **Chargeable Assets** for goal/schedule/Guest and vehicle detail, **Chargers** for physical connection/ownership/STOP/one-off, and **Settings** for site strategy, native sources and diagnosis. Each object has compact daily state and foldable groups for its complete technical configuration. Ordinary writable preferences open the owning **native HA Entity**; changes to physical wiring/source structure require the reviewed JSON/Options Flow, and ownership transfer requires separate commissioning. The three logical native HA Device types also expose one read-only Configuration diagnostic sensor each, while the actual charger integration retains original device ownership.
+
+The single validated Config Entry is authoritative for GUI-managed installs; a **file-imported** JSON or YAML configuration stays authoritative in that source and is deliberately read-only in the dashboard. Invalid duplicate keys, stale Config Entry revisions, commissioning changes, unsafe active-device rewiring and unqualified writers fail closed. There is no second configuration database, manual helper dependency or additional physical service.
 
 ## Community HACS TEST installation and closing-iteration evidence
 
 Robotix MultiCharge is a **single MIT-licensed community integration**. It installs
 from source; no precompiled runtime, paid Robotix services or separate mirror.
 
-For the `v0.1.6` TEST candidate, after the corresponding GitHub prerelease is published, open HACS in Home Assistant and add
+For the `v0.1.7` TEST candidate, after the corresponding GitHub prerelease is published, open HACS in Home Assistant and add
 `https://github.com/npinguin/robotix-multicharge` as a **custom Integration
 repository**, enable prerelease/beta versions where applicable, and install
-the `v0.1.6` TEST prerelease. Restart Home Assistant. For the GUI wizard,
+the `v0.1.7` TEST prerelease. Restart Home Assistant. For the GUI wizard,
 open **Settings → Devices & services → Add integration → Robotix MultiCharge**;
 for an expert YAML/JSON include, Home Assistant imports or adopts the **existing**
 Config Entry automatically and you should **not add a second entry**.
@@ -306,7 +350,8 @@ real-site physical acceptance.
 
 - [Architecture, UI and ownership](docs/ARCHITECTURE.md)
 - [Candidate contracts and interfaces](docs/INTERFACES.md)
-- [Functional use cases and acceptance](https://github.com/npinguin/robotix-multicharge/issues/1)
+- [Canonical functional specification — UC01–UC29 and extensions](docs/FUNCTIONAL_SPECIFICATION.md)
+- [Development gaps and acceptance evidence](https://github.com/npinguin/robotix-multicharge/issues/1)
 - [Open development issues](https://github.com/npinguin/robotix-multicharge/issues)
 
 Source checks (no Home Assistant installation needed):

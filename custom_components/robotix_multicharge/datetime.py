@@ -9,10 +9,10 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .command_query import apply_native_preference
+from .command_query import apply_native_preference, require_native_admin
 from .const import DOMAIN
 
-FIELDS = ("ready_by", "expected_connection_at", "expires_at")
+FIELDS = ("ready_by", "expected_connection_at", "expires_at", "earliest_start_at")
 
 
 async def async_setup_entry(
@@ -72,6 +72,7 @@ class _AssetDateTime(DateTimeEntity):
         await super().async_will_remove_from_hass()
 
     async def async_set_value(self, value: datetime):
+        await require_native_admin(self.hass, self.context)
         if not self.available:
             raise ValueError("ASSET_GUEST_EXPIRY_ONLY_FOR_TEMPORARY_ASSET")
         if value.tzinfo is None or value.utcoffset() is None:

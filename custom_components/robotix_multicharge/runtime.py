@@ -11,11 +11,14 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
-from .contracts import ChargeDemand, PowerEnvelope
+from .contracts import ChargeDemand, PowerEnvelope, PowerLimitSlot
 from .configuration import configuration_revision, PLAN_COLORS
 from .domain import ChargeController, Charger
 from .planner import compile_plan, resolve_recurring_ready_by
-from .source_evidence import Evidence, binding, connection, intervals, number, session_status
+from .source_evidence import (
+    Evidence, binding, connection, intervals, number, session_status,
+    live_power, live_price, soc_with_health,
+)
 from .execution import NativeSwitchExecutor
 
 _LOGGER = logging.getLogger(__name__)
@@ -49,6 +52,57 @@ class MultiChargeRuntime:
         self._listeners = set()
         self._unsubscribers = []
         self.active = True
+
+    def native_surplus_power(self, at):
+        """Compute strictly current, not forecast solar/export capacity.
+
+        No PV generation reading alone establishes chargeable surplus. Live
+        grid import/export can be interpreted only with a configured sign,
+        while retained owned sessions are added back once, from real power
+        readback and a confirmed internal physical session.
+        """
+        ctl = self.configuration["controller"]
+        source_kind = ctl.get("solar_source_kind", "none")
+        if source_kind not in ("grid_export", "direct_surplus"):
+            return None, "NATIVE_SOLAR_NOT_SELECTED"
+        if source_kind == "direct_surplus":
+            source = live_power(
+                self.hass, ctl.get("solar_surplus_entity"), at,
+            )
+            return (source.value, "OK") if source.quality == "ok" else (
+                None, source.reason,
+            )
+        source = live_power(
+            self.hass, ctl.get("grid_power_entity"), at, signed=True,
+        )
+        if source.quality != "ok":
+            return None, source.reason
+        exported = (
+            -source.value if ctl.get("grid_power_direction") == "import_positive"
+            else source.value
+        )
+        available = max(0.0, exported)
+        for charger in self.configuration["chargers"]:
+            if (charger.get("control_owner") != "multicharge"
+                    or charger.get("physical_commissioned") is not True):
+                continue
+            state = self.executor._switch(
+                self.hass, charger.get("control_entity"),
+            )
+            if state is None:
+                return None, "OWNED_CHARGER_SWITCH_UNKNOWN"
+            if state.state != "on":
+                continue
+            session = self.executor._sessions.get(charger["id"])
+            if session is None:
+                return None, "OWNED_CHARGER_SESSION_UNKNOWN"
+            measured = live_power(
+                self.hass, charger.get("power_entity"), at,
+            )
+            if measured.quality != "ok":
+                return None, "OWNED_CHARGER_POWER_UNKNOWN"
+            available += measured.value
+        return round(available, 6), "OK"
 
     def attach_control_store(self, store, snapshot):
         self._control_store = store
@@ -142,8 +196,26 @@ class MultiChargeRuntime:
         # Observe every logical asset, including unassigned assets and explicit
         # kWh/duration intents. Do not reconstruct a second OEM/vehicle truth.
         for asset in cfg["assets"]:
+            recurrence = asset.get("ready_by_repeat", "none")
+            saved_due = asset.get("ready_by")
+            due = datetime.fromisoformat(saved_due) if saved_due else None
+            reason = "ONE_OFF"
+            if recurrence != "none" and (
+                    due is not None or recurrence == "specific_days"):
+                try:
+                    due, reason = resolve_recurring_ready_by(
+                        due, at, recurrence, self.hass.config.time_zone,
+                        asset.get("ready_by_weekdays"),
+                    )
+                except (ValueError, TypeError, KeyError):
+                    due, reason = None, "DEADLINE_INVALID"
             self.observations["assets"][asset["id"]] = {
-                "soc": number(self.hass, asset.get("soc_entity"), "soc", at)
+                "soc": soc_with_health(
+                    self.hass, asset.get("soc_entity"),
+                    asset.get("soc_stale_entity"), at,
+                ),
+                "next_ready_by": due.isoformat() if due is not None else None,
+                "deadline_quality": reason,
             }
         for raw in cfg["chargers"]:
             uid = raw["id"]
@@ -162,7 +234,14 @@ class MultiChargeRuntime:
                 circuit_id=raw.get("circuit_id"),
                 circuit_limit_a=raw.get("circuit_limit_a"),
             )
-            cable = connection(self.hass, raw.get("connected_entity"), at)
+            cable = connection(
+                self.hass, raw.get("connected_entity"), at,
+                connected_states=raw.get("connected_states"),
+                disconnected_states=raw.get("disconnected_states"),
+            )
+            # Observe disconnect/unknown even when this Charger is excluded
+            # from planning; a later fresh connected state needs a new identity.
+            self.executor.observe_connection(raw, cable)
             power = number(self.hass, raw.get("power_entity"), "power", at)
             session = session_status(self.hass, raw.get("session_entity"), at)
             self.observations["chargers"][uid] = {
@@ -190,8 +269,21 @@ class MultiChargeRuntime:
                 continue
             amount = asset.get("requested_kwh")
             minutes = asset.get("requested_duration_minutes")
-            if amount is None and minutes is None:
-                reading = self.observations["assets"][asset["id"]]["soc"]
+            budget = asset.get("requested_budget_amount")
+            soc_based = amount is None and minutes is None and budget is None
+            reading = self.observations["assets"][asset["id"]]["soc"]
+            minimum_priority = 0.0
+            low_soc_priority = 0.0
+            budget_minutes = 24 * 60 if budget is not None else None
+            if soc_based and (
+                    asset.get("minimum_soc_pct") is not None
+                    or asset.get("low_soc_trigger_pct") is not None):
+                if (reading.quality != "ok"
+                        or "capacity_kwh" not in asset
+                        or "charge_efficiency" not in asset):
+                    self.excluded[uid] = "SOC_PRIORITY_SOURCE_UNAVAILABLE"
+                    continue
+            if soc_based:
                 if (
                     reading.quality == "ok"
                     and "target_soc" in asset
@@ -203,25 +295,51 @@ class MultiChargeRuntime:
                         (asset["target_soc"] - reading.value)
                         * asset["capacity_kwh"] / 100 / asset["charge_efficiency"],
                     )
+                    if asset.get("minimum_soc_pct") is not None:
+                        minimum_priority = min(
+                            amount,
+                            max(0.0, (asset["minimum_soc_pct"] - reading.value)
+                                * asset["capacity_kwh"] / 100
+                                / asset["charge_efficiency"]),
+                        )
+                    if asset.get("low_soc_trigger_pct") is not None:
+                        low_soc_priority = min(
+                            amount,
+                            max(0.0, (asset["low_soc_trigger_pct"] - reading.value)
+                                * asset["capacity_kwh"] / 100
+                                / asset["charge_efficiency"]),
+                        )
             ready = asset.get("ready_by")
             deadline = datetime.fromisoformat(ready) if ready else None
             repeat = asset.get("ready_by_repeat", "none")
-            if deadline is not None and repeat != "none":
+            if repeat != "none" and (deadline is not None or repeat == "specific_days"):
                 zone = getattr(getattr(self.hass, "config", None),
                                "time_zone", "UTC")
                 deadline, reason = resolve_recurring_ready_by(
-                    deadline, at, repeat, zone
+                    deadline, at, repeat, zone, asset.get("ready_by_weekdays")
                 )
                 if deadline is None:
                     self.excluded[uid] = reason
                     continue
-            if amount is not None or minutes is not None:
+            if amount is not None or minutes is not None or budget is not None:
                 progress = self.executor.measured_intent_usage(asset, raw, deadline, at)
                 if amount is not None:
                     if progress["energy_kwh"] is None:
                         self.excluded[uid] = "ASSET_MEASURED_PROGRESS_UNAVAILABLE"
                         continue
                     amount = max(0, amount - progress["energy_kwh"])
+                if budget is not None:
+                    if progress.get("budget_amount") is None:
+                        self.excluded[uid] = "BUDGET_MEASURED_PROGRESS_UNAVAILABLE"
+                        continue
+                    budget = max(0, budget - progress["budget_amount"])
+                    budget_minutes = max(
+                        0.0, 24 * 60 - progress["duration_minutes"],
+                    )
+                    if progress["duration_minutes"] >= 24 * 60:
+                        # A zero-cost or negative-price period cannot become
+                        # an unbounded recurring budget intent.
+                        budget = 0.0
                 if minutes is not None:
                     if progress["duration_minutes"] is None:
                         self.excluded[uid] = "ASSET_DURATION_PROGRESS_UNAVAILABLE"
@@ -233,19 +351,47 @@ class MultiChargeRuntime:
                         # never an exception that kills an HA refresh.
                         amount, minutes = 0.0, None
                 if self.executor.intent_completed(asset, raw, deadline):
-                    amount, minutes = 0.0, None
+                    if budget is not None:
+                        budget = 0.0
+                    else:
+                        amount, minutes = 0.0, None
+            # Target SoC can itself have changed since the last meter
+            # receipt. A priority guarantee must NEVER exceed the actually
+            # remaining verified battery demand of this controller cycle.
+            if amount is not None:
+                minimum_priority = min(minimum_priority, amount)
+                low_soc_priority = min(low_soc_priority, amount)
             assumed_arrival = (
                 datetime.fromisoformat(asset["expected_connection_at"])
                 if disconnected and asset.get("expected_connection_at") else None
+            )
+            earliest = (
+                datetime.fromisoformat(asset["earliest_start_at"])
+                if asset.get("earliest_start_at") else None
+            )
+            eligible_after = max(
+                (instant for instant in (earliest, assumed_arrival)
+                 if instant is not None), default=None,
             )
             request = ChargeDemand(
                 asset_uid=asset["id"], charger_uid=uid,
                 remaining_grid_kwh=amount, ready_by=deadline,
                 priority=asset.get("priority", 0),
+                continuous_charging=asset.get("continuous_charging", False),
+                minimum_priority_kwh=minimum_priority,
+                low_soc_priority_kwh=low_soc_priority,
+                maximum_price_per_kwh=asset.get("maximum_price_per_kwh"),
+                low_price_trigger_per_kwh=asset.get("low_price_trigger_per_kwh"),
+                price_currency=asset.get("price_currency"),
+                opportunistic_kind=asset.get("opportunistic_kind", "off"),
+                opportunistic_level_pct=asset.get("opportunistic_level_pct"),
                 remaining_duration_minutes=minutes,
+                remaining_budget_amount=budget,
+                budget_remaining_minutes=budget_minutes,
+                budget_currency=(asset.get("requested_budget_currency")
+                                 if budget is not None else None),
                 max_power_kw=asset.get("max_charge_kw"),
-                not_before=max(at, assumed_arrival)
-                if disconnected and assumed_arrival else None,
+                not_before=eligible_after,
             )
             if disconnected:
                 self.executor.connection_confirmation(raw, at)
@@ -303,14 +449,35 @@ class MultiChargeRuntime:
         tariff, tariff_quality = intervals(
             self.hass, setting.get("price_entity"), "price", at
         )
-        solar, solar_quality = intervals(
-            self.hass, setting.get("solar_entity"), "solar", at
+        solar_kind = setting.get(
+            "solar_source_kind", "intervals" if setting.get("solar_entity") else "none",
         )
+        solar, solar_quality = (), "SOLAR_NOT_SELECTED"
+        if solar_kind == "intervals":
+            solar, solar_quality = intervals(
+                self.hass, setting.get("solar_entity"), "solar", at
+            )
+        elif solar_kind in ("grid_export", "direct_surplus"):
+            instant, solar_quality = self.native_surplus_power(at)
+            if instant is not None:
+                # A live W/kW reading cannot be tomorrow's solar forecast.
+                # Only permit the immediately starting quarter; a new
+                # quarter requires another fresh independent measurement.
+                begin = datetime.fromtimestamp(
+                    ((int(at.timestamp()) + 899) // 900) * 900,
+                    timezone.utc,
+                )
+                if begin - at <= timedelta(minutes=2):
+                    solar = (PowerLimitSlot(
+                        begin, begin + timedelta(minutes=15), instant,
+                    ),)
+                else:
+                    solar_quality = "LIVE_MEASUREMENT_NO_FUTURE_FORECAST"
         self.price_slots = tuple(tariff)
         current = [row for row in tariff if row.start <= at < row.end]
         current_price = (
             {"quality": "ok", "value": current[0].effective_price_per_kwh,
-             "currency": current[0].currency}
+             "currency": current[0].currency, "basis": current[0].basis}
             if tariff_quality == "OK" and len(current) == 1 else
             {"quality": "unknown", "value": None, "currency": None}
         )
@@ -333,16 +500,60 @@ class MultiChargeRuntime:
                     "binding", (),
                 )
                 self.excluded["controller"] = "BINDING_CAPACITY_UNAVAILABLE"
+        native_price, native_currency = live_price(
+            self.hass, setting.get("current_price_entity"), at,
+        )
+        native_export_price, export_currency = live_price(
+            self.hass, setting.get("export_price_entity"), at,
+        )
+        if current_price["quality"] != "ok" and native_price.quality == "ok":
+            current_price = {
+                "quality": "ok", "value": native_price.value,
+                "currency": native_currency, "basis": "current_only",
+            }
         self.observations["sources"] = {
             "tariff_quality": tariff_quality, "solar_quality": solar_quality,
             "binding_quality": binding_quality,
             "current_price": current_price,
+            "solar_power": _evidence(live_power(
+                self.hass, setting.get("solar_power_entity"), at,
+            )),
+            "home_power": _evidence(live_power(
+                self.hass, setting.get("home_power_entity"), at,
+            )),
+            "grid_power": _evidence(live_power(
+                self.hass, setting.get("grid_power_entity"), at, signed=True,
+            )),
+            "surplus_power": _evidence(live_power(
+                self.hass, setting.get("solar_surplus_entity"), at,
+            )),
+            "available_solar_kw": (
+                {"quality": solar_quality, "value": instant
+                 if solar_kind in ("grid_export", "direct_surplus") else None}
+                if solar_kind in ("grid_export", "direct_surplus")
+                else {"quality": solar_quality, "value": None}
+            ),
+            "current_export_price": {
+                **_evidence(native_export_price), "currency": export_currency,
+                "basis": "current_only",
+            },
         }
+        # Asset-local calendar preferences restrict the ONE Controller planner.
+        # No HA time automation or second executable charging calendar exists.
+        active_windows = {
+            charger["id"]: assets[charger["asset"]]["charging_windows"]
+            for charger in cfg["chargers"]
+            if charger.get("asset") in assets
+            and assets[charger["asset"]].get("charging_windows")
+        }
+        site_zone = getattr(getattr(self.hass, "config", None),
+                            "time_zone", "UTC")
         try:
             self.assessment = compile_plan(
                 controller, chargers, demands, at, mode=setting["mode"],
                 tariffs={uid: tariff for uid in chargers}, solar=solar,
                 binding=external_binding,
+                charging_windows=active_windows, site_time_zone=site_zone,
             )
             if indicative_demands and setting.get("show_indicative_forecast", True):
                 # The real plan is complete FIRST; forecast slots only consume
@@ -353,6 +564,7 @@ class MultiChargeRuntime:
                     tariffs={uid: tariff for uid in chargers}, solar=solar,
                     binding=external_binding,
                     reserved_slots=self.assessment.plan.slots,
+                    charging_windows=active_windows, site_time_zone=site_zone,
                 )
         except (ValueError, TypeError, OverflowError) as exc:
             _LOGGER.warning("MultiCharge proposal unavailable: %s", exc)
@@ -464,8 +676,8 @@ class MultiChargeRuntime:
                 or end.tzinfo is None or end.utcoffset() is None):
             raise ValueError("aware interval required")
         first, last = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
-        if not first < last or last - first > timedelta(hours=48):
-            raise ValueError("plan query must be a positive interval <=48h")
+        if not first < last or last - first > timedelta(hours=49):
+            raise ValueError("plan query must be a positive interval <=49h (two real civil days)")
         if charger_id is not None and not any(
             c["id"] == charger_id for c in self.configuration["chargers"]
         ):
@@ -615,7 +827,7 @@ class MultiChargeRuntime:
             "price_slots": [
                 {"start": row.start.isoformat(), "end": row.end.isoformat(),
                  "price_per_kwh": row.effective_price_per_kwh,
-                 "currency": row.currency}
+                 "currency": row.currency, "basis": row.basis}
                 for row in self.price_slots
                 if row.start < last and row.end > first
             ],
@@ -624,6 +836,8 @@ class MultiChargeRuntime:
                 "assets": {
                     uid: {
                         "soc": _evidence(readings.get("soc")),
+                        "next_ready_by": readings.get("next_ready_by"),
+                        "deadline_quality": readings.get("deadline_quality"),
                         "effective_power_kw": _evidence(readings.get("effective_power_kw")),
                         "power_charger_id": readings.get("power_charger_id"),
                     }

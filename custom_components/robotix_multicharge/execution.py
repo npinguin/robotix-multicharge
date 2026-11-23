@@ -14,8 +14,9 @@ from math import floor, isfinite
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from .source_evidence import binding, connection, number
-from .planner import resolve_recurring_ready_by
+from .source_evidence import binding, connection, number, soc_with_health
+from .planner import (resolve_recurring_ready_by, charging_window_allows,
+                      qualified_price_policy_cap)
 
 _LOGGER = logging.getLogger(__name__)
 START_POWER_KW = 0.10
@@ -62,22 +63,104 @@ class NativeSwitchExecutor:
         # Current physical plug identity is volatile by design. Never assume a
         # stored vehicle assignment remains valid after restart or re-plug.
         self._plug_confirmations = {}
+        self._plug_epochs = {}
 
+
+    def _connection(self, charger, at):
+        """Use the single canonical source reader and Charger-owned status map."""
+        return connection(
+            self.runtime.hass, charger.get("connected_entity"), at,
+            connected_states=charger.get("connected_states"),
+            disconnected_states=charger.get("disconnected_states"),
+        )
+
+    def observe_connection_event(self, charger, old_state, new_state):
+        """Track ordered native HA state transitions before refresh coalescing.
+
+        A positive-to-positive mapped EVSE substate transition can keep an
+        already confirmed plug only when the prior raw state/timestamp exactly
+        matches the epoch we actually witnessed. Any gap, unavailable state,
+        disconnect, rebind or unexpected transition immediately drops identity.
+        This handles an unplug/replug that occurs between two refresh ticks.
+        The callback never issues a charger command.
+        """
+        uid = charger["id"]
+        entity = charger.get("connected_entity")
+        mapped = charger.get("connected_states")
+        existing = self._plug_epochs.get(uid)
+        raw_old = str(getattr(old_state, "state", "")).strip().casefold()
+        raw_new = str(getattr(new_state, "state", "")).strip().casefold()
+        new_at = getattr(new_state, "last_changed", None)
+        old_at = getattr(old_state, "last_changed", None)
+        if (mapped and existing and existing.get("entity") == entity
+                and raw_old in mapped and raw_new in mapped
+                and existing.get("raw_state") == raw_old
+                and isinstance(old_at, datetime) and old_at.utcoffset() is not None
+                and isinstance(new_at, datetime) and new_at.utcoffset() is not None
+                and existing.get("last_changed") ==
+                    old_at.astimezone(timezone.utc).isoformat()
+                # A real mapped positive-substate change advances time.
+                # Same-raw attribute updates may preserve the same last_changed
+                # timestamp, but provider re-creation must invalidate identity.
+                and ((raw_old != raw_new and new_at > old_at)
+                     or (raw_old == raw_new and new_at == old_at))):
+            existing["raw_state"] = raw_new
+            existing["last_changed"] = new_at.astimezone(timezone.utc).isoformat()
+            return
+        # Preserve no identity on an unobserved or non-continuous transition.
+        # A subsequent fresh connected reading may start a NEW plug epoch,
+        # but only an explicit confirmation can attach an Asset to it.
+        self._plug_epochs.pop(uid, None)
+        self._plug_confirmations.pop(uid, None)
+
+    def observe_connection(self, charger, observed):
+        """Observe continuity of a physical plug, not arbitrary EVSE substates.
+
+        A native provider may change Preparing -> Charging while the same
+        connector remains occupied. Disconnect, unknown, stale, rebind and
+        restart clear the transient epoch; no previous identity is persisted.
+        """
+        uid = charger["id"]
+        if observed.quality != "ok" or observed.value is not True:
+            self._plug_epochs.pop(uid, None)
+            self._plug_confirmations.pop(uid, None)
+            return None
+        entity = charger.get("connected_entity")
+        source = self.runtime.hass.states.get(entity)
+        changed = getattr(source, "last_changed", None)
+        if not isinstance(changed, datetime) or changed.utcoffset() is None:
+            self._plug_epochs.pop(uid, None)
+            self._plug_confirmations.pop(uid, None)
+            return None
+        changed_at = changed.astimezone(timezone.utc).isoformat()
+        raw_state = str(source.state).strip().casefold()
+        existing = self._plug_epochs.get(uid)
+        if existing and existing["entity"] == entity:
+            if existing["last_changed"] == changed_at and (
+                    existing["raw_state"] == raw_state):
+                return existing["connected_at"]
+            # Even mapped positive substates must not preserve an Asset based
+            # solely on the latest snapshot: an unseen disconnect/replug
+            # may have occurred. Only observe_connection_event can advance
+            # this epoch using the ordered native HA event old/new pair.
+        self._plug_epochs[uid] = {
+            "entity": entity, "connected_at": changed_at,
+            "last_changed": changed_at, "raw_state": raw_state,
+        }
+        self._plug_confirmations.pop(uid, None)
+        return changed_at
 
     def connection_confirmation(self, charger, at):
         """Return only an explicit confirmation for the current plug instance."""
         uid = charger["id"]
-        observed = connection(self.runtime.hass, charger.get("connected_entity"), at)
-        if observed.quality != "ok" or observed.value is not True:
-            self._plug_confirmations.pop(uid, None)
+        observed = self._connection(charger, at)
+        epoch = self.observe_connection(charger, observed)
+        if epoch is None:
             return None
-        source = self.runtime.hass.states.get(charger.get("connected_entity"))
-        changed = getattr(source, "last_changed", None)
         receipt = self._plug_confirmations.get(uid)
-        if (not isinstance(changed, datetime) or changed.utcoffset() is None
-                or not receipt
+        if (not receipt
                 or receipt["asset_id"] != charger.get("asset")
-                or receipt["connected_at"] != changed.astimezone(timezone.utc).isoformat()):
+                or receipt["connected_at"] != epoch):
             self._plug_confirmations.pop(uid, None)
             return None
         return dict(receipt)
@@ -97,17 +180,16 @@ class NativeSwitchExecutor:
         if not asset or not any(a["id"] == asset
                                 for a in self.runtime.configuration["assets"]):
             return {"status": "rejected", "reason": "SELECT_VEHICLE_FIRST"}
-        observed = connection(self.runtime.hass, charger.get("connected_entity"), now)
+        observed = self._connection(charger, now)
         if observed.quality != "ok" or observed.value is not True:
-            self._plug_confirmations.pop(charger_id, None)
+            self.observe_connection(charger, observed)
             return {"status": "rejected", "reason": "CURRENT_PHYSICAL_CONNECTION_UNKNOWN"}
-        source = self.runtime.hass.states.get(charger.get("connected_entity"))
-        changed = getattr(source, "last_changed", None)
-        if not isinstance(changed, datetime) or changed.utcoffset() is None:
+        epoch = self.observe_connection(charger, observed)
+        if epoch is None:
             return {"status": "rejected", "reason": "PLUG_INSTANCE_UNVERIFIED"}
         record = {
             "asset_id": asset,
-            "connected_at": changed.astimezone(timezone.utc).isoformat(),
+            "connected_at": epoch,
             "confirmed_at": now.astimezone(timezone.utc).isoformat(),
         }
         self._plug_confirmations[charger_id] = record
@@ -131,19 +213,36 @@ class NativeSwitchExecutor:
                 occurrence, datetime
             ) else occurrence,
         }
+        # Preserve fingerprints for every existing non-budget legacy intent.
+        # Additional fields are incorporated only when actually configured.
+        for field in ("requested_budget_amount", "requested_budget_currency",
+                      "ready_by_weekdays"):
+            if asset.get(field) is not None:
+                data[field] = asset[field]
         return sha256(dumps(data, sort_keys=True).encode()).hexdigest()
 
     def measured_intent_usage(self, asset, charger, occurrence, at=None):
         """Measured progress follows the Asset's intent, never its former EVSE."""
         now = at or datetime.now(timezone.utc)
         key = self._intent_key(asset, charger, occurrence)
-        energy, duration = 0.0, 0.0
+        energy, duration, budget_amount = 0.0, 0.0, 0.0
+        money_requested = asset.get("requested_budget_amount") is not None
         for receipt in self._session_history:
             if (receipt.get("intent_key") != key
                     or receipt.get("asset_id") != asset["id"]):
                 continue
             if receipt.get("physical_stop_confirmed") is not True:
-                return {"energy_kwh": None, "duration_minutes": None}
+                return {"energy_kwh": None, "duration_minutes": None,
+                        "budget_amount": None}
+            if money_requested:
+                cost = receipt.get("budget_accrued_cost")
+                if (receipt.get("budget_cost_quality") not in (
+                        "qualified_effective_meter_increments",
+                        "conservative_effective_upper_bound")
+                        or cost is None):
+                    return {"energy_kwh": None, "duration_minutes": None,
+                            "budget_amount": None}
+                budget_amount += cost
             duration += receipt["duration_minutes"]
             value = receipt.get("actual_energy_kwh")
             if asset.get("requested_kwh") is not None:
@@ -155,6 +254,13 @@ class NativeSwitchExecutor:
                     or session.get("intent_key") != key):
                 continue
             duration += max(0, (now - session["started_at"]).total_seconds() / 60)
+            if money_requested:
+                if session.get("budget_quality") not in (
+                        "qualified_effective_meter_increments",
+                        "conservative_effective_upper_bound"):
+                    return {"energy_kwh": None, "duration_minutes": None,
+                            "budget_amount": None}
+                budget_amount += session.get("budget_cost", 0.0)
             if asset.get("requested_kwh") is not None:
                 source = next((c.get("energy_entity") for c in
                                self.runtime.configuration["chargers"]
@@ -166,7 +272,8 @@ class NativeSwitchExecutor:
                     return {"energy_kwh": None, "duration_minutes": None}
                 energy += max(0, sample.value - session["starting_energy_kwh"])
         return {"energy_kwh": round(energy, 6),
-                "duration_minutes": round(duration, 4)}
+                "duration_minutes": round(duration, 4),
+                "budget_amount": round(budget_amount, 6)}
 
     def intent_completed(self, asset, charger, deadline):
         key = self._intent_key(asset, charger, deadline)
@@ -208,9 +315,6 @@ class NativeSwitchExecutor:
                     raise ValueError("invalid accepted outcome")
                 record = {**row, "start": start, "end": end}
                 history[(record["charger_id"], start)] = record
-            self._completed = dict(completed)
-            self._inflight = dict(inflight)
-            self._paused = set(paused)
             receipts = []
             for row in sessions:
                 if not isinstance(row, dict):
@@ -236,7 +340,22 @@ class NativeSwitchExecutor:
                     or amount is None or not isinstance(row.get("currency"), str)
                 ):
                     raise ValueError("invalid session valuation")
+                budget = row.get("budget_accrued_cost")
+                if budget is not None and (
+                        type(budget) not in (float, int) or not isfinite(budget)
+                        or budget < 0
+                        or row.get("budget_cost_quality") not in (
+                            "qualified_effective_meter_increments",
+                            "conservative_effective_upper_bound")
+                        or not isinstance(row.get("budget_currency"), str)):
+                    raise ValueError("invalid budget progress receipt")
                 receipts.append(dict(row))
+            # Adopt ALL persisted decision evidence only after the *last*
+            # field has passed validation. A corrupt trailing receipt cannot
+            # partially alter pause, intent or attribution on this runtime.
+            self._completed = dict(completed)
+            self._inflight = dict(inflight)
+            self._paused = set(paused)
             self._accepted_history = history
             self._session_history = receipts
         except (ValueError, KeyError, TypeError, OverflowError):
@@ -289,7 +408,12 @@ class NativeSwitchExecutor:
         begun = session["started_at"]
         end = max(finished_at or datetime.now(timezone.utc), begun)
         source = charger.get("energy_entity") if charger else None
-        delivered, meter_at = None, None
+        # Final physical STOP must reconcile the last meter increment, even
+        # if a user pressed STOP before the 60-second budget supervisor poll.
+        # This reuses the SAME source-qualified budget accounting path.
+        if charger and session.get("requested_budget_amount") is not None:
+            self._session_stop_reason(charger, end)
+        delivered, meter_at, sample = None, None, None
         if session["starting_energy_kwh"] is not None and source:
             sample = number(self.runtime.hass, source, "energy", datetime.now(timezone.utc))
             if (sample.quality == "ok" and sample.observed_at is not None
@@ -298,12 +422,20 @@ class NativeSwitchExecutor:
                 if delta >= -0.00001:
                     delivered = round(max(delta, 0), 6)
                     meter_at = sample.observed_at.isoformat()
+        if session.get("requested_budget_amount") is not None:
+            last_meter = session.get("budget_last_meter_value")
+            # Never persist a "qualified" zero-cost receipt if independently
+            # measured energy exists after the last proven tariff increment.
+            if (delivered is None or sample is None or last_meter is None
+                    or sample.value > last_meter + 0.000001
+                    or sample.value < last_meter - 0.000001):
+                session["budget_quality"] = "unknown"
         cost, currency = None, None
         if (delivered is not None and self.runtime.observations.get(
                 "sources", {}).get("tariff_quality") == "OK"):
             matching = [p for p in self.runtime.price_slots
                         if p.start <= begun and p.end >= end]
-            if len(matching) == 1:
+            if len(matching) == 1 and matching[0].basis == "effective":
                 cost = round(delivered * matching[0].effective_price_per_kwh, 6)
                 currency = matching[0].currency
         self._session_history.append({
@@ -317,6 +449,15 @@ class NativeSwitchExecutor:
             "cost": cost, "currency": currency,
             "cost_quality": "qualified_effective_tariff" if cost is not None else "unknown",
             "stop_reason": reason, "physical_stop_confirmed": True,
+            "budget_accrued_cost": (
+                session.get("budget_cost")
+                if session.get("budget_quality") in (
+                    "qualified_effective_meter_increments",
+                    "conservative_effective_upper_bound")
+                else None
+            ),
+            "budget_cost_quality": session.get("budget_quality", "not_applicable"),
+            "budget_currency": session.get("requested_budget_currency"),
         })
         self._session_history = self._session_history[-200:]
 
@@ -364,27 +505,43 @@ class NativeSwitchExecutor:
                 and charger.get("physical_commissioned") is True
                 and self._switch(self.runtime.hass, charger.get("control_entity")) is not None
             )
-            manual_reason = (
-                self._admit_start(charger, at, target_current=(
-                    charger.get("min_current_a")
-                    if charger.get("kind") == "variable_current" else None
-                ), manual_request={"duration_minutes": 30})
-                if charger.get("asset") is None and not self._stopped
-                and charger.get("physical_commissioned") is True
-                and charger.get("control_owner") == "multicharge"
-                and self._switch(self.runtime.hass, charger.get("control_entity"))
-                is not None
-                and self._switch(self.runtime.hass, charger.get("control_entity")).state == "off"
-                else "MANUAL_ONE_OFF_NOT_AVAILABLE"
-            )
+            # Keep a real, actionable readiness reason even on an
+            # uncommissioned/empty site. Finite manual intent is a legitimate
+            # UI preparation; physical START remains guarded by the executor.
+            if charger.get("asset") is not None:
+                manual_reason = "MANUAL_ONE_OFF_REQUIRES_UNASSIGNED_CHARGER"
+            elif self._stopped:
+                manual_reason = "INTEGRATION_UNLOADED"
+            elif not self._persistence_verified:
+                manual_reason = "CONTROL_STATE_UNVERIFIED"
+            elif charger.get("control_owner") != "multicharge":
+                manual_reason = "EXTERNAL_WRITER_OWNS_CHARGER"
+            elif charger.get("physical_commissioned") is not True:
+                manual_reason = "PHYSICAL_COMMISSIONING_REQUIRED"
+            elif not str(charger.get("control_entity", "")).startswith("switch."):
+                manual_reason = "NATIVE_SWITCH_REQUIRED"
+            elif self._switch(self.runtime.hass, charger["control_entity"]) is None:
+                manual_reason = "NATIVE_SWITCH_UNAVAILABLE"
+            elif self._switch(self.runtime.hass, charger["control_entity"]).state != "off":
+                manual_reason = "SWITCH_ALREADY_ON"
+            else:
+                manual_reason = self._admit_start(
+                    charger, at,
+                    target_current=(
+                        charger.get("min_current_a")
+                        if charger.get("kind") == "variable_current" else None
+                    ),
+                    manual_request={"duration_minutes": 30},
+                )
+            if manual_reason is None and uid in self._quarantine:
+                manual_reason = "PREVIOUS_COMMAND_UNCONFIRMED"
             result[uid] = {
                 "paused": uid in self._paused,
                 "pause_allowed": stop_allowed and uid not in self._paused
                     and self._persistence_verified,
                 "resume_allowed": stop_allowed and uid in self._paused
                     and uid not in self._quarantine and self._persistence_verified,
-                "manual_one_off_allowed": manual_reason is None
-                    and uid not in self._quarantine,
+                "manual_one_off_allowed": manual_reason is None,
                 "manual_one_off_reason": manual_reason or "READY",
                 "start_allowed": reason is None and uid not in self._quarantine,
                 "stop_allowed": stop_allowed,
@@ -445,6 +602,92 @@ class NativeSwitchExecutor:
             return None
         return state
 
+    def _qualified_budget_price(self, at, currency):
+        """One covered, actual effective native tariff, never spot/reference."""
+        if self.runtime.observations.get("sources", {}).get("tariff_quality") != "OK":
+            return None
+        quotes = [
+            item for item in self.runtime.price_slots
+            if item.basis == "effective" and item.currency == currency
+            and item.start <= at < item.end
+        ]
+        return quotes[0] if len(quotes) == 1 else None
+
+    def _asset_price_policy_issue(self, asset, at, *, finite_goal=False):
+        """One tariff/SoC policy for START and ongoing physical supervision.
+
+        The owner never infers a currency, settled price or BMS SoC. A
+        price policy can restrict an already energised Charger as well as
+        prevent a new start, avoiding a second policy evaluator in HA.
+        """
+        if not any(asset.get(field) is not None for field in (
+                "maximum_price_per_kwh", "low_price_trigger_per_kwh")):
+            return None
+        currency = asset.get("price_currency")
+        if self.runtime.observations.get("sources", {}).get(
+                "tariff_quality") != "OK":
+            return "PRICE_SOURCE_UNAVAILABLE"
+        current_quotes = [
+            row for row in self.runtime.price_slots
+            if row.start <= at < row.end and row.currency == currency
+        ]
+        if len(current_quotes) != 1:
+            return "PRICE_POLICY_CURRENCY_MISMATCH"
+        future_deadline = at + timedelta(hours=48)
+        if (asset.get("ready_by")
+                or asset.get("ready_by_repeat") == "specific_days"):
+            try:
+                raw = asset.get("ready_by")
+                anchor = datetime.fromisoformat(raw) if raw else None
+                repeat = asset.get("ready_by_repeat", "none")
+                if repeat != "none":
+                    due, issue = resolve_recurring_ready_by(
+                        anchor, at, repeat,
+                        self.runtime.hass.config.time_zone,
+                        asset.get("ready_by_weekdays"),
+                    )
+                    if due is None:
+                        return issue
+                else:
+                    due = anchor
+                if due is not None:
+                    future_deadline = min(future_deadline, due)
+            except (ValueError, TypeError):
+                return "READY_BY_INVALID"
+        price_cap, issue = qualified_price_policy_cap(
+            asset.get("maximum_price_per_kwh"),
+            asset.get("opportunistic_kind", "off"),
+            asset.get("opportunistic_level_pct"),
+            currency, self.runtime.price_slots, at, future_deadline,
+        )
+        if issue:
+            return issue
+        actual_rate = current_quotes[0].effective_price_per_kwh
+        low_price = asset.get("low_price_trigger_per_kwh")
+        low_price_eligible = (
+            low_price is not None and actual_rate <= low_price + 1e-9
+        )
+        priority_eligible = False
+        if not finite_goal and (
+                asset.get("minimum_soc_pct") is not None
+                or asset.get("low_soc_trigger_pct") is not None):
+            soc = soc_with_health(
+                self.runtime.hass, asset.get("soc_entity"),
+                asset.get("soc_stale_entity"), at,
+            )
+            if soc.quality != "ok":
+                return "SOC_PRIORITY_SOURCE_UNAVAILABLE"
+            priority_eligible = any(
+                soc.value < asset[field]
+                for field in ("minimum_soc_pct", "low_soc_trigger_pct")
+                if asset.get(field) is not None
+            )
+        if (price_cap is not None and actual_rate > price_cap + 1e-9
+                and not priority_eligible and not low_price_eligible):
+            return "PRICE_LIMIT_BLOCKED"
+        return None
+
+
     def _admit_start(self, charger, at, *, planned=False, target_current=None,
                      manual_request=None):
         cfg = self.runtime.configuration
@@ -465,14 +708,26 @@ class NativeSwitchExecutor:
         if manual_request is not None:
             if planned or charger.get("asset") is not None:
                 return "MANUAL_ONE_OFF_REQUIRES_UNASSIGNED_CHARGER"
-            if not isinstance(manual_request, dict) or len(manual_request) != 1:
+            if not isinstance(manual_request, dict):
                 return "ONE_FINITE_MANUAL_LIMIT_REQUIRED"
             amount = manual_request.get("energy_kwh")
             duration = manual_request.get("duration_minutes")
+            money = manual_request.get("cost_amount")
+            currency = manual_request.get("currency")
+            if money is not None:
+                if (set(manual_request) != {"cost_amount", "currency"}
+                        or type(money) not in (int, float)
+                        or not isfinite(money) or not 0 < money <= 10000
+                        or not isinstance(currency, str)
+                        or len(currency) != 3 or not currency.isascii()
+                        or not currency.isalpha() or not currency.isupper()):
+                    return "MANUAL_BUDGET_INVALID"
+            elif len(manual_request) != 1:
+                return "ONE_FINITE_MANUAL_LIMIT_REQUIRED"
             if amount is not None:
                 if type(amount) not in (float, int) or not isfinite(amount) or not 0 < amount <= 1000:
                     return "MANUAL_ENERGY_LIMIT_INVALID"
-            elif (type(duration) is not int or not 1 <= duration <= 1440):
+            elif money is None and (type(duration) is not int or not 1 <= duration <= 1440):
                 return "MANUAL_DURATION_LIMIT_INVALID"
         else:
             if asset is None:
@@ -482,17 +737,55 @@ class NativeSwitchExecutor:
                 return "TEMPORARY_ASSET_EXPIRED"
             amount = asset.get("requested_kwh")
             duration = asset.get("requested_duration_minutes")
-        if manual_request is None and (amount is not None or duration is not None):
+            money = asset.get("requested_budget_amount")
+            currency = asset.get("requested_budget_currency")
+        # Check the actual source before accounting or intent reconciliation:
+        # a confirmed disconnect must report the physical blocker, not an
+        # unrelated missing energy-meter progress from a completed session.
+        cable = self._connection(charger, at)
+        if cable.quality != "ok" or cable.value is not True:
+            return "PHYSICAL_CONNECTION_UNVERIFIED"
+        if asset is not None and asset.get("charging_windows"):
+            if not charging_window_allows(
+                asset["charging_windows"], at, timedelta(seconds=1),
+                self.runtime.hass.config.time_zone,
+            ):
+                return "CHARGING_WINDOW_CLOSED"
+        if asset is not None and asset.get("earliest_start_at"):
+            earliest = datetime.fromisoformat(asset["earliest_start_at"])
+            if at < earliest:
+                return "EARLIEST_START_NOT_REACHED"
+        if asset is not None:
+            policy_issue = self._asset_price_policy_issue(
+                asset, at,
+                finite_goal=(amount is not None or duration is not None
+                             or money is not None),
+            )
+            if policy_issue:
+                return policy_issue
+        if manual_request is None and (amount is not None or duration is not None or money is not None):
             raw_due = asset.get("ready_by")
             due = datetime.fromisoformat(raw_due) if raw_due else None
-            if due is not None and asset.get("ready_by_repeat", "none") != "none":
+            if asset.get("ready_by_repeat", "none") != "none" and (due is not None or asset.get("ready_by_repeat") == "specific_days"):
                 due, error = resolve_recurring_ready_by(
                     due, at, asset["ready_by_repeat"],
                     self.runtime.hass.config.time_zone,
+                    asset.get("ready_by_weekdays"),
                 )
                 if due is None:
                     return error
             progress = self.measured_intent_usage(asset, charger, due, at)
+            if money is not None:
+                if progress.get("budget_amount") is None:
+                    return "BUDGET_MEASURED_PROGRESS_UNAVAILABLE"
+                money = max(0.0, money - progress["budget_amount"])
+                # An indicative euro budget cannot grant unlimited charging
+                # at free/negative prices. Per-intent physical running time
+                # remains bounded across all earlier confirmed sessions.
+                if (money <= 0.000001
+                        or progress["duration_minutes"] >= 24 * 60
+                        or self.intent_completed(asset, charger, due)):
+                    return "TARGET_ALREADY_MET"
             if amount is not None:
                 if progress["energy_kwh"] is None:
                     return "ASSET_MEASURED_PROGRESS_UNAVAILABLE"
@@ -521,35 +814,48 @@ class NativeSwitchExecutor:
                 return "MEASURED_ENERGY_UNAVAILABLE"
         if amount is not None and amount <= 0:
             return "TARGET_ALREADY_MET"
-        if manual_request is None and duration is None and amount is None:
+        if money is not None:
+            if not charger.get("energy_entity"):
+                return "BUDGET_ENERGY_METER_REQUIRED"
+            observed_meter = number(
+                self.runtime.hass, charger["energy_entity"], "energy", at
+            )
+            if observed_meter.quality != "ok":
+                return "BUDGET_ENERGY_METER_UNAVAILABLE"
+            if self._qualified_budget_price(at, currency) is None:
+                return "BUDGET_EFFECTIVE_TARIFF_UNAVAILABLE"
+        if manual_request is None and duration is None and amount is None and money is None:
             if not all(k in asset for k in (
                 "soc_entity", "capacity_kwh", "target_soc", "charge_efficiency"
             )):
                 return "ASSET_DEMAND_UNVERIFIED"
-            soc = number(self.runtime.hass, asset["soc_entity"], "soc", at)
+            soc = soc_with_health(
+                    self.runtime.hass, asset["soc_entity"],
+                    asset.get("soc_stale_entity"), at,
+                )
             if soc.quality != "ok":
                 return "ASSET_SOC_UNAVAILABLE"
             if soc.value >= asset["target_soc"]:
                 return "TARGET_ALREADY_MET"
-        if asset is not None and asset.get("ready_by"):
+        if asset is not None and (
+                asset.get("ready_by")
+                or asset.get("ready_by_repeat") == "specific_days"):
             try:
-                due = datetime.fromisoformat(
+                due = (datetime.fromisoformat(
                     asset["ready_by"].replace("Z", "+00:00")
-                )
+                ) if asset.get("ready_by") else None)
                 repeat = asset.get("ready_by_repeat", "none")
                 if repeat != "none":
                     due, reason = resolve_recurring_ready_by(
-                        due, at, repeat, self.runtime.hass.config.time_zone
+                        due, at, repeat, self.runtime.hass.config.time_zone,
+                        asset.get("ready_by_weekdays"),
                     )
                     if due is None:
                         return reason
-                if due.tzinfo is None or due.utcoffset() is None or at >= due:
+                if due is None or due.tzinfo is None or due.utcoffset() is None or at >= due:
                     return "READY_BY_EXPIRED"
             except ValueError:
                 return "READY_BY_INVALID"
-        cable = connection(self.runtime.hass, charger.get("connected_entity"), at)
-        if cable.quality != "ok" or cable.value is not True:
-            return "PHYSICAL_CONNECTION_UNVERIFIED"
         if manual_request is None and self.connection_confirmation(charger, at) is None:
             return "CURRENT_PLUG_ASSET_UNCONFIRMED"
         this_power = number(self.runtime.hass, charger.get("power_entity"), "power", at)
@@ -679,9 +985,7 @@ class NativeSwitchExecutor:
                 and other.get("control_owner") != "multicharge"
             )
             if unknown_external_state and power.value <= stop_power_limit(other):
-                cable = connection(
-                    self.runtime.hass, other.get("connected_entity"), at
-                )
+                cable = self._connection(other, at)
                 if cable.quality == "ok" and cable.value is False:
                     continue
             if state is None and not unknown_external_state:
@@ -730,6 +1034,13 @@ class NativeSwitchExecutor:
             return "MAX_PARALLEL_REACHED"
         if reserved > cap + 1e-9:
             return "SITE_CAPACITY_EXCEEDED"
+        if (ctl.get("mode") == "Solar"
+                and ctl.get("solar_source_kind") in ("grid_export", "direct_surplus")):
+            available_solar, quality = self.runtime.native_surplus_power(at)
+            if quality != "OK" or available_solar is None:
+                return "NATIVE_SOLAR_SOURCE_UNQUALIFIED"
+            if reserved > available_solar + 1e-9:
+                return "NATIVE_SOLAR_SURPLUS_INSUFFICIENT"
         phases = charger.get("phase_ids") or []
         if ctl.get("phase_limits_a"):
             limits = ctl["phase_limits_a"]
@@ -804,6 +1115,19 @@ class NativeSwitchExecutor:
             if (asset.get("temporary")
                     and datetime.fromisoformat(asset["expires_at"]) <= now):
                 return "TEMPORARY_ASSET_EXPIRED"
+            if asset.get("charging_windows") and not charging_window_allows(
+                asset["charging_windows"], now, timedelta(seconds=1),
+                self.runtime.hass.config.time_zone,
+            ):
+                return "CHARGING_WINDOW_CLOSED"
+            policy_issue = self._asset_price_policy_issue(
+                asset, now, finite_goal=(
+                    session["requested_kwh"] is not None
+                    or session["requested_duration_minutes"] is not None
+                    or session.get("requested_budget_amount") is not None),
+            )
+            if policy_issue:
+                return policy_issue
         if now >= session["hard_stop_at"]:
             return "SESSION_SAFETY_DEADLINE_REACHED"
         if session["requested_duration_minutes"] is not None:
@@ -822,8 +1146,80 @@ class NativeSwitchExecutor:
             if (session["requested_kwh"] is not None
                     and delivered >= session["requested_kwh"]):
                 return "REQUESTED_ENERGY_COMPLETE"
+        if session.get("requested_budget_amount") is not None:
+            # Physical metering is the source of progress. Price intervals
+            # must cover each actually observed meter increment completely.
+            currency = session["requested_budget_currency"]
+            sample = number(
+                self.runtime.hass, charger.get("energy_entity"), "energy", now
+            )
+            if sample.quality != "ok" or sample.observed_at is None:
+                session["budget_quality"] = "unknown"
+                return "BUDGET_ENERGY_METER_UNAVAILABLE"
+            before = session.get("budget_last_meter_value")
+            since = session.get("budget_last_meter_at")
+            if before is None or since is None:
+                session["budget_quality"] = "unknown"
+                return "BUDGET_METER_BASELINE_MISSING"
+            delta = sample.value - before
+            if delta < -0.00001:
+                session["budget_quality"] = "unknown"
+                return "BUDGET_ENERGY_METER_RESET"
+            if delta > 0.000001:
+                if sample.observed_at <= since:
+                    session["budget_quality"] = "unknown"
+                    return "BUDGET_METER_TIMESTAMP_UNVERIFIED"
+                # Meter delta may span several effective-price windows.
+                # Without meter readings at the boundary, exact kWh split
+                # is unknowable: consume the conservative MAX rate across
+                # each actually covered interval, never an average invoice.
+                covered_until = since
+                max_rate = 0.0
+                covered_periods = 0
+                while covered_until < sample.observed_at:
+                    matches = [
+                        p for p in self.runtime.price_slots
+                        if p.basis == "effective" and p.currency == currency
+                        and p.start <= covered_until < p.end
+                    ]
+                    if len(matches) != 1:
+                        session["budget_quality"] = "unknown"
+                        return "BUDGET_TARIFF_BOUNDARY_UNVERIFIED"
+                    price = matches[0]
+                    max_rate = max(max_rate, price.effective_price_per_kwh)
+                    next_boundary = min(price.end, sample.observed_at)
+                    if next_boundary <= covered_until:
+                        session["budget_quality"] = "unknown"
+                        return "BUDGET_TARIFF_BOUNDARY_UNVERIFIED"
+                    covered_until = next_boundary
+                    covered_periods += 1
+                session["budget_cost"] += delta * max(0.0, max_rate)
+                if covered_periods > 1:
+                    session["budget_quality"] = "conservative_effective_upper_bound"
+                session["budget_last_meter_value"] = sample.value
+                session["budget_last_meter_at"] = sample.observed_at
+            current = self._qualified_budget_price(now, currency)
+            if current is None:
+                session["budget_quality"] = "unknown"
+                return "BUDGET_EFFECTIVE_TARIFF_UNAVAILABLE"
+            remaining = (
+                session["requested_budget_amount"] - session["budget_cost"]
+            )
+            if remaining <= 0.000001:
+                return "REQUESTED_BUDGET_COMPLETE"
+            # Leave conservative headroom for meter/provider cadence and STOP
+            # latency; money shown to residents remains an estimate, not a bill.
+            conservative_headroom = (
+                max(0.0, current.effective_price_per_kwh)
+                * charger["rated_power_kw"] * (120 / 3600) + 0.02
+            )
+            if remaining <= conservative_headroom:
+                return "REQUESTED_BUDGET_COMPLETE"
         if session["soc_target"] is not None:
-            soc = number(self.runtime.hass, asset.get("soc_entity"), "soc", now)
+            soc = soc_with_health(
+                    self.runtime.hass, asset.get("soc_entity"),
+                    asset.get("soc_stale_entity"), now,
+                )
             if soc.quality != "ok":
                 return "SESSION_SOC_UNAVAILABLE"
             if soc.value >= session["soc_target"]:
@@ -847,14 +1243,23 @@ class NativeSwitchExecutor:
             manual_request.get("duration_minutes") if manual_request is not None
             else asset.get("requested_duration_minutes")
         )
+        budget = (
+            manual_request.get("cost_amount") if manual_request is not None
+            else asset.get("requested_budget_amount")
+        )
+        budget_currency = (
+            manual_request.get("currency") if manual_request is not None
+            else asset.get("requested_budget_currency")
+        )
         intent_key = None
         if asset is not None:
             raw_due = asset.get("ready_by")
             due = datetime.fromisoformat(raw_due) if raw_due else None
-            if due is not None and asset.get("ready_by_repeat", "none") != "none":
+            if asset.get("ready_by_repeat", "none") != "none" and (due is not None or asset.get("ready_by_repeat") == "specific_days"):
                 due, error = resolve_recurring_ready_by(
                     due, now, asset["ready_by_repeat"],
                     self.runtime.hass.config.time_zone,
+                    asset.get("ready_by_weekdays"),
                 )
                 if due is None:
                     return error
@@ -871,7 +1276,8 @@ class NativeSwitchExecutor:
                     duration = max(0, duration - progress["duration_minutes"])
         soc_target = (
             asset.get("target_soc")
-            if asset is not None and explicit_energy is None and duration is None
+            if (asset is not None and explicit_energy is None
+                    and duration is None and budget is None)
             else None
         )
         starting_energy = None
@@ -881,22 +1287,28 @@ class NativeSwitchExecutor:
             )
             if baseline.quality == "ok":
                 starting_energy = baseline.value
-            elif explicit_energy is not None:
+            elif explicit_energy is not None or budget is not None:
                 return "SESSION_ENERGY_METER_UNAVAILABLE"
-        elif explicit_energy is not None:
+        elif explicit_energy is not None or budget is not None:
             return "MEASURED_ENERGY_METER_REQUIRED"
+        if budget is not None and self._qualified_budget_price(
+                now, budget_currency) is None:
+            return "BUDGET_EFFECTIVE_TARIFF_UNAVAILABLE"
         # Session cannot run longer than 24h on one manual authorization.
         end = now + timedelta(hours=24)
         if duration is not None:
             end = min(end, now + timedelta(minutes=duration))
-        if asset is not None and asset.get("ready_by"):
-            due = datetime.fromisoformat(
+        if asset is not None and (
+                asset.get("ready_by")
+                or asset.get("ready_by_repeat") == "specific_days"):
+            due = (datetime.fromisoformat(
                 asset["ready_by"].replace("Z", "+00:00")
-            ).astimezone(timezone.utc)
+            ).astimezone(timezone.utc) if asset.get("ready_by") else None)
             if asset.get("ready_by_repeat", "none") != "none":
                 due, _ = resolve_recurring_ready_by(
                     due, now, asset["ready_by_repeat"],
-                    self.runtime.hass.config.time_zone
+                    self.runtime.hass.config.time_zone,
+                    asset.get("ready_by_weekdays"),
                 )
             if due is None:
                 return "READY_BY_UNAVAILABLE"
@@ -908,6 +1320,15 @@ class NativeSwitchExecutor:
             "hard_stop_at": end,
             "requested_kwh": explicit_energy,
             "requested_duration_minutes": duration,
+            "requested_budget_amount": budget,
+            "requested_budget_currency": budget_currency,
+            "budget_cost": 0.0 if budget is not None else None,
+            "budget_quality": (
+                "qualified_effective_meter_increments"
+                if budget is not None else "not_applicable"
+            ),
+            "budget_last_meter_value": starting_energy,
+            "budget_last_meter_at": now if budget is not None else None,
             "soc_target": soc_target,
             "starting_energy_kwh": starting_energy,
             "actual_energy_kwh": 0.0 if starting_energy is not None else None,
@@ -996,10 +1417,11 @@ class NativeSwitchExecutor:
                 deadline = datetime.fromisoformat(asset["ready_by"]) if (
                     asset.get("ready_by")
                 ) else None
-                if deadline is not None and asset.get("ready_by_repeat", "none") != "none":
+                if asset.get("ready_by_repeat", "none") != "none" and (deadline is not None or asset.get("ready_by_repeat") == "specific_days"):
                     deadline, reason = resolve_recurring_ready_by(
                         deadline, quarter_start, asset["ready_by_repeat"],
                         self.runtime.hass.config.time_zone,
+                        asset.get("ready_by_weekdays"),
                     )
                     if deadline is None:
                         continue
@@ -1087,7 +1509,7 @@ class NativeSwitchExecutor:
                     active.append(c)
             for charger in active:
                 uid = charger["id"]
-                cable = connection(self.runtime.hass, charger.get("connected_entity"), at)
+                cable = self._connection(charger, at)
                 power = number(self.runtime.hass, charger.get("power_entity"), "power", at)
                 session_reason = self._session_stop_reason(charger, at)
                 accepted = self._accepted.get(uid)
@@ -1137,7 +1559,7 @@ class NativeSwitchExecutor:
                     completed_intent = None
                     if session_reason in (
                         "REQUESTED_ENERGY_COMPLETE", "REQUESTED_DURATION_COMPLETE",
-                        "SOC_TARGET_REACHED"
+                        "REQUESTED_BUDGET_COMPLETE", "SOC_TARGET_REACHED"
                     ) and is_auto:
                         asset = next((a for a in cfg["assets"]
                                       if a["id"] == charger.get("asset")), None)
@@ -1146,14 +1568,15 @@ class NativeSwitchExecutor:
                             occurrence = datetime.fromisoformat(
                                 asset["ready_by"]
                             ) if asset.get("ready_by") else None
-                            if occurrence and asset.get("ready_by_repeat", "none") != "none":
+                            if asset.get("ready_by_repeat", "none") != "none" and (occurrence is not None or asset.get("ready_by_repeat") == "specific_days"):
                                 occurrence, _ = resolve_recurring_ready_by(
                                     occurrence, at, asset["ready_by_repeat"],
                                     self.runtime.hass.config.time_zone,
+                                    asset.get("ready_by_weekdays"),
                                 )
-                            if asset.get("requested_kwh") is not None or (
-                                asset.get("requested_duration_minutes") is not None
-                            ):
+                            if (asset.get("requested_kwh") is not None
+                                    or asset.get("requested_duration_minutes") is not None
+                                    or asset.get("requested_budget_amount") is not None):
                                 completed_intent = self._intent_key(
                                     asset, charger, occurrence
                                 )
@@ -1223,6 +1646,36 @@ class NativeSwitchExecutor:
         request_id = request_id or uuid4().hex
         if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
             raise ValueError("request ID must be 1..128 characters")
+        # An independently owned and already-active B must not wait for A's
+        # potentially 45s unconfirmed START readback. Only use the existing
+        # protective STOP writer when the global lock is demonstrably held
+        # by a DIFFERENT pending START. This is NOT a second executor and
+        # never fabricates confirmed physical STOP or races same-EVSE START.
+        urgent_cross_charger_stop = (
+            action == "stop" and self._lock.locked()
+            and bool(self._start_pending)
+            and charger_id not in self._start_pending
+            and request_id not in self._requests
+            and not self._stopped
+        )
+        if urgent_cross_charger_stop:
+            candidate = next(
+                (c for c in self.runtime.configuration["chargers"]
+                 if c["id"] == charger_id), None,
+            )
+            if (candidate is not None
+                    and candidate.get("control_owner") == "multicharge"
+                    and candidate.get("physical_commissioned") is True
+                    and candidate.get("kind") in ("on_off", "variable_current")
+                    and self._switch(
+                        self.runtime.hass, candidate.get("control_entity"),
+                    ) is not None
+                    and self._switch(
+                        self.runtime.hass, candidate.get("control_entity"),
+                    ).state == "on"):
+                # Physical STOP dispatch only; later serialized execute()
+                # still verifies independent power readback and persistence.
+                await self._protective_stop(candidate, context)
         async with self._lock:
             previous = self._requests.get(request_id)
             if previous is not None:
@@ -1318,7 +1771,7 @@ class NativeSwitchExecutor:
                                 and (granted is None or granted.current_a is None
                                      or current_a > granted.current_a + 1e-6))):
                         return result("rejected", "CURRENT_INCREASE_REQUIRES_ACCEPTED_SLOT")
-                cable = connection(self.runtime.hass, charger.get("connected_entity"), at)
+                cable = self._connection(charger, at)
                 if cable.quality != "ok" or cable.value is not True:
                     return result("rejected", "PHYSICAL_CONNECTION_UNVERIFIED")
                 reason = self._physical_budget(charger, at, requested_kw, current_a)
@@ -1377,12 +1830,11 @@ class NativeSwitchExecutor:
                         due = datetime.fromisoformat(asset["ready_by"]) if (
                             asset.get("ready_by")
                         ) else None
-                        if due is not None and asset.get(
-                            "ready_by_repeat", "none"
-                        ) != "none":
+                        if asset.get("ready_by_repeat", "none") != "none" and (due is not None or asset.get("ready_by_repeat") == "specific_days"):
                             due, issue = resolve_recurring_ready_by(
                                 due, at, asset["ready_by_repeat"],
                                 self.runtime.hass.config.time_zone,
+                                asset.get("ready_by_weekdays"),
                             )
                             if due is None:
                                 return result("rejected", issue)

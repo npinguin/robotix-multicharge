@@ -93,27 +93,158 @@ def _session_asset_at_time(receipts, charger_id, start, end):
     return matched[0] if len(matched) == 1 else None
 
 
+def _estimated_session_variable_cost(states, receipt, price_slots, now):
+    """Indicative variable cost from real Recorder power samples, never a bill.
+
+    Integrate observed native power across *each* covered tariff boundary.
+    This does not spread the final session kWh uniformly over unknown time
+    periods, nor replace the independent metered-energy session receipt.
+    Any source gap stays unknown. No optional Robotix or Finance integration.
+    """
+    if (receipt.get("physical_stop_confirmed") is not True
+            or receipt.get("energy_quality") != "measured"):
+        return None
+    metered = receipt.get("actual_energy_kwh")
+    if (isinstance(metered, bool)
+            or not isinstance(metered, (int, float))
+            or not isfinite(metered) or metered < 0):
+        return None
+    try:
+        start = datetime.fromisoformat(receipt["started_at"])
+        end = datetime.fromisoformat(receipt["ended_at"])
+        if (start.utcoffset() is None or end.utcoffset() is None
+                or now.utcoffset() is None):
+            return None
+        start, end, at = (
+            value.astimezone(timezone.utc) for value in (start, end, now)
+        )
+    except (KeyError, TypeError, ValueError, OverflowError, AttributeError):
+        return None
+    if not start < end <= at or end - start > timedelta(hours=48):
+        return None
+    observed = sorted(
+        (item for state in states if (item := _sample(state)) is not None),
+        key=lambda item: item[0],
+    )
+    if not observed or any(
+        first[0] == second[0] for first, second in zip(observed, observed[1:])
+    ):
+        return None
+    # Convert provider-local aware timestamps to UTC before ordering.
+    # Python's local-zone comparison can otherwise collapse distinct fold=0
+    # and fold=1 instants on a 25-hour DST fallback day.
+    tariffs = []
+    try:
+        for slot in price_slots:
+            if (slot.start.utcoffset() is None
+                    or slot.end.utcoffset() is None
+                    or slot.basis != "effective"
+                    or not isfinite(slot.effective_price_per_kwh)):
+                return None
+            left = slot.start.astimezone(timezone.utc)
+            right = slot.end.astimezone(timezone.utc)
+            if left >= right:
+                return None
+            if left < end and right > start:
+                tariffs.append((left, right, slot))
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        return None
+    tariffs.sort(key=lambda row: row[0])
+    if not tariffs:
+        return None
+    currencies = {slot.currency for _, _, slot in tariffs}
+    if len(currencies) != 1 or not next(iter(currencies)):
+        return None
+    if any(first[1] > second[0]
+           for first, second in zip(tariffs, tariffs[1:])):
+        return None
+    boundaries = sorted(
+        {start, end}
+        | {stamp for stamp, _ in observed if start < stamp < end}
+        | {edge for left, right, _ in tariffs for edge in (left, right)
+           if start < edge < end}
+    )
+    cost = 0.0
+    measured_kwh = 0.0
+    for left, right in zip(boundaries, boundaries[1:]):
+        candidates = [slot for from_utc, to_utc, slot in tariffs
+                      if from_utc <= left and to_utc >= right]
+        if len(candidates) != 1:
+            return None
+        readings = [reading for reading in observed if reading[0] <= left]
+        if not readings:
+            return None
+        stamp, power_kw = readings[-1]
+        if (power_kw is None or stamp > left
+                or right - stamp > MAX_OBSERVATION_AGE):
+            return None
+        energy_kwh = power_kw * (right - left).total_seconds() / 3600
+        measured_kwh += energy_kwh
+        cost += energy_kwh * candidates[0].effective_price_per_kwh
+    if not isfinite(cost) or not isfinite(measured_kwh):
+        return None
+    return {
+        "estimated_variable_cost": round(cost, 6),
+        "estimated_variable_cost_currency": next(iter(currencies)),
+        "estimated_variable_cost_energy_kwh": round(measured_kwh, 6),
+        "estimated_variable_cost_quality":
+            "observed_power_integral_effective_tariff",
+        "estimated_variable_cost_basis": "indicative_variable_energy_only",
+    }
+
+
 async def read_actual_history(hass, configuration, start, end, *,
                               charger_id=None, asset_id=None,
-                              session_receipts=()):
+                              session_receipts=(), price_slots=(),
+                              include_valuations=False):
     """Query the installed native Recorder once for exact configured chargers."""
     now = datetime.now(timezone.utc)
     first, last = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
+
+    def reply(rows, quality, historical=None):
+        if not include_valuations:
+            return rows, quality
+        valued = {}
+        if historical is not None and price_slots:
+            source_by_id = {c["id"]: c.get("power_entity")
+                            for c in configuration["chargers"]}
+            for receipt in session_receipts:
+                charger = receipt.get("charger_id")
+                if (charger not in source_by_id
+                        or charger_id is not None and charger_id != charger
+                        or asset_id is not None and asset_id != receipt.get("asset_id")):
+                    continue
+                try:
+                    started = datetime.fromisoformat(receipt["started_at"])
+                    ended = datetime.fromisoformat(receipt["ended_at"])
+                    if (started.utcoffset() is None or ended.utcoffset() is None
+                            or started < first or ended > min(last, now)):
+                        continue
+                except (KeyError, ValueError, TypeError, OverflowError):
+                    continue
+                evidence = _estimated_session_variable_cost(
+                    historical.get(source_by_id[charger], []),
+                    receipt, price_slots, now,
+                )
+                if evidence is not None:
+                    valued[(charger, receipt["started_at"],
+                            receipt["ended_at"])] = evidence
+        return rows, quality, valued
     selected = [
         c for c in configuration["chargers"]
         if charger_id is None or c["id"] == charger_id
     ]
     if not selected:
-        return [], "NO_MATCHING_CHARGER"
+        return reply([], "NO_MATCHING_CHARGER")
     entities = [c.get("power_entity") for c in selected]
     if any(not entity for entity in entities):
-        return [], "POWER_METER_NOT_CONFIGURED"
-    if last <= first or last - first > timedelta(hours=48):
-        raise ValueError("historical view must be bounded to 48 hours")
+        return reply([], "POWER_METER_NOT_CONFIGURED")
+    if last <= first or last - first > timedelta(hours=49):
+        raise ValueError("historical view must be bounded to two civil days (<=49h)")
     if first >= now:
-        return [], "FUTURE_ONLY"
+        return reply([], "FUTURE_ONLY")
     if "recorder" not in hass.config.components:
-        return [], "RECORDER_NOT_LOADED"
+        return reply([], "RECORDER_NOT_LOADED")
     try:
         from homeassistant.components.recorder import get_instance, history
 
@@ -124,7 +255,7 @@ async def read_actual_history(hass, configuration, start, end, *,
             None, True, False, False, False, False,
         )
     except (ImportError, RuntimeError, ValueError, OSError, KeyError):
-        return [], "RECORDER_UNAVAILABLE"
+        return reply([], "RECORDER_UNAVAILABLE")
     result = []
     for charger in selected:
         rows = _quarter_actuals(
@@ -146,10 +277,10 @@ async def read_actual_history(hass, configuration, start, end, *,
             if asset_id is None or asset_id == attributed:
                 result.append(row)
     if not result:
-        return [], (
+        return reply([], (
             "NO_CONFIRMED_ASSET_HISTORY" if asset_id is not None
             else "NO_RECORDED_QUARTERS"
-        )
+        ), historical)
     if any(row["quality"] != "measured_power_integral" for row in result):
-        return result, "INCOMPLETE_POWER_HISTORY"
-    return result, "MEASURED_POWER_HISTORY"
+        return reply(result, "INCOMPLETE_POWER_HISTORY", historical)
+    return reply(result, "MEASURED_POWER_HISTORY", historical)

@@ -1,5 +1,7 @@
 # Community contracts — development candidate
 
+> **Functional authority:** [FUNCTIONAL_SPECIFICATION.md](FUNCTIONAL_SPECIFICATION.md) defines the UC01–UC29, FLEX/FORECAST/UI-OWNER required user journeys and positive/negative acceptance. This document owns only implementation-facing interface constraints and candidate HA API contracts, never an independent functional backlog. Current gaps/CI/field status belong in [Issue #1](https://github.com/npinguin/robotix-multicharge/issues/1) and the existing PR/release workflow.
+
 The integration's `domain.py`, `contracts.py` and `interfaces.py` currently define **candidate** Python types. They are not a released, compatible or Home Assistant-published API.
 
 | Public-facing concern | Candidate interface | Intended invariant |
@@ -65,7 +67,45 @@ is a read-only source observation and is **not** authorization,
 cable identity, power or energy evidence.
 
 
-### Native HA contracts for independently installed consumers
+### Current dev owner fields — weekday calendars, bounded money and protected STOP
+
+The [canonical functional specification](FUNCTIONAL_SPECIFICATION.md) owns the user-facing requirements. The implementation extends the **existing** `ChargeableAsset`, `Charger`, `ChargeController`, one Config Entry, one UTC 15-minute Planner, one guarded `NativeSwitchExecutor`, native Recorder and already-registered five-tab panel. These are development contracts, not a frozen public release.
+
+| Native owner | Persisted fields / observed surface | Contract |
+| --- | --- | --- |
+| ChargeableAsset | `ready_by_repeat=none|daily|specific_days`, `ready_by_weekdays={mon:"06:45",wed:"08:30"}` | Specific days are separate local HH:MM deadlines; old `weekly` stays readable and is losslessly projected as a specific-day option on user edit |
+| ChargeableAsset | `charging_windows={mon:{start:"22:00",end:"06:00"}}` | Optional permitted actual charging windows; cross-midnight uses selected start weekday, real UTC intervals and fail-closed DST; independent of Ready By |
+| ChargeableAsset | `requested_kwh` XOR `requested_duration_minutes` XOR `requested_budget_amount` + `requested_budget_currency` | Exactly one finite intent, while `max_charge_kw` remains separate physical setpoint/cap; native Number and owner `Charging intention` readback |
+| Charger-only | Admin-only `robotix_multicharge/command` with `action=start` and one of `energy_kwh`, `duration_minutes`, or `cost_amount` + `currency` | The same immutable command request and one writer; no fabricated vehicle or new command gateway |
+| Charger | Active source-qualified receipt `budget_cost`, `budget_quality`, `budget_last_meter_value`, `budget_last_meter_at` | Only real cumulative meter increments and non-overlapping covered effective quote slots count; a meter delta spanning multiple effective prices is conservatively bounded at the largest applicable nonnegative price, never called exact settlement |
+| Charger | `budget_accrued_cost`, `budget_cost_quality`, `budget_currency` on durable closed session receipt | Independent physical STOP/readback is required; `qualified_effective_meter_increments`, `conservative_effective_upper_bound`, or unknown, with original asset/Charger ID at time; no duplicate Finance ledger |
+| ChargeController | One plan/revision, source quality, effective tariff coverage, proposed/accepted/measured slots | Weekday windows and money constraints use the *existing* executor/admission, not an HA automation or parallel price engine |
+
+**Failure/permission:** invalid/non-effective budget tariff, source gap/stale meter, missing native connected/readback, inadequate wiring or exclusive owner, expiry, unavailable price, unrelated EVSE STOP blocked behind another START, single-EVSE competing commands and corrupted persisted evidence all retain explicit outcomes. The physically qualified STOP fast-path for a different already-active Charger still uses the one executor, no physical success until verified independent readback.
+
+Developer and isolated-HA source tests do not establish real browser/provider/field acceptance. See [Issue #1](https://github.com/npinguin/robotix-multicharge/issues/1) and [Draft PR #9](https://github.com/npinguin/robotix-multicharge/pull/9) for exact head and remaining gates.
+
+#### Original upstream price/SoC strategy owner contract
+
+These `dev` optional Asset fields stay in the **same existing Config Entry and native HA Device**, never in a second price-policy service: `continuous_charging: bool`, `earliest_start_at: aware datetime`, `minimum_soc_pct: 0..100`, `maximum_price_per_kwh: finite number`, `price_currency: ISO-4217`, `low_price_trigger_per_kwh: finite number`, `low_soc_trigger_pct: 0..100`, `opportunistic_kind: off|type1|type2`, and `opportunistic_level_pct: 0..100`. All price policy decisions need current provider-qualified currency and full actual intervals; no invented value, new local clock scheduler or OEM write. The existing plan query exposes corresponding native owner entity references, source-quality reasons and proposed quarter slots; the guarded existing executor checks START and ongoing price/SoC policy again against physical evidence.
+
+`ChargeDemand` carries only derived **source-qualified** minimum/low-SoC priority energy, pricing policy and continuity flags to its existing planner. A currency-budget demand additionally carries `budget_remaining_minutes` (maximum 1440 min cumulatively across physically confirmed sessions), not a second charging goal or public runtime. The 24h ceiling applies even if every approved `effective` price is 0 or negative. Physical Charger STOP remains confirmed only after independent power/current readback; a moved Asset keeps original immutable historical receipt attribution.
+
+Upstream `Keep charger on`/preconditioning has **no generic actuator claim** in this contract. Without hardware evidence distinguishing vehicle supply/preconditioning from charging, it is intentionally unavailable. A future fully qualified native capability may be added through the same Charger interface and one writer, without EVSC runtime, second planner or exposing a private site adapter.
+
+#### Beginner graph read scope (same native plan query)
+
+`robotix_multicharge/get_plan` supports `day=today|tomorrow|both` and returns exact site-local civil-day UTC bounds; the two-day result is at most **49 actual hours** across DST. These are read-only, already qualified `slots` (proposed/accepted by immutable Charger+Asset IDs), `actual_slots` (Recorder + session-time attribution, may have unknown asset), `forecast_slots` (non-binding disconnected indicative), `price_slots` (rate, currency, basis and timestamp) and the original `configuration`/observations/reason/shortfall references. The standalone five-tab UX uses one combined **kW + independently scaled price** overview followed by dynamically filtered Charger/Vehicle lanes. The source-neutral card never issues a physical write from chart interaction.
+
+Asset `target_soc`, `requested_kwh`, `requested_duration_minutes` and `requested_budget_amount` are visible as a novice-level exclusive choice with **one atomic** `update_settings` request and authoritative Config Entry readback. Specific weekday Ready By and allowed charging windows reuse the same Asset native ownership. STOP from Overview uses only the existing `command` path and is shown when the backend specifically advertises stop capability; no second hardware service. `source`/connection/readback/price remains authoritative, and 0, 1, 4 or 10 Charger/Asset counts do not change the public contract. Browser/installed-HA/physical acceptance remains a separate gate.
+
+### Owning Device and full UX introspection
+
+The read-only `robotix_multicharge/get_plan` result exposes authoritative `configuration`, observation/evidence quality, accepted/actual/proposed/indicative slots and each actual logical owner's `preference_entities` from the native Home Assistant Registry. Controller IDs resolve all ten actual energy/tariff/source Text entities, its solar source-kind and grid-meter-sign Selects, charging mode and existing site limit/visual controls. Asset and Charger maintain their own native identity, charging intents, schedule, source, power setting and confirmation controls. The object Details projection displays all canonical persisted fields (and unrecognized additive keys) **only as evidence**; no browser-local setter or new physical source-of-truth is created.
+
+All HA native Select, Number, Text and DateTime preference mutators reject a missing or non-administrator `context.user_id`. The ordinary `update_settings` WebSocket retains Home Assistant `require_admin`, Config Entry revision/readback and the existing physical executor lock. Site electrical/Charger structural/source/commissioning changes remain the existing safeguarded Options Flow; an informative config value is not automatically writable. The integrated source/static and isolated installed HA native Registry+actor tests establish only their respective proof levels, not the actual Browser/Site/PHYSICAL_READBACK qualifications.
+
+## Native HA contracts for independently installed consumers
 
 - Source-neutral native HA entities for new logical properties and qualifying control actions. Stable unique IDs keyed on logical IDs and semantic property, never mutable names. No copied historical controls.
 - **One bounded, read-only future-plan query**, proposed HA WebSocket message type `robotix_multicharge/get_plan`, with `schema_major:1`, exact `controller_id`, optional `charger_id` or `asset_id`, aware `start` and `end`, maximum 48h. Return `schema_major`, `revision`, `generated_at`, `valid_until`, `timezone`, `status`, `coverage`, `quality`, a bounded array of UTC time slots containing separate planned and measured values and optional source-qualified price/available capacity, deadline/shortfall and explanatory reason. Explicit authorization and scope checks. This is an interface *proposal* until target-HA testing freezes the name and schema; do not ship an incompatible second query.
@@ -77,4 +117,4 @@ cable identity, power or energy evidence.
 
 Accepted HA action without physical readback ≠ confirmed; unqualified source ≠ zero/connected/safe; no dual writer or plan; no stale binding envelope going fail-open; on/off plug cannot modulate; no registry reparenting; dynamic asset rename retains history; consumer/chart may not re-optimize or substitute forecast for actual; unsupported mode must show unavailable; no hidden required provider or external product. Verify 1/2/4/10 chargers and event-storm/physical command suppression.
 
-**Traceability:** UC01–UC29 and the UX baseline remain in [public Issue #1](https://github.com/npinguin/robotix-multicharge/issues/1) and [Architecture](ARCHITECTURE.md#fixed-five-tab-ux--approved-no-drift-implementation-specification). No extra tracking spreadsheet. **Status:** implementation/qualification of these surfaces is OPEN; passing source CI tests only the current candidate types.
+**Traceability:** The canonical UC01–UC29, FLEX/FORECAST/UI-OWNER functional scope and UX acceptance are maintained only in [Functional Specification](FUNCTIONAL_SPECIFICATION.md). [Architecture](ARCHITECTURE.md#fixed-five-tab-ux--approved-no-drift-implementation-specification) describes implementation; [Issue #1](https://github.com/npinguin/robotix-multicharge/issues/1) and the active PR track implementation and qualification evidence, not a second requirement set. No extra tracking spreadsheet. **Status:** implementation/qualification of these surfaces is OPEN; passing source CI tests only the current candidate types.

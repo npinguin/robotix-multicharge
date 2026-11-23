@@ -147,6 +147,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         nonlocal pending, dirty
         if not runtime.active:
             return
+        if event is not None:
+            # HA calls this synchronously for each state_changed event.
+            # Identity continuity must see *every* native transition before
+            # multiple source updates are coalesced into a single refresh.
+            # The callback only updates volatile evidence: no physical writes.
+            entity = event.data.get("entity_id")
+            for charger in runtime.configuration["chargers"]:
+                if charger.get("connected_entity") == entity:
+                    runtime.executor.observe_connection_event(
+                        charger, event.data.get("old_state"),
+                        event.data.get("new_state"),
+                    )
         dirty = True
         if pending is None or pending.done():
             pending = hass.async_create_task(reconcile())

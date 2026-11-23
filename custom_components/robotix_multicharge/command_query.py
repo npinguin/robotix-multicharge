@@ -29,6 +29,8 @@ from .const import DOMAIN
     vol.Optional("current_a"): vol.Coerce(float),
     vol.Optional("energy_kwh"): vol.Coerce(float),
     vol.Optional("duration_minutes"): vol.Coerce(int),
+    vol.Optional("cost_amount"): vol.Coerce(float),
+    vol.Optional("currency"): str,
     vol.Optional("request_id"): str,
 })
 @websocket_api.async_response
@@ -44,13 +46,14 @@ async def websocket_charge_command(
         )
         return
     manual_request = {
-        key: msg[key] for key in ("energy_kwh", "duration_minutes")
+        key: msg[key] for key in ("energy_kwh", "duration_minutes",
+                                 "cost_amount", "currency")
         if key in msg
     }
     if manual_request and msg["action"] != "start":
         connection.send_error(
             msg["id"], websocket_api.ERR_INVALID_FORMAT,
-            "One-off energy/duration is valid only for manual START",
+            "One-off energy/duration/budget is valid only for manual START",
         )
         return
     result = await runtimes[0].executor.execute(
@@ -63,6 +66,19 @@ async def websocket_charge_command(
 
 def register_command_query(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_charge_command)
+
+
+async def require_native_admin(hass, context):
+    """Only actual HA administrators may edit domain-owned native settings.
+
+    Entity-service contexts originate in Home Assistant, never from the
+    browser's client-side role claims. Automated/system calls without an
+    authenticated user must use an explicitly authorized Config Flow instead.
+    """
+    actor = getattr(context, "user_id", None)
+    user = await hass.auth.async_get_user(actor) if actor else None
+    if user is None or not user.is_admin:
+        raise RuntimeError("MultiCharge settings require a Home Assistant administrator")
 
 
 async def apply_native_preference(hass, entry, runtime, scope, target_id, changes,
@@ -85,6 +101,10 @@ async def apply_native_preference(hass, entry, runtime, scope, target_id, change
         if not is_plan_presentation_only_change(runtime.configuration, updated):
             # A charger assignment changes both its own command boundary and
             # the former charger's assignment. Other active chargers are safe.
+            atomic_guest_assignment = (
+                scope == "asset" and action == "create"
+                and changes.get("assign_charger_id") is not None
+            )
             if scope == "charger" and set(changes) <= {"asset"}:
                 affected = {target_id}
                 selected = changes.get("asset")
@@ -99,7 +119,11 @@ async def apply_native_preference(hass, entry, runtime, scope, target_id, change
             else:
                 candidates = runtime.configuration["chargers"]
             for charger in candidates:
-                rebind = scope == "charger" and set(changes) <= {"asset"}
+                rebind = (
+                    (scope == "charger" and set(changes) <= {"asset"})
+                    or (atomic_guest_assignment
+                        and charger["id"] == changes["assign_charger_id"])
+                )
                 owned = (charger.get("control_owner") == "multicharge"
                          and charger.get("physical_commissioned") is True)
                 if not rebind and not owned:
@@ -169,16 +193,23 @@ async def websocket_update_settings(
             msg["changes"], expected_revision=msg["expected_revision"],
             action=msg.get("action", "save"),
         )
-    except (ValueError, TypeError, KeyError):
+    except (ValueError, TypeError, KeyError) as exc:
+        # Give the admin an actionable *bounded* reason, never raw source
+        # entity IDs or internal exceptions. Physical authority is unchanged.
+        code = {
+            "charger_busy": "CHARGER_BUSY_STOP_FIRST",
+            "charger_occupied": "CHARGER_HAS_OTHER_ASSET",
+            "stale_settings": "STALE_SETTINGS_REFRESH",
+        }.get(str(exc), "SETTINGS_REJECTED")
         runtime.record_settings_action(
             msg["scope"], msg["target_id"], msg.get("action", "save"),
             msg["changes"], configuration_revision(runtime.configuration),
-            status="rejected", reason="SETTINGS_VALIDATION_OR_SAFETY_HOLD",
+            status="rejected", reason=code,
         )
         if not await runtime.persist_control_state():
             runtime._settings_action["reason"] = "SETTINGS_AUDIT_PERSISTENCE_UNAVAILABLE"
         connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT,
-                              "Settings rejected; verify fields, permissions and charging state")
+                              code)
         return
     connection.send_result(msg["id"], {
         "status": "accepted_unconfirmed",

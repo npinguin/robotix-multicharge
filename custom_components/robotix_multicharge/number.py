@@ -7,13 +7,19 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .command_query import apply_native_preference
+from .command_query import apply_native_preference, require_native_admin
 from .const import DOMAIN
 
 FIELDS = {
     "target_soc": (0, 100, 1, "%"),
     "requested_kwh": (0, 200, 0.1, "kWh"),
     "requested_duration_minutes": (0, 1440, 15, "min"),
+    "requested_budget_amount": (0, 10000, 0.01, "EUR"),
+    "minimum_soc_pct": (0, 100, 1, "%"),
+    "maximum_price_per_kwh": (-100, 100, 0.01, None),
+    "low_price_trigger_per_kwh": (-100, 100, 0.01, None),
+    "low_soc_trigger_pct": (0, 100, 1, "%"),
+    "opportunistic_level_pct": (0, 100, 1, "%"),
     "priority": (0, 100, 1, None),
     "max_charge_kw": (0.1, 100, 0.1, "kW"),
     "capacity_kwh": (0.1, 1000, 0.1, "kWh"),
@@ -92,6 +98,7 @@ class _AssetNumber(NumberEntity):
         await super().async_will_remove_from_hass()
 
     async def async_set_native_value(self, value: float):
+        await require_native_admin(self.hass, self.context)
         if self.field in ("priority", "requested_duration_minutes"):
             if not float(value).is_integer():
                 raise ValueError("whole_number_required")
@@ -99,12 +106,22 @@ class _AssetNumber(NumberEntity):
         changes = {self.field: value}
         if self.field == "requested_duration_minutes":
             changes["requested_kwh"] = None
+            changes["requested_budget_amount"] = None
+            changes["requested_budget_currency"] = None
             if value == 0:
                 changes["requested_duration_minutes"] = None
         elif self.field == "requested_kwh":
             changes["requested_duration_minutes"] = None
+            changes["requested_budget_amount"] = None
+            changes["requested_budget_currency"] = None
             if value == 0:
                 changes["requested_kwh"] = None
+        elif self.field == "requested_budget_amount":
+            changes["requested_kwh"] = None
+            changes["requested_duration_minutes"] = None
+            changes["requested_budget_currency"] = "EUR" if value > 0 else None
+            if value == 0:
+                changes["requested_budget_amount"] = None
         await apply_native_preference(
             self.hass, self.entry, self.runtime, "asset", self.uid, changes
         )
@@ -156,6 +173,7 @@ class _SiteNumber(NumberEntity):
         await super().async_will_remove_from_hass()
 
     async def async_set_native_value(self, value: float):
+        await require_native_admin(self.hass, self.context)
         if self.field == "max_parallel":
             if not float(value).is_integer():
                 raise ValueError("whole_number_required")
@@ -259,6 +277,7 @@ class _ChargerPowerNumber(NumberEntity):
         await super().async_will_remove_from_hass()
 
     async def async_set_native_value(self, value: float):
+        await require_native_admin(self.hass, self.context)
         actor = getattr(self.context, "user_id", None)
         user = await self.hass.auth.async_get_user(actor) if actor else None
         if user is None or not user.is_admin:

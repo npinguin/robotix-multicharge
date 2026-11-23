@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -20,11 +21,214 @@ for name in ("domain", "configuration"):
 
 from multicharge_configuration_tests.configuration import (  # noqa: E402 - imported after isolated pure-module bootstrap
     default_configuration, effective_configuration, validate_configuration,
-    normalize_expert_json, prepare_expert_yaml_revision,
+    normalize_expert_json, prepare_expert_yaml_revision, configuration_json,
 )
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_complete_json_round_trip_uses_only_canonical_configuration(self):
+        """UC14-UX-OWNER-02: JSON can edit every supported owner field."""
+        source = validate_configuration({
+            "controller": {
+                "id": "home", "name": "House", "mode": "Off",
+                "max_parallel": 2, "max_power_kw": 7.0,
+                "phase_limits_a": {"L1": 16, "L2": 16},
+                "grid_power_entity": "sensor.grid",
+                "grid_power_direction": "import_positive",
+            },
+            "assets": [{
+                "id": "guest", "name": "Guest", "kind": "car",
+                "requested_duration_minutes": 30,
+                "ready_by_repeat": "specific_days",
+                "ready_by_weekdays": {"mon": "07:00"},
+                "charging_windows": {"fri": {"start": "22:00", "end": "06:00"}},
+            }],
+            "chargers": [{
+                "id": "plug", "name": "Utility", "kind": "on_off",
+                "rated_power_kw": 2.0,
+                "control_entity": "switch.plug",
+                "connected_entity": "binary_sensor.plug_connected",
+                "power_entity": "sensor.plug_power",
+                "phase_count": 1, "phase_ids": ["L1"], "voltage_v": 230,
+                "fixed_current_a": 10, "circuit_id": "garage",
+                "circuit_limit_a": 16,
+                "control_owner": "external",
+                "physical_commissioned": False,
+            }],
+        })
+        exported = configuration_json(source)
+        self.assertEqual(json.loads(exported), source)
+        self.assertEqual(normalize_expert_json(json.loads(exported)), source)
+        self.assertEqual(
+            prepare_expert_yaml_revision(source, json.loads(exported), "replace"),
+            source,
+        )
+        # The same route merges existing objects, not a parallel shadow store.
+        patch = {"assets": [{"id": "guest", "priority": 25}]}
+        updated = prepare_expert_yaml_revision(source, patch, "merge")
+        self.assertEqual(updated["assets"][0]["priority"], 25)
+        self.assertEqual(updated["chargers"], source["chargers"])
+        self.assertEqual(updated["controller"], source["controller"])
+        with self.assertRaisesRegex(ValueError, "ownership or commissioning"):
+            prepare_expert_yaml_revision(source, {
+                "chargers": [{
+                    **source["chargers"][0],
+                    "control_owner": "multicharge",
+                    "physical_commissioned": True,
+                }],
+            }, "merge")
+
+    def test_energy_dashboard_suggestions_reuse_native_power_and_price_only(self):
+        from multicharge_configuration_tests.configuration import (
+            energy_dashboard_suggestions,
+        )
+        prefs = {"energy_sources": [
+            {"type": "solar", "stat_energy_from": "sensor.solar_total_kwh",
+             "stat_rate": "sensor.solar_instant_w"},
+            {"type": "grid", "stat_energy_from": "sensor.grid_import_kwh",
+             "stat_energy_to": "sensor.grid_export_kwh",
+             "stat_rate": "sensor.grid_net_w",
+             "entity_energy_price": "sensor.import_price",
+             "entity_energy_price_export": "sensor.export_price"},
+            {"type": "battery", "stat_rate": "sensor.battery_w"},
+        ], "device_consumption": [
+            {"stat_consumption": "sensor.fridge_kwh",
+             "stat_rate": "sensor.fridge_w"},
+        ]}
+        self.assertEqual(energy_dashboard_suggestions(prefs), {
+            "solar_power_entity": "sensor.solar_instant_w",
+            "grid_power_entity": "sensor.grid_net_w",
+            "current_price_entity": "sensor.import_price",
+            "export_price_entity": "sensor.export_price",
+        })
+        # It is not safe to mistake a device for whole-home consumption,
+        # battery discharge for solar export, or energy kWh for live kW.
+        for excluded in ("home_power_entity", "solar_surplus_entity",
+                         "solar_entity", "price_entity"):
+            self.assertNotIn(excluded, energy_dashboard_suggestions(prefs))
+        self.assertEqual(energy_dashboard_suggestions(None), {})
+        prefs["energy_sources"].append({
+            "type": "grid", "stat_rate": "sensor.other_net_power",
+            "entity_energy_price": "sensor.other_price",
+        })
+        ambiguous = energy_dashboard_suggestions(prefs)
+        self.assertNotIn("grid_power_entity", ambiguous)
+        self.assertNotIn("current_price_entity", ambiguous)
+        self.assertIn("solar_power_entity", ambiguous)
+
+    def test_native_solar_power_and_energy_price_options_have_one_authority(self):
+        from copy import deepcopy
+        base = default_configuration()
+        base["controller"].update({
+            "solar_power_entity": "sensor.pv_power",
+            "home_power_entity": "sensor.home_power",
+            "grid_power_entity": "sensor.net_power",
+            "current_price_entity": "sensor.electricity_price",
+            "export_price_entity": "sensor.feed_in_price",
+            "solar_source_kind": "grid_export",
+            "grid_power_direction": "import_positive",
+        })
+        normalized = validate_configuration(base)
+        for key in ("solar_power_entity", "home_power_entity",
+                    "grid_power_entity", "current_price_entity",
+                    "export_price_entity", "solar_source_kind",
+                    "grid_power_direction"):
+            self.assertEqual(normalized["controller"][key],
+                             base["controller"][key])
+        normalized["controller"]["name"] = "New home"
+        self.assertEqual(
+            validate_configuration(normalized)["controller"]["solar_source_kind"],
+            "grid_export",
+        )
+        for badchange in (
+            {"solar_source_kind": "unverified"},
+            {"solar_source_kind": "direct_surplus"},
+            {"grid_power_direction": "unknown"},
+            {"grid_power_entity": "sensor.fake-kwh"},
+            {"grid_power_entity": "switch.fake_grid"},
+            {"solar_source_kind": "intervals"},
+        ):
+            bad = deepcopy(base)
+            bad["controller"].update(badchange)
+            with self.subTest(badchange=badchange), self.assertRaises(ValueError):
+                validate_configuration(bad)
+
+        direct = deepcopy(base)
+        direct["controller"]["solar_source_kind"] = "direct_surplus"
+        direct["controller"]["solar_surplus_entity"] = "sensor.surplus_w"
+        self.assertEqual(
+            validate_configuration(direct)["controller"]["solar_source_kind"],
+            "direct_surplus",
+        )
+
+    def test_oem_soc_quality_flag_is_native_optional_and_requires_oem_sensor(self):
+        from copy import deepcopy
+        source = default_configuration()
+        source["assets"] = [{
+            "id": "vehicle", "name": "Vehicle", "kind": "car",
+            "soc_entity": "sensor.vehicle_battery_pct",
+            "soc_stale_entity": "binary_sensor.vehicle_data_stale",
+        }]
+        normalized = validate_configuration(source)
+        self.assertEqual(normalized["assets"][0]["soc_stale_entity"],
+                         "binary_sensor.vehicle_data_stale")
+        for value in ("sensor.not_binary", "switch.not_binary", "missing"):
+            bad = deepcopy(source)
+            bad["assets"][0]["soc_stale_entity"] = value
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                validate_configuration(bad)
+        incomplete = deepcopy(source)
+        del incomplete["assets"][0]["soc_entity"]
+        with self.assertRaises(ValueError):
+            validate_configuration(incomplete)
+
+    def test_native_status_mapping_config_requires_disjoint_known_sensor_states(self):
+        from copy import deepcopy
+
+        basic = {
+            "controller": {"id": "home", "name": "Home", "max_parallel": 1},
+            "assets": [],
+            "chargers": [{
+                "id": "evse", "name": "EVSE", "kind": "on_off",
+                "rated_power_kw": 3.6, "control_entity": "switch.evse",
+                "connected_entity": "sensor.evse_status",
+                "connected_states": ["Charging", "Preparing"],
+                "disconnected_states": ["Available"],
+            }],
+        }
+        resolved = validate_configuration(basic)
+        self.assertEqual(resolved["chargers"][0]["connected_states"],
+                         ["charging", "preparing"])
+        self.assertEqual(resolved["chargers"][0]["disconnected_states"],
+                         ["available"])
+        for changes in (
+            {"connected_states": ["charging", "CHARGING"]},
+            {"connected_states": ["Available"]},
+            {"disconnected_states": []},
+            {"connected_states": [""]},
+            {"connected_entity": "switch.evse"},
+        ):
+            bad = deepcopy(basic)
+            bad["chargers"][0].update(changes)
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                validate_configuration(bad)
+        missing = deepcopy(basic)
+        del missing["chargers"][0]["disconnected_states"]
+        with self.assertRaises(ValueError):
+            validate_configuration(missing)
+
+        expert = normalize_expert_json({
+            "Controller": {"ID": "home", "Name": "Home"},
+            "Charger": [{
+                "Name": "EVSE",
+                "Charging-startstop-entity": "switch.evse",
+                "Charging-connected-sensor": "sensor.evse_status",
+                "Charging-connected-states": ["Charging"],
+                "Charging-disconnected-states": ["Available"],
+            }],
+        })
+        self.assertEqual(expert["chargers"][0]["connected_states"], ["charging"])
+
     def test_new_car_defaults_to_80_without_overriding_existing_or_finite_goal(self):
         from multicharge_configuration_tests.configuration import (
             apply_settings_change, apply_new_asset_defaults,
@@ -344,11 +548,14 @@ class ConfigurationTests(unittest.TestCase):
              "rated_power_kw": 3.5},
         ]
         before = validate_configuration(config)
-        after = apply_settings_change(before, "charger", "c2", {"asset": "a"})
+        # A destination occupied by B must never silently discard B.
+        with self.assertRaisesRegex(ValueError, "charger_occupied"):
+            apply_settings_change(before, "charger", "c2", {"asset": "a"})
+        after = apply_settings_change(before, "charger", "c3", {"asset": "a"})
         self.assertTrue(is_in_place_runtime_preference_change(before, after))
         self.assertNotIn("asset", after["chargers"][0])
-        self.assertEqual(after["chargers"][1]["asset"], "a")
-        self.assertEqual(before["chargers"][2], after["chargers"][2])
+        self.assertEqual(after["chargers"][1]["asset"], "b")
+        self.assertEqual(after["chargers"][2]["asset"], "a")
         self.assertFalse(is_in_place_runtime_preference_change(before, before))
         structural = validate_configuration({**before, "chargers": [
             {**before["chargers"][0], "power_entity": "sensor.another"},
@@ -648,6 +855,198 @@ class ConfigurationTests(unittest.TestCase):
         }]
         with self.assertRaises(ValueError):
             validate_configuration(cfg)
+
+    def test_upstream_source_qualified_price_soc_and_departure_policies(self):
+        from copy import deepcopy
+        from multicharge_configuration_tests.configuration import (
+            apply_settings_change, is_in_place_runtime_preference_change,
+        )
+        base = default_configuration()
+        base["assets"] = [{
+            "id": "car", "name": "Car", "capacity_kwh": 50.0,
+            "target_soc": 80, "minimum_soc_pct": 30,
+            "maximum_price_per_kwh": 0.20, "price_currency": "EUR",
+            "low_price_trigger_per_kwh": 0.08,
+            "low_soc_trigger_pct": 20,
+            "opportunistic_kind": "type1",
+            "opportunistic_level_pct": 50,
+            "earliest_start_at": "2026-11-25T06:45:00+01:00",
+        }]
+        checked = validate_configuration(base)
+        car = checked["assets"][0]
+        self.assertEqual(car["minimum_soc_pct"], 30)
+        self.assertEqual(car["maximum_price_per_kwh"], 0.20)
+        self.assertEqual(car["price_currency"], "EUR")
+        self.assertEqual(car["earliest_start_at"],
+                         "2026-11-25T06:45:00+01:00")
+        changed = apply_settings_change(
+            checked, "asset", "car", {"opportunistic_kind": "type2",
+                                     "opportunistic_level_pct": 90},
+        )
+        self.assertTrue(is_in_place_runtime_preference_change(checked, changed))
+        self.assertEqual(changed["assets"][0]["opportunistic_kind"], "type2")
+        prepared = default_configuration()
+        prepared["assets"] = [{"id": "guest", "name": "Guest",
+                               "price_currency": "GBP"}]
+        self.assertEqual(validate_configuration(
+            prepared)["assets"][0]["price_currency"], "GBP")
+        invalids = (
+            {"minimum_soc_pct": 101},
+            {"minimum_soc_pct": 90},
+            {"low_soc_trigger_pct": -1},
+            {"maximum_price_per_kwh": 0.20, "price_currency": "eur"},
+            {"maximum_price_per_kwh": 0.20, "price_currency": None},
+            {"opportunistic_kind": "type2", "maximum_price_per_kwh": None},
+            {"opportunistic_kind": "type3"},
+            {"earliest_start_at": "2026-11-25T06:45:00"},
+            {"opportunistic_level_pct": 110},
+        )
+        for invalid in invalids:
+            sample = deepcopy(base)
+            sample["assets"][0].update(invalid)
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                validate_configuration(sample)
+
+    def test_continuity_is_optional_one_asset_preference(self):
+        from multicharge_configuration_tests.configuration import (
+            apply_settings_change, is_in_place_runtime_preference_change,
+        )
+        base = default_configuration()
+        base["assets"] = [{"id": "car", "name": "Car",
+                           "requested_kwh": 3.0}]
+        verified = validate_configuration(base)
+        self.assertNotIn("continuous_charging", verified["assets"][0],
+                         "Existing users default to unchanged flexible plan")
+        selected = apply_settings_change(verified, "asset", "car",
+                                         {"continuous_charging": True})
+        self.assertEqual(selected["assets"][0]["continuous_charging"], True)
+        self.assertTrue(is_in_place_runtime_preference_change(verified, selected))
+        cleared = apply_settings_change(selected, "asset", "car",
+                                        {"continuous_charging": None})
+        self.assertNotIn("continuous_charging", cleared["assets"][0])
+        broken = default_configuration()
+        broken["assets"] = [{"id": "car", "name": "Car",
+                             "continuous_charging": "yes"}]
+        with self.assertRaisesRegex(ValueError, "continuous"):
+            validate_configuration(broken)
+
+    def test_guest_create_with_free_charger_is_atomic_and_fail_closed(self):
+        from multicharge_configuration_tests.configuration import apply_settings_change
+        cfg = default_configuration()
+        cfg["chargers"] = [
+            {"id": "free", "name": "Free", "rated_power_kw": 2.0,
+             "kind": "on_off"},
+            {"id": "occupied", "name": "Occupied", "rated_power_kw": 2.0,
+             "kind": "on_off", "asset": "resident"},
+        ]
+        cfg["assets"] = [{"id": "resident", "name": "Resident", "requested_kwh": 2.0}]
+        before = validate_configuration(cfg)
+        guest = apply_settings_change(before, "asset", "visitor", {
+            "name": "Visitor", "kind": "car", "requested_budget_amount": 10.0,
+            "requested_budget_currency": "EUR", "temporary": True,
+            "expires_at": "2026-11-25T10:00:00+00:00",
+            "assign_charger_id": "free",
+        }, "create")
+        self.assertEqual(guest["chargers"][0]["asset"], "visitor")
+        self.assertEqual(guest["chargers"][1]["asset"], "resident")
+        self.assertNotIn("assign_charger_id", guest["assets"][-1])
+        self.assertEqual(guest["assets"][-1]["requested_budget_amount"], 10)
+        for chosen in ("occupied", "missing"):
+            with self.subTest(chosen=chosen), self.assertRaises(ValueError):
+                apply_settings_change(before, "asset", "visitor", {
+                    "name": "Visitor", "assign_charger_id": chosen,
+                }, "create")
+        with self.assertRaises(ValueError):
+            apply_settings_change(before, "asset", "resident", {
+                "assign_charger_id": "free",
+            }, "save")
+
+    def test_money_budget_goal_is_one_native_finite_intent(self):
+        from copy import deepcopy
+        from multicharge_configuration_tests.configuration import (
+            apply_settings_change, is_in_place_runtime_preference_change,
+        )
+        site = default_configuration()
+        site["assets"] = [{"id": "guest", "name": "Guest", "kind": "car",
+                           "requested_budget_amount": 10.0}]
+        configured = validate_configuration(site)
+        a = configured["assets"][0]
+        self.assertEqual(a["requested_budget_amount"], 10.0)
+        self.assertEqual(a["requested_budget_currency"], "EUR")
+        self.assertNotIn("target_soc", a)
+        # Switching goals is one transaction, not simultaneous finite targets.
+        energy = apply_settings_change(configured, "asset", "guest",
+                                       {"requested_kwh": 12.0})
+        self.assertNotIn("requested_budget_amount", energy["assets"][0])
+        self.assertTrue(is_in_place_runtime_preference_change(configured, energy))
+        budget = apply_settings_change(energy, "asset", "guest",
+                                       {"requested_budget_amount": 5.0})
+        self.assertNotIn("requested_kwh", budget["assets"][0])
+        self.assertEqual(budget["assets"][0]["requested_budget_currency"], "EUR")
+        for invalid in (
+            {"requested_budget_amount": -1.0},
+            {"requested_budget_amount": 0.0},
+            {"requested_budget_amount": "10"},
+            {"requested_budget_amount": 5.0, "requested_kwh": 4.0},
+            {"requested_budget_amount": 5.0,
+             "requested_duration_minutes": 15},
+            {"requested_budget_amount": 5.0,
+             "requested_budget_currency": "EUR/kWh"},
+            {"requested_budget_currency": "EUR"},
+        ):
+            sample = deepcopy(site)
+            sample["assets"] = [{"id": "car", "name": "Car", **invalid}]
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                validate_configuration(sample)
+
+    def test_native_specific_day_calendar_and_charging_window_validation(self):
+        from copy import deepcopy
+        from multicharge_configuration_tests.configuration import (
+            apply_settings_change, is_in_place_runtime_preference_change,
+        )
+        source = default_configuration()
+        source["assets"] = [{
+            "id": "guest", "name": "Guest", "kind": "car",
+            "ready_by_repeat": "specific_days",
+            "ready_by_weekdays": {"mon": "06:45", "wed": "08:30", "fri": "17:15"},
+            "charging_windows": {
+                "mon": {"start": "22:00", "end": "06:00"},
+                "wed": {"start": "11:00", "end": "15:00"},
+            },
+            "requested_duration_minutes": 30,
+        }]
+        canonical = validate_configuration(source)
+        asset = canonical["assets"][0]
+        self.assertEqual(asset["ready_by_weekdays"]["wed"], "08:30")
+        self.assertEqual(asset["charging_windows"]["mon"]["end"], "06:00")
+        revised = apply_settings_change(
+            canonical, "asset", "guest",
+            {"ready_by_weekdays": {"tue": "10:15"},
+             "charging_windows": {"tue": {"start": "08:00", "end": "11:00"}}},
+        )
+        self.assertTrue(is_in_place_runtime_preference_change(canonical, revised))
+        self.assertEqual(revised["assets"][0]["ready_by_weekdays"], {"tue": "10:15"})
+        clean = apply_settings_change(revised, "asset", "guest",
+                                      {"charging_windows": None})
+        self.assertNotIn("charging_windows", clean["assets"][0])
+        legacy = deepcopy(source)
+        legacy["assets"][0].pop("ready_by_weekdays")
+        legacy["assets"][0]["ready_by_repeat"] = "weekly"
+        legacy["assets"][0]["ready_by"] = "2026-11-23T09:00:00+01:00"
+        self.assertEqual(validate_configuration(legacy)["assets"][0]["ready_by_repeat"],
+                         "weekly")  # Retained on disk until user edits; IDs preserved.
+        for bad in (
+            {"ready_by_weekdays": {}},
+            {"ready_by_weekdays": {"hol": "08:00"}},
+            {"ready_by_weekdays": {"mon": "24:00"}},
+            {"charging_windows": {"mon": {"start": "07:00", "end": "07:00"}}},
+            {"charging_windows": {"mon": {"start": "25:00", "end": "06:00"}}},
+            {"charging_windows": {"sunday": {"start": "10:00", "end": "18:00"}}},
+        ):
+            example = deepcopy(source)
+            example["assets"][0].update(bad)
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                validate_configuration(example)
 
     def test_recurrence_requires_a_real_ready_by_anchor(self):
         cfg = default_configuration()

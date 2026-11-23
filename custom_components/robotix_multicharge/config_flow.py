@@ -13,12 +13,46 @@ from homeassistant.helpers import selector
 
 from .configuration import (
     default_configuration, is_plan_presentation_only_change,
-    configuration_revision, prepare_expert_yaml_revision, validate_configuration,
-    apply_new_asset_defaults,
+    configuration_revision, configuration_json, prepare_expert_yaml_revision, validate_configuration,
+    apply_new_asset_defaults, energy_dashboard_suggestions,
 )
 from .source_evidence import number
 from .execution import stop_power_limit
 from .const import DOMAIN, NAME
+
+
+ENERGY_ENTITY_FIELDS = (
+    "solar_power_entity", "home_power_entity", "grid_power_entity",
+    "solar_surplus_entity", "solar_entity", "price_entity",
+    "current_price_entity", "export_price_entity",
+)
+
+
+async def _energy_dashboard_defaults(hass):
+    """Read HA's own Energy Dashboard preferences without editing them.
+
+    The optional first-party Energy integration is not required for manual
+    setup or to run the standalone MultiCharge controller.
+    """
+    # Do not initialize an Energy Dashboard the owner never configured.
+    # The manually selected native HA entities work with no Energy loaded.
+    if "energy" not in hass.config.components:
+        return {}
+    try:
+        from homeassistant.components.energy.data import async_get_manager
+
+        manager = await async_get_manager(hass)
+        return energy_dashboard_suggestions(manager.data)
+    except (ImportError, ValueError, RuntimeError, KeyError, TypeError):
+        return {}
+
+
+def _optional_native_entity(key, defaults):
+    """Use real Home Assistant EntitySelectors with validated suggestion IDs."""
+    current = defaults.get(key)
+    if current:
+        return vol.Optional(key, default=current)
+    return vol.Optional(key)
 
 
 def _id(value: str) -> str:
@@ -27,6 +61,13 @@ def _id(value: str) -> str:
 
 def _phases(raw):
     return [item.strip().upper() for item in raw.split(",") if item.strip()]
+
+
+def _native_status_labels(raw):
+    """Parse user-supplied native EVSE states, never infer provider semantics."""
+    if not isinstance(raw, str):
+        raise ValueError("Expected comma-separated native EVSE states")
+    return [item.strip() for item in raw.split(",") if item.strip()]
 
 
 def _phase_limits(raw):
@@ -142,7 +183,8 @@ def _assert_safe_yaml_ui_commit(runtime, updated):
         if (current is not None and
                 all(previous.get(key) == current.get(key)
                     for key in ("asset", "control_entity", "power_entity",
-                                "connected_entity", "energy_entity",
+                                "connected_entity", "connected_states",
+                                "disconnected_states", "energy_entity",
                                 "session_entity", "kind", "rated_power_kw"))):
             continue
         if (uid in runtime.executor._sessions or
@@ -175,6 +217,18 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return RobotixMultiChargeOptionsFlow()
 
     async def async_step_user(self, user_input=None):
+        """Offer an actual first-install choice, not a mandatory partial wizard."""
+        if self._async_current_entries():
+            return self.async_abort(reason="already_configured")
+        if user_input is not None:
+            # Preserve direct legacy user-flow submissions from older HA clients.
+            return await self.async_step_guided(user_input)
+        return self.async_show_menu(
+            step_id="user", menu_options=["guided", "expert"]
+        )
+
+    async def async_step_guided(self, user_input=None):
+        """Existing guided onboarding remains unchanged after the mode choice."""
         if self._async_current_entries():
             return self.async_abort(reason="already_configured")
         if user_input is not None:
@@ -187,17 +241,126 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 if user_input.get("phase_limits_a"):
                     self._draft["controller"]["phase_limits_a"] = _phase_limits(
                         user_input["phase_limits_a"])
+                preset = await _energy_dashboard_defaults(self.hass) if (
+                    user_input.get("use_energy_dashboard")) else {}
+                ctl = self._draft["controller"]
+                for field in ENERGY_ENTITY_FIELDS:
+                    value = user_input.get(field) or preset.get(field)
+                    if value:
+                        ctl[field] = value
+                if user_input.get("binding_entity"):
+                    ctl["binding_entity"] = user_input["binding_entity"]
+                ctl["solar_source_kind"] = user_input.get(
+                    "solar_source_kind", "none")
+                ctl["grid_power_direction"] = user_input.get(
+                    "grid_power_direction", "import_positive")
                 validate_configuration(self._draft)
             except (KeyError, ValueError):
                 return self.async_show_form(
-                    step_id="user", data_schema=self._site_schema(),
+                    step_id="guided", data_schema=self._site_schema(),
                     errors={"base": "invalid_config"},
                 )
             return await self.async_step_charger()
-        return self.async_show_form(step_id="user", data_schema=self._site_schema())
+        return self.async_show_form(
+            step_id="guided", data_schema=self._site_schema()
+        )
+
+    async def async_step_expert(self, user_input=None):
+        """Configure a complete standalone site on first install via GUI JSON.
+
+        The existing native Config Entry remains the only settings authority.
+        Unlike file import, a GUI-authored draft stays editable in the dashboard.
+        """
+        if self._async_current_entries():
+            return self.async_abort(reason="already_configured")
+        if not hasattr(self, "_expert_yaml"):
+            self._expert_yaml = configuration_json(default_configuration())
+        errors = {}
+        validation_error = ""
+        if user_input is not None:
+            self._expert_yaml = user_input.get("yaml_text", self._expert_yaml)
+            try:
+                document = _parse_editor_yaml(self._expert_yaml)
+                candidate = prepare_expert_yaml_revision(
+                    default_configuration(), document, "replace",
+                )
+                # Preview and installation must never seize physical EVSE
+                # ownership. Commissioning belongs to guarded Options flow.
+                if any(c["control_owner"] != "external"
+                       or c["physical_commissioned"] for c in candidate["chargers"]):
+                    raise ValueError("physical ownership needs qualified commissioning")
+                self._expert_draft = candidate
+                self._expert_summary = _yaml_review_summary(
+                    default_configuration(), candidate,
+                )
+                return await self.async_step_expert_review()
+            except (ValueError, TypeError, KeyError) as exc:
+                errors["base"] = "invalid_config"
+                validation_error = str(exc)[:260]
+        return self.async_show_form(
+            step_id="expert", errors=errors,
+            data_schema=vol.Schema({
+                vol.Required("yaml_text", default=self._expert_yaml):
+                    selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
+            }),
+            description_placeholders={
+                "note": (
+                    "Paste the complete controller/assets/chargers configuration. "
+                    "This is stored in Home Assistant, not in an external file. "
+                    "Native provider sensors must already exist; "
+                    "template: and physical commissioning are not supported here."
+                    + (f" Validation: {validation_error}" if validation_error else "")
+                ),
+            },
+        )
+
+    async def async_step_expert_review(self, user_input=None):
+        """Keep the reviewed full-site draft inert until explicit confirmation."""
+        if self._async_current_entries():
+            return self.async_abort(reason="already_configured")
+        if not hasattr(self, "_expert_draft"):
+            return await self.async_step_expert()
+        errors = {}
+        validation_error = ""
+        if user_input is not None:
+            if user_input.get("edit_again"):
+                return await self.async_step_expert()
+            if not user_input.get("confirm"):
+                errors["base"] = "verification_required"
+            else:
+                try:
+                    candidate = prepare_expert_yaml_revision(
+                        default_configuration(), _parse_editor_yaml(self._expert_yaml),
+                        "replace",
+                    )
+                    if candidate != self._expert_draft:
+                        raise ValueError("reviewed draft has changed")
+                    if any(c["control_owner"] != "external"
+                           or c["physical_commissioned"] for c in candidate["chargers"]):
+                        raise ValueError("physical ownership needs commissioning")
+                    await self.async_set_unique_id(DOMAIN)
+                    self._abort_if_unique_id_configured()
+                    return self.async_create_entry(
+                        title=NAME, data={"source": "ui", "configuration": candidate}
+                    )
+                except (ValueError, TypeError, KeyError) as exc:
+                    errors["base"] = "invalid_config"
+                    validation_error = str(exc)[:260]
+        return self.async_show_form(
+            step_id="expert_review", errors=errors,
+            data_schema=vol.Schema({
+                vol.Required("confirm", default=False): bool,
+                vol.Optional("edit_again", default=False): bool,
+            }),
+            description_placeholders={
+                "summary": self._expert_summary
+                + (f" Validation: {validation_error}" if validation_error else ""),
+            },
+        )
 
     @staticmethod
-    def _site_schema():
+    def _site_schema(suggestions=None):
+        suggestions = suggestions or {}
         # Explicit box widgets, never implicit range sliders in HA forms.
         # The unverified electrical ceiling is genuinely optional.
         return vol.Schema({
@@ -217,6 +380,25 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
             ),
             vol.Optional("phase_limits_a"): str,
+            vol.Optional("use_energy_dashboard", default=False): bool,
+            vol.Optional("solar_source_kind", default="none"): vol.In({
+                "none": "Not selected / monitoring only",
+                "intervals": "Qualified 15-minute Solar forecast intervals",
+                "grid_export": "Live measured grid export",
+                "direct_surplus": "Live measured available solar surplus",
+            }),
+            vol.Optional("grid_power_direction", default="import_positive"): vol.In({
+                "import_positive": "Positive = import, negative = export (HA default)",
+                "export_positive": "Positive = export, negative = import",
+            }),
+            **{
+                _optional_native_entity(key, suggestions):
+                    selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
+                for key in ENERGY_ENTITY_FIELDS
+            },
+            vol.Optional("binding_entity"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
         })
 
     async def async_step_charger(self, user_input=None):
@@ -291,6 +473,9 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                               "power_entity", "energy_entity"):
                     if user_input.get(field) is not None:
                         charger[field] = user_input[field]
+                for field in ("connected_states", "disconnected_states"):
+                    if field in user_input:
+                        charger[field] = _native_status_labels(user_input[field])
                 if (user_input.get("configure_electrical")
                         or charger["kind"] == "variable_current"):
                     # Min/max current is mandatory only if this capability was
@@ -330,6 +515,8 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Optional("energy_entity"): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
+            vol.Optional("connected_states"): str,
+            vol.Optional("disconnected_states"): str,
             vol.Optional("configure_electrical", default=False): bool,
         })
 
@@ -420,7 +607,7 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         raise ValueError("asset identity must be unique")
                     asset = {"id": uid, "name": user_input["name"],
                              "kind": user_input["kind"]}
-                    for key in ("soc_entity", "capacity_kwh", "target_soc",
+                    for key in ("soc_entity", "soc_stale_entity", "capacity_kwh", "target_soc",
                                 "requested_kwh", "requested_duration_minutes",
                                 "ready_by", "ready_by_repeat", "charge_efficiency", "max_charge_kw",
                                 "temporary", "expires_at",
@@ -454,6 +641,9 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Optional("soc_entity"): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
+            vol.Optional("soc_stale_entity"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="binary_sensor")
+            ),
             vol.Optional("capacity_kwh"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
             vol.Optional("target_soc"): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
             vol.Optional("requested_kwh"): vol.All(vol.Coerce(float), vol.Range(min=0)),
@@ -477,6 +667,12 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 for name in ("price_entity", "solar_entity", "binding_entity"):
                     if user_input.get(name):
                         trial["controller"][name] = user_input[name]
+                # The historical wizard's Sources page selects an interval
+                # provider. Preserve that explicit choice even if the Site
+                # step initially defaulted to monitoring-only.
+                if (user_input.get("solar_entity")
+                        and trial["controller"].get("solar_source_kind", "none") == "none"):
+                    trial["controller"]["solar_source_kind"] = "intervals"
                 for charger in trial["chargers"]:
                     selected = user_input.get("assign_" + charger["id"])
                     if selected:
@@ -715,9 +911,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             return self.async_abort(reason="yaml_managed")
         if not hasattr(self, "_yaml_baseline_revision"):
             self._yaml_baseline_revision = configuration_revision(self._current())
-            self._yaml_text = yaml.safe_dump(
-                self._current(), sort_keys=False, allow_unicode=True,
-            )
+            self._yaml_text = configuration_json(self._current())
             self._yaml_mode = "replace"
         errors = {}
         self._yaml_validation_error = ""
@@ -751,7 +945,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             }),
             description_placeholders={
                 "note": (
-                    "Data-only YAML. The existing Home Assistant Config Entry remains "
+                    "Complete JSON (also accepts safe YAML). The one Home Assistant Config Entry remains "
                     "authoritative. Review all additions/removals before Save. "
                     "Physical commissioning or owner changes are blocked."
                     + (f"\nValidation: {self._yaml_validation_error}"
@@ -826,7 +1020,79 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         if self.config_entry.data.get("source") in ("yaml", "json"):
             return self.async_abort(reason="yaml_managed")
         return self.async_show_menu(
-            step_id="init", menu_options=["controller", "asset", "charger", "commission", "display", "yaml"]
+            step_id="init", menu_options=["controller", "energy", "asset", "charger", "commission", "display", "yaml"]
+        )
+
+    async def async_step_energy(self, user_input=None):
+        """Optional HA-standard source choices; Energy Dashboard is read-only.
+
+        Import associations once into the same UI-owned Config Entry, without
+        depending on the Energy integration during charging or copying its
+        statistics as a second system of record.
+        """
+        cfg = self._current()
+        discovered = await _energy_dashboard_defaults(self.hass)
+        errors = {}
+        if user_input is not None:
+            trial = deepcopy(cfg)
+            ctl = trial["controller"]
+            preset = discovered if user_input.get("use_energy_dashboard") else {}
+            for field in ENERGY_ENTITY_FIELDS:
+                value = user_input.get(field) or preset.get(field)
+                if value:
+                    ctl[field] = value
+                else:
+                    ctl.pop(field, None)
+            for field in ("solar_source_kind", "grid_power_direction"):
+                if field in user_input:
+                    ctl[field] = user_input[field]
+            result = await self._safe_structural_save(trial)
+            if result is not None:
+                return result
+            errors["base"] = "invalid_config"
+        # Existing saved selection is the only default. Energy Dashboard
+        # suggestions are intentionally NOT silently imported when the
+        # operator leaves its opt-in checkbox unticked.
+        chosen = {
+            key: cfg["controller"][key] for key in ENERGY_ENTITY_FIELDS
+            if cfg["controller"].get(key)
+        }
+        return self.async_show_form(
+            step_id="energy", errors=errors,
+            data_schema=vol.Schema({
+                vol.Optional("use_energy_dashboard", default=False): bool,
+                vol.Required("solar_source_kind", default=cfg["controller"].get(
+                    "solar_source_kind", "none")): vol.In({
+                        "none": "Monitoring only / not configured",
+                        "intervals": "Qualified 15-minute Solar intervals",
+                        "grid_export": "Live grid export power (W/kW)",
+                        "direct_surplus": "Live available solar surplus power (W/kW)",
+                    }),
+                vol.Required("grid_power_direction", default=cfg["controller"].get(
+                    "grid_power_direction", "import_positive")): vol.In({
+                        "import_positive": "Import positive (HA Energy standard)",
+                        "export_positive": "Export positive",
+                    }),
+                **{
+                    _optional_native_entity(key, chosen):
+                        selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
+                    for key in ENERGY_ENTITY_FIELDS
+                },
+            }),
+            description_placeholders={
+                "note": (
+                    "Choose existing native Home Assistant sensors. "
+                    "Use Energy Dashboard imports its configured grid/solar "
+                    "live power and current price entity references only when "
+                    "opted in. Available suggestions: "
+                    + (", ".join(f"{key}: {value}" for key, value in
+                                 sorted(discovered.items())) or "none")
+                    + ". Home consumption is selected manually, not "
+                    "calculated by adding appliance counters. Power W/kW is "
+                    "different from Energy Wh/kWh. Live prices are indicative "
+                    "and cannot replace future tariff intervals."
+                ),
+            },
         )
 
     async def async_step_controller(self, user_input=None):
@@ -835,12 +1101,10 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             cfg["controller"]["name"] = user_input["name"]
             if user_input.get("phase_limits_a"):
                 cfg["controller"]["phase_limits_a"] = _phase_limits(user_input["phase_limits_a"])
-            for key in ("price_entity", "solar_entity", "site_power_entity", "binding_entity"):
-                if user_input.get(key):
-                    cfg["controller"][key] = user_input[key]
-                else:
-                    cfg["controller"].pop(key, None)
-            result = self._saved(cfg)
+            # Other source bindings are owned by the dedicated Energy step.
+            # Editing a site name or phase limits must not silently erase them.
+            # Electrical changes must use the existing guarded native writer.
+            result = await self._safe_structural_save(cfg)
             if result is not None:
                 return result
         return self.async_show_form(
@@ -850,18 +1114,6 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional("phase_limits_a",
                              default=",".join(f"{p}:{x}" for p,x in
                                     cfg["controller"].get("phase_limits_a", {}).items())): str,
-                vol.Optional("price_entity"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Optional("solar_entity"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Optional("binding_entity"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Optional("site_power_entity"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
-                ),
             }),
             errors={"base": "invalid_config"} if user_input else {},
         )
@@ -883,7 +1135,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                     "name": user_input.get("name") or asset.get("name"),
                     "kind": user_input.get("kind") or asset.get("kind", "car"),
                 })
-                for field in ("soc_entity", "capacity_kwh",
+                for field in ("soc_entity", "soc_stale_entity", "capacity_kwh",
                               "vehicle_control_entity", "vehicle_current_entity"):
                     if user_input.get(field) is not None and user_input.get(field) != "":
                         asset[field] = user_input[field]
@@ -904,6 +1156,9 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 ),
                 vol.Optional("soc_entity"): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional("soc_stale_entity"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="binary_sensor")
                 ),
                 vol.Optional("capacity_kwh"): selector.NumberSelector(selector.NumberSelectorConfig(
                     min=0.01, max=1000, step=0.1, mode=selector.NumberSelectorMode.BOX
@@ -949,6 +1204,13 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                         charger[field] = user_input[field]
                 if user_input.get("phase_ids"):
                     charger["phase_ids"] = _phases(user_input["phase_ids"])
+                for field in ("connected_states", "disconnected_states"):
+                    if field in user_input:
+                        parsed = _native_status_labels(user_input[field])
+                        if parsed:
+                            charger[field] = parsed
+                        else:
+                            charger.pop(field, None)
                 cfg["chargers"] = [c for c in cfg["chargers"] if c["id"] != uid] + [charger]
                 result = await self._safe_structural_save(cfg)
             if result is not None:
@@ -970,6 +1232,8 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional("connected_entity"): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain=["binary_sensor", "sensor"])
                 ),
+                vol.Optional("connected_states"): str,
+                vol.Optional("disconnected_states"): str,
                 vol.Optional("power_entity"): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
                 ),

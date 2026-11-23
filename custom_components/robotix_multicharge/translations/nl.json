@@ -2,14 +2,9 @@
   "config": {
     "step": {
       "user": {
-        "title": "Laadlocatie",
-        "description": "Stap 1/5 — Geef de laadlocatie een naam; alle elektrische limieten zijn bij de installatie optioneel.",
-        "data": {
-          "name": "Naam (optioneel)",
-          "max_parallel": "Aantal (optioneel)",
-          "max_power_kw": "Vermogen (optioneel)",
-          "phase_limits_a": "Fasen (optioneel)",
-          "mode": "Initiële laadmodus"
+        "menu_options": {
+          "guided": "Begeleide configuratie",
+          "expert": "Volledige laadlocatie configureren"
         }
       },
       "charger": {
@@ -43,7 +38,8 @@
           "ready_by_repeat": "Herhalen (optioneel)",
           "temporary": "Gast (optioneel)",
           "expires_at": "Vervalt (optioneel)",
-          "expected_connection_at": "Verwachte aansluiting (optioneel)"
+          "expected_connection_at": "Verwachte aansluiting (optioneel)",
+          "soc_stale_entity": "OEM-gegevens verouderd (binary sensor: aan = verouderd)"
         }
       },
       "sources": {
@@ -71,7 +67,9 @@
           "connected_entity": "Aansluiting (optioneel)",
           "power_entity": "Vermogen (optioneel)",
           "energy_entity": "Energiemeter (optioneel)",
-          "configure_electrical": "Elektrische details configureren (optioneel)"
+          "configure_electrical": "Elektrische details configureren (optioneel)",
+          "connected_states": "Native statussen die aangesloten betekenen (komma's)",
+          "disconnected_states": "Native statussen die niet aangesloten betekenen (komma's)"
         }
       },
       "charger_electrical": {
@@ -89,6 +87,43 @@
           "circuit_limit_a": "Stroom (optioneel)",
           "current_control_entity": "Stroom (optioneel)",
           "current_readback_entity": "Stroom (optioneel)"
+        }
+      },
+      "guided": {
+        "title": "Laadlocatie",
+        "description": "Stap 1/5 — Geef de laadlocatie een naam; alle elektrische limieten zijn bij de installatie optioneel.",
+        "data": {
+          "name": "Naam (optioneel)",
+          "max_parallel": "Aantal (optioneel)",
+          "max_power_kw": "Vermogen (optioneel)",
+          "phase_limits_a": "Fasen (optioneel)",
+          "mode": "Initiële laadmodus",
+          "solar_power_entity": "Actuele zonneproductie (W/kW)",
+          "home_power_entity": "Actueel verbruik volledige woning (W/kW)",
+          "grid_power_entity": "Actueel netvermogen import/export (W/kW)",
+          "solar_surplus_entity": "Gemeten beschikbaar zonne-overschot (W/kW)",
+          "solar_entity": "Gekwalificeerde zonintervallen (kW)",
+          "price_entity": "Gekwalificeerde toekomstige prijsintervallen",
+          "current_price_entity": "Huidige aankoopprijs (valuta/kWh)",
+          "export_price_entity": "Huidige injectievergoeding (valuta/kWh)",
+          "solar_source_kind": "Bron voor zonne-laadregeling",
+          "grid_power_direction": "Richting van de netmeter",
+          "use_energy_dashboard": "Gebruik bestaande bronnen uit het Energie-dashboard"
+        }
+      },
+      "expert": {
+        "title": "Volledige laadlocatie",
+        "description": "Controleer alle laadpalen, voertuigen en bronnen vóór opslaan. Er wordt geen laadopdracht uitgevoerd. {note}",
+        "data": {
+          "yaml_text": "Plak de volledige MultiCharge-configuratie als JSON (controller/assets/chargers)"
+        }
+      },
+      "expert_review": {
+        "title": "Volledige configuratie controleren",
+        "description": "{summary} Bevestig pas na controle van de volledige configuratie.",
+        "data": {
+          "confirm": "Ik heb de volledige configuratie gecontroleerd",
+          "edit_again": "Terug naar JSON-editor"
         }
       }
     },
@@ -110,8 +145,9 @@
           "asset": "Chargeable assets",
           "charger": "Chargers",
           "display": "Dashboard card",
-          "yaml": "YAML bewerken (eerst controleren)",
-          "commission": "Laadpaal in bedrijf stellen"
+          "yaml": "Volledige JSON bewerken (eerst controleren)",
+          "commission": "Laadpaal in bedrijf stellen",
+          "energy": "Energie en tarieven"
         },
         "title": "Instellingen"
       },
@@ -137,7 +173,8 @@
           "soc_entity": "Batterij",
           "capacity_kwh": "Batterij",
           "vehicle_control_entity": "Schakelaar voertuigsturing (bron)",
-          "vehicle_current_entity": "Voertuigstroominstelling (bron)"
+          "vehicle_current_entity": "Voertuigstroominstelling (bron)",
+          "soc_stale_entity": "OEM-gegevens verouderd (binary sensor: aan = verouderd)"
         }
       },
       "charger": {
@@ -164,7 +201,9 @@
           "circuit_limit_a": "Stroom",
           "current_control_entity": "Stroom",
           "current_readback_entity": "Stroom",
-          "session_entity": "Laadsessiesensor (optioneel)"
+          "session_entity": "Laadsessiesensor (optioneel)",
+          "connected_states": "Native statussen die aangesloten betekenen (komma's)",
+          "disconnected_states": "Native statussen die niet aangesloten betekenen (komma's)"
         }
       },
       "display": {
@@ -175,19 +214,19 @@
         }
       },
       "yaml": {
-        "title": "MultiCharge — YAML-configuratie",
+        "title": "MultiCharge — JSON-configuratie",
         "description": "Bewerk de volledige configuratie of pas onderdelen aan. Eerst valideren en beoordelen; geen fysieke laadcommando's. {note}",
         "data": {
           "mode": "Bijwerkmodus",
-          "yaml_text": "MultiCharge-configuratie (YAML/JSON)"
+          "yaml_text": "MultiCharge-configuratie (JSON, veilige YAML ook ondersteund)"
         }
       },
       "yaml_review": {
-        "title": "YAML-wijzigingen controleren",
+        "title": "JSON-wijzigingen controleren",
         "description": "{summary}\nControleer alle wijzigingen voordat je bevestigt.",
         "data": {
           "confirm": "Deze gecontroleerde wijzigingen toepassen",
-          "edit_again": "Terug naar YAML"
+          "edit_again": "Terug naar JSON-editor"
         }
       },
       "commission": {
@@ -198,6 +237,23 @@
           "commission": "Fysieke MultiCharge-aansturing inschakelen",
           "exclusive_writer_confirmed": "Andere controllers en automatiseringen sturen deze laadpaal niet meer aan",
           "electrical_limits_confirmed": "Elektrische limieten, werkelijk vermogen en onafhankelijke sensoren zijn gecontroleerd"
+        }
+      },
+      "energy": {
+        "title": "Energie en tarieven",
+        "description": "{note}",
+        "data": {
+          "solar_power_entity": "Actuele zonneproductie (W/kW)",
+          "home_power_entity": "Actueel verbruik volledige woning (W/kW)",
+          "grid_power_entity": "Actueel netvermogen import/export (W/kW)",
+          "solar_surplus_entity": "Gemeten beschikbaar zonne-overschot (W/kW)",
+          "solar_entity": "Gekwalificeerde zonintervallen (kW)",
+          "price_entity": "Gekwalificeerde toekomstige prijsintervallen",
+          "current_price_entity": "Huidige aankoopprijs (valuta/kWh)",
+          "export_price_entity": "Huidige injectievergoeding (valuta/kWh)",
+          "solar_source_kind": "Bron voor zonne-laadregeling",
+          "grid_power_direction": "Richting van de netmeter",
+          "use_energy_dashboard": "Gebruik bestaande bronnen uit het Energie-dashboard"
         }
       }
     },
@@ -297,6 +353,39 @@
           "scooter": "Scooter",
           "other": "Overig"
         }
+      },
+      "ready_day_mon": {
+        "name": "Maandag Ready By"
+      },
+      "ready_day_tue": {
+        "name": "Dinsdag Ready By"
+      },
+      "ready_day_wed": {
+        "name": "Woensdag Ready By"
+      },
+      "ready_day_thu": {
+        "name": "Donderdag Ready By"
+      },
+      "ready_day_fri": {
+        "name": "Vrijdag Ready By"
+      },
+      "ready_day_sat": {
+        "name": "Zaterdag Ready By"
+      },
+      "ready_day_sun": {
+        "name": "Zondag Ready By"
+      },
+      "continuous_charging": {
+        "name": "Laadpatroon"
+      },
+      "opportunistic_kind": {
+        "name": "Opportunistische prijsmodus"
+      },
+      "solar_source_kind": {
+        "name": "Type zonnebron"
+      },
+      "grid_power_direction": {
+        "name": "Richting netmeter"
       }
     },
     "number": {
@@ -335,6 +424,24 @@
       },
       "set_charging_power_kw": {
         "name": "Laadvermogen instellen"
+      },
+      "requested_budget_amount": {
+        "name": "Laadbudget (€)"
+      },
+      "minimum_soc_pct": {
+        "name": "Minimaal batterijniveau"
+      },
+      "maximum_price_per_kwh": {
+        "name": "Maximumprijs per kWh"
+      },
+      "low_price_trigger_per_kwh": {
+        "name": "Laden bij lage prijs"
+      },
+      "low_soc_trigger_pct": {
+        "name": "Laden bij lage batterijstand"
+      },
+      "opportunistic_level_pct": {
+        "name": "Opportunistisch niveau"
       }
     },
     "datetime": {
@@ -346,6 +453,9 @@
       },
       "expires_at": {
         "name": "Gast geldig tot"
+      },
+      "earliest_start_at": {
+        "name": "Vroegste laadstart"
       }
     },
     "sensor": {
@@ -445,7 +555,8 @@
           "energy": "Energie",
           "duration": "Duur",
           "target_soc": "Batterijdoel",
-          "unconfigured": "Doel instellen"
+          "unconfigured": "Doel instellen",
+          "budget": "Budget"
         }
       },
       "confirmed_current_setpoint": {
@@ -473,6 +584,48 @@
       },
       "soc_entity": {
         "name": "Bron batterijniveau"
+      },
+      "charging_window_mon": {
+        "name": "Maandag charging hours"
+      },
+      "charging_window_tue": {
+        "name": "Dinsdag charging hours"
+      },
+      "charging_window_wed": {
+        "name": "Woensdag charging hours"
+      },
+      "charging_window_thu": {
+        "name": "Donderdag charging hours"
+      },
+      "charging_window_fri": {
+        "name": "Vrijdag charging hours"
+      },
+      "charging_window_sat": {
+        "name": "Zaterdag charging hours"
+      },
+      "charging_window_sun": {
+        "name": "Zondag charging hours"
+      },
+      "price_currency": {
+        "name": "Prijsvaluta"
+      },
+      "solar_power_entity": {
+        "name": "Zonneproductie"
+      },
+      "home_power_entity": {
+        "name": "Huisverbruik"
+      },
+      "grid_power_entity": {
+        "name": "Netvermogen"
+      },
+      "solar_surplus_entity": {
+        "name": "Zonne-overschot"
+      },
+      "current_price_entity": {
+        "name": "Huidige afnameprijs"
+      },
+      "export_price_entity": {
+        "name": "Huidige injectieprijs"
       }
     },
     "binary_sensor": {

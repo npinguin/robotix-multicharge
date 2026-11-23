@@ -8,6 +8,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 PKG = Path(__file__).resolve().parents[1] / "custom_components" / "robotix_multicharge"
 ROOT = "multicharge_runtime_test"
@@ -230,6 +231,36 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(unchanged.live_state()["settings_action"]["status"],
                          "accepted_unconfirmed")
 
+    def test_two_calendar_days_cover_dst_47_and_49_hours(self):
+        """Basic-style 48h means two civil days, not always 48 UTC hours."""
+        cfg = sample()
+        rt = MultiChargeRuntime(
+            SimpleNamespace(states=SimpleNamespace(get={}.get)), cfg
+        )
+        zone = ZoneInfo("Europe/Brussels")
+        for start_day, end_day, hours in (
+            (datetime(2026, 3, 28, tzinfo=zone),
+             datetime(2026, 3, 30, tzinfo=zone), 47),
+            (datetime(2026, 10, 24, tzinfo=zone),
+             datetime(2026, 10, 26, tzinfo=zone), 49),
+        ):
+            with self.subTest(day=start_day.date()):
+                self.assertEqual(
+                    (end_day.astimezone(timezone.utc)
+                     - start_day.astimezone(timezone.utc)).total_seconds(),
+                    hours * 3600,
+                )
+                result = rt.read_plan(start_day, end_day)
+                self.assertEqual(result["start"],
+                                 start_day.astimezone(timezone.utc).isoformat())
+                self.assertEqual(result["end"],
+                                 end_day.astimezone(timezone.utc).isoformat())
+        with self.assertRaisesRegex(ValueError, "49h"):
+            rt.read_plan(
+                datetime(2026, 10, 24, tzinfo=zone),
+                datetime(2026, 10, 26, tzinfo=zone)+timedelta(minutes=15),
+            )
+
     def test_plan_query_uses_single_config_palette(self):
         from multicharge_runtime_test.configuration import PLAN_COLORS
         cfg = sample()
@@ -377,7 +408,7 @@ class RuntimeTests(unittest.TestCase):
         rt.refresh(NOW)
         response = rt.read_plan(NOW, NOW + timedelta(minutes=45))
         self.assertEqual(response["observations"]["sources"]["current_price"], {
-            "quality": "ok", "value": -0.05, "currency": "EUR"
+            "quality": "ok", "value": -0.05, "currency": "EUR", "basis": "effective"
         })
         self.assertEqual(response["price_slots"][0]["currency"], "EUR")
         self.assertEqual(response["price_slots"][0]["price_per_kwh"], -0.05)
@@ -512,7 +543,7 @@ class RuntimeTests(unittest.TestCase):
     def test_plan_read_rejects_unknown_and_oversized_ranges(self):
         rt = MultiChargeRuntime(None, sample())
         with self.assertRaises(ValueError):
-            rt.read_plan(NOW, NOW + timedelta(hours=49))
+            rt.read_plan(NOW, NOW + timedelta(hours=49, minutes=15))
         with self.assertRaises(ValueError):
             rt.read_plan(NOW.replace(tzinfo=None), NOW + timedelta(hours=1))
         with self.assertRaises(ValueError):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import unittest
 from pathlib import Path
 
@@ -11,6 +12,36 @@ COMPONENT = ROOT / "custom_components" / "robotix_multicharge"
 
 
 class PackageTest(unittest.TestCase):
+    def test_canonical_functional_specification_keeps_every_approved_journey(self):
+        """UC authority lives in docs, not in a long-running PR/issue body."""
+        spec = (ROOT / "docs" / "FUNCTIONAL_SPECIFICATION.md").read_text(
+            encoding="utf8"
+        )
+        for prefix, expression, count in (
+            ("UC", r"^### UC(\d{2}) —", 29),
+            ("FLEX", r"^\| FLEX-(\d{2}) \|", 21),
+            ("FORECAST", r"^\| FORECAST-(\d{2}) \|", 12),
+            ("UI-OWNER", r"^\| UI-OWNER-(\d{2}) \|", 10),
+        ):
+            indices = [int(x) for x in re.findall(expression, spec, re.M)]
+            self.assertEqual(
+                indices, list(range(1, count + 1)),
+                f"{prefix}: every approved use case must remain traceable",
+            )
+        for block in re.split(r"(?=^### UC\d{2} —)", spec, flags=re.M)[1:]:
+            for label in (
+                "Persona / eigenaar", "GIVEN", "WHEN", "THEN",
+                "Negatief / fail-closed", "Bewijs",
+            ):
+                self.assertIn(label, block)
+        for path in ("README.md", "docs/ARCHITECTURE.md",
+                     "docs/INTERFACES.md"):
+            self.assertIn(
+                "FUNCTIONAL_SPECIFICATION.md",
+                (ROOT / path).read_text(encoding="utf8"),
+                f"{path} must point to the single canonical UC authority",
+            )
+
     def test_manifest_key_order_for_hassfest(self):
         text = (COMPONENT / "manifest.json").read_text(encoding="utf8")
         obj = json.loads(text)
@@ -35,7 +66,7 @@ class PackageTest(unittest.TestCase):
             "Overview", "Charging Plan", "Chargeable Assets", "Chargers",
             "Settings", "Charging site", "Sources & bindings",
             "Charging strategy", "Safety & limits", "Integrations",
-            "Advanced & YAML",
+            "Advanced & JSON",
         ):
             self.assertIn(title, source)
         self.assertIn("robotix-multicharge-card", source)

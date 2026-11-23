@@ -2,14 +2,9 @@
   "config": {
     "step": {
       "user": {
-        "title": "Robotix MultiCharge",
-        "description": "Step 1/5 — Name the charging site; all electrical limits are optional for setup.",
-        "data": {
-          "name": "Charging site name (optional)",
-          "max_parallel": "Maximum simultaneous charging points (optional)",
-          "max_power_kw": "Configured group power ceiling (kW; hardware verification required) (optional)",
-          "phase_limits_a": "Verified phase current ceilings, e.g. L1:16,L2:16,L3:16 (A) (optional)",
-          "mode": "Initial charging mode"
+        "menu_options": {
+          "guided": "Guided setup",
+          "expert": "Configure entire charging site"
         }
       },
       "charger": {
@@ -43,7 +38,8 @@
           "ready_by_repeat": "Repeat Ready By (none/daily/weekly, site time zone) (optional)",
           "temporary": "Temporary guest (requires an expiry) (optional)",
           "expires_at": "Guest expiry date/time with timezone (optional)",
-          "expected_connection_at": "Optional expected connection time (timezone-aware) — indicative only (optional)"
+          "expected_connection_at": "Optional expected connection time (timezone-aware) — indicative only (optional)",
+          "soc_stale_entity": "OEM data-stale binary sensor (on = stale)"
         }
       },
       "sources": {
@@ -71,7 +67,9 @@
           "connected_entity": "Physical connection sensor (optional)",
           "power_entity": "Actual power sensor (optional)",
           "energy_entity": "Energy meter (optional)",
-          "configure_electrical": "Configure electrical details (optional)"
+          "configure_electrical": "Configure electrical details (optional)",
+          "connected_states": "Native values meaning connected (comma separated)",
+          "disconnected_states": "Native values meaning disconnected (comma separated)"
         }
       },
       "charger_electrical": {
@@ -89,6 +87,43 @@
           "circuit_limit_a": "Circuit current ceiling (A) (optional)",
           "current_control_entity": "Native current limit setpoint (number) (optional)",
           "current_readback_entity": "Independent actual current sensor (A) (optional)"
+        }
+      },
+      "guided": {
+        "title": "Robotix MultiCharge",
+        "description": "Step 1/5 — Name the charging site; all electrical limits are optional for setup.",
+        "data": {
+          "name": "Charging site name (optional)",
+          "max_parallel": "Maximum simultaneous charging points (optional)",
+          "max_power_kw": "Configured group power ceiling (kW; hardware verification required) (optional)",
+          "phase_limits_a": "Verified phase current ceilings, e.g. L1:16,L2:16,L3:16 (A) (optional)",
+          "mode": "Initial charging mode",
+          "solar_power_entity": "Solar production power (W/kW)",
+          "home_power_entity": "Whole-home consumption power (W/kW)",
+          "grid_power_entity": "Grid import/export power (W/kW)",
+          "solar_surplus_entity": "Measured usable solar surplus (W/kW)",
+          "solar_entity": "Qualified solar intervals (kW)",
+          "price_entity": "Qualified future price intervals",
+          "current_price_entity": "Current import price (currency/kWh)",
+          "export_price_entity": "Current export compensation (currency/kWh)",
+          "solar_source_kind": "Solar control source",
+          "grid_power_direction": "Grid meter sign",
+          "use_energy_dashboard": "Use configured Energy Dashboard sources"
+        }
+      },
+      "expert": {
+        "title": "Complete site setup",
+        "description": "Review all Chargers, Assets and source bindings before saving. No physical charging command or ownership change is performed. {note}",
+        "data": {
+          "yaml_text": "Paste complete MultiCharge configuration as JSON (controller/assets/chargers)"
+        }
+      },
+      "expert_review": {
+        "title": "Review complete site configuration",
+        "description": "{summary} Confirm only after reviewing all logical devices and settings.",
+        "data": {
+          "confirm": "I have reviewed the complete configuration",
+          "edit_again": "Back to JSON editor"
         }
       }
     },
@@ -110,8 +145,9 @@
           "asset": "Chargeable assets",
           "charger": "Chargers",
           "display": "Dashboard card",
-          "yaml": "Edit YAML (review before save)",
-          "commission": "Commission Charger"
+          "yaml": "Edit full JSON (review before save)",
+          "commission": "Commission Charger",
+          "energy": "Energy & prices"
         }
       },
       "controller": {
@@ -136,7 +172,8 @@
           "soc_entity": "Battery level entity",
           "capacity_kwh": "Battery capacity (kWh)",
           "vehicle_control_entity": "Vehicle native control switch (source binding)",
-          "vehicle_current_entity": "Vehicle native current number (source binding)"
+          "vehicle_current_entity": "Vehicle native current number (source binding)",
+          "soc_stale_entity": "OEM data-stale binary sensor (on = stale)"
         }
       },
       "charger": {
@@ -163,7 +200,9 @@
           "circuit_limit_a": "Circuit protection ceiling (A)",
           "current_control_entity": "Native current setpoint (number)",
           "current_readback_entity": "Independent actual current sensor (A)",
-          "session_entity": "Native charging session sensor (optional)"
+          "session_entity": "Native charging session sensor (optional)",
+          "connected_states": "Native values meaning connected (comma separated)",
+          "disconnected_states": "Native values meaning disconnected (comma separated)"
         }
       },
       "display": {
@@ -174,19 +213,19 @@
         }
       },
       "yaml": {
-        "title": "MultiCharge — YAML configuration",
+        "title": "MultiCharge — JSON configuration",
         "description": "Edit all current settings or submit scoped changes. All changes are validated before review; no physical controls are activated. {note}",
         "data": {
           "mode": "Update mode",
-          "yaml_text": "MultiCharge configuration (YAML / JSON data)"
+          "yaml_text": "MultiCharge configuration (JSON, safe YAML also accepted)"
         }
       },
       "yaml_review": {
-        "title": "Review YAML changes",
+        "title": "Review JSON changes",
         "description": "{summary}\nConfirm only after checking the complete impact. No charger command is sent by this operation.",
         "data": {
           "confirm": "Apply these reviewed configuration changes",
-          "edit_again": "Return to YAML editing"
+          "edit_again": "Back to JSON editor"
         }
       },
       "commission": {
@@ -197,6 +236,23 @@
           "commission": "Enable MultiCharge control for this Charger",
           "exclusive_writer_confirmed": "Other controllers and automations have relinquished physical command ownership",
           "electrical_limits_confirmed": "Electrical limits, physical power and independent sensor readback have been verified"
+        }
+      },
+      "energy": {
+        "title": "Energy & prices",
+        "description": "{note}",
+        "data": {
+          "solar_power_entity": "Solar production power (W/kW)",
+          "home_power_entity": "Whole-home consumption power (W/kW)",
+          "grid_power_entity": "Grid import/export power (W/kW)",
+          "solar_surplus_entity": "Measured usable solar surplus (W/kW)",
+          "solar_entity": "Qualified solar intervals (kW)",
+          "price_entity": "Qualified future price intervals",
+          "current_price_entity": "Current import price (currency/kWh)",
+          "export_price_entity": "Current export compensation (currency/kWh)",
+          "solar_source_kind": "Solar control source",
+          "grid_power_direction": "Grid meter sign",
+          "use_energy_dashboard": "Use configured Energy Dashboard sources"
         }
       }
     },
@@ -296,6 +352,39 @@
           "scooter": "Scooter",
           "other": "Other"
         }
+      },
+      "ready_day_mon": {
+        "name": "Monday Ready By"
+      },
+      "ready_day_tue": {
+        "name": "Tuesday Ready By"
+      },
+      "ready_day_wed": {
+        "name": "Wednesday Ready By"
+      },
+      "ready_day_thu": {
+        "name": "Thursday Ready By"
+      },
+      "ready_day_fri": {
+        "name": "Friday Ready By"
+      },
+      "ready_day_sat": {
+        "name": "Saturday Ready By"
+      },
+      "ready_day_sun": {
+        "name": "Sunday Ready By"
+      },
+      "continuous_charging": {
+        "name": "Charging pattern"
+      },
+      "opportunistic_kind": {
+        "name": "Opportunistic price mode"
+      },
+      "solar_source_kind": {
+        "name": "Solar source type"
+      },
+      "grid_power_direction": {
+        "name": "Grid meter direction"
       }
     },
     "number": {
@@ -334,6 +423,24 @@
       },
       "set_charging_power_kw": {
         "name": "Set charging power"
+      },
+      "requested_budget_amount": {
+        "name": "Charging budget (€)"
+      },
+      "minimum_soc_pct": {
+        "name": "Minimum battery level"
+      },
+      "maximum_price_per_kwh": {
+        "name": "Maximum price per kWh"
+      },
+      "low_price_trigger_per_kwh": {
+        "name": "Low-price charging trigger"
+      },
+      "low_soc_trigger_pct": {
+        "name": "Low battery charging trigger"
+      },
+      "opportunistic_level_pct": {
+        "name": "Opportunistic level"
       }
     },
     "datetime": {
@@ -345,6 +452,9 @@
       },
       "expires_at": {
         "name": "Guest until"
+      },
+      "earliest_start_at": {
+        "name": "Earliest charging start"
       }
     },
     "sensor": {
@@ -444,7 +554,8 @@
           "energy": "Energy",
           "duration": "Duration",
           "target_soc": "Battery target",
-          "unconfigured": "Set goal"
+          "unconfigured": "Set goal",
+          "budget": "Budget"
         }
       },
       "confirmed_current_setpoint": {
@@ -472,6 +583,48 @@
       },
       "soc_entity": {
         "name": "Battery level source"
+      },
+      "charging_window_mon": {
+        "name": "Monday charging hours"
+      },
+      "charging_window_tue": {
+        "name": "Tuesday charging hours"
+      },
+      "charging_window_wed": {
+        "name": "Wednesday charging hours"
+      },
+      "charging_window_thu": {
+        "name": "Thursday charging hours"
+      },
+      "charging_window_fri": {
+        "name": "Friday charging hours"
+      },
+      "charging_window_sat": {
+        "name": "Saturday charging hours"
+      },
+      "charging_window_sun": {
+        "name": "Sunday charging hours"
+      },
+      "price_currency": {
+        "name": "Price currency"
+      },
+      "solar_power_entity": {
+        "name": "Solar generation"
+      },
+      "home_power_entity": {
+        "name": "Home consumption"
+      },
+      "grid_power_entity": {
+        "name": "Grid power"
+      },
+      "solar_surplus_entity": {
+        "name": "Solar surplus"
+      },
+      "current_price_entity": {
+        "name": "Current import price"
+      },
+      "export_price_entity": {
+        "name": "Current export price"
       }
     },
     "binary_sensor": {

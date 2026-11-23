@@ -2,14 +2,9 @@
   "config": {
     "step": {
       "user": {
-        "title": "Laddplats",
-        "description": "Steg 1/5 — Namnge laddplatsen; elektriska gränser är valfria vid installation.",
-        "data": {
-          "name": "Namn (valfritt)",
-          "max_parallel": "Antal (valfritt)",
-          "max_power_kw": "Effekt (valfritt)",
-          "phase_limits_a": "Faser (valfritt)",
-          "mode": "Inledande laddningsläge"
+        "menu_options": {
+          "guided": "Guidad konfiguration",
+          "expert": "Konfigurera hela laddplatsen"
         }
       },
       "charger": {
@@ -43,7 +38,8 @@
           "ready_by_repeat": "Upprepa (valfritt)",
           "temporary": "Gäst (valfritt)",
           "expires_at": "Upphör (valfritt)",
-          "expected_connection_at": "Förväntad anslutning (valfritt)"
+          "expected_connection_at": "Förväntad anslutning (valfritt)",
+          "soc_stale_entity": "OEM-data inaktuella (binärsensor: på = inaktuella)"
         }
       },
       "sources": {
@@ -71,7 +67,9 @@
           "connected_entity": "Anslutning (valfritt)",
           "power_entity": "Effekt (valfritt)",
           "energy_entity": "Energimätare (valfritt)",
-          "configure_electrical": "Konfigurera elektriska detaljer (valfritt)"
+          "configure_electrical": "Konfigurera elektriska detaljer (valfritt)",
+          "connected_states": "Native statusvärden för ansluten (kommatecken)",
+          "disconnected_states": "Native statusvärden för frånkopplad (kommatecken)"
         }
       },
       "charger_electrical": {
@@ -89,6 +87,43 @@
           "circuit_limit_a": "Ström (valfritt)",
           "current_control_entity": "Ström (valfritt)",
           "current_readback_entity": "Ström (valfritt)"
+        }
+      },
+      "guided": {
+        "title": "Laddplats",
+        "description": "Steg 1/5 — Namnge laddplatsen; elektriska gränser är valfria vid installation.",
+        "data": {
+          "name": "Namn (valfritt)",
+          "max_parallel": "Antal (valfritt)",
+          "max_power_kw": "Effekt (valfritt)",
+          "phase_limits_a": "Faser (valfritt)",
+          "mode": "Inledande laddningsläge",
+          "solar_power_entity": "Aktuell solproduktion (W/kW)",
+          "home_power_entity": "Husets totala förbrukning (W/kW)",
+          "grid_power_entity": "Nätimport/-export (W/kW)",
+          "solar_surplus_entity": "Uppmätt solöverskott (W/kW)",
+          "solar_entity": "Validerade solintervall (kW)",
+          "price_entity": "Validerade framtida priser",
+          "current_price_entity": "Aktuellt inköpspris (valuta/kWh)",
+          "export_price_entity": "Aktuellt exportpris (valuta/kWh)",
+          "solar_source_kind": "Källa för solstyrning",
+          "grid_power_direction": "Tecken för nätmätare",
+          "use_energy_dashboard": "Använd källor från Energipanelen"
+        }
+      },
+      "expert": {
+        "title": "Fullständig konfiguration",
+        "description": "Kontrollera laddare, fordon och källor före sparande. Inga fysiska kommandon. {note}",
+        "data": {
+          "yaml_text": "Komplett MultiCharge JSON (controller/assets/chargers)"
+        }
+      },
+      "expert_review": {
+        "title": "Granska hela konfigurationen",
+        "description": "{summary} Bekräfta efter kontroll av alla inställningar.",
+        "data": {
+          "confirm": "Jag har granskat hela konfigurationen",
+          "edit_again": "Tillbaka till JSON"
         }
       }
     },
@@ -110,8 +145,9 @@
           "asset": "Chargeable assets",
           "charger": "Chargers",
           "display": "Dashboard card",
-          "yaml": "Edit YAML (review before save)",
-          "commission": "Driftsätt laddare"
+          "yaml": "Edit JSON (review before save)",
+          "commission": "Driftsätt laddare",
+          "energy": "Energi och priser"
         },
         "title": "Inställningar"
       },
@@ -137,7 +173,8 @@
           "soc_entity": "Batteri",
           "capacity_kwh": "Batteri",
           "vehicle_control_entity": "Fordonsstyrningsbrytare (källa)",
-          "vehicle_current_entity": "Fordonets ströminställning (källa)"
+          "vehicle_current_entity": "Fordonets ströminställning (källa)",
+          "soc_stale_entity": "OEM-data inaktuella (binärsensor: på = inaktuella)"
         }
       },
       "charger": {
@@ -164,7 +201,9 @@
           "circuit_limit_a": "Ström",
           "current_control_entity": "Ström",
           "current_readback_entity": "Ström",
-          "session_entity": "Laddsessionssensor (valfri)"
+          "session_entity": "Laddsessionssensor (valfri)",
+          "connected_states": "Native statusvärden för ansluten (kommatecken)",
+          "disconnected_states": "Native statusvärden för frånkopplad (kommatecken)"
         }
       },
       "display": {
@@ -175,19 +214,19 @@
         }
       },
       "yaml": {
-        "title": "MultiCharge — YAML configuration",
+        "title": "MultiCharge — JSON configuration",
         "description": "Edit all current settings or submit scoped changes. All changes are validated before review; no physical controls are activated. {note}",
         "data": {
           "mode": "Update mode",
-          "yaml_text": "MultiCharge configuration (YAML / JSON data)"
+          "yaml_text": "MultiCharge configuration (JSON data)"
         }
       },
       "yaml_review": {
-        "title": "Review YAML changes",
+        "title": "Review JSON changes",
         "description": "{summary}\nConfirm only after checking the complete impact. No charger command is sent by this operation.",
         "data": {
           "confirm": "Apply these reviewed configuration changes",
-          "edit_again": "Return to YAML editing"
+          "edit_again": "Return to JSON editing"
         }
       },
       "commission": {
@@ -198,6 +237,23 @@
           "commission": "Aktivera MultiCharge-styrning",
           "exclusive_writer_confirmed": "Andra styrsystem har släppt kontrollen över laddaren",
           "electrical_limits_confirmed": "Elgränser, effekt och oberoende sensorer verifierade"
+        }
+      },
+      "energy": {
+        "title": "Energi och priser",
+        "description": "{note}",
+        "data": {
+          "solar_power_entity": "Aktuell solproduktion (W/kW)",
+          "home_power_entity": "Husets totala förbrukning (W/kW)",
+          "grid_power_entity": "Nätimport/-export (W/kW)",
+          "solar_surplus_entity": "Uppmätt solöverskott (W/kW)",
+          "solar_entity": "Validerade solintervall (kW)",
+          "price_entity": "Validerade framtida priser",
+          "current_price_entity": "Aktuellt inköpspris (valuta/kWh)",
+          "export_price_entity": "Aktuellt exportpris (valuta/kWh)",
+          "solar_source_kind": "Källa för solstyrning",
+          "grid_power_direction": "Tecken för nätmätare",
+          "use_energy_dashboard": "Använd källor från Energipanelen"
         }
       }
     },
@@ -297,6 +353,39 @@
           "other": "Other"
         },
         "name": "Typ av laddningsobjekt"
+      },
+      "ready_day_mon": {
+        "name": "Måndag Ready By"
+      },
+      "ready_day_tue": {
+        "name": "Tisdag Ready By"
+      },
+      "ready_day_wed": {
+        "name": "Onsdag Ready By"
+      },
+      "ready_day_thu": {
+        "name": "Torsdag Ready By"
+      },
+      "ready_day_fri": {
+        "name": "Fredag Ready By"
+      },
+      "ready_day_sat": {
+        "name": "Lördag Ready By"
+      },
+      "ready_day_sun": {
+        "name": "Söndag Ready By"
+      },
+      "continuous_charging": {
+        "name": "Laddmönster"
+      },
+      "opportunistic_kind": {
+        "name": "Opportunistiskt prisläge"
+      },
+      "solar_source_kind": {
+        "name": "Typ av solkälla"
+      },
+      "grid_power_direction": {
+        "name": "Nätmätarens riktning"
       }
     },
     "number": {
@@ -335,6 +424,24 @@
       },
       "set_charging_power_kw": {
         "name": "Ställ in laddningseffekt"
+      },
+      "requested_budget_amount": {
+        "name": "Laddbudget (€)"
+      },
+      "minimum_soc_pct": {
+        "name": "Minsta batterinivå"
+      },
+      "maximum_price_per_kwh": {
+        "name": "Maxpris per kWh"
+      },
+      "low_price_trigger_per_kwh": {
+        "name": "Start vid lågt pris"
+      },
+      "low_soc_trigger_pct": {
+        "name": "Start vid låg batterinivå"
+      },
+      "opportunistic_level_pct": {
+        "name": "Opportunistisk nivå"
       }
     },
     "datetime": {
@@ -346,6 +453,9 @@
       },
       "expires_at": {
         "name": "Upphör"
+      },
+      "earliest_start_at": {
+        "name": "Tidigaste laddstart"
       }
     },
     "sensor": {
@@ -445,7 +555,8 @@
           "energy": "Energy",
           "duration": "Duration",
           "target_soc": "Battery target",
-          "unconfigured": "Set goal"
+          "unconfigured": "Set goal",
+          "budget": "Budget"
         }
       },
       "confirmed_current_setpoint": {
@@ -473,6 +584,48 @@
       },
       "soc_entity": {
         "name": "Batterinivåkälla"
+      },
+      "charging_window_mon": {
+        "name": "Måndag charging hours"
+      },
+      "charging_window_tue": {
+        "name": "Tisdag charging hours"
+      },
+      "charging_window_wed": {
+        "name": "Onsdag charging hours"
+      },
+      "charging_window_thu": {
+        "name": "Torsdag charging hours"
+      },
+      "charging_window_fri": {
+        "name": "Fredag charging hours"
+      },
+      "charging_window_sat": {
+        "name": "Lördag charging hours"
+      },
+      "charging_window_sun": {
+        "name": "Söndag charging hours"
+      },
+      "price_currency": {
+        "name": "Prisvaluta"
+      },
+      "solar_power_entity": {
+        "name": "Solproduktion"
+      },
+      "home_power_entity": {
+        "name": "Hemförbrukning"
+      },
+      "grid_power_entity": {
+        "name": "Näteffekt"
+      },
+      "solar_surplus_entity": {
+        "name": "Solöverskott"
+      },
+      "current_price_entity": {
+        "name": "Aktuellt importpris"
+      },
+      "export_price_entity": {
+        "name": "Aktuellt exportpris"
       }
     },
     "binary_sensor": {

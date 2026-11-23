@@ -2,14 +2,9 @@
   "config": {
     "step": {
       "user": {
-        "title": "Ladested",
-        "description": "Trin 1/5 — Navngiv ladestedet; elektriske grænser er valgfrie ved installation.",
-        "data": {
-          "name": "Navn (valgfrit)",
-          "max_parallel": "Antal (valgfrit)",
-          "max_power_kw": "Effekt (valgfrit)",
-          "phase_limits_a": "Faser (valgfrit)",
-          "mode": "Indledende ladetilstand"
+        "menu_options": {
+          "guided": "Guidet opsætning",
+          "expert": "Konfigurer hele ladeanlægget"
         }
       },
       "charger": {
@@ -43,7 +38,8 @@
           "ready_by_repeat": "Gentag (valgfrit)",
           "temporary": "Gæst (valgfrit)",
           "expires_at": "Udløb (valgfrit)",
-          "expected_connection_at": "Forventet tilslutning (valgfrit)"
+          "expected_connection_at": "Forventet tilslutning (valgfrit)",
+          "soc_stale_entity": "OEM-data forældet (binær sensor: til = forældet)"
         }
       },
       "sources": {
@@ -71,7 +67,9 @@
           "connected_entity": "Tilslutning (valgfrit)",
           "power_entity": "Effekt (valgfrit)",
           "energy_entity": "Energimåler (valgfrit)",
-          "configure_electrical": "Konfigurer elektriske detaljer (valgfrit)"
+          "configure_electrical": "Konfigurer elektriske detaljer (valgfrit)",
+          "connected_states": "Native statusværdier for tilsluttet (kommaer)",
+          "disconnected_states": "Native statusværdier for frakoblet (kommaer)"
         }
       },
       "charger_electrical": {
@@ -89,6 +87,43 @@
           "circuit_limit_a": "Strøm (valgfrit)",
           "current_control_entity": "Strøm (valgfrit)",
           "current_readback_entity": "Strøm (valgfrit)"
+        }
+      },
+      "guided": {
+        "title": "Ladested",
+        "description": "Trin 1/5 — Navngiv ladestedet; elektriske grænser er valgfrie ved installation.",
+        "data": {
+          "name": "Navn (valgfrit)",
+          "max_parallel": "Antal (valgfrit)",
+          "max_power_kw": "Effekt (valgfrit)",
+          "phase_limits_a": "Faser (valgfrit)",
+          "mode": "Indledende ladetilstand",
+          "solar_power_entity": "Aktuel solproduktion (W/kW)",
+          "home_power_entity": "Samlet husforbrug (W/kW)",
+          "grid_power_entity": "Netimport/-eksport (W/kW)",
+          "solar_surplus_entity": "Målt soloverskud (W/kW)",
+          "solar_entity": "Validerede solintervaller (kW)",
+          "price_entity": "Validerede fremtidige priser",
+          "current_price_entity": "Aktuel købspris (valuta/kWh)",
+          "export_price_entity": "Aktuel salgspris (valuta/kWh)",
+          "solar_source_kind": "Kilde til solstyring",
+          "grid_power_direction": "Nettets målerretning",
+          "use_energy_dashboard": "Brug kilder fra Energipanelet"
+        }
+      },
+      "expert": {
+        "title": "Komplet opsætning",
+        "description": "Kontroller ladere, køretøjer og kilder før lagring. Ingen fysiske kommandoer. {note}",
+        "data": {
+          "yaml_text": "Komplet MultiCharge JSON (controller/assets/chargers)"
+        }
+      },
+      "expert_review": {
+        "title": "Gennemgå komplet konfiguration",
+        "description": "{summary} Bekræft efter kontrol af hele opsætningen.",
+        "data": {
+          "confirm": "Jeg har gennemgået hele konfigurationen",
+          "edit_again": "Tilbage til JSON"
         }
       }
     },
@@ -110,8 +145,9 @@
           "asset": "Chargeable assets",
           "charger": "Chargers",
           "display": "Dashboard card",
-          "yaml": "Edit YAML (review before save)",
-          "commission": "Idriftsæt lader"
+          "yaml": "Edit JSON (review before save)",
+          "commission": "Idriftsæt lader",
+          "energy": "Energi og priser"
         },
         "title": "Indstillinger"
       },
@@ -137,7 +173,8 @@
           "soc_entity": "Batteri",
           "capacity_kwh": "Batteri",
           "vehicle_control_entity": "Køretøjets styrekontakt (kilde)",
-          "vehicle_current_entity": "Køretøjets strømindstilling (kilde)"
+          "vehicle_current_entity": "Køretøjets strømindstilling (kilde)",
+          "soc_stale_entity": "OEM-data forældet (binær sensor: til = forældet)"
         }
       },
       "charger": {
@@ -164,7 +201,9 @@
           "circuit_limit_a": "Strøm",
           "current_control_entity": "Strøm",
           "current_readback_entity": "Strøm",
-          "session_entity": "Ladesessionssensor (valgfri)"
+          "session_entity": "Ladesessionssensor (valgfri)",
+          "connected_states": "Native statusværdier for tilsluttet (kommaer)",
+          "disconnected_states": "Native statusværdier for frakoblet (kommaer)"
         }
       },
       "display": {
@@ -175,19 +214,19 @@
         }
       },
       "yaml": {
-        "title": "MultiCharge — YAML configuration",
+        "title": "MultiCharge — JSON configuration",
         "description": "Edit all current settings or submit scoped changes. All changes are validated before review; no physical controls are activated. {note}",
         "data": {
           "mode": "Update mode",
-          "yaml_text": "MultiCharge configuration (YAML / JSON data)"
+          "yaml_text": "MultiCharge configuration (JSON data)"
         }
       },
       "yaml_review": {
-        "title": "Review YAML changes",
+        "title": "Review JSON changes",
         "description": "{summary}\nConfirm only after checking the complete impact. No charger command is sent by this operation.",
         "data": {
           "confirm": "Apply these reviewed configuration changes",
-          "edit_again": "Return to YAML editing"
+          "edit_again": "Return to JSON editing"
         }
       },
       "commission": {
@@ -198,6 +237,23 @@
           "commission": "Aktivér MultiCharge-styring",
           "exclusive_writer_confirmed": "Andre styringer har frigivet denne lader",
           "electrical_limits_confirmed": "Elgrænser, effekt og uafhængig sensorfeedback er verificeret"
+        }
+      },
+      "energy": {
+        "title": "Energi og priser",
+        "description": "{note}",
+        "data": {
+          "solar_power_entity": "Aktuel solproduktion (W/kW)",
+          "home_power_entity": "Samlet husforbrug (W/kW)",
+          "grid_power_entity": "Netimport/-eksport (W/kW)",
+          "solar_surplus_entity": "Målt soloverskud (W/kW)",
+          "solar_entity": "Validerede solintervaller (kW)",
+          "price_entity": "Validerede fremtidige priser",
+          "current_price_entity": "Aktuel købspris (valuta/kWh)",
+          "export_price_entity": "Aktuel salgspris (valuta/kWh)",
+          "solar_source_kind": "Kilde til solstyring",
+          "grid_power_direction": "Nettets målerretning",
+          "use_energy_dashboard": "Brug kilder fra Energipanelet"
         }
       }
     },
@@ -297,6 +353,39 @@
           "other": "Other"
         },
         "name": "Type ladeenhed"
+      },
+      "ready_day_mon": {
+        "name": "Mandag Ready By"
+      },
+      "ready_day_tue": {
+        "name": "Tirsdag Ready By"
+      },
+      "ready_day_wed": {
+        "name": "Onsdag Ready By"
+      },
+      "ready_day_thu": {
+        "name": "Torsdag Ready By"
+      },
+      "ready_day_fri": {
+        "name": "Fredag Ready By"
+      },
+      "ready_day_sat": {
+        "name": "Lørdag Ready By"
+      },
+      "ready_day_sun": {
+        "name": "Søndag Ready By"
+      },
+      "continuous_charging": {
+        "name": "Lademønster"
+      },
+      "opportunistic_kind": {
+        "name": "Opportunistisk prisstrategi"
+      },
+      "solar_source_kind": {
+        "name": "Type solkilde"
+      },
+      "grid_power_direction": {
+        "name": "Netmålerretning"
       }
     },
     "number": {
@@ -335,6 +424,24 @@
       },
       "set_charging_power_kw": {
         "name": "Indstil ladeeffekt"
+      },
+      "requested_budget_amount": {
+        "name": "Ladebudget (€)"
+      },
+      "minimum_soc_pct": {
+        "name": "Minimum batteriniveau"
+      },
+      "maximum_price_per_kwh": {
+        "name": "Maksimumpris pr. kWh"
+      },
+      "low_price_trigger_per_kwh": {
+        "name": "Start ved lav pris"
+      },
+      "low_soc_trigger_pct": {
+        "name": "Start ved lavt batteriniveau"
+      },
+      "opportunistic_level_pct": {
+        "name": "Opportunistisk niveau"
       }
     },
     "datetime": {
@@ -346,6 +453,9 @@
       },
       "expires_at": {
         "name": "Udløb"
+      },
+      "earliest_start_at": {
+        "name": "Tidligste ladestart"
       }
     },
     "sensor": {
@@ -445,7 +555,8 @@
           "energy": "Energy",
           "duration": "Duration",
           "target_soc": "Battery target",
-          "unconfigured": "Set goal"
+          "unconfigured": "Set goal",
+          "budget": "Budget"
         }
       },
       "confirmed_current_setpoint": {
@@ -473,6 +584,48 @@
       },
       "soc_entity": {
         "name": "Batteriniveaukilde"
+      },
+      "charging_window_mon": {
+        "name": "Mandag charging hours"
+      },
+      "charging_window_tue": {
+        "name": "Tirsdag charging hours"
+      },
+      "charging_window_wed": {
+        "name": "Onsdag charging hours"
+      },
+      "charging_window_thu": {
+        "name": "Torsdag charging hours"
+      },
+      "charging_window_fri": {
+        "name": "Fredag charging hours"
+      },
+      "charging_window_sat": {
+        "name": "Lørdag charging hours"
+      },
+      "charging_window_sun": {
+        "name": "Søndag charging hours"
+      },
+      "price_currency": {
+        "name": "Prisvaluta"
+      },
+      "solar_power_entity": {
+        "name": "Solproduktion"
+      },
+      "home_power_entity": {
+        "name": "Hjemmeforbrug"
+      },
+      "grid_power_entity": {
+        "name": "Netværkseffekt"
+      },
+      "solar_surplus_entity": {
+        "name": "Soloverskud"
+      },
+      "current_price_entity": {
+        "name": "Aktuel importpris"
+      },
+      "export_price_entity": {
+        "name": "Aktuel eksportpris"
       }
     },
     "binary_sensor": {

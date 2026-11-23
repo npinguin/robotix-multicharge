@@ -2,14 +2,9 @@
   "config": {
     "step": {
       "user": {
-        "title": "Site de recharge",
-        "description": "Étape 1/5 — Nommez le site de recharge; toutes les limites électriques sont facultatives.",
-        "data": {
-          "name": "Nom (facultatif)",
-          "max_parallel": "Nombre (facultatif)",
-          "max_power_kw": "Puissance (facultatif)",
-          "phase_limits_a": "Phases (facultatif)",
-          "mode": "Mode de charge initial"
+        "menu_options": {
+          "guided": "Configuration guidée",
+          "expert": "Configurer tout le site de charge"
         }
       },
       "charger": {
@@ -43,7 +38,8 @@
           "ready_by_repeat": "Répéter (facultatif)",
           "temporary": "Invité (facultatif)",
           "expires_at": "Expiration (facultatif)",
-          "expected_connection_at": "Connexion prévue (facultatif)"
+          "expected_connection_at": "Connexion prévue (facultatif)",
+          "soc_stale_entity": "Capteur binaire données OEM périmées (on = périmé)"
         }
       },
       "sources": {
@@ -71,7 +67,9 @@
           "connected_entity": "Connexion (facultatif)",
           "power_entity": "Puissance (facultatif)",
           "energy_entity": "Compteur d’énergie (facultatif)",
-          "configure_electrical": "Configurer les détails électriques (facultatif)"
+          "configure_electrical": "Configurer les détails électriques (facultatif)",
+          "connected_states": "États natifs signifiant connecté (virgules)",
+          "disconnected_states": "États natifs signifiant déconnecté (virgules)"
         }
       },
       "charger_electrical": {
@@ -89,6 +87,43 @@
           "circuit_limit_a": "Courant (facultatif)",
           "current_control_entity": "Courant (facultatif)",
           "current_readback_entity": "Courant (facultatif)"
+        }
+      },
+      "guided": {
+        "title": "Site de recharge",
+        "description": "Étape 1/5 — Nommez le site de recharge; toutes les limites électriques sont facultatives.",
+        "data": {
+          "name": "Nom (facultatif)",
+          "max_parallel": "Nombre (facultatif)",
+          "max_power_kw": "Puissance (facultatif)",
+          "phase_limits_a": "Phases (facultatif)",
+          "mode": "Mode de charge initial",
+          "solar_power_entity": "Puissance solaire actuelle (W/kW)",
+          "home_power_entity": "Puissance consommée par le logement (W/kW)",
+          "grid_power_entity": "Puissance du réseau import/export (W/kW)",
+          "solar_surplus_entity": "Surplus solaire mesuré (W/kW)",
+          "solar_entity": "Intervalles solaires qualifiés (kW)",
+          "price_entity": "Intervalles futurs de prix qualifiés",
+          "current_price_entity": "Prix d'achat actuel (devise/kWh)",
+          "export_price_entity": "Tarif d'injection actuel (devise/kWh)",
+          "solar_source_kind": "Source de pilotage solaire",
+          "grid_power_direction": "Signe du compteur réseau",
+          "use_energy_dashboard": "Reprendre les sources du tableau Énergie"
+        }
+      },
+      "expert": {
+        "title": "Configuration complète",
+        "description": "Vérifiez les bornes, véhicules et sources avant de sauvegarder. Aucune commande physique n'est envoyée. {note}",
+        "data": {
+          "yaml_text": "Configuration JSON MultiCharge complète (controller/assets/chargers)"
+        }
+      },
+      "expert_review": {
+        "title": "Vérifier la configuration complète",
+        "description": "{summary} Confirmez après vérification de toute la configuration.",
+        "data": {
+          "confirm": "J'ai vérifié la configuration complète",
+          "edit_again": "Retour au JSON"
         }
       }
     },
@@ -110,8 +145,9 @@
           "asset": "Chargeable assets",
           "charger": "Chargers",
           "display": "Dashboard card",
-          "yaml": "Modifier YAML (vérification avant enregistrement)",
-          "commission": "Mise en service de la borne"
+          "yaml": "Modifier JSON (vérification avant enregistrement)",
+          "commission": "Mise en service de la borne",
+          "energy": "Énergie et tarifs"
         },
         "title": "Réglages"
       },
@@ -137,7 +173,8 @@
           "soc_entity": "Batterie",
           "capacity_kwh": "Batterie",
           "vehicle_control_entity": "Interrupteur de commande du véhicule (source)",
-          "vehicle_current_entity": "Consigne de courant du véhicule (source)"
+          "vehicle_current_entity": "Consigne de courant du véhicule (source)",
+          "soc_stale_entity": "Capteur binaire données OEM périmées (on = périmé)"
         }
       },
       "charger": {
@@ -164,7 +201,9 @@
           "circuit_limit_a": "Courant",
           "current_control_entity": "Courant",
           "current_readback_entity": "Courant",
-          "session_entity": "Capteur de session de charge (facultatif)"
+          "session_entity": "Capteur de session de charge (facultatif)",
+          "connected_states": "États natifs signifiant connecté (virgules)",
+          "disconnected_states": "États natifs signifiant déconnecté (virgules)"
         }
       },
       "display": {
@@ -175,19 +214,19 @@
         }
       },
       "yaml": {
-        "title": "Configuration YAML MultiCharge",
+        "title": "Configuration JSON MultiCharge",
         "description": "Modifier la configuration complète ou des éléments ciblés. Valider avant enregistrement. {note}",
         "data": {
           "mode": "Mode de mise à jour",
-          "yaml_text": "Configuration MultiCharge (YAML/JSON)"
+          "yaml_text": "Configuration MultiCharge (JSON)"
         }
       },
       "yaml_review": {
-        "title": "Vérifier les modifications YAML",
+        "title": "Vérifier les modifications JSON",
         "description": "{summary}\nConfirmez uniquement après vérification.",
         "data": {
           "confirm": "Appliquer les modifications vérifiées",
-          "edit_again": "Retour au YAML"
+          "edit_again": "Retour au JSON"
         }
       },
       "commission": {
@@ -198,6 +237,23 @@
           "commission": "Activer la commande MultiCharge",
           "exclusive_writer_confirmed": "Les autres contrôleurs et automatisations ne commandent plus cette borne",
           "electrical_limits_confirmed": "Limites électriques, puissance et capteurs indépendants vérifiés"
+        }
+      },
+      "energy": {
+        "title": "Énergie et tarifs",
+        "description": "{note}",
+        "data": {
+          "solar_power_entity": "Puissance solaire actuelle (W/kW)",
+          "home_power_entity": "Puissance consommée par le logement (W/kW)",
+          "grid_power_entity": "Puissance du réseau import/export (W/kW)",
+          "solar_surplus_entity": "Surplus solaire mesuré (W/kW)",
+          "solar_entity": "Intervalles solaires qualifiés (kW)",
+          "price_entity": "Intervalles futurs de prix qualifiés",
+          "current_price_entity": "Prix d'achat actuel (devise/kWh)",
+          "export_price_entity": "Tarif d'injection actuel (devise/kWh)",
+          "solar_source_kind": "Source de pilotage solaire",
+          "grid_power_direction": "Signe du compteur réseau",
+          "use_energy_dashboard": "Reprendre les sources du tableau Énergie"
         }
       }
     },
@@ -297,6 +353,39 @@
           "scooter": "Scooter",
           "other": "Autre"
         }
+      },
+      "ready_day_mon": {
+        "name": "Lundi Ready By"
+      },
+      "ready_day_tue": {
+        "name": "Mardi Ready By"
+      },
+      "ready_day_wed": {
+        "name": "Mercredi Ready By"
+      },
+      "ready_day_thu": {
+        "name": "Jeudi Ready By"
+      },
+      "ready_day_fri": {
+        "name": "Vendredi Ready By"
+      },
+      "ready_day_sat": {
+        "name": "Samedi Ready By"
+      },
+      "ready_day_sun": {
+        "name": "Dimanche Ready By"
+      },
+      "continuous_charging": {
+        "name": "Mode de recharge"
+      },
+      "opportunistic_kind": {
+        "name": "Mode opportuniste"
+      },
+      "solar_source_kind": {
+        "name": "Type de source solaire"
+      },
+      "grid_power_direction": {
+        "name": "Sens du compteur réseau"
       }
     },
     "number": {
@@ -335,6 +424,24 @@
       },
       "set_charging_power_kw": {
         "name": "Régler la puissance de charge"
+      },
+      "requested_budget_amount": {
+        "name": "Budget de recharge (€)"
+      },
+      "minimum_soc_pct": {
+        "name": "Niveau minimal de batterie"
+      },
+      "maximum_price_per_kwh": {
+        "name": "Prix maximal par kWh"
+      },
+      "low_price_trigger_per_kwh": {
+        "name": "Déclencheur prix bas"
+      },
+      "low_soc_trigger_pct": {
+        "name": "Déclencheur batterie faible"
+      },
+      "opportunistic_level_pct": {
+        "name": "Seuil opportuniste"
       }
     },
     "datetime": {
@@ -346,6 +453,9 @@
       },
       "expires_at": {
         "name": "Invité valable jusqu’à"
+      },
+      "earliest_start_at": {
+        "name": "Début de recharge au plus tôt"
       }
     },
     "sensor": {
@@ -445,7 +555,8 @@
           "energy": "Énergie",
           "duration": "Durée",
           "target_soc": "Cible batterie",
-          "unconfigured": "Définir une cible"
+          "unconfigured": "Définir une cible",
+          "budget": "Budget"
         }
       },
       "confirmed_current_setpoint": {
@@ -473,6 +584,48 @@
       },
       "soc_entity": {
         "name": "Source niveau de batterie"
+      },
+      "charging_window_mon": {
+        "name": "Lundi charging hours"
+      },
+      "charging_window_tue": {
+        "name": "Mardi charging hours"
+      },
+      "charging_window_wed": {
+        "name": "Mercredi charging hours"
+      },
+      "charging_window_thu": {
+        "name": "Jeudi charging hours"
+      },
+      "charging_window_fri": {
+        "name": "Vendredi charging hours"
+      },
+      "charging_window_sat": {
+        "name": "Samedi charging hours"
+      },
+      "charging_window_sun": {
+        "name": "Dimanche charging hours"
+      },
+      "price_currency": {
+        "name": "Devise tarifaire"
+      },
+      "solar_power_entity": {
+        "name": "Production solaire"
+      },
+      "home_power_entity": {
+        "name": "Consommation du foyer"
+      },
+      "grid_power_entity": {
+        "name": "Puissance réseau"
+      },
+      "solar_surplus_entity": {
+        "name": "Excédent solaire"
+      },
+      "current_price_entity": {
+        "name": "Prix actuel à l'import"
+      },
+      "export_price_entity": {
+        "name": "Prix actuel à l'export"
       }
     },
     "binary_sensor": {

@@ -22,7 +22,9 @@ for name in ("domain", "contracts", "planner"):
 
 from multicharge_plan_test.contracts import ChargeDemand, PowerEnvelope, PowerLimitSlot, PriceSlot  # noqa: E402 - imported after isolated pure-module bootstrap
 from multicharge_plan_test.domain import Charger, ChargeController  # noqa: E402 - imported after isolated pure-module bootstrap
-from multicharge_plan_test.planner import compile_plan, resolve_recurring_ready_by  # noqa: E402 - imported after isolated pure-module bootstrap
+from multicharge_plan_test.planner import (  # noqa: E402 - imported after isolated pure-module bootstrap
+    compile_plan, resolve_recurring_ready_by, charging_window_allows,
+)
 
 NOW = datetime(2026, 11, 22, 12, tzinfo=timezone.utc)
 
@@ -313,6 +315,298 @@ class PlannerTests(unittest.TestCase):
         )
         self.assertEqual(reason, "RECURRING")
         self.assertEqual(deadline.astimezone(zone).date().isoformat(), "2026-11-30")
+
+    def test_zero_price_budget_also_has_cumulative_physical_time_ceiling(self):
+        ctl, chargers = build()
+        quotes = tuple(
+            PriceSlot(
+                NOW + i * timedelta(minutes=15),
+                NOW + (i + 1) * timedelta(minutes=15),
+                -0.08, "EUR", "effective",
+            ) for i in range(192)
+        )
+        demand = ChargeDemand(
+            "visitor", "c0", None, None,
+            remaining_budget_amount=10.0, budget_currency="EUR",
+            budget_remaining_minutes=30,
+        )
+        result = compile_plan(
+            ctl, chargers, [demand], NOW, mode="Economy",
+            tariffs={"c0": quotes},
+        )
+        self.assertEqual(len(result.plan.slots), 2)
+        self.assertEqual(result.reasons["c0"], "BUDGET_DURATION_SAFETY_LIMIT")
+        self.assertEqual(result.coverage["c0"], "INCOMPLETE")
+        self.assertEqual(result.proposed_kwh["c0"], 2.0)
+        full = compile_plan(
+            ctl, chargers,
+            [ChargeDemand("visitor", "c0", None, None,
+                          remaining_budget_amount=10.0,
+                          budget_currency="EUR")],
+            NOW, mode="Economy", tariffs={"c0": quotes},
+        )
+        self.assertEqual(len(full.plan.slots), 96,
+                         "Even free/negative quotes cannot reserve more than 24h")
+        for minutes in (-1, 1441, float("nan")):
+            with self.subTest(minutes=minutes), self.assertRaises(ValueError):
+                ChargeDemand(
+                    "visitor", "c0", None, None,
+                    remaining_budget_amount=10.0, budget_currency="EUR",
+                    budget_remaining_minutes=minutes,
+                )
+
+    def test_upstream_price_cap_minimum_soc_and_low_price_immediate(self):
+        ctl, chargers = build()
+        quotes = [0.30, 0.05, 0.10, 0.25, 0.03]
+        tariffs = [
+            PriceSlot(NOW + i * timedelta(minutes=15),
+                      NOW + (i + 1) * timedelta(minutes=15), p, "EUR",
+                      "spot")
+            for i, p in enumerate(quotes)
+        ]
+        minimum = compile_plan(
+            ctl, chargers,
+            [ChargeDemand("car", "c0", 3.0, NOW + timedelta(hours=2),
+                          minimum_priority_kwh=1.0,
+                          maximum_price_per_kwh=0.20,
+                          price_currency="EUR")],
+            NOW, mode="Economy", tariffs={"c0": tariffs})
+        self.assertEqual(
+            [x.start for x in minimum.plan.slots],
+            [NOW, NOW + timedelta(minutes=15),
+             NOW + timedelta(hours=1)],
+            "One earliest expensive SoC-minimum quarter followed by lowest "
+            "available price-limited slots",
+        )
+        without_minimum = compile_plan(
+            ctl, chargers,
+            [ChargeDemand("car", "c0", 3.0, NOW + timedelta(hours=2),
+                          maximum_price_per_kwh=0.20, price_currency="EUR")],
+            NOW, mode="Economy", tariffs={"c0": tariffs})
+        self.assertFalse(any(s.start == NOW for s in without_minimum.plan.slots))
+        urgent_low_soc = compile_plan(
+            ctl, chargers,
+            [ChargeDemand("car", "c0", 1.0, NOW + timedelta(hours=2),
+                          low_soc_priority_kwh=1.0)],
+            NOW, mode="Economy", tariffs={"c0": tariffs})
+        self.assertEqual(urgent_low_soc.plan.slots[0].start, NOW)
+        low_price = compile_plan(
+            ctl, chargers,
+            [ChargeDemand("car", "c0", 1.0, NOW + timedelta(hours=2),
+                          low_price_trigger_per_kwh=0.31,
+                          price_currency="EUR")],
+            NOW, mode="Economy", tariffs={"c0": tariffs})
+        self.assertEqual(low_price.plan.slots[0].start, NOW,
+                         "User explicitly allows immediate rate at/below threshold")
+        no_source = compile_plan(
+            ctl, chargers,
+            [ChargeDemand("car", "c0", 1.0, NOW + timedelta(hours=2),
+                          maximum_price_per_kwh=0.20, price_currency="EUR")],
+            NOW, mode="Ready By")
+        self.assertFalse(no_source.plan.slots)
+        self.assertEqual(no_source.reasons["c0"], "PRICE_SOURCE_UNAVAILABLE")
+        wrong_currency = compile_plan(
+            ctl, chargers,
+            [ChargeDemand("car", "c0", 1.0, NOW + timedelta(hours=2),
+                          maximum_price_per_kwh=0.20, price_currency="USD")],
+            NOW, mode="Economy", tariffs={"c0": tariffs})
+        self.assertFalse(wrong_currency.plan.slots)
+
+    def test_upstream_opportunistic_type1_and_type2_qualified(self):
+        ctl, chargers = build()
+        source = [0.15, 0.08, 0.02]
+        tariffs = [
+            PriceSlot(NOW + i * timedelta(minutes=15),
+                      NOW + (i + 1) * timedelta(minutes=15), p, "EUR",
+                      "spot")
+            for i, p in enumerate(source)
+        ]
+        for kind, level, expected in (
+            ("type1", 50, NOW + timedelta(minutes=30)),
+            ("type2", 90, NOW),
+        ):
+            qualified = tariffs if kind == "type1" else [
+                PriceSlot(row.start, row.end,
+                          (0.015 if index == 0 else row.effective_price_per_kwh),
+                          row.currency, row.basis)
+                for index, row in enumerate(tariffs)
+            ]
+            result = compile_plan(
+                ctl, chargers,
+                [ChargeDemand("car", "c0", 1.0, NOW + timedelta(hours=1),
+                              maximum_price_per_kwh=0.20,
+                              price_currency="EUR",
+                              opportunistic_kind=kind,
+                              opportunistic_level_pct=level)],
+                NOW, mode="Economy", tariffs={"c0": qualified})
+            self.assertEqual([s.start for s in result.plan.slots], [expected])
+        with self.assertRaises(ValueError):
+            ChargeDemand("car", "c0", 1.0, None,
+                         opportunistic_kind="type2")
+        unavailable = compile_plan(
+            ctl, chargers,
+            [ChargeDemand("car", "c0", 1.0, NOW + timedelta(hours=1),
+                          maximum_price_per_kwh=0.20,
+                          price_currency="EUR",
+                          opportunistic_kind="type2")],
+            NOW, mode="Economy")
+        self.assertEqual(unavailable.reasons["c0"], "PRICE_SOURCE_UNAVAILABLE")
+        self.assertFalse(unavailable.plan.slots)
+
+    def test_upstream_continuous_and_non_contiguous_cheapest_quarters(self):
+        ctl, chargers = build()
+        prices = [0.05, 0.90, 0.05, 0.90, 0.05, 0.05]
+        tariff = [PriceSlot(NOW + i * timedelta(minutes=15),
+                            NOW + (i + 1) * timedelta(minutes=15),
+                            price, "EUR") for i, price in enumerate(prices)]
+        flexible = compile_plan(
+            ctl, chargers,
+            [ChargeDemand("car", "c0", 2.0, NOW + timedelta(hours=2))],
+            NOW, mode="Economy", tariffs={"c0": tariff})
+        self.assertEqual(
+            [x.start for x in flexible.plan.slots],
+            [NOW, NOW + timedelta(minutes=30)],
+        )
+        contiguous = compile_plan(
+            ctl, chargers,
+            [ChargeDemand("car", "c0", 2.0, NOW + timedelta(hours=2),
+                          continuous_charging=True)],
+            NOW, mode="Economy", tariffs={"c0": tariff})
+        self.assertEqual(
+            [x.start for x in contiguous.plan.slots],
+            [NOW + timedelta(hours=1),
+             NOW + timedelta(hours=1, minutes=15)],
+        )
+        self.assertEqual(contiguous.coverage["c0"], "COMPLETE")
+        with self.assertRaises(ValueError):
+            ChargeDemand("car", "c0", 2, None, continuous_charging="true")
+        unfillable = compile_plan(
+            ctl, chargers,
+            [ChargeDemand("car", "c0", 2.0, NOW + timedelta(hours=2),
+                          continuous_charging=True)],
+            NOW, mode="Economy",
+            tariffs={"c0": [tariff[0], tariff[2], tariff[4]]})
+        self.assertEqual(unfillable.reasons["c0"],
+                         "CONTIGUOUS_WINDOW_UNAVAILABLE")
+        self.assertFalse(unfillable.plan.slots)
+
+    def test_money_budget_only_effective_tariffs_and_full_quarter_caps(self):
+        ctl, chargers = build()
+        tariff = [
+            PriceSlot(NOW, NOW + timedelta(minutes=15), 2.0, "EUR",
+                      basis="effective"),
+            PriceSlot(NOW + timedelta(minutes=15),
+                      NOW + timedelta(minutes=30), 0.5, "EUR",
+                      basis="effective"),
+            PriceSlot(NOW + timedelta(minutes=30),
+                      NOW + timedelta(minutes=45), 3.0, "EUR",
+                      basis="effective"),
+        ]
+        request = ChargeDemand(
+            "guest", "c0", None, NOW + timedelta(hours=1),
+            remaining_budget_amount=1.5, budget_currency="EUR",
+        )
+        plan = compile_plan(ctl, chargers, [request], NOW,
+                            mode="Economy", tariffs={"c0": tariff})
+        self.assertEqual([s.start for s in plan.plan.slots],
+                         [NOW + timedelta(minutes=15)])
+        self.assertLessEqual(plan.proposed_kwh["c0"], 1.0)
+        # Wholesale spot or unqualified variable reference cannot authorize
+        # physically executable EUR-budget demand.
+        for basis in ("spot", "variable_reference"):
+            actual = [PriceSlot(p.start, p.end,
+                                p.effective_price_per_kwh, "EUR", basis=basis)
+                      for p in tariff]
+            refused = compile_plan(ctl, chargers, [request], NOW,
+                                   mode="Economy", tariffs={"c0": actual})
+            self.assertFalse(refused.plan.slots)
+            self.assertEqual(refused.reasons["c0"],
+                             "BUDGET_EFFECTIVE_TARIFF_UNAVAILABLE")
+        wrong = compile_plan(ctl, chargers, [request], NOW, mode="Economy",
+                             tariffs={"c0": [
+                                 PriceSlot(p.start, p.end,
+                                           p.effective_price_per_kwh, "USD")
+                                 for p in tariff]})
+        self.assertFalse(wrong.plan.slots)
+        with self.assertRaises(ValueError):
+            ChargeDemand("guest", "c0", 2.0, None,
+                         remaining_budget_amount=10.0,
+                         budget_currency="EUR")
+
+    def test_specific_weekdays_replace_single_weekly(self):
+        zone = ZoneInfo("Europe/Brussels")
+        monday = datetime(2026, 11, 23, 7, tzinfo=zone)
+        deadline, status = resolve_recurring_ready_by(
+            None, monday, "specific_days", "Europe/Brussels",
+            {"mon": "06:45", "wed": "08:30", "fri": "17:15"},
+        )
+        self.assertEqual(status, "RECURRING")
+        self.assertEqual(deadline.astimezone(zone).strftime("%a %H:%M"), "Wed 08:30")
+        friday = datetime(2026, 11, 27, 18, tzinfo=zone)
+        deadline, _ = resolve_recurring_ready_by(
+            None, friday, "specific_days", "Europe/Brussels",
+            {"mon": "06:45", "wed": "08:30", "fri": "17:15"},
+        )
+        self.assertEqual(deadline.astimezone(zone).strftime("%a %H:%M"), "Mon 06:45")
+        deadline, reason = resolve_recurring_ready_by(
+            None, monday, "specific_days", "Europe/Brussels", {},
+        )
+        self.assertIsNone(deadline)
+        self.assertEqual(reason, "DEADLINE_UNAVAILABLE")
+
+    def test_specific_days_dst_uses_real_future_instants(self):
+        spring = datetime(2027, 3, 27, 20, tzinfo=timezone.utc)
+        got, reason = resolve_recurring_ready_by(
+            None, spring, "specific_days", "Europe/Brussels",
+            {"sun": "02:30"},
+        )
+        self.assertEqual(reason, "RECURRING")
+        self.assertEqual(got, datetime(2027, 3, 28, 1, tzinfo=timezone.utc))
+        fall = datetime(2026, 10, 25, 0, 15, tzinfo=timezone.utc)
+        got, reason = resolve_recurring_ready_by(
+            None, fall, "specific_days", "Europe/Brussels",
+            {"sun": "02:30"},
+        )
+        self.assertEqual(reason, "RECURRING")
+        self.assertEqual(got, datetime(2026, 10, 25, 1, 30, tzinfo=timezone.utc))
+
+    def test_weekday_charging_windows_are_binding_in_one_planner(self):
+        zone = "Europe/Brussels"
+        window = {"mon": {"start": "22:00", "end": "06:00"}}
+        for local, expected in (
+            (datetime(2026, 11, 23, 22, 0, tzinfo=ZoneInfo(zone)), True),
+            (datetime(2026, 11, 24, 5, 45, tzinfo=ZoneInfo(zone)), True),
+            (datetime(2026, 11, 24, 6, 0, tzinfo=ZoneInfo(zone)), False),
+            (datetime(2026, 11, 28, 23, 0, tzinfo=ZoneInfo(zone)), False),
+        ):
+            self.assertEqual(
+                charging_window_allows(window, local, timedelta(minutes=15), zone),
+                expected,
+            )
+        ctl, chargers = build()
+        plan = compile_plan(
+            ctl, chargers,
+            [ChargeDemand("a0", "c0", 4.0,
+                          datetime(2026, 11, 24, 8, tzinfo=timezone.utc))],
+            datetime(2026, 11, 23, 19, tzinfo=timezone.utc),
+            mode="Ready By", horizon_hours=18,
+            charging_windows={"c0": window}, site_time_zone=zone,
+        )
+        self.assertTrue(plan.plan.slots)
+        self.assertTrue(all(
+            charging_window_allows(window, slot.start, timedelta(minutes=15), zone)
+            for slot in plan.plan.slots
+        ))
+        blocked = compile_plan(
+            ctl, chargers,
+            [ChargeDemand("a0", "c0", 1.0,
+                          datetime(2026, 11, 23, 20, tzinfo=timezone.utc))],
+            datetime(2026, 11, 23, 12, tzinfo=timezone.utc),
+            mode="Ready By",
+            charging_windows={"c0": window}, site_time_zone=zone,
+        )
+        self.assertFalse(blocked.plan.slots)
+        self.assertEqual(blocked.reasons["c0"], "CHARGING_WINDOW_LIMITED")
 
     def test_dst_is_real_utc_quarters_not_fixed_local_96(self):
         tz = ZoneInfo("Europe/Brussels")

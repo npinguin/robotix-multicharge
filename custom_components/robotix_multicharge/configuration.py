@@ -72,6 +72,44 @@ def _allowed(row, fields, name):
         raise ValueError(f"{name}: unknown keys {', '.join(sorted(extra))}")
 
 
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+def _local_clock(value, field):
+    """A local wall-clock minute, never an implicit UTC instant."""
+    if not isinstance(value, str) or fullmatch(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]", value) is None:
+        raise ValueError(f"{field}: expected HH:MM local time")
+    return value
+
+
+def _ready_day_times(source, field="asset.ready_by_weekdays"):
+    if not isinstance(source, dict) or not source:
+        raise ValueError(f"{field}: select at least one weekday")
+    if set(source) - set(WEEKDAYS):
+        raise ValueError(f"{field}: invalid weekday")
+    return {day: _local_clock(source[day], field + "." + day)
+            for day in WEEKDAYS if day in source}
+
+
+def _charging_windows(source, field="asset.charging_windows"):
+    if not isinstance(source, dict) or not source:
+        raise ValueError(f"{field}: select at least one weekday")
+    if set(source) - set(WEEKDAYS):
+        raise ValueError(f"{field}: invalid weekday")
+    normalized = {}
+    for day in WEEKDAYS:
+        if day not in source:
+            continue
+        window = source[day]
+        _allowed(window, ("start", "end"), field + "." + day)
+        start = _local_clock(window.get("start"), field + "." + day + ".start")
+        end = _local_clock(window.get("end"), field + "." + day + ".end")
+        if start == end:
+            raise ValueError(f"{field}: start/end cannot be the same")
+        normalized[day] = {"start": start, "end": end}
+    return normalized
+
+
 def apply_new_asset_defaults(row):
     """80% is an editable starting *target*, never an OEM hardware limit.
 
@@ -82,7 +120,8 @@ def apply_new_asset_defaults(row):
     if (row.get("kind", "car") == "car"
             and row.get("target_soc") is None
             and row.get("requested_kwh") is None
-            and row.get("requested_duration_minutes") is None):
+            and row.get("requested_duration_minutes") is None
+            and row.get("requested_budget_amount") is None):
         row["target_soc"] = 80
     return row
 
@@ -98,6 +137,10 @@ def validate_configuration(value):
     ctl = value.get("controller")
     _allowed(ctl, ("id", "name", "max_parallel", "max_power_kw",
                    "price_entity", "site_power_entity", "solar_entity",
+                   "solar_power_entity", "home_power_entity",
+                   "grid_power_entity", "solar_surplus_entity",
+                   "current_price_entity", "export_price_entity",
+                   "solar_source_kind", "grid_power_direction",
                    "binding_entity", "mode", "phase_limits_a",
                    "plan_label_mode", "plan_color_by", "show_indicative_forecast"), "controller")
     cid = _text(ctl.get("id", "home"), "controller.id")
@@ -116,10 +159,28 @@ def validate_configuration(value):
         raise ValueError("controller.plan_color_by: choose vehicle/charger")
     if type(show_forecast) is not bool:
         raise ValueError("controller.show_indicative_forecast: expected boolean")
+    solar_kind = ctl.get("solar_source_kind", "intervals" if ctl.get("solar_entity") else "none")
+    if solar_kind not in ("none", "intervals", "grid_export", "direct_surplus"):
+        raise ValueError("controller.solar_source_kind: unsupported native source")
+    grid_direction = ctl.get("grid_power_direction", "import_positive")
+    if grid_direction not in ("import_positive", "export_positive"):
+        raise ValueError("controller.grid_power_direction: invalid meter sign")
+    if solar_kind == "intervals" and not ctl.get("solar_entity"):
+        raise ValueError("controller: interval Solar requires solar_entity")
+    if solar_kind == "grid_export" and not ctl.get("grid_power_entity"):
+        raise ValueError("controller: grid-export Solar requires grid_power_entity")
+    if solar_kind == "direct_surplus" and not ctl.get("solar_surplus_entity"):
+        raise ValueError("controller: direct surplus requires solar_surplus_entity")
     controller = {"id": cid, "name": _text(ctl.get("name"), "controller.name"),
                   "max_parallel": parallel, "mode": mode,
                   "plan_label_mode": label_mode, "plan_color_by": color_by,
                   "show_indicative_forecast": show_forecast}
+    # Unselected energy features are not new persistent authority. Preserve
+    # legacy Config Entries that later bind a qualified solar interval source.
+    if "solar_source_kind" in ctl or ctl.get("solar_entity"):
+        controller["solar_source_kind"] = solar_kind
+    if "grid_power_direction" in ctl or ctl.get("grid_power_entity"):
+        controller["grid_power_direction"] = grid_direction
     if ctl.get("max_power_kw") is not None:
         controller["max_power_kw"] = _number(ctl["max_power_kw"], "controller.max_power_kw")
     if ctl.get("phase_limits_a") is not None:
@@ -134,9 +195,16 @@ def validate_configuration(value):
         }
     if ctl.get("binding_entity") and ctl.get("site_power_entity"):
         raise ValueError("controller: select one authoritative capacity binding source")
-    for key in ("price_entity", "site_power_entity", "solar_entity", "binding_entity"):
+    for key in (
+        "price_entity", "site_power_entity", "solar_entity", "binding_entity",
+        "solar_power_entity", "home_power_entity", "grid_power_entity",
+        "solar_surplus_entity", "current_price_entity", "export_price_entity",
+    ):
         if ctl.get(key):
-            controller[key] = _entity(ctl[key], "controller." + key)
+            entity_id = _entity(ctl[key], "controller." + key)
+            if not entity_id.startswith("sensor."):
+                raise ValueError(f"controller.{key}: native sensor required")
+            controller[key] = entity_id
     ChargeController(uid=cid, name=controller["name"],
                      max_parallel=parallel, max_group_power_kw=controller.get("max_power_kw"),
                      phase_limits_a=controller.get("phase_limits_a"))
@@ -147,10 +215,17 @@ def validate_configuration(value):
         raise ValueError("assets: expected list")
     for source in value.get("assets", []):
         _allowed(source, ("id", "name", "kind", "soc_entity",
-                          "vehicle_control_entity", "vehicle_current_entity",
+                          "soc_stale_entity", "vehicle_control_entity", "vehicle_current_entity",
                           "capacity_kwh", "target_soc", "max_charge_kw",
-                          "requested_kwh", "requested_duration_minutes", "ready_by",
-                          "ready_by_repeat", "charge_efficiency", "priority",
+                          "requested_kwh", "requested_duration_minutes",
+                          "requested_budget_amount", "requested_budget_currency", "ready_by",
+                          "ready_by_repeat", "ready_by_weekdays", "charging_windows",
+            "continuous_charging",
+            "minimum_soc_pct", "maximum_price_per_kwh", "price_currency",
+            "low_price_trigger_per_kwh", "low_soc_trigger_pct",
+            "opportunistic_kind", "opportunistic_level_pct",
+            "earliest_start_at",
+            "charge_efficiency", "priority",
                           "temporary", "expires_at", "expected_connection_at",
                           "plan_color"), "asset")
         uid = _text(source.get("id"), "asset.id")
@@ -165,6 +240,13 @@ def validate_configuration(value):
             asset["plan_color"] = source["plan_color"]
         if source.get("soc_entity"):
             asset["soc_entity"] = _entity(source["soc_entity"], "asset.soc_entity")
+        if source.get("soc_stale_entity"):
+            entity_id = _entity(source["soc_stale_entity"], "asset.soc_stale_entity")
+            if not entity_id.startswith("binary_sensor."):
+                raise ValueError("asset.soc_stale_entity: native binary_sensor required")
+            if not source.get("soc_entity"):
+                raise ValueError("asset.soc_stale_entity: select a SoC sensor first")
+            asset["soc_stale_entity"] = entity_id
         for key, domain in (("vehicle_control_entity", "switch"),
                             ("vehicle_current_entity", "number")):
             if source.get(key):
@@ -186,8 +268,24 @@ def validate_configuration(value):
             if isinstance(minutes, bool) or not isinstance(minutes, int) or minutes <= 0:
                 raise ValueError("asset.requested_duration_minutes: positive integer required")
             asset["requested_duration_minutes"] = minutes
-        if "requested_kwh" in asset and "requested_duration_minutes" in asset:
-            raise ValueError("asset: choose kWh or minutes, not both")
+        if source.get("requested_budget_amount") is not None:
+            asset["requested_budget_amount"] = _number(
+                source["requested_budget_amount"],
+                "asset.requested_budget_amount",
+            )
+            currency = source.get("requested_budget_currency", "EUR")
+            if (not isinstance(currency, str) or
+                    fullmatch(r"[A-Z]{3}", currency) is None):
+                raise ValueError("asset.requested_budget_currency: ISO-4217 required")
+            asset["requested_budget_currency"] = currency
+        elif source.get("requested_budget_currency") is not None:
+            raise ValueError("asset.requested_budget_currency: amount required")
+        finite_goals = sum(key in asset for key in (
+            "requested_kwh", "requested_duration_minutes",
+            "requested_budget_amount",
+        ))
+        if finite_goals > 1:
+            raise ValueError("asset: choose kWh, duration OR money")
         if source.get("temporary") is not None:
             if type(source["temporary"]) is not bool:
                 raise ValueError("asset.temporary: expected boolean")
@@ -234,11 +332,67 @@ def validate_configuration(value):
             if parsed.tzinfo is None or parsed.utcoffset() is None:
                 raise ValueError("asset.ready_by: explicit timezone required")
             asset["ready_by"] = parsed.isoformat()
+        # Legacy weekly is readable for exact time-zone migration on user edit.
         repeat = source.get("ready_by_repeat", "none")
-        if repeat not in ("none", "daily", "weekly"):
-            raise ValueError("asset.ready_by_repeat: expected none/daily/weekly")
-        if repeat != "none" and "ready_by" not in asset:
+        if repeat not in ("none", "daily", "specific_days", "weekly"):
+            raise ValueError("asset.ready_by_repeat: unsupported recurrence")
+        if repeat in ("daily", "weekly") and "ready_by" not in asset:
             raise ValueError("asset.ready_by_repeat: Ready By anchor required")
+        if source.get("ready_by_weekdays") is not None:
+            asset["ready_by_weekdays"] = _ready_day_times(
+                source["ready_by_weekdays"])
+        if repeat == "specific_days" and not asset.get("ready_by_weekdays"):
+            raise ValueError("asset.ready_by_weekdays: specific days required")
+        if source.get("charging_windows") is not None:
+            asset["charging_windows"] = _charging_windows(
+                source["charging_windows"])
+        if source.get("continuous_charging") is not None:
+            if type(source["continuous_charging"]) is not bool:
+                raise ValueError("asset.continuous_charging: expected boolean")
+            asset["continuous_charging"] = source["continuous_charging"]
+        for field in ("minimum_soc_pct", "low_soc_trigger_pct",
+                      "opportunistic_level_pct"):
+            if source.get(field) is None:
+                continue
+            level = _number(source[field], "asset." + field, zero=True)
+            if level > 100:
+                raise ValueError("asset." + field + ": outside 0..100")
+            asset[field] = level
+        for field in ("maximum_price_per_kwh", "low_price_trigger_per_kwh"):
+            if source.get(field) is None:
+                continue
+            quote = source[field]
+            if type(quote) not in (float, int) or not isfinite(quote):
+                raise ValueError("asset." + field + ": finite price required")
+            asset[field] = float(quote)
+        if source.get("opportunistic_kind") is not None:
+            if source["opportunistic_kind"] not in ("off", "type1", "type2"):
+                raise ValueError("asset.opportunistic_kind: off/type1/type2")
+            asset["opportunistic_kind"] = source["opportunistic_kind"]
+        if (asset.get("opportunistic_kind") in ("type1", "type2")
+                and "maximum_price_per_kwh" not in asset):
+            raise ValueError("asset.opportunistic_kind: price cap required")
+        if (any(k in asset for k in (
+                "maximum_price_per_kwh", "low_price_trigger_per_kwh"))
+                or source.get("price_currency") is not None):
+            currency = source.get("price_currency")
+            if (not isinstance(currency, str)
+                    or fullmatch(r"[A-Z]{3}", currency) is None):
+                raise ValueError("asset.price_currency: ISO-4217 required")
+            asset["price_currency"] = currency
+        if (asset.get("minimum_soc_pct") is not None
+                and asset.get("target_soc") is not None
+                and asset["minimum_soc_pct"] > asset["target_soc"]):
+            raise ValueError("asset.minimum_soc_pct: must not exceed target")
+        if source.get("earliest_start_at") is not None:
+            raw_start = _text(source["earliest_start_at"], "asset.earliest_start_at")
+            try:
+                start = datetime.fromisoformat(raw_start.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError("asset.earliest_start_at: invalid ISO") from exc
+            if start.utcoffset() is None:
+                raise ValueError("asset.earliest_start_at: timezone required")
+            asset["earliest_start_at"] = start.isoformat()
         if source.get("ready_by_repeat") is not None:
             asset["ready_by_repeat"] = repeat
         ChargeableAsset(uid=uid, name=asset["name"], kind=asset["kind"],
@@ -254,6 +408,7 @@ def validate_configuration(value):
     for source in value.get("chargers", []):
         _allowed(source, ("id", "name", "kind", "rated_power_kw", "asset",
                           "control_entity", "connected_entity", "power_entity",
+                          "connected_states", "disconnected_states",
                           "energy_entity", "session_entity", "min_current_a", "max_current_a",
                           "phase_count", "control_owner", "physical_commissioned",
                           "phase_ids", "voltage_v", "current_step_a", "fixed_current_a",
@@ -290,6 +445,23 @@ def validate_configuration(value):
             raise ValueError("charger: native switch, connection and power source required")
         charger["control_owner"] = owner
         charger["physical_commissioned"] = commissioned
+        if ("connected_states" in source or "disconnected_states" in source):
+            entity = source.get("connected_entity")
+            if not isinstance(entity, str) or not entity.startswith("sensor."):
+                raise ValueError("charger: raw status mapping requires native sensor")
+            for field in ("connected_states", "disconnected_states"):
+                labels = source.get(field)
+                if (not isinstance(labels, list)
+                        or not 1 <= len(labels) <= 24
+                        or any(not isinstance(label, str)
+                               or not label.strip() for label in labels)):
+                    raise ValueError(f"charger.{field}: expected 1..24 state labels")
+                normalized = [label.strip().casefold() for label in labels]
+                if len(normalized) != len(set(normalized)):
+                    raise ValueError(f"charger.{field}: duplicate source status")
+                charger[field] = normalized
+            if set(charger["connected_states"]) & set(charger["disconnected_states"]):
+                raise ValueError("charger: ambiguous overlapping status mapping")
         if source.get("phase_count") is not None:
             p = source["phase_count"]
             if isinstance(p, bool) or not isinstance(p, int) or p not in (1, 2, 3):
@@ -437,6 +609,44 @@ def validate_configuration(value):
     return {"controller": controller, "assets": assets, "chargers": chargers}
 
 
+def energy_dashboard_suggestions(preferences):
+    """Read optional HA Energy Dashboard entity associations, never its settings.
+
+    HA's own configured solar/grid *power* sensors are suggestions, not
+    inferred electrical capability, future tariffs or charging permission.
+    Multiple grid/solar connections cannot be silently combined or guessed.
+    """
+    if not isinstance(preferences, dict):
+        return {}
+    sources = preferences.get("energy_sources", [])
+    if not isinstance(sources, list):
+        return {}
+    choices = {}
+    for kind, field in (("solar", "solar_power_entity"),
+                        ("grid", "grid_power_entity")):
+        matching = [row for row in sources if isinstance(row, dict)
+                    and row.get("type") == kind]
+        if len(matching) == 1:
+            proposed = matching[0].get("stat_rate")
+            if isinstance(proposed, str) and fullmatch(
+                    r"sensor\.[a-z0-9_]+", proposed):
+                choices[field] = proposed
+    grid = [row for row in sources if isinstance(row, dict)
+            and row.get("type") == "grid"]
+    if len(grid) == 1:
+        for attr, destination in (
+            ("entity_energy_price", "current_price_entity"),
+            ("entity_energy_price_export", "export_price_entity"),
+        ):
+            proposed = grid[0].get(attr)
+            if isinstance(proposed, str) and fullmatch(
+                    r"sensor\.[a-z0-9_]+", proposed):
+                choices[destination] = proposed
+    # Home-wide demand is not the sum of HA per-device counters. Never guess
+    # a home power sensor from device_consumption or PV/energy kWh statistics.
+    return choices
+
+
 def effective_configuration(entry):
     """One authority: expert JSON/YAML overrides historic UI options.
 
@@ -448,6 +658,15 @@ def effective_configuration(entry):
     return validate_configuration(deepcopy(
         entry.options.get("configuration", entry.data["configuration"])
     ))
+
+
+def configuration_json(config):
+    """Lossless human-editable JSON projection of the one validated Config Entry.
+
+    This is transport and presentation only: no extra file, store, defaults,
+    independent owner, or permission to bypass guarded physical commissioning.
+    """
+    return dumps(validate_configuration(config), indent=2, ensure_ascii=False)
 
 
 def configuration_revision(config):
@@ -467,20 +686,40 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
         "controller": {
             "name", "max_parallel", "max_power_kw", "phase_limits_a",
             "price_entity", "solar_entity", "site_power_entity",
+            "solar_power_entity", "home_power_entity", "grid_power_entity",
+            "solar_surplus_entity", "current_price_entity", "export_price_entity",
+            "solar_source_kind", "grid_power_direction",
             "binding_entity", "mode",
             "plan_label_mode", "plan_color_by", "show_indicative_forecast",
         },
         "asset": {
-            "name", "kind", "soc_entity", "capacity_kwh", "target_soc",
+            "name", "kind", "soc_entity", "soc_stale_entity", "capacity_kwh", "target_soc",
             "max_charge_kw", "requested_kwh", "requested_duration_minutes",
-            "ready_by", "ready_by_repeat", "charge_efficiency", "priority",
+                          "requested_budget_amount", "requested_budget_currency",
+            "ready_by", "ready_by_repeat", "ready_by_weekdays", "charging_windows",
+            "continuous_charging",
+            "minimum_soc_pct", "maximum_price_per_kwh", "price_currency",
+            "low_price_trigger_per_kwh", "low_soc_trigger_pct",
+            "opportunistic_kind", "opportunistic_level_pct",
+            "earliest_start_at",
+            "charge_efficiency", "priority",
             "temporary", "expires_at", "expected_connection_at",
             "plan_color",
         },
         "charger": {"name", "asset", "plan_color",
                     "min_charging_power_kw", "max_charging_power_kw"},
     }
-    if scope not in allowed or set(changes) - allowed[scope]:
+    # Atomic native Guest/Asset onboarding: assigning a presently unassigned
+    # Charger is one Config Entry revision, never a second relation registry.
+    create_charger_id = changes.get("assign_charger_id")
+    if create_charger_id is not None and not (
+            scope == "asset" and action == "create"
+            and isinstance(create_charger_id, str)
+            and create_charger_id.strip()):
+        raise ValueError("assign_charger_id: only on Asset create")
+    accepted_changes = {k: v for k, v in changes.items()
+                        if k != "assign_charger_id"}
+    if scope not in allowed or set(accepted_changes) - allowed[scope]:
         raise ValueError("settings field not editable in this scope")
     if action not in ("save", "create", "delete"):
         raise ValueError("unsupported settings action")
@@ -506,7 +745,26 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
             return validate_configuration(cfg)
         elif target is None:
             raise ValueError("unknown logical object")
-    for name, value in changes.items():
+    # Inspect the original destination, BEFORE applying the edit; otherwise
+    # target["asset"] already equals the requested value and an occupied
+    # Charger could silently evict its former Vehicle.
+    if (scope == "charger" and changes.get("asset")
+            and target.get("asset") not in (None, changes["asset"])):
+        raise ValueError("charger_occupied")
+    if scope == "asset" and action in ("save", "create"):
+        # Three finite intents share ONE Config Entry and cannot silently
+        # coexist; target SoC remains a separate long-term vehicle preference.
+        if changes.get("requested_budget_amount") is not None:
+            target.pop("requested_kwh", None)
+            target.pop("requested_duration_minutes", None)
+            if not changes.get("requested_budget_currency"):
+                changes = {**changes, "requested_budget_currency":
+                           target.get("requested_budget_currency", "EUR")}
+        elif changes.get("requested_kwh") is not None or (
+                changes.get("requested_duration_minutes") is not None):
+            target.pop("requested_budget_amount", None)
+            target.pop("requested_budget_currency", None)
+    for name, value in accepted_changes.items():
         if value is None or value == "":
             if name == "name":
                 raise ValueError("name cannot be empty")
@@ -515,6 +773,14 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
             target[name] = value
     if scope == "asset" and action == "create":
         apply_new_asset_defaults(target)
+        if create_charger_id is not None:
+            chosen = next((c for c in cfg["chargers"]
+                           if c["id"] == create_charger_id), None)
+            if chosen is None:
+                raise ValueError("unknown_free_charger")
+            if chosen.get("asset") is not None:
+                raise ValueError("charger_occupied")
+            chosen["asset"] = target_id
     if scope == "charger" and changes.get("asset"):
         # One selected Charger per vehicle. Reassignment is one atomic
         # configuration edit, not delete/recreate or a second ownership store.
@@ -565,8 +831,15 @@ def is_in_place_runtime_preference_change(before, after):
         for asset in result["assets"]:
             for field in ("name", "kind", "plan_color", "capacity_kwh",
                           "target_soc", "max_charge_kw", "requested_kwh",
-                          "requested_duration_minutes", "ready_by",
-                          "ready_by_repeat", "charge_efficiency", "priority",
+                          "requested_duration_minutes", "requested_budget_amount",
+                           "requested_budget_currency", "ready_by",
+                          "ready_by_repeat", "ready_by_weekdays", "charging_windows",
+            "continuous_charging",
+            "minimum_soc_pct", "maximum_price_per_kwh", "price_currency",
+            "low_price_trigger_per_kwh", "low_soc_trigger_pct",
+            "opportunistic_kind", "opportunistic_level_pct",
+            "earliest_start_at",
+            "charge_efficiency", "priority",
                           "temporary", "expires_at", "expected_connection_at"):
                 asset.pop(field, None)
         for charger in result["chargers"]:
@@ -691,6 +964,9 @@ def normalize_expert_json(value):
         "Phase-limits-A", "Price-entity", "Solar-entity",
         "Power-envelope-entity", "Plan-label-mode", "Plan-color-by",
         "Show-indicative-forecast",
+        "Solar-power-entity", "Home-power-entity", "Grid-power-entity",
+        "Solar-surplus-entity", "Current-price-entity", "Export-price-entity",
+        "Solar-source-kind", "Grid-power-direction",
     ), "Controller")
     cfg = default_configuration(controller.get("Name") or "Home charging")
     ctl = cfg["controller"]
@@ -701,11 +977,19 @@ def normalize_expert_json(value):
         ("Max-power-kW", "max_power_kw"), ("Phase-limits-A", "phase_limits_a"),
         ("Plan-label-mode", "plan_label_mode"), ("Plan-color-by", "plan_color_by"),
         ("Show-indicative-forecast", "show_indicative_forecast"),
+        ("Solar-source-kind", "solar_source_kind"),
+        ("Grid-power-direction", "grid_power_direction"),
     ):
         if key in controller:
             ctl[field] = controller[key]
     for key, field in (
         ("Price-entity", "price_entity"), ("Solar-entity", "solar_entity"),
+        ("Solar-power-entity", "solar_power_entity"),
+        ("Home-power-entity", "home_power_entity"),
+        ("Grid-power-entity", "grid_power_entity"),
+        ("Solar-surplus-entity", "solar_surplus_entity"),
+        ("Current-price-entity", "current_price_entity"),
+        ("Export-price-entity", "export_price_entity"),
         ("Power-envelope-entity", "binding_entity"),
     ):
         selected = entity(controller, key, ("sensor",))
@@ -717,9 +1001,15 @@ def normalize_expert_json(value):
         _allowed(source, (
             "ID", "Name", "Asset type", "Vehicle-Charging-startstop-entity",
             "Vehicle-Charging-amp-entity", "Vehicle-soc-sensor",
-            "Usable-capacity-kWh", "Target-SoC-percent", "Max-charge-kW",
+            "Vehicle-soc-stale-binary-sensor", "Usable-capacity-kWh", "Target-SoC-percent", "Max-charge-kW",
             "Requested-kWh", "Requested-duration-minutes", "Ready-by",
-            "Ready-by-repeat", "Charging-efficiency", "Priority",
+            "Requested-budget-amount", "Requested-budget-currency",
+            "Ready-by-repeat", "Ready-by-weekdays", "Charging-windows",
+            "Continuous-charging",
+            "Minimum-SoC-pct", "Maximum-price-per-kWh", "Price-currency",
+            "Low-price-trigger-per-kWh", "Low-SoC-trigger-pct",
+            "Opportunistic-kind", "Opportunistic-level-pct", "Earliest-start-at",
+            "Charging-efficiency", "Priority",
             "Temporary", "Expires-at", "Expected-connection-at", "Plan-color",
         ), "ChargingAsset")
         name = _text(source.get("Name"), "ChargingAsset.Name")
@@ -735,6 +1025,7 @@ def normalize_expert_json(value):
             ("Vehicle-Charging-startstop-entity", "vehicle_control_entity", ("switch",)),
             ("Vehicle-Charging-amp-entity", "vehicle_current_entity", ("number",)),
             ("Vehicle-soc-sensor", "soc_entity", ("sensor",)),
+            ("Vehicle-soc-stale-binary-sensor", "soc_stale_entity", ("binary_sensor",)),
         ):
             selected = entity(source, key, domains)
             if selected is not None:
@@ -745,7 +1036,20 @@ def normalize_expert_json(value):
             ("Max-charge-kW", "max_charge_kw"),
             ("Requested-kWh", "requested_kwh"),
             ("Requested-duration-minutes", "requested_duration_minutes"),
+            ("Requested-budget-amount", "requested_budget_amount"),
+            ("Requested-budget-currency", "requested_budget_currency"),
             ("Ready-by", "ready_by"), ("Ready-by-repeat", "ready_by_repeat"),
+            ("Ready-by-weekdays", "ready_by_weekdays"),
+            ("Charging-windows", "charging_windows"),
+            ("Continuous-charging", "continuous_charging"),
+            ("Minimum-SoC-pct", "minimum_soc_pct"),
+            ("Maximum-price-per-kWh", "maximum_price_per_kwh"),
+            ("Price-currency", "price_currency"),
+            ("Low-price-trigger-per-kWh", "low_price_trigger_per_kwh"),
+            ("Low-SoC-trigger-pct", "low_soc_trigger_pct"),
+            ("Opportunistic-kind", "opportunistic_kind"),
+            ("Opportunistic-level-pct", "opportunistic_level_pct"),
+            ("Earliest-start-at", "earliest_start_at"),
             ("Charging-efficiency", "charge_efficiency"),
             ("Priority", "priority"), ("Temporary", "temporary"),
             ("Expires-at", "expires_at"),
@@ -771,6 +1075,7 @@ def normalize_expert_json(value):
             "Phase-IDs", "Voltage-V", "Min-current-A", "Max-current-A",
             "Current-step-A", "Fixed-current-A", "Circuit-ID",
             "Circuit-limit-A", "Plan-color",
+            "Charging-connected-states", "Charging-disconnected-states",
         ), "Charger")
         name = _text(source.get("Name"), "Charger.Name")
         uid = _text(source.get("ID") or _slug(name), "Charger.ID")
@@ -801,6 +1106,12 @@ def normalize_expert_json(value):
             ("Max-current-A", "max_current_a"), ("Current-step-A", "current_step_a"),
             ("Fixed-current-A", "fixed_current_a"), ("Circuit-ID", "circuit_id"),
             ("Circuit-limit-A", "circuit_limit_a"), ("Plan-color", "plan_color"),
+        ):
+            if key in source:
+                charger[field] = source[key]
+        for key, field in (
+            ("Charging-connected-states", "connected_states"),
+            ("Charging-disconnected-states", "disconnected_states"),
         ):
             if key in source:
                 charger[field] = source[key]

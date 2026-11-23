@@ -7,8 +7,10 @@ copy their identities, reparent devices or assert physical command ownership.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from copy import deepcopy
 
 from .source_evidence import number
+from .configuration import configuration_revision
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
@@ -30,6 +32,17 @@ async def async_setup_entry(
     )
     entities.extend(
         _LogicalReadinessSensor("charger", row, runtime) for row in cfg["chargers"]
+    )
+    # One read-only owner configuration projection per HA logical device.
+    # Native Settings and the reviewed JSON editor remain the only writers.
+    entities.extend(
+        _OwnerConfigurationSensor(kind, row, runtime)
+        for kind, rows in (
+            ("controller", [cfg["controller"]]),
+            ("asset", cfg["assets"]),
+            ("charger", cfg["chargers"]),
+        )
+        for row in rows
     )
     entities.append(_PlanStatusSensor(cfg["controller"], runtime))
     for field in ("mode", "configuration_revision", "connected_chargers",
@@ -103,6 +116,45 @@ class _NativeMultiChargeSensor(SensorEntity):
 
     def _update_value(self):
         raise NotImplementedError
+
+
+class _OwnerConfigurationSensor(_NativeMultiChargeSensor):
+    """Show all configured fields on the correct native HA Device.
+
+    One read-only revisioned projection, not another configuration database:
+    options/import own the actual values and a charger retains its hardware
+    provider and sole physical command owner.
+    """
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, kind: str, data: dict, runtime) -> None:
+        super().__init__(kind, data, runtime)
+        self._attr_name = "Configuration"
+        self._attr_unique_id = f"{DOMAIN}:{kind}:{data['id']}:configuration"
+        self._revision = None
+        self._update_value()
+
+    def _update_value(self):
+        config = self.runtime.configuration
+        rows = ([config["controller"]] if self.kind == "controller"
+                else config["assets"] if self.kind == "asset"
+                else config["chargers"])
+        row = next((item for item in rows if item["id"] == self.data["id"]), None)
+        self._revision = configuration_revision(config)
+        self._attr_native_value = self._revision if row is not None else None
+        self._attr_extra_state_attributes = {
+            "logical_owner": self.kind,
+            "read_only_projection": True,
+            **(deepcopy(row) if row is not None else {}),
+        }
+
+    @callback
+    def _refresh(self):
+        # Telemetry changes do not re-record an unchanged configuration.
+        if self._revision != configuration_revision(self.runtime.configuration):
+            self._update_value()
+            self.async_write_ha_state()
 
 
 class _LogicalReadinessSensor(_NativeMultiChargeSensor):
@@ -575,6 +627,8 @@ class _AssetIntentSensor(_NativeMultiChargeSensor):
             status = "energy"
         elif current.get("requested_duration_minutes") is not None:
             status = "duration"
+        elif current.get("requested_budget_amount") is not None:
+            status = "budget"
         elif current.get("target_soc") is not None:
             status = "target_soc"
         else:
@@ -584,6 +638,20 @@ class _AssetIntentSensor(_NativeMultiChargeSensor):
             "selected_charger_id": assigned,
             "requested_kwh": current.get("requested_kwh"),
             "requested_duration_minutes": current.get("requested_duration_minutes"),
+            "requested_budget_amount": current.get("requested_budget_amount"),
+            "requested_budget_currency": current.get("requested_budget_currency"),
+            "ready_by_repeat": current.get("ready_by_repeat", "none"),
+            "ready_by_weekdays": current.get("ready_by_weekdays"),
+            "charging_windows": current.get("charging_windows"),
+            "continuous_charging": current.get("continuous_charging", False),
+            "minimum_soc_pct": current.get("minimum_soc_pct"),
+            "maximum_price_per_kwh": current.get("maximum_price_per_kwh"),
+            "price_currency": current.get("price_currency"),
+            "low_price_trigger_per_kwh": current.get("low_price_trigger_per_kwh"),
+            "low_soc_trigger_pct": current.get("low_soc_trigger_pct"),
+            "opportunistic_kind": current.get("opportunistic_kind", "off"),
+            "opportunistic_level_pct": current.get("opportunistic_level_pct"),
+            "earliest_start_at": current.get("earliest_start_at"),
             "target_soc": current.get("target_soc"),
             "ready_by": current.get("ready_by"),
             "priority": current.get("priority", 0),

@@ -35,3 +35,13 @@ jobs:
         run: |
           python -m pip install --index-url https://pypi.org/simple pytest-homeassistant==2026.11.2
           python -m pytest -q -o asyncio_mode=auto tests/ha_runtime/test_native_integration.py
+      - name: Real Chromium responsive user-journey proof
+        run: python scripts/qa_browser.py
+      - name: Save visual TEST evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: multicharge-ux-browser
+          path: dist/ux-browser-proof/*.png
+          if-no-files-found: ignore
+          retention-days: 7
