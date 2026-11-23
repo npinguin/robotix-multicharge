@@ -137,6 +137,31 @@ async function main(){
   ),"Unassign clears the authoritative Charger.asset instead of deleting Asset");
   assert.equal(assignmentWS.filter(x=>x.type==="robotix_multicharge/command").length,0,
     "Move/unassign never sends hidden physical STOP or START");
+  const blockedCard=new Card();
+  blockedCard.setConfig({});
+  blockedCard.hass={
+    user:{is_admin:true},states:{},
+    callWS:async request=>{
+      if(request.type==="robotix_multicharge/update_settings")
+        throw new Error("CHARGER_BUSY_STOP_FIRST");
+      return assignData;
+    }
+  };
+  await new Promise(resolve=>setImmediate(resolve));
+  find(blockedCard.shadowRoot,"button","Chargeable Assets").click();
+  find(blockedCard.shadowRoot,"button","Change charger").click();
+  let blockedChoice;
+  visit(blockedCard.shadowRoot,x=>{
+    if(x.tag==="select"&&x.attributes["aria-label"]==="Select charger")
+      blockedChoice=x;
+  });
+  blockedChoice.value="patio";blockedChoice.events.change();
+  find(blockedCard.shadowRoot,"button","Assign selected charger").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(content(blockedCard.shadowRoot).includes(
+    "Stop charging before changing charger"),
+    "Denied physical idle readback must show a concrete user action");
+  assert.equal(blockedCard._settingsFeedback.status,"rejected");
   const readonlyAssign=new Card();
   readonlyAssign.setConfig({});
   readonlyAssign.hass={
