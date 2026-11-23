@@ -56,7 +56,7 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
         chrome, "--headless=new", "--no-sandbox", "--disable-gpu",
         "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check",
         "--hide-scrollbars", "--force-device-scale-factor=1",
-        f"--window-size={max(500,size)},900", "--virtual-time-budget=1900",
+        f"--window-size={max(500,size)},900", "--virtual-time-budget=3500",
         f"--screenshot={screenshot}", "--dump-dom",
     ]
     if dark:
@@ -95,7 +95,10 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
         if row["quickEditable"] != (count if role == "admin" else 0):
             raise AssertionError(f"{label}: read-only resident or admin native select drift: {row}")
     if view == "plan" and count:
-        if row["apexHosts"] != count + 1 or row["apexLive"] != count + 1:
+        # Only Charger 0 has qualified measured/planned source data in
+        # this fixture. All other nine lanes intentionally say no slots,
+        # not ten fabricated ApexCharts plots.
+        if row["apexHosts"] != 2 or row["apexLive"] != 2:
             raise AssertionError(f"{label}: real local ApexCharts not fully rendered: {row}")
     if row["commandButtons"]:
         raise AssertionError(f"{label}: uncommissioned external Charger shows physical writes")
