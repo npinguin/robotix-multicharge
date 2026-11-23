@@ -66,6 +66,10 @@ global.document={
   createTextNode:(text)=>{const n=new Element("#text");n.textContent=text;return n;}
 };
 require("../custom_components/robotix_multicharge/frontend/robotix-multicharge.js");
+assert.ok(uiSource.includes('mcButton("Edit JSON",()=>this.openYamlEditor())'),
+  "Every owner group must offer the one canonical reviewed JSON editor");
+assert.ok(uiSource.includes('this.openNative(scope,record.id,field)'),
+  "Existing native entity preferences remain directly editable by owner");
 const Card=customElements.get("robotix-multicharge-card");
 assert.ok(Card,"native custom card registered");
 const Panel=customElements.get("robotix-multicharge-panel");
@@ -862,9 +866,9 @@ async function main(){
     "YAML-managed settings clearly disclose their authority");
   assert.ok(!find(yamlCard.shadowRoot,"button","Edit"),
     "YAML-managed configuration must not advertise writable settings");
-  assert.ok(!find(yamlCard.shadowRoot,"button","Edit YAML"),
+  assert.ok(!find(yamlCard.shadowRoot,"button","Edit JSON"),
     "External YAML source cannot be overwritten from a second UI editor");
-  assert.ok(!find(resident.shadowRoot,"button","Edit YAML"),
+  assert.ok(!find(resident.shadowRoot,"button","Edit JSON"),
     "Non-admin must never access native configuration transaction");
 
   // A real admin begins exactly one official HA Options Flow. The frontend
@@ -909,9 +913,9 @@ async function main(){
     }};
   await new Promise(resolve=>setImmediate(resolve));
   editorCard._tab="Settings";editorCard.render();
-  assert.ok(find(editorCard.shadowRoot,"button","Edit YAML"),
+  assert.ok(find(editorCard.shadowRoot,"button","Edit JSON"),
     "GUI-managed site exposes first-class YAML mode in Settings");
-  find(editorCard.shadowRoot,"button","Edit YAML").click();
+  find(editorCard.shadowRoot,"button","Edit JSON").click();
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(editorCard._yamlFlow?.step_id,"yaml");
   const textarea=find(editorCard.shadowRoot,"textarea");
@@ -926,7 +930,7 @@ async function main(){
   assert.ok(content(editorCard.shadowRoot).includes("Writer unchanged"),
     "Actual backend review diff is shown verbatim before Save");
   assert.ok(!yamlApplied,"Review must not save or send any physical command");
-  find(editorCard.shadowRoot,"button","Back to YAML").click();
+  find(editorCard.shadowRoot,"button","Back to JSON").click();
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(editorCard._yamlFlow.step_id,"yaml");
   editorCard._yamlText="INVALID";
@@ -952,9 +956,9 @@ async function main(){
     call.path==="config/config_entries/options/flow/flow-1"&&
     call.body?.action==="start"),
     "Config review/save never sends physical actuation");
-  find(editorCard.shadowRoot,"button","Edit YAML").click();
+  find(editorCard.shadowRoot,"button","Edit JSON").click();
   await new Promise(resolve=>setImmediate(resolve));
-  find(editorCard.shadowRoot,"button","Cancel YAML").click();
+  find(editorCard.shadowRoot,"button","Cancel JSON").click();
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(yamlApis.some(call=>call.method==="DELETE"),
     "Cancel deletes the server-side draft flow");
