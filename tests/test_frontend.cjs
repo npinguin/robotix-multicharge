@@ -1,6 +1,40 @@
 /* Source-only browser-like interaction contract. Never claimed as a real HA render. */
 "use strict";
 const assert=require("node:assert/strict");
+const fs=require("node:fs"),path=require("node:path");
+// UX-OWNER-01 schema-bound coverage. Every accepted persisted owner field
+// must be visible on precisely its owning logical object at D3/D4.
+const configurationSource=fs.readFileSync(path.join(__dirname,
+  "../custom_components/robotix_multicharge/configuration.py"),"utf8");
+const uiSource=fs.readFileSync(path.join(__dirname,
+  "../custom_components/robotix_multicharge/frontend/robotix-multicharge.js"),"utf8");
+const groupSource=uiSource.slice(
+  uiSource.indexOf("const MC_OWNER_GROUPS = {"),
+  uiSource.indexOf("const MC_OWNER_NAMES = {")
+);
+assert.ok(groupSource.startsWith("const MC_OWNER_GROUPS = {"));
+const scopeList=["controller","asset","charger"];
+for(let index=0;index<scopeList.length;index++){
+  const scope=scopeList[index];
+  const sourceMatch=configurationSource.match(
+    new RegExp("_allowed\\("+(scope==="controller"?"ctl":"source")+
+      ", \\(([\\s\\S]*?)\\), \""+scope+"\"\\)")
+  );
+  assert.ok(sourceMatch,"Schema for "+scope+" must be readable");
+  const permitted=[...sourceMatch[1].matchAll(/"([a-z][a-z0-9_]*)"/g)]
+    .map(match=>match[1]);
+  const start=groupSource.indexOf("  "+scope+": [");
+  const after=index+1<scopeList.length?
+    groupSource.indexOf("  "+scopeList[index+1]+": [",start):
+    groupSource.indexOf("\n};",start);
+  assert.ok(start>=0&&after>start,"Owner field groups for "+scope);
+  const uiFields=new Set([...groupSource.slice(start,after)
+    .matchAll(/"([a-z][a-z0-9_]*)"/g)].map(match=>match[1]));
+  const missing=[...new Set(permitted)].filter(field=>!uiFields.has(field));
+  assert.deepEqual(missing,[],"No "+scope+
+    " configuration field may silently disappear from its logical UX object");
+}
+
 class Element {
   constructor(tag){this.tag=tag;this.children=[];this.attributes={};this.events={};this.style={};this.textContent="";this.value="";}
   append(...items){this.children.push(...items);}
