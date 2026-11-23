@@ -1051,7 +1051,16 @@ async function main(){
   assert.ok(content(card.shadowRoot).includes("Family car"));
   assert.ok(content(card.shadowRoot).includes("2.30 kW"));
   find(card.shadowRoot,"button","Charging Plan").click();
-  assert.ok(find(card.shadowRoot,"svg"),"actual quarter timeline chart mounted");
+  const apexRegions=[];
+  visit(card.shadowRoot,node=>{
+    if(node.attributes?.["data-chart-engine"]==="apexcharts-3.49.1")
+      apexRegions.push(node);
+  });
+  assert.ok(apexRegions.length>=1,
+    "Locally packaged ApexCharts power-price and native Charger timelines configured");
+  assert.ok(apexRegions.every(node=>node.attributes["role"]==="img"),
+    "Every interactive chart includes a readable alternative");
+
   // UX-ROW-03 aggregate power-price chart: one combined Basic-inspired
   // timeline above every dynamic vehicle/EVSE row, no static Wessels IDs.
   assert.ok(find(card.shadowRoot,"button","48h"),
@@ -1270,6 +1279,9 @@ async function main(){
       fixture.configuration.assets[0].plan_color=args.option;
     } else if(args.entity_id==="select.drive_color"){
       fixture.configuration.chargers[0].plan_color=args.option;
+    } else if(args.entity_id==="select.drive_vehicle"){
+      fixture.configuration.chargers[0].asset=
+        args.option==="none"?undefined:"car";
     }
   };
   card._tab="Settings";card._settingsOpen="Charging strategy";card.render();
@@ -1296,6 +1308,32 @@ async function main(){
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(nativeCalls.some(c=>c.args.entity_id==="select.car_color"&&
     c.args.option==="blue"),"vehicle palette is changed through its own HA entity");
+  card._tab="Chargers";card._open="";card.render();
+  const quicks=[];
+  visit(card.shadowRoot,node=>{
+    if(node.tag==="select"&&node.attributes?.["data-quick-assignment"]==="drive")
+      quicks.push(node);
+  });
+  assert.equal(quicks.length,1,
+    "Charger chosen vehicle must be editable without opening Details");
+  assert.equal(quicks[0].value,"Family car");
+  quicks[0].value="none";quicks[0].events.change();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(nativeCalls.some(x=>x.args.entity_id==="select.drive_vehicle"&&
+    x.args.option==="none"),
+    "Quick vehicle None selection must use real native HA Charger Select Entity");
+  card._tab="Overview";card._open="";card.render();
+  const overviewQuicks=[];
+  visit(card.shadowRoot,node=>{
+    if(node.tag==="select"&&node.attributes?.["data-quick-assignment"]==="drive")
+      overviewQuicks.push(node);
+  });
+  assert.equal(overviewQuicks.length,1,
+    "Overview exposes native selected-vehicle Quick Action without technical Details");
+  overviewQuicks[0].value="Family car";overviewQuicks[0].events.change();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(fixture.configuration.chargers[0].asset,"car",
+    "Quick selection persists in the canonical object rather than frontend-only state");
   card._tab="Chargers";card._open="";card.render();
   find(card.shadowRoot,"button","Details").click();
   assert.ok(content(card.shadowRoot).includes("Plan color"));
