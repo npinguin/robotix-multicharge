@@ -46,7 +46,7 @@ async def async_setup_entry(
 class _AssetNumber(NumberEntity):
     _attr_has_entity_name = True
     _attr_should_poll = False
-    _attr_entity_category = EntityCategory.CONFIG
+    _attr_entity_category = None
     _attr_mode = NumberMode.BOX
 
     def __init__(self, entry, runtime, asset, field):
@@ -115,7 +115,7 @@ class _AssetNumber(NumberEntity):
 class _SiteNumber(NumberEntity):
     _attr_has_entity_name = True
     _attr_should_poll = False
-    _attr_entity_category = EntityCategory.CONFIG
+    _attr_entity_category = None
     _attr_mode = NumberMode.BOX
 
     def __init__(self, entry, runtime, field):
@@ -185,9 +185,7 @@ class _ChargerPowerNumber(NumberEntity):
         self.uid, self.field = charger["id"], field
         self._attr_unique_id = f"{DOMAIN}:charger:{self.uid}:{field}"
         self._attr_translation_key = field
-        self._attr_entity_category = (
-            None if field == "set_charging_power_kw" else EntityCategory.CONFIG
-        )
+        self._attr_entity_category = None
         self._attr_device_info = {
             "identifiers": {(DOMAIN, f"charger/{self.uid}")},
             "name": charger["name"], "manufacturer": "Robotix",
