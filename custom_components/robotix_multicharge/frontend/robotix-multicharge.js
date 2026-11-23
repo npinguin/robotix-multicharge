@@ -1035,6 +1035,9 @@ class RobotixMultiChargeCard extends HTMLElement {
       const mode=(flow.data_schema||[]).find(x=>x.name==="mode");
       this._yamlText=String(input?.description?.suggested_value??input?.default??"");
       this._yamlMode=String(mode?.default||"replace");
+      // The same owner-scoped Edit JSON button is available from every
+      // Asset/Charger Details: navigate to its real reviewed Settings editor.
+      this._tab="Settings";
       this._settingsOpen="Advanced & JSON";
       pending=null;
     }catch(error){
