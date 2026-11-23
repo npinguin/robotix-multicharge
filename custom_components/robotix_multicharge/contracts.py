@@ -94,12 +94,50 @@ class ChargeDemand:
     remaining_budget_amount: float | None = None
     budget_currency: str | None = None
     continuous_charging: bool = False
+    minimum_priority_kwh: float = 0.0
+    low_soc_priority_kwh: float = 0.0
+    maximum_price_per_kwh: float | None = None
+    low_price_trigger_per_kwh: float | None = None
+    price_currency: str | None = None
+    opportunistic_kind: str = "off"
+    opportunistic_level_pct: float | None = None
 
     def __post_init__(self) -> None:
         if not self.asset_uid.strip():
             raise ValueError("asset identity required")
         if type(self.continuous_charging) is not bool:
             raise ValueError("charging continuity requires a boolean")
+        for field in ("minimum_priority_kwh", "low_soc_priority_kwh"):
+            kw = getattr(self, field)
+            if type(kw) not in (int, float) or not isfinite(kw) or kw < 0:
+                raise ValueError("minimum/low-SoC priority requires finite energy")
+            if self.remaining_grid_kwh is not None and kw > self.remaining_grid_kwh + 1e-9:
+                raise ValueError("priority energy exceeds actual demand")
+        for field in ("maximum_price_per_kwh", "low_price_trigger_per_kwh"):
+            value = getattr(self, field)
+            if value is not None and (
+                    type(value) not in (int, float) or not isfinite(value)):
+                raise ValueError("price policy requires finite numeric value")
+        if any(getattr(self, name) is not None for name in (
+                "maximum_price_per_kwh", "low_price_trigger_per_kwh")):
+            if (not isinstance(self.price_currency, str)
+                    or len(self.price_currency) != 3
+                    or not self.price_currency.isascii()
+                    or not self.price_currency.isupper()
+                    or not self.price_currency.isalpha()):
+                raise ValueError("explicit price-policy currency required")
+        elif self.price_currency is not None:
+            raise ValueError("price currency without a price policy")
+        if self.opportunistic_kind not in ("off", "type1", "type2"):
+            raise ValueError("unsupported opportunistic price policy")
+        if (self.opportunistic_kind != "off"
+                and self.maximum_price_per_kwh is None):
+            raise ValueError("opportunistic mode requires a verified price cap")
+        if self.opportunistic_level_pct is not None and (
+                type(self.opportunistic_level_pct) not in (int, float)
+                or not isfinite(self.opportunistic_level_pct)
+                or not 0 <= self.opportunistic_level_pct <= 100):
+            raise ValueError("opportunistic level outside 0..100")
         if self.remaining_grid_kwh is not None and (
             not isfinite(self.remaining_grid_kwh) or self.remaining_grid_kwh < 0
         ):
