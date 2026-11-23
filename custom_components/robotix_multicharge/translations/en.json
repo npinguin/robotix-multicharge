@@ -115,7 +115,7 @@
         "title": "Complete site setup",
         "description": "Review all Chargers, Assets and source bindings before saving. No physical charging command or ownership change is performed. {note}",
         "data": {
-          "yaml_text": "Paste one complete MultiCharge YAML document (controller/assets/chargers)"
+          "yaml_text": "Paste complete MultiCharge configuration as JSON (controller/assets/chargers)"
         }
       },
       "expert_review": {
@@ -123,7 +123,7 @@
         "description": "{summary} Confirm only after reviewing all logical devices and settings.",
         "data": {
           "confirm": "I have reviewed the complete configuration",
-          "edit_again": "Return to YAML editing"
+          "edit_again": "Back to JSON editor"
         }
       }
     },
@@ -145,7 +145,7 @@
           "asset": "Chargeable assets",
           "charger": "Chargers",
           "display": "Dashboard card",
-          "yaml": "Edit YAML (review before save)",
+          "yaml": "Edit full JSON (review before save)",
           "commission": "Commission Charger",
           "energy": "Energy & prices"
         }
@@ -213,19 +213,19 @@
         }
       },
       "yaml": {
-        "title": "MultiCharge — YAML configuration",
+        "title": "MultiCharge — JSON configuration",
         "description": "Edit all current settings or submit scoped changes. All changes are validated before review; no physical controls are activated. {note}",
         "data": {
           "mode": "Update mode",
-          "yaml_text": "MultiCharge configuration (YAML / JSON data)"
+          "yaml_text": "MultiCharge configuration (JSON, safe YAML also accepted)"
         }
       },
       "yaml_review": {
-        "title": "Review YAML changes",
+        "title": "Review JSON changes",
         "description": "{summary}\nConfirm only after checking the complete impact. No charger command is sent by this operation.",
         "data": {
           "confirm": "Apply these reviewed configuration changes",
-          "edit_again": "Return to YAML editing"
+          "edit_again": "Back to JSON editor"
         }
       },
       "commission": {
