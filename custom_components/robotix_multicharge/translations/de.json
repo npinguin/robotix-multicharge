@@ -66,7 +66,9 @@
           "connected_entity": "Verbindungssensor (optional)",
           "power_entity": "Leistungssensor (optional)",
           "energy_entity": "Energiezähler (optional)",
-          "configure_electrical": "Elektrische Details konfigurieren (optional)"
+          "configure_electrical": "Elektrische Details konfigurieren (optional)",
+          "connected_states": "Native Statuswerte für verbunden (Kommas)",
+          "disconnected_states": "Native Statuswerte für getrennt (Kommas)"
         }
       },
       "charger_electrical": {
@@ -184,7 +186,9 @@
           "circuit_limit_a": "Stromkreisgrenze (A)",
           "current_control_entity": "Stromsollwert (number)",
           "current_readback_entity": "Gemessener Strom (A)",
-          "session_entity": "Ladesitzungssensor (optional)"
+          "session_entity": "Ladesitzungssensor (optional)",
+          "connected_states": "Native Statuswerte für verbunden (Kommas)",
+          "disconnected_states": "Native Statuswerte für getrennt (Kommas)"
         }
       },
       "display": {
