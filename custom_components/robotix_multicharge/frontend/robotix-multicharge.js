@@ -1528,6 +1528,163 @@ class RobotixMultiChargeCard extends HTMLElement {
     wrapper.append(label,input);container.append(wrapper);
     return input;
   }
+  inlineEditor(container){
+    const edit=this._inlineEditor;
+    if(!edit||!this.canEditSettings())return;
+    const cfg=this._data?.configuration||{};
+    const row=edit.scope==="controller"?cfg.controller:
+      edit.scope==="asset"?cfg.assets?.find(x=>x.id===edit.uid):
+      cfg.chargers?.find(x=>x.id===edit.uid);
+    if(!row)return;
+    const card=mcEl("section","card dashboard-editor");
+    card.setAttribute("data-inline-owner-editor",edit.field);
+    const title=MC_OWNER_NAMES[edit.field]||edit.field.replace(/_/g," ");
+    const head=mcEl("div","row");
+    head.append(mcEl("h3","",mcTr("Edit")+" · "+row.name+" · "+mcTr(title)),
+      mcButton(mcTr("Close"),()=>{
+        this._inlineEditor=null;this.render();
+      }));
+    card.append(head);
+    const observed=this._hass?.states?.[edit.entity];
+    const kind=edit.entity.split(".",1)[0];
+    let input;
+    if(kind==="select"&&Array.isArray(observed?.attributes?.options)&&
+       observed.attributes.options.length){
+      input=this.field(card,mcTr(title),observed.state,null,
+        observed.attributes.options.map(value=>[value,value]));
+    }else{
+      input=this.field(card,mcTr(title),
+        kind==="text"&&observed?.state!=="unavailable"&&
+        observed?.state!=="unknown"&&observed?.state!==undefined?
+          observed.state:row[edit.field],
+        kind==="number"?"number":"text");
+      if(kind==="number"){
+        const attrs=observed?.attributes||{};
+        if(Number.isFinite(Number(attrs.min))&&attrs.min!==undefined)
+          input.setAttribute("min",String(attrs.min));
+        if(Number.isFinite(Number(attrs.max))&&attrs.max!==undefined)
+          input.setAttribute("max",String(attrs.max));
+        input.setAttribute("step",String(attrs.step||0.01));
+      }
+    }
+    if(edit.field.endsWith("_entity")){
+      const candidates=Object.keys(this._hass?.states||{}).filter(id=>
+        id.startsWith("sensor.")||id.startsWith("binary_sensor.")||
+        id.startsWith("number.")||id.startsWith("switch."));
+      card.append(mcEl("p","muted small",
+        mcTr("Available HA sources")+" · "+candidates.length+
+        " · "+mcTr("Enter an existing entity ID; its type and source will be validated")));
+      const datalist=mcEl("datalist");
+      const id="mc-native-source-"+(++this._fieldSequence);
+      datalist.setAttribute("id",id);
+      input.setAttribute("list",id);
+      for(const entityId of candidates.slice(0,250)){
+        const option=mcEl("option");option.value=entityId;datalist.append(option);
+      }
+      card.append(datalist);
+    }
+    const action=mcButton(mcTr("Save in MultiCharge"),()=>{
+      if(!this.canEditSettings())return;
+      const value=input.value;
+      if(kind==="select")void this.nativeSelect(
+        edit.scope,edit.uid,edit.field,value
+      );
+      else if(kind==="number"){
+        if(value===""||!Number.isFinite(Number(value))){
+          this._settingsFeedback={status:"rejected",message:"Number required"};
+          this.render();return;
+        }
+        void this.nativeNumber(edit.scope,edit.uid,edit.field,Number(value));
+      }else if(kind==="text"){
+        void this.nativeText(edit.scope,edit.uid,edit.field,value);
+      }else{
+        void this.saveSettings(edit.scope,edit.uid,{
+          [edit.field]:value||null
+        },"save");
+      }
+    });
+    action.disabled=this._settingsBusy||observed?.state==="unavailable";
+    card.append(action);
+    card.append(mcEl("p","muted small",
+      "Edit stays inside the MultiCharge dashboard. "+
+      "Changes persist through the same native Home Assistant Config Entry."));
+    container.append(card);
+  }
+  openCommissionEditor(charger){
+    if(!this.canEditSettings())return;
+    this._commissionEditor={
+      charger_id:charger.id,name:charger.name,
+      enable:charger.control_owner!=="multicharge",
+      busy:false,error:""
+    };
+    this._inlineEditor=null;this._jsonEditor=null;
+    this.render();
+  }
+  async applyCommission(exclusive,electrical){
+    const editor=this._commissionEditor;
+    if(!editor||editor.busy||!this.canEditSettings())return;
+    editor.busy=true;editor.error="";this.render();
+    try{
+      const response=await this._hass.callWS({
+        type:"robotix_multicharge/dashboard_config",
+        operation:"commission",
+        expected_revision:this._data.configuration_revision,
+        charger_id:editor.charger_id,
+        commission:editor.enable,
+        exclusive_writer_confirmed:exclusive,
+        electrical_limits_confirmed:electrical
+      });
+      if(response.status!=="accepted_unconfirmed"||!response.expected_revision)
+        throw Error("Commissioning not authorized");
+      this._pendingSettings={expected_revision:response.expected_revision};
+      this._settingsFeedback={status:"accepted_unconfirmed",
+        message:"Commissioning accepted; waiting HA Config Entry readback"};
+      this._last=0;await this.load();
+      if(this._data?.configuration_revision===response.expected_revision){
+        this._commissionEditor=null;
+        this._settingsFeedback={status:"confirmed",message:"Saved"};
+      }else editor.error="HA runtime readback pending; refresh";
+    }catch(error){
+      editor.error=String(error?.message||error?.code||"Physical commissioning rejected").slice(0,250);
+    }finally{editor.busy=false;this.render();}
+  }
+  commissionEditor(container){
+    const editor=this._commissionEditor;
+    if(!editor||!this.canEditSettings())return;
+    const card=mcEl("section","card dashboard-editor");
+    card.setAttribute("data-dashboard-commission",editor.charger_id);
+    const header=mcEl("div","row");
+    header.append(mcEl("h3","",
+      (editor.enable?"Commission":"Return to monitoring")+
+      " · "+editor.name),
+      mcButton(mcTr("Close"),()=>{
+        this._commissionEditor=null;this.render();
+      }));
+    card.append(header);
+    card.append(mcEl("p","message error",
+      "Physical hardware ownership can only change with "+
+      "an exclusive writer, verified electrical limits, OFF switch and "+
+      "independently measured zero power. No START/STOP command is issued here."));
+    const check=(label)=>{
+      const row=mcEl("label","dashboard-confirm");
+      const input=mcEl("input");input.setAttribute("type","checkbox");
+      row.append(input,mcEl("span","",label));
+      card.append(row);return input;
+    };
+    const exclusive=check("I verified no EV Smart Charging or other controller still writes to this charger");
+    const electrical=check("I verified the physical circuit/phase/current limits and source readback");
+    const save=mcButton(
+      editor.enable?"Enable MultiCharge physical ownership":"Disable MultiCharge physical ownership",
+      ()=>this.applyCommission(exclusive.checked,electrical.checked)
+    );
+    save.disabled=editor.busy;
+    card.append(save);
+    if(editor.error){
+      const p=mcEl("p","message error",editor.error);p.setAttribute("role","alert");
+      card.append(p);
+    }
+    container.append(card);
+  }
   openJsonEditor(scope=null,uid=null){
     if(!this.canEditSettings()||!this._data?.configuration)return;
     const cfg=this._data.configuration;
@@ -2545,6 +2702,10 @@ class RobotixMultiChargeCard extends HTMLElement {
         mcTr("External control (monitor only)"));
       mcPair(card,mcTr("Physically commissioned"),
         c.physical_commissioned===true?mcTr("Yes"):mcTr("No"));
+      if(this.canEditSettings())card.append(mcButton(
+        mcTr("Physical ownership & commissioning"),
+        ()=>this.openCommissionEditor(c)
+      ));
       const session=(d.active_sessions||{})[c.id];
       if(session){
         mcPair(card,"Active session",mcTime(session.started_at,d.timezone));
