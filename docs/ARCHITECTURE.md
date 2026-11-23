@@ -81,6 +81,14 @@ Expose stable native HA device and entity IDs for the three logical concepts. Or
 
 Logical identity and selected source bindings change only through deliberate structural edits. Live SoC, energy, current and availability updates never rebuild device registry topology. Missing and unknown must never be rendered as zero or as a successful charge.
 
+## Beginner-first owner controls and Basic-inspired combined time chart
+
+This is a **presentation-only reuse** of the proven Wessels Mobility Basic user hierarchy, not a dependency on Basic's site YAML or an imported ApexCharts engine. The existing MultiCharge one-Config-Entry owner and `robotix_multicharge/get_plan` read-only WebSocket provide the only chart data, native HA Recorder actuals, tariff intervals and Charger/Asset IDs. The front-end renders a high-level real **kW** timeline with shaded proposed, outlined physically accepted, solid actually measured power and a separately scaled, basis+currency-labelled price line; it then lists dynamically generated, independently labelled Charger lanes with actual Vehicle association and source quality, including a separate clearly marked *indicative/not reserved* track.
+
+The read view accepts `day=today|tomorrow|both`, with `both` as two local calendar days. The bounded query permits a maximum of 49 real hours because the fall DST day can contain 25 hours, while spring yields 47. There is no duplicated chart state or second native entity database; the frontend only visualizes already-qualified source, plan and Recorder results. Filtering affects the backend query and the visible chart/lanes; source-unknown historical power is never retroactively assigned to a newly selected vehicle. 0 and 10+ chargers are data-driven; no private Garage White/Black/Peblar/Utility IDs cross the public repository boundary.
+
+A novice changes a charging goal using exactly one validated Asset revision (SoC vs finite kWh/minutes/EUR, leaving independent kW hardware caps untouched), schedules specific local day/time choices using the same native Calendar preferences, and reaches plan/goal/STOP from Overview. STOP is surfaced only through native `command_capabilities.stop_allowed`. Technical settings stay one explicit disclosure step within the same Asset/Charger instead of becoming a new interface or lost feature. HA admin versus read-only resident remains enforced by the existing backend. For acceptance semantics and real-HA/browser tests, see [UC14-UX-ROW-01](FUNCTIONAL_SPECIFICATION.md), Issue #1 and PR #9.
+
 ## Charging plan timeline
 
 A single responsive, bundled timeline will be usable at ChargeController level and filtered by Charger or ChargeableAsset.
