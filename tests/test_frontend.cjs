@@ -318,6 +318,10 @@ async function main(){
   // GUEST-UX-01: an ordinary Guest is created with an amount and relative
   // expiry, not a raw ISO timestamp edited by a resident.
   const guestData=JSON.parse(JSON.stringify(fixture));
+  guestData.configuration.chargers.push({
+    id:"guest_charger",name:"Guest Charger",kind:"on_off",
+    rated_power_kw:3.6,
+  });
   guestData.configuration_revision="guest-rev";
   const guestWS=[];
   const guestCard=new Card();
@@ -345,9 +349,14 @@ async function main(){
   const guestName=formField(guestCard,"Asset name");
   const guestGoal=formField(guestCard,"Charging goal");
   const guestAmount=formField(guestCard,"Charging amount");
-  assert.ok(guestName&&guestGoal&&guestAmount);
+  const guestFreeCharger=formField(guestCard,"Select free charger (optional)");
+  assert.ok(guestName&&guestGoal&&guestAmount&&guestFreeCharger);
+  assert.deepEqual(guestFreeCharger.children.map(x=>x.value),
+                   ["none","guest_charger"],
+                   "one-step Guest can choose only a currently unassigned EVSE");
   guestName.value="Visitor";
   guestGoal.value="budget";guestAmount.value="10";
+  guestFreeCharger.value="guest_charger";
   find(guestCard.shadowRoot,"button","Create asset").click();
   await new Promise(resolve=>setImmediate(resolve));
   const create=guestWS.find(x=>
@@ -355,6 +364,8 @@ async function main(){
   assert.ok(create);
   assert.equal(create.changes.requested_budget_amount,10);
   assert.equal(create.changes.requested_budget_currency,"EUR");
+  assert.equal(create.changes.assign_charger_id,"guest_charger",
+               "one atomic revision binds a free EVSE to the new Guest");
   assert.equal(create.changes.temporary,true);
   assert.ok(Number.isFinite(Date.parse(create.changes.expires_at)),
     "Guest expiry is a real timestamp derived from selected duration");
