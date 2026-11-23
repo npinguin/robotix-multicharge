@@ -20,6 +20,28 @@
 
 Een verse HA-installatie biedt **Guided setup** of **Configure entire charging site** (één complete data-only `controller/assets/chargers`-YAML met review/save) in dezelfde native Config Flow. In-card Settings en native HA owned entities zijn bruikbaar na installatie; expert file-managed config blijft uitdrukkelijk file-owned/read-only. Configureer alle voertuigprofielen, Chargers, elektriciteitslimieten, PV/grid en prijzen direct uit bestaande native HA-providers. Geen externe Robotix-producten, package-installatie of verplichte `template:`-blokken. Expert source-binding is installatieconfiguratie; dagelijkse voorkeuren leven op de bestaande logical owner devices.
 
+### 0.1.1 Progressieve capability — bijna geen informatie tot volledige bronintegratie
+
+**Acceptatieprincipe:** MultiCharge is één generiek product met **capability-driven progressive enhancement**, geen aparte Lite/Pro-mode, geen nieuwe Charger- of voertuigklasse en geen verplichte databronlijst. Je kunt een lege laadlocatie, een Guest zonder OEM/SoC en een eenvoudige geschikte laadmogelijkheid toevoegen **zonder** prijzen, PV, Energy Dashboard, andere Robotix-producten, YAML-packages of template sensors. Een extra, gevalideerde bron ontsluit alleen de functies waarvoor die bron nodig is. Een ontbrekende bron mag **niet** een onafhankelijk bruikbare functie uitschakelen; zij mag ook geen fysiek veiligheidsbewijs simuleren.
+
+| Installatieprofiel | Welke gegevens zijn werkelijk beschikbaar? | Wat de gebruiker moet kunnen doen | Niet zomaar toestaan / vereiste kwalificatie |
+| --- | --- | --- | --- |
+| **0 — Nieuwe of lege HA** | Geen voertuig, geen Charger, geen OEM-account, geen PV of tarieven | Integratie configureren, drie logische concepten begrijpen, lege vijf-tab UX zien, later bronnen en apparaten toevoegen | Geen fictieve verbonden Charger of fysiek START |
+| **1 — Guest + eenvoudige, elektrisch geschikte smart plug/aan-uit-lader** | Naam van Guest of helemaal géén geregistreerd voertuig; geschikte native aan/uit-service, eventueel gemeten vermogen; **geen SoC of kabelsensor** | Guest registreren of een begrensde **Charger-only** eenmalige sessie voorbereiden met **eindige minuten**, de werkelijke status zien en later zonder migratie uitbreiden | Een smart plug is niet automatisch een veilige EVSE. Fysiek starten kan pas na **geverifieerde elektrische geschiktheid en exclusief writer-eigenaarschap**, voldoende fysieke verbinding-/gebruikersbevestiging passend bij het apparaat en onafhankelijke power/STOP-readback. Als dat bewijs ontbreekt: duidelijke HOLD, **niet** het profiel of de hele UI blokkeren. **Manuele bevestiging** mag een onbestaande hardwarebeveiliging niet vervangen |
+| **2 — Charger met echte energie- en statusmetingen, maar geen OEM-SoC** | Native connected/disconnected of bewezen equivalente status, gemeten W/kW en kWh; on/off of gekwalificeerde current | Eindige kWh-/minutenlading, actuele sessie, gemeten progress, prioriteit en deadline; Economy/Solar alleen bij echte optionele sources | Geen kWh-claim uit tijd alleen; `switch.on` is nooit een kabelmeting; geen fictieve resterende batterijlading |
+| **3 — Volledige native Charger + voertuig + energiebronnen** | Bijvoorbeeld VW ID.4/Audi Q8 met actuele OEM-SoC/health/capaciteit; Wallbox/Peblar met native connectie, vermogen, current set/readback; eventueel PV, grid, tarieven | 80%-default waar toepasselijk, eigen SoC-doel, Ready By, Automatic, Solar, Economy, current modulation, betrouwbare historie, kosten uitsluitend bij effectieve tariefdekking | Geen fabrikantcode in generieke planner, geen verplicht voertuigcloudaccount, geen afgeleide all-in kost uit spotprijzen, geen ongeverifieerde fysieke eigenaarschapsoverdracht |
+
+**Eén betekenis, één eigenaar:** De native HA-provider bezit de fysieke service, het echte apparaat en zijn metingen; **Charger** bezit het fysieke laadpunt, de geselecteerde voertuigvoorkeur, geobserveerde aansluiting, veilige command-/readbackstatus en zijn gemeten laadsessie; **ChargeableAsset** bezit uitsluitend type/naam, optionele SoC, doel, duur/kWh, deadline/Guest-expiry en bewezen aan dat voertuig toe te schrijven progress; **ChargeController** bezit het gezamenlijke elektrische budget, de strategie, de planner en de geaggregeerde waarheid. Zie de definitieve ownershipmatrix in §2 — dit is geen vierde eigenaar of tweede configuratiesysteem.
+
+**Wat onbekend mag zijn:** SoC, voertuigfabrikant, capaciteit, prijs, PV, thuisverbruik, forecast en zelfs een voertuigprofiel zijn **optioneel voor de toepasselijke eenvoudige workflows**. Wat nooit wordt gegokt: elektrisch veilige belasting, actuele fysieke connector waar nodig, onafhankelijke command-/STOP-verificatie, exclusieve hardwarewriter, geldige site/circuitlimiet. De UI toont beschikbare acties en noemt de specifieke ontbrekende voorwaarde; geen globale Off-stand als vervanging van werkelijk ondersteunde functionaliteit.
+
+**Twee representatieve generieke acceptatieprofielen (beide verplicht vóór Feature Complete):**
+
+- **Minimale site:** schone HA, 1 geschikte smart plug/on-off Charger, 0 profielen of één Guest zonder SoC, geen PV/prijzen/robotix-entities; UI-configuratie volledig, beperkte duur-intentie, bronstatus en fysieke START/STOP **wanneer het geschikte toestel en het minimale onafhankelijke veiligheidsbewijs werkelijk kwalificeren**. Test ook het tegenovergestelde geval waarin alleen switch-state bestaat: zichtbare blokkering en nul fysieke writes, niet doen alsof dit een kabel- of energiebron is.
+- **Rijke site:** schone HA, ≥2 verschillende native Chargers (Wallbox/Peblar of equivalente providers), Audi Q8/VW ID.4 of generieke OEM-SoC-bronnen, net-/PV-/prijsmetingen, 1/2/4/10 capaciteitscases; dezelfde drie Devices, dezelfde vijf-tab UX, één settings authority en één Executor, met extra bruikbare optimalisaties.
+
+**UC-ankers:** UC01/02 (installeerbaar zonder bronnen), **UC05** (finite en zonder SoC), **UC11** (geschikte on/off / smart plug), **UC12** (volwaardige current capability), **UC13** (Guest), **UC17–20** (optionele, afzonderlijke inputkwaliteit) en **UC21/22/24** (niet-onderhandelbare fysieke veiligheid). FLEX-01/03/04/10/11/19 en UI-OWNER-05/10 toetsen deze exacte variatie. **Documentatie definieert de doelwerking, niet dat de huidige dev-bron deze minimumsite al fysiek accepteert.**
+
 ### 0.2 Scope-index — blijvende 29 functionele journeys
 
 | UC | Functioneel resultaat |
@@ -92,10 +114,10 @@ Een verse HA-installatie biedt **Guided setup** of **Configure entire charging s
 
 ### UC05 — Charging without vehicle SoC via explicit kWh or duration
 **Persona / eigenaar:** Resident / MultiCharge  
-**GIVEN — beginsituatie:** A verified connected Charger; no usable battery SoC, optionally no registered Asset.  
-**WHEN — handelingen:** Enter exactly one finite kWh or duration one-off and manually START.  
-**THEN — verwacht gedrag / PASS:** Bounded charger-only session allowed only with verified connection/limits; no invented car/SoC; anonymous receipt asset_id=null; duration may work without energy meter.  
-**Negatief / fail-closed:** Neither or both limits supplied, invalid bounds or missing safety evidence ⇒ no START; missing kWh readback stays unknown.  
+**GIVEN — beginsituatie:** Een Guest zonder OEM-account/SoC of helemaal geen geregistreerde Asset, met een geschikte on/off/smart-plug Charger of volwaardige EVSE. Er kunnen slechts minimale native meetwaarden zijn.  
+**WHEN — handelingen:** Maak een optionele Guest aan of kies Charger-only; voer precies één eindige laadduur of echte kWh-vraag in; bevestig actuele fysieke sessie voor zover het betreffende hardwaretype dit vereist en vraag expliciet START.  
+**THEN — verwacht gedrag / PASS:** Een minimale installatie kan zonder SoC/voertuigcloud worden ingericht; een gekwalificeerde eindige Charger-only of Guest-sessie gebruikt één veilige fysieke owner en eigen powermeting. Een tijdslimiet vereist geen kWh-meter; een echte kWh-limiet wel. Anonieme Charger-sessie houdt `asset_id=null`, nooit een fictieve auto.  
+**Negatief / fail-closed:** Geen of twee eindige doelen, onveilige/ongeschikte smart plug, alleen `switch.on` als zogezegd kabelbewijs, geen onafhankelijke fysieke STOP/power-readback of ontbrekende exclusieve writer ⇒ geen START. Het apparaat en de GUI blijven wel configureerbaar; onbekende kWh blijven unknown.  
 **Bewijs:** Actual time cutoff, physical STOP, power and receipt with null identity.
 
 ### UC06 — Target charge with Ready By deadline and feasibility
@@ -140,10 +162,10 @@ Een verse HA-installatie biedt **Guided setup** of **Configure entire charging s
 
 ### UC11 — Qualified on/off switching for suitable equipment
 **Persona / eigenaar:** Engineer / MultiCharge  
-**GIVEN — beginsituatie:** On/off Charger with qualified native switch and independently measured power.  
+**GIVEN — beginsituatie:** Een native on/off Charger, waaronder een *elektrisch geschikte en correct beoordeelde* slimme stekker/relay voor het bedoelde laadapparaat, met native switch en onafhankelijk gemeten vermogen; de eenvoudige route heeft mogelijk geen OEM-SoC of laadpaal-kabelsensor.  
 **WHEN — handelingen:** Commission exclusivity, START, reject/timeout and STOP.  
-**THEN — verwacht gedrag / PASS:** Single native switch writer; transitions only confirmed on observed power; safe STOP available.  
-**Negatief / fail-closed:** Unavailable switch, concurrent EVSC owner or no readback ⇒ START blocked/unknown, not successful.  
+**THEN — verwacht gedrag / PASS:** Een enkele native switchwriter; geen verplicht fabrikant- of Robotix-bronpakket; minimale eindige bediening alleen waar apparaatgebruik, daadwerkelijke aansluiting/gebruikersconfirmatie, site-/circuitlimiet en onafhankelijk vermogen/STOP verifieerbaar zijn. De voor de gebruiker zichtbare actie wordt uitsluitend bij waargenomen power bevestigd.  
+**Negatief / fail-closed:** Een generieke huishoudstekker is niet automatisch gecertificeerd voor EV-laden; ongeschikte belasting, ontbrekende source, onbewijsbare huidige sessie, concurrerende writer of geen echte readback ⇒ fysiek START geblokkeerd/unknown, niet gefingeerd succesvol. `switch.on` ≠ `connected`.  
 **Bewijs:** Switch service log, power meter transitions, owner proof and rollback.
 
 ### UC12 — Verified variable-current capability control
@@ -156,7 +178,7 @@ Een verse HA-installatie biedt **Guided setup** of **Configure entire charging s
 
 ### UC13 — Temporary guest vehicle or asset
 **Persona / eigenaar:** Resident / MultiCharge  
-**GIVEN — beginsituatie:** Temporary Guest Asset with finite goal, expiry and independent Charger.  
+**GIVEN — beginsituatie:** Temporary Guest zonder verplichte auto-OEM, SoC of capaciteit, met alleen naam/type, eindige duur of kWh-vraag en geldige expiry; een geschikte Charger met afzonderlijk fysiek bewijs.  
 **WHEN — handelingen:** Create Guest, bind idle Charger, confirm physical connection, charge then expire/unassign.  
 **THEN — verwacht gedrag / PASS:** Guest remains visible with expiry, gets active slots only when confirmed; expiry results in safe STOP, history retained.  
 **Negatief / fail-closed:** No OEM/SoC, already occupied charger, expiry during active charge or unknown STOP ⇒ no identity guessing/replay.  
@@ -188,9 +210,9 @@ Een verse HA-installatie biedt **Guided setup** of **Configure entire charging s
 
 ### UC17 — Optional, source-neutral Home Assistant inputs and power limits
 **Persona / eigenaar:** Engineer / MultiCharge  
-**GIVEN — beginsituatie:** Native HA entity sources for EVSE, SoC, PV/grid, price and binding limitations.  
+**GIVEN — beginsituatie:** Schone HA met nul, één of meerdere native Charger-/voertuig-/PV-/grid-/prijsproviders. Geen enkele optionele gegevensfamilie is verplicht om een lege site of een Guest-profiel te configureren.  
 **WHEN — handelingen:** Configure source selectors on a fresh site and remove a source.  
-**THEN — verwacht gedrag / PASS:** One source-normalization layer validates unit, basis, time, quality and physical limits without Robotix Core/Basic/Premium, template sensors or helpers.  
+**THEN — verwacht gedrag / PASS:** Eén bestaande source-normalisatielaag valideert alleen werkelijk gekozen units, bronbetekenis, timestamps, kwaliteit en fysieke limieten; rijkere inputs verrijken passende modi zonder eenvoudige workflows te blokkeren. Geen Robotix Core/Basic/Premium, `evsc_bridge`, handmatige templates/helpers of extra installatiestappen vereist.  
 **Negatief / fail-closed:** Unknown provider semantics, stale signal, conflicting source ownership ⇒ unknown/fail-closed rather than inferred.  
 **Bewijs:** Config Entry source IDs, native provider raw attributes and negative tests.
 
