@@ -68,10 +68,9 @@ global.document={
 require("../custom_components/robotix_multicharge/frontend/robotix-multicharge.js");
 assert.ok(uiSource.includes("this.dashboardEditField(parent,scope,record,field)"),
   "Every persisted owner field is edited directly inside MultiCharge");
-assert.ok(uiSource.includes("  async openYamlEditor(){")&&
-  uiSource.includes("  async previewYaml(){")&&
-  uiSource.includes("  async applyYaml(){"),
-  "The same dashboard exposes a guarded full YAML editor alongside typed fields");
+assert.ok(!uiSource.includes("  async openYamlEditor(){")&&
+  !uiSource.includes("robotix_multicharge/yaml_configuration"),
+  "Rejected YAML/JSON editor and write endpoint must not return");
 assert.ok(!uiSource.includes("config/config_entries/options/flow"),
   "YAML must not open Home Assistant Options Flow");
 assert.ok(uiSource.includes("this.dashboardChargerCreate(container)"),
@@ -966,79 +965,16 @@ async function main(){
     String(x.type).includes("dashboard_config")),
     "Typed everyday configuration never uses raw document editors or physical commands");
 
-  // Typed daily actions never use raw documents; one optional advanced
-  // YAML editor is available only under the dashboard Settings tab.
+  // Owner final decision: typed Controller, Charger and Asset fields are
+  // the complete runtime configuration interface. No raw-document editor.
   editorCard._tab="Settings";editorCard._settingsOpen="";editorCard.render();
-  assert.ok(find(editorCard.shadowRoot,"button","Edit YAML"));
-  assert.ok(!content(editorCard.shadowRoot).includes("Edit JSON"));
-  // Expert YAML is a draft in the same dashboard, not an Options-flow dialog,
-  // package or second persistence authority. A real HA test independently
-  // exercises the backend parser, physical guards and Config Entry readback.
-  const yamlEditorCalls=[],yamlRevision="12345678901234567890";
-  const nextYamlRevision="aabbccddeeff11223344";
-  const yamlDocument="controller:\n  id: site\n  name: Sample\n  mode: 'Off'\nassets: []\nchargers: []\n";
-  const yamlData=JSON.parse(JSON.stringify(fixture));
-  yamlData.configuration_revision=yamlRevision;
-  let yamlSaved=false;
-  const yamlEditorCard=new Card();
-  yamlEditorCard.setConfig({});
-  yamlEditorCard.hass={user:{is_admin:true},states:{},callWS:async request=>{
-    yamlEditorCalls.push(request);
-    if(request.type==="robotix_multicharge/get_plan")return yamlData;
-    assert.equal(request.type,"robotix_multicharge/yaml_configuration");
-    if(request.action==="read")return {status:"ready",yaml_text:yamlDocument,
-      configuration_revision:yamlRevision};
-    if(request.action==="preview"){
-      if(request.yaml_text.includes("INVALID"))throw Error("duplicate YAML key");
-      assert.equal(request.expected_revision,yamlRevision);
-      return {status:"preview",baseline_revision:yamlRevision,
-        reviewed_revision:nextYamlRevision,
-        summary:"Controller: Name modified\nAssets: unchanged\nPhysical writer: unchanged",
-        groups:{assets:{add:[],modify:[],remove:[],total:0}},
-        changes_present:true};
-    }
-    if(request.action==="apply"){
-      assert.equal(request.reviewed_revision,nextYamlRevision);
-      yamlSaved=true;
-      yamlData.configuration_revision=nextYamlRevision;
-      return {status:"accepted_unconfirmed",expected_revision:nextYamlRevision};
-    }
-    throw Error("Unexpected server operation");
-  }};
-  await new Promise(resolve=>setImmediate(resolve));
-  yamlEditorCard._tab="Settings";yamlEditorCard.render();
-  find(yamlEditorCard.shadowRoot,"button","Edit YAML").click();
-  await new Promise(resolve=>setImmediate(resolve));
-  assert.ok(yamlEditorCard._yamlEditor?.base===yamlRevision);
-  const sourceField=find(yamlEditorCard.shadowRoot,"textarea");
-  assert.ok(sourceField&&sourceField.value===yamlDocument,
-    "Editor loads actual persisted YAML, not a generated example");
-  sourceField.value=yamlDocument+"# harmless draft\n";
-  sourceField.events.input();
-  yamlEditorCard._tab="Overview";yamlEditorCard.render();
-  yamlEditorCard._tab="Settings";yamlEditorCard.render();
-  assert.ok(yamlEditorCard._yamlEditor.text.includes("# harmless draft"),
-    "Unsaved YAML survives tab navigation");
-  assert.ok(!yamlSaved,"Typing does not mutate the runtime");
-  find(yamlEditorCard.shadowRoot,"button","Validate / Review YAML").click();
-  await new Promise(resolve=>setImmediate(resolve));
-  assert.ok(yamlEditorCard._yamlEditor?.review,
-    "Preview must produce backend-reviewed proposed revision");
-  assert.ok(!yamlSaved,"Preview has no persistence side effects");
-  const checkbox=find(yamlEditorCard.shadowRoot,"input");
-  assert.ok(checkbox,"Review requires explicit confirmation");
-  checkbox.checked=true;checkbox.events.change();
-  find(yamlEditorCard.shadowRoot,"button","Apply reviewed YAML").click();
-  await new Promise(resolve=>setImmediate(resolve));
-  assert.ok(yamlSaved,"YAML is committed only after explicit review");
-  assert.equal(yamlEditorCard._yamlEditor,null);
-  assert.ok(yamlEditorCalls.some(x=>x.action==="read"));
-  assert.ok(yamlEditorCalls.some(x=>x.action==="preview"));
-  assert.ok(yamlEditorCalls.some(x=>x.action==="apply"));
-  assert.ok(!yamlEditorCalls.some(x=>
-    String(x.type).includes("options/flow")||
-    x.type==="robotix_multicharge/command"),
-    "No HA Options YAML or physical command is emitted");
+  assert.ok(!find(editorCard.shadowRoot,"button","Edit YAML"));
+  assert.ok(!find(editorCard.shadowRoot,"button","Edit JSON"));
+  assert.ok(!content(editorCard.shadowRoot).includes("YAML configuration"));
+  assert.ok(!dashboardCalls.some(x=>
+    String(x.type).includes("yaml_configuration")||
+    String(x.type).includes("options/flow")),
+    "Dashboard typed controls must not open free-text editor services");
 
   // The native sidebar forwards HA's authenticated hass object to the
   // same canonical card and exposes all five tabs to a non-admin resident.
@@ -1270,8 +1206,8 @@ async function main(){
     assert.ok(content(card.shadowRoot).includes(name),name);
   }
 
-  assert.ok(content(card.shadowRoot).includes("YAML configuration"));
-  assert.ok(find(card.shadowRoot,"button","Edit YAML"));
+  assert.ok(!content(card.shadowRoot).includes("YAML configuration"));
+  assert.ok(!find(card.shadowRoot,"button","Edit YAML"));
   assert.ok(!content(card.shadowRoot).includes("/config/packages/multicharge.yaml"),
     "No YAML package is required to configure standalone MultiCharge");
   card._settingsOpen="Sources & bindings";card.render();
