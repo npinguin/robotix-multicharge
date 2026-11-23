@@ -383,7 +383,7 @@ class PlannerTests(unittest.TestCase):
         blocked = compile_plan(
             ctl, chargers,
             [ChargeDemand("a0", "c0", 1.0,
-                          datetime(2026, 11, 23, 21, tzinfo=timezone.utc))],
+                          datetime(2026, 11, 23, 20, tzinfo=timezone.utc))],
             datetime(2026, 11, 23, 12, tzinfo=timezone.utc),
             mode="Ready By",
             charging_windows={"c0": window}, site_time_zone=zone,
