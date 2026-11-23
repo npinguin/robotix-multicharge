@@ -104,6 +104,26 @@ for(const [locale,b] of Object.entries({
      "Budget remaining (conservative)","Budget progress"].entries())
     MC_TEXT[locale][key]=b[i];
 }
+for(const [locale,b] of Object.entries({
+  nl:["Laadpatroon","Flexibele goedkoopste kwartieren","Eén aaneengesloten laadsessie",
+      "Aaneengesloten laden en prijsstrategie"],
+  fr:["Mode de recharge","Créneaux les moins chers","Une recharge continue",
+      "Continuité et stratégie tarifaire"],
+  da:["Lademønster","Billigste fleksible kvarter","Én sammenhængende opladning",
+      "Kontinuitet og prisstrategi"],
+  nb:["Lademønster","Billigste fleksible kvarter","Én sammenhengende lading",
+      "Kontinuitet og prisstrategi"],
+  sv:["Laddmönster","Billigaste flexibla kvartarna","En sammanhängande laddning",
+      "Kontinuitet och prisstrategi"],
+  de:["Lademuster","Flexible günstigste Viertelstunden","Ein durchgehender Ladevorgang",
+      "Kontinuität und Preisstrategie"],
+  es:["Patrón de carga","Intervalos flexibles más baratos","Una carga continua",
+      "Continuidad y estrategia de precio"]
+})){
+  for(const [i,key] of ["Charging pattern","Flexible cheapest quarters",
+    "One continuous charge","Continuity and price strategy"].entries())
+    MC_TEXT[locale][key]=b[i];
+}
 const MC_DAY_NAMES={
   mon:"Monday",tue:"Tuesday",wed:"Wednesday",thu:"Thursday",
   fri:"Friday",sat:"Saturday",sun:"Sunday"
@@ -1269,6 +1289,19 @@ class RobotixMultiChargeCard extends HTMLElement {
             this.openNative("asset",a.id,"ready_by")));
         detail.append(deadline);
         this.nativeRepeatEditor(detail,a);
+        if(this.canEditSettings()&&this.ownerEntity("asset",a.id,"continuous_charging")){
+          detail.append(mcEl("h4","",mcTr("Continuity and price strategy")));
+          const continuity=this.field(
+            detail,mcTr("Charging pattern"),
+            a.continuous_charging?"continuous":"flexible",null,[
+              ["flexible",mcTr("Flexible cheapest quarters")],
+              ["continuous",mcTr("One continuous charge")],
+            ]);
+          continuity.disabled=this._settingsBusy;
+          continuity.addEventListener("change",()=>
+            void this.nativeSelect("asset",a.id,
+                                  "continuous_charging",continuity.value));
+        }
         if(this.canEditSettings())this.ownerColorControl(detail,"asset",a);
         for(const [field,label] of [
           ["kind","Asset type"],["expected_connection_at","Expected"],
