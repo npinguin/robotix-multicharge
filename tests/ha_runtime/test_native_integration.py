@@ -27,6 +27,30 @@ from custom_components.robotix_multicharge.const import DOMAIN
 from custom_components.robotix_multicharge.diagnostics import async_get_config_entry_diagnostics
 
 
+def test_native_expert_editor_json_defaults_and_rejects_duplicate_fields():
+    """Native GUI JSON is data-only and duplicate keys cannot overwrite silently."""
+    from custom_components.robotix_multicharge.config_flow import (
+        _parse_editor_yaml,
+    )
+    from custom_components.robotix_multicharge.configuration import (
+        configuration_json,
+    )
+    payload = configuration_json(validate_configuration({
+        "controller": {
+            "id": "home", "name": "House", "mode": "Off",
+            "max_parallel": 1, "max_power_kw": 3.6,
+        },
+        "assets": [], "chargers": [],
+    }))
+    assert _parse_editor_yaml(payload) == json.loads(payload)
+    with pytest.raises(ValueError, match="duplicate YAML key"):
+        _parse_editor_yaml('{"controller": {}, "controller": {}}')
+    with pytest.raises(ValueError):
+        _parse_editor_yaml('{broken json')
+    assert _parse_editor_yaml('{"controller": {"id":"home"}, "assets": [], '
+                              '"chargers": []}')["assets"] == []
+
+
 def test_expert_reimport_rejects_live_writer_before_entry_mutation():
     from types import SimpleNamespace
     from datetime import datetime, timezone
@@ -421,6 +445,27 @@ async def test_native_setup_registry_diagnostics_and_unload(hass: HomeAssistant)
         ) is not None
     from homeassistant.helpers import entity_registry as er
     registry = er.async_get(hass)
+    for kind, uid, record in (
+        ("controller", "site", cfg["controller"]),
+        ("charger", "charger", cfg["chargers"][0]),
+        ("asset", "asset", cfg["assets"][0]),
+    ):
+        # Every logical device exposes ALL persisted keys without additional
+        # configuration authority or per-field copy entities.
+        entity_id = registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{DOMAIN}:{kind}:{uid}:configuration",
+        )
+        assert entity_id is not None, (kind, uid)
+        state = hass.states.get(entity_id)
+        assert state is not None
+        assert state.attributes["logical_owner"] == kind
+        assert state.attributes["read_only_projection"] is True
+        for key, value in record.items():
+            assert state.attributes[key] == value, (kind, key)
+        owning = devices.async_get_device_by_identifier(
+            (DOMAIN, f"{kind}/{uid}"), entry.entry_id,
+        )
+        assert registry.async_get(entity_id).device_id == owning.id
     for kind, uid, field in (
         ("controller", "site", "price_entity"),
         ("controller", "site", "solar_entity"),
