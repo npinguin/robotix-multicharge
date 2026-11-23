@@ -78,6 +78,36 @@ function content(node){
   let text="";visit(node,x=>{if(x.textContent)text+=x.textContent+"\n";});return text;
 }
 async function main(){
+  const adjustableFixture=JSON.parse(JSON.stringify(fixture));
+  adjustableFixture.configuration.chargers[0].kind="variable_current";
+  Object.assign(adjustableFixture.configuration.chargers[0],{
+    min_current_a:6,max_current_a:16,voltage_v:230,phase_ids:["L1"],
+    min_charging_power_kw:1.84,max_charging_power_kw:3.22
+  });
+  Object.assign(adjustableFixture.preference_entities.chargers.drive,{
+    min_charging_power_kw:"number.drive_min_kw",
+    max_charging_power_kw:"number.drive_max_kw",
+    set_charging_power_kw:"number.drive_set_kw"
+  });
+  const adjustableCard=new Card();
+  adjustableCard.setConfig({});
+  adjustableCard.hass={user:{is_admin:true},states:{},
+    callWS:async()=>adjustableFixture};
+  await new Promise(resolve=>setImmediate(resolve));
+  find(adjustableCard.shadowRoot,"button","Chargers").click();
+  find(adjustableCard.shadowRoot,"button","Details").click();
+  const adjustableText=content(adjustableCard.shadowRoot);
+  assert.ok(adjustableText.includes("Minimum charging power"));
+  assert.ok(adjustableText.includes("Maximum charging power"));
+  assert.ok(adjustableText.includes("Set charging power"));
+  const fixedCard=new Card();
+  fixedCard.setConfig({});
+  fixedCard.hass={user:{is_admin:true},states:{},callWS:async()=>fixture};
+  await new Promise(resolve=>setImmediate(resolve));
+  find(fixedCard.shadowRoot,"button","Chargers").click();
+  find(fixedCard.shadowRoot,"button","Details").click();
+  assert.ok(content(fixedCard.shadowRoot).includes("On/off only"));
+
   const commands=[];
   const card=new Card();
   card.setConfig({});
