@@ -409,10 +409,17 @@ async function main(){
   assert.ok(content(card.shadowRoot).includes("Expert YAML / JSON configuration"),
     "Settings summary exposes real expert configuration instead of a fake editor");
   card._settingsOpen="Advanced & YAML";card.render();
-  assert.ok(content(card.shadowRoot).includes("/config/packages/multicharge.yaml"),
-    "Advanced configuration explains a real HA package path");
-  assert.ok(content(card.shadowRoot).includes("!include_dir_named packages"),
-    "Advanced configuration shows exact HA include syntax");
+  assert.ok(content(card.shadowRoot).includes("Home Assistant Energy Dashboard sources may be reused"),
+    "GUI config reuses HA Energy and standalone sources");
+  assert.ok(!content(card.shadowRoot).includes("/config/packages/multicharge.yaml"),
+    "No YAML package is required to configure standalone MultiCharge");
+  card._settingsOpen="Sources & bindings";card.render();
+  for(const label of ["Solar production","Home consumption","Grid power",
+                      "Solar surplus","Future tariff intervals",
+                      "Current import price","Current export price"]){
+    assert.ok(content(card.shadowRoot).includes(label),
+      "Settings must expose "+label+" as an HA-native source option");
+  }
   card._settingsOpen="";card.render();
   const settingsGrids=[];
   visit(card.shadowRoot,x=>{if(x.className==="settings-grid")settingsGrids.push(x);});
