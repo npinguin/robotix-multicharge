@@ -279,6 +279,92 @@ async def test_variable_charger_native_power_controls_share_owning_device(hass: 
 
 
 @pytest.mark.asyncio
+async def test_options_flow_is_device_setup_not_daily_charge_operations(
+    hass: HomeAssistant,
+):
+    """HA Options may bind and commission devices; everyday controls are native."""
+    source = (Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN)
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    cfg = validate_configuration({
+        "controller": {
+            "id": "site", "name": "Independent home",
+            "mode": "Automatic", "max_parallel": 1, "max_power_kw": 3.6,
+        },
+        "assets": [{"id": "car", "name": "Car", "kind": "car",
+                    "target_soc": 80}],
+        "chargers": [{
+            "id": "drive", "name": "Drive", "kind": "on_off",
+            "rated_power_kw": 3.6, "control_entity": "switch.drive",
+        }],
+    })
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Standalone MultiCharge",
+        data={"source": "ui", "configuration": cfg},
+        unique_id=DOMAIN,
+    )
+    entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+
+    scope = {
+        "controller": (
+            {"name", "phase_limits_a", "price_entity"},
+            {"mode", "max_parallel", "max_power_kw"},
+        ),
+        "asset": (
+            {"name", "kind", "soc_entity", "capacity_kwh"},
+            {"target_soc", "ready_by", "ready_by_repeat", "priority",
+             "requested_kwh", "requested_duration_minutes"},
+        ),
+        "charger": (
+            {"kind", "control_entity", "connected_entity", "power_entity"},
+            {"asset", "control_owner", "physical_commissioned",
+             "min_charging_power_kw", "max_charging_power_kw"},
+        ),
+        "commission": (
+            {"charger_id", "commission", "exclusive_writer_confirmed",
+             "electrical_limits_confirmed"},
+            {"mode", "max_parallel", "ready_by"},
+        ),
+    }
+    for step, (required, prohibited) in scope.items():
+        menu = await hass.config_entries.options.async_init(entry.entry_id)
+        assert menu["type"] == FlowResultType.MENU
+        assert step in menu["menu_options"]
+        form = await hass.config_entries.options.async_configure(
+            menu["flow_id"], {"next_step_id": step}
+        )
+        assert form["type"] == FlowResultType.FORM
+        available = {
+            key.schema if hasattr(key, "schema") else key
+            for key in form["data_schema"].schema
+        }
+        assert required <= available, (step, required - available)
+        assert not (prohibited & available), (step, prohibited & available)
+
+    # User confirmation alone does not prove physical command readiness.
+    # An unqualified generic charger remains external, with no HA write.
+    menu = await hass.config_entries.options.async_init(entry.entry_id)
+    form = await hass.config_entries.options.async_configure(
+        menu["flow_id"], {"next_step_id": "commission"}
+    )
+    rejected = await hass.config_entries.options.async_configure(
+        form["flow_id"], {
+            "charger_id": "drive", "commission": True,
+            "exclusive_writer_confirmed": False,
+            "electrical_limits_confirmed": False,
+        }
+    )
+    assert rejected["type"] == FlowResultType.FORM
+    assert rejected["errors"]["base"] == "invalid_config"
+    assert entry.data["configuration"] == cfg
+    assert entry.options.get("configuration") is None
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
 async def test_native_empty_configuration_still_installs(hass: HomeAssistant):
     source = (Path(__file__).resolve().parents[2] / "custom_components" /
               "robotix_multicharge")
