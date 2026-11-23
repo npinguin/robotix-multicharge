@@ -85,6 +85,14 @@ The [canonical functional specification](FUNCTIONAL_SPECIFICATION.md) owns the u
 
 Developer and isolated-HA source tests do not establish real browser/provider/field acceptance. See [Issue #1](https://github.com/npinguin/robotix-multicharge/issues/1) and [Draft PR #9](https://github.com/npinguin/robotix-multicharge/pull/9) for exact head and remaining gates.
 
+#### Original upstream price/SoC strategy owner contract
+
+These `dev` optional Asset fields stay in the **same existing Config Entry and native HA Device**, never in a second price-policy service: `continuous_charging: bool`, `earliest_start_at: aware datetime`, `minimum_soc_pct: 0..100`, `maximum_price_per_kwh: finite number`, `price_currency: ISO-4217`, `low_price_trigger_per_kwh: finite number`, `low_soc_trigger_pct: 0..100`, `opportunistic_kind: off|type1|type2`, and `opportunistic_level_pct: 0..100`. All price policy decisions need current provider-qualified currency and full actual intervals; no invented value, new local clock scheduler or OEM write. The existing plan query exposes corresponding native owner entity references, source-quality reasons and proposed quarter slots; the guarded existing executor checks START and ongoing price/SoC policy again against physical evidence.
+
+`ChargeDemand` carries only derived **source-qualified** minimum/low-SoC priority energy, pricing policy and continuity flags to its existing planner. A currency-budget demand additionally carries `budget_remaining_minutes` (maximum 1440 min cumulatively across physically confirmed sessions), not a second charging goal or public runtime. The 24h ceiling applies even if every approved `effective` price is 0 or negative. Physical Charger STOP remains confirmed only after independent power/current readback; a moved Asset keeps original immutable historical receipt attribution.
+
+Upstream `Keep charger on`/preconditioning has **no generic actuator claim** in this contract. Without hardware evidence distinguishing vehicle supply/preconditioning from charging, it is intentionally unavailable. A future fully qualified native capability may be added through the same Charger interface and one writer, without EVSC runtime, second planner or exposing a private site adapter.
+
 ## Native HA contracts for independently installed consumers
 
 - Source-neutral native HA entities for new logical properties and qualifying control actions. Stable unique IDs keyed on logical IDs and semantic property, never mutable names. No copied historical controls.
