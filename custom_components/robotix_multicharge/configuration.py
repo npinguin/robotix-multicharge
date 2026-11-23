@@ -480,6 +480,44 @@ def validate_configuration(value):
     return {"controller": controller, "assets": assets, "chargers": chargers}
 
 
+def energy_dashboard_suggestions(preferences):
+    """Read optional HA Energy Dashboard entity associations, never its settings.
+
+    HA's own configured solar/grid *power* sensors are suggestions, not
+    inferred electrical capability, future tariffs or charging permission.
+    Multiple grid/solar connections cannot be silently combined or guessed.
+    """
+    if not isinstance(preferences, dict):
+        return {}
+    sources = preferences.get("energy_sources", [])
+    if not isinstance(sources, list):
+        return {}
+    choices = {}
+    for kind, field in (("solar", "solar_power_entity"),
+                        ("grid", "grid_power_entity")):
+        matching = [row for row in sources if isinstance(row, dict)
+                    and row.get("type") == kind]
+        if len(matching) == 1:
+            proposed = matching[0].get("stat_rate")
+            if isinstance(proposed, str) and fullmatch(
+                    r"sensor\.[a-z0-9_]+", proposed):
+                choices[field] = proposed
+    grid = [row for row in sources if isinstance(row, dict)
+            and row.get("type") == "grid"]
+    if len(grid) == 1:
+        for attr, destination in (
+            ("entity_energy_price", "current_price_entity"),
+            ("entity_energy_price_export", "export_price_entity"),
+        ):
+            proposed = grid[0].get(attr)
+            if isinstance(proposed, str) and fullmatch(
+                    r"sensor\.[a-z0-9_]+", proposed):
+                choices[destination] = proposed
+    # Home-wide demand is not the sum of HA per-device counters. Never guess
+    # a home power sensor from device_consumption or PV/energy kWh statistics.
+    return choices
+
+
 def effective_configuration(entry):
     """One authority: expert JSON/YAML overrides historic UI options.
 
@@ -510,6 +548,9 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
         "controller": {
             "name", "max_parallel", "max_power_kw", "phase_limits_a",
             "price_entity", "solar_entity", "site_power_entity",
+            "solar_power_entity", "home_power_entity", "grid_power_entity",
+            "solar_surplus_entity", "current_price_entity", "export_price_entity",
+            "solar_source_kind", "grid_power_direction",
             "binding_entity", "mode",
             "plan_label_mode", "plan_color_by", "show_indicative_forecast",
         },
