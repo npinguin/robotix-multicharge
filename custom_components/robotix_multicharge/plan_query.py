@@ -58,11 +58,21 @@ async def websocket_get_plan(
             start, end,
             charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
         )
-        actual, quality = await read_actual_history(
+        actual, quality, estimates = await read_actual_history(
             hass, runtime.configuration, start, end,
             charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
             session_receipts=runtime.executor.completed_sessions(),
+            price_slots=runtime.price_slots, include_valuations=True,
         )
+        # A Recorder-based *indicative* variable component belongs in the
+        # read-only view only. Never mutate persisted session receipts or
+        # convert a power integration into an authoritative billed cost.
+        for receipt in result["completed_sessions"]:
+            if receipt.get("cost") is None:
+                receipt.update(estimates.get((
+                    receipt["charger_id"], receipt["started_at"],
+                    receipt["ended_at"],
+                ), {}))
         entry = hass.config_entries.async_get_entry(entry_id)
         result["configuration_managed_by_yaml"] = bool(
             entry is not None and entry.data.get("source") in ("yaml", "json")
