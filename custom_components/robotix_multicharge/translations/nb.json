@@ -380,6 +380,12 @@
       },
       "opportunistic_kind": {
         "name": "Opportunistisk prismodus"
+      },
+      "solar_source_kind": {
+        "name": "Solkildetype"
+      },
+      "grid_power_direction": {
+        "name": "Strømretning for nettmåler"
       }
     },
     "number": {
@@ -602,6 +608,24 @@
       },
       "price_currency": {
         "name": "Prisvaluta"
+      },
+      "solar_power_entity": {
+        "name": "Solproduksjon"
+      },
+      "home_power_entity": {
+        "name": "Hjemmeforbruk"
+      },
+      "grid_power_entity": {
+        "name": "Netteffekt"
+      },
+      "solar_surplus_entity": {
+        "name": "Soloverskudd"
+      },
+      "current_price_entity": {
+        "name": "Gjeldende importpris"
+      },
+      "export_price_entity": {
+        "name": "Gjeldende eksportpris"
       }
     },
     "binary_sensor": {
