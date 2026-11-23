@@ -622,8 +622,14 @@ async def test_minimal_native_setup_then_yaml_takes_over_same_entry(hass: HomeAs
     wizard = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
-    assert wizard["type"] == FlowResultType.FORM
+    assert wizard["type"] == FlowResultType.MENU
     assert wizard["step_id"] == "user"
+    assert set(wizard["menu_options"]) == {"guided", "expert"}
+    wizard = await hass.config_entries.flow.async_configure(
+        wizard["flow_id"], {"next_step_id": "guided"}
+    )
+    assert wizard["type"] == FlowResultType.FORM
+    assert wizard["step_id"] == "guided"
     # All site electrical limits may be absent.
     wizard = await hass.config_entries.flow.async_configure(
         wizard["flow_id"], {"name": "Home charging", "max_parallel": 1}
@@ -886,3 +892,140 @@ async def test_native_yaml_options_review_save_and_recorder_identity(hass: HomeA
     ).id == controller_before.id
     assert len(hass.config_entries.async_entries(DOMAIN)) == 1
     assert entry.state.value == "loaded"
+
+
+@pytest.mark.asyncio
+async def test_new_install_expert_single_ui_config_entry_four_chargers_four_assets(
+    hass: HomeAssistant,
+):
+    """UC01/02/17: full native one-shot setup; no YAML file, package or helper."""
+    import yaml
+
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    assert await async_setup_component(hass, DOMAIN, {})
+    start = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    assert start["type"] == FlowResultType.MENU
+    assert "expert" in start["menu_options"]
+    editor = await hass.config_entries.flow.async_configure(
+        start["flow_id"], {"next_step_id": "expert"}
+    )
+    assert editor["step_id"] == "expert"
+
+    chargers = [
+        {"id": key, "name": key.replace("_", " ").title(), "kind": "on_off",
+         "rated_power_kw": 3.6, "control_entity": f"switch.{key}",
+         "connected_entity": f"binary_sensor.{key}_connected",
+         "power_entity": f"sensor.{key}_power",
+         "control_owner": "external", "physical_commissioned": False}
+        for key in ("white", "black", "peblar", "utility")
+    ]
+    assets = [
+        {"id": key, "name": key.title(), "kind": "car",
+         "target_soc": 80, "soc_entity": f"sensor.{key}_soc"}
+        for key in ("audi", "vw", "guest1", "guest2")
+    ]
+    proposed = {
+        "controller": {
+            "id": "home", "name": "Independent charge site",
+            "mode": "Automatic", "max_parallel": 4,
+            "max_power_kw": 3.6, "price_entity": "sensor.prices",
+            "plan_color_by": "vehicle",
+        },
+        "chargers": chargers, "assets": assets,
+    }
+    review = await hass.config_entries.flow.async_configure(
+        editor["flow_id"], {
+            "yaml_text": yaml.safe_dump(proposed, sort_keys=False)
+        }
+    )
+    assert review["step_id"] == "expert_review"
+    assert not hass.config_entries.async_entries(DOMAIN), (
+        "Expert draft/review must not create a Config Entry"
+    )
+    # Back to the actual draft, correct one field and review again.
+    again = await hass.config_entries.flow.async_configure(
+        review["flow_id"], {"edit_again": True}
+    )
+    assert again["step_id"] == "expert"
+    review = await hass.config_entries.flow.async_configure(
+        again["flow_id"], {
+            "yaml_text": yaml.safe_dump(proposed, sort_keys=False)
+        }
+    )
+    assert review["step_id"] == "expert_review"
+    approved = await hass.config_entries.flow.async_configure(
+        review["flow_id"], {"confirm": True}
+    )
+    assert approved["type"] == FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    entry = approved["result"]
+    assert entry.data["source"] == "ui", "GUI owns the source, not file YAML"
+    assert entry.data["configuration"] == validate_configuration(proposed)
+    assert len(hass.config_entries.async_entries(DOMAIN)) == 1
+    reg = dr.async_get(hass)
+    for key in ("white", "black", "peblar", "utility"):
+        assert reg.async_get_device_by_identifier(
+            (DOMAIN, f"charger/{key}"), entry.entry_id,
+        ) is not None
+    for key in ("audi", "vw", "guest1", "guest2"):
+        assert reg.async_get_device_by_identifier(
+            (DOMAIN, f"asset/{key}"), entry.entry_id,
+        ) is not None
+    assert reg.async_get_device_by_identifier(
+        (DOMAIN, "controller/home"), entry.entry_id,
+    ) is not None
+    # Daily/expert Settings remain enabled via the *same* Config Entry.
+    options = await hass.config_entries.options.async_init(entry.entry_id)
+    assert options["type"] == FlowResultType.MENU
+    assert "yaml" in options["menu_options"]
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
+async def test_initial_bulk_yaml_rejects_templates_duplicate_keys_and_commissioning(
+    hass: HomeAssistant,
+):
+    """UC01/02 negative paths: no hidden provider creation or physical writer."""
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    assert await async_setup_component(hass, DOMAIN, {})
+    start = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    editor = await hass.config_entries.flow.async_configure(
+        start["flow_id"], {"next_step_id": "expert"}
+    )
+    documents = (
+        "controller:\\n  id: home\\n  id: another\\n",
+        "template:\\n- sensor: []\\ncontroller:\\n  id: home\\n",
+        "controller:\\n  id: home\\n  name: Site\\n"
+        "chargers:\\n- id: x\\n  name: X\\n  kind: on_off\\n"
+        "  rated_power_kw: 3.6\\n  control_entity: switch.x\\n"
+        "  control_owner: multicharge\\n  physical_commissioned: true\\n",
+    )
+    for doc in documents:
+        editor = await hass.config_entries.flow.async_configure(
+            editor["flow_id"], {"yaml_text": doc}
+        )
+        assert editor["step_id"] == "expert"
+        assert editor["errors"]["base"] == "invalid_config"
+        assert not hass.config_entries.async_entries(DOMAIN)
+    # Full empty-site source is valid and cannot accidentally start charging.
+    good = ("controller:\\n  id: home\\n  name: Empty site\\n"
+            "  mode: Off\\n  max_parallel: 1\\n")
+    preview = await hass.config_entries.flow.async_configure(
+        editor["flow_id"], {"yaml_text": good}
+    )
+    assert preview["step_id"] == "expert_review"
+    not_confirmed = await hass.config_entries.flow.async_configure(
+        preview["flow_id"], {"confirm": False}
+    )
+    assert not_confirmed["step_id"] == "expert_review"
+    assert not hass.config_entries.async_entries(DOMAIN)
