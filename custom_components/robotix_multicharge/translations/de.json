@@ -352,6 +352,27 @@
           "scooter": "Roller",
           "other": "Sonstiges"
         }
+      },
+      "ready_day_mon": {
+        "name": "Montag Ready By"
+      },
+      "ready_day_tue": {
+        "name": "Dienstag Ready By"
+      },
+      "ready_day_wed": {
+        "name": "Mittwoch Ready By"
+      },
+      "ready_day_thu": {
+        "name": "Donnerstag Ready By"
+      },
+      "ready_day_fri": {
+        "name": "Freitag Ready By"
+      },
+      "ready_day_sat": {
+        "name": "Samstag Ready By"
+      },
+      "ready_day_sun": {
+        "name": "Sonntag Ready By"
       }
     },
     "number": {
@@ -390,6 +411,9 @@
       },
       "set_charging_power_kw": {
         "name": "Ladeleistung einstellen"
+      },
+      "requested_budget_amount": {
+        "name": "Ladebudget (€)"
       }
     },
     "datetime": {
@@ -500,7 +524,8 @@
           "energy": "Energie",
           "duration": "Dauer",
           "target_soc": "Batterieziel",
-          "unconfigured": "Ziel festlegen"
+          "unconfigured": "Ziel festlegen",
+          "budget": "Budget"
         }
       },
       "confirmed_current_setpoint": {
@@ -528,6 +553,27 @@
       },
       "soc_entity": {
         "name": "Batteriestandsquelle"
+      },
+      "charging_window_mon": {
+        "name": "Montag charging hours"
+      },
+      "charging_window_tue": {
+        "name": "Dienstag charging hours"
+      },
+      "charging_window_wed": {
+        "name": "Mittwoch charging hours"
+      },
+      "charging_window_thu": {
+        "name": "Donnerstag charging hours"
+      },
+      "charging_window_fri": {
+        "name": "Freitag charging hours"
+      },
+      "charging_window_sat": {
+        "name": "Samstag charging hours"
+      },
+      "charging_window_sun": {
+        "name": "Sonntag charging hours"
       }
     },
     "binary_sensor": {
