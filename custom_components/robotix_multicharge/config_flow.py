@@ -13,7 +13,7 @@ from homeassistant.helpers import selector
 
 from .configuration import (
     default_configuration, is_plan_presentation_only_change,
-    configuration_revision, prepare_expert_yaml_revision, validate_configuration,
+    configuration_revision, configuration_json, prepare_expert_yaml_revision, validate_configuration,
     apply_new_asset_defaults, energy_dashboard_suggestions,
 )
 from .source_evidence import number
@@ -266,7 +266,7 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_expert(self, user_input=None):
-        """Configure a complete standalone site on first install via GUI YAML.
+        """Configure a complete standalone site on first install via GUI JSON.
 
         The existing native Config Entry remains the only settings authority.
         Unlike file import, a GUI-authored draft stays editable in the dashboard.
@@ -274,9 +274,7 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if self._async_current_entries():
             return self.async_abort(reason="already_configured")
         if not hasattr(self, "_expert_yaml"):
-            self._expert_yaml = yaml.safe_dump(
-                default_configuration(), sort_keys=False, allow_unicode=True
-            )
+            self._expert_yaml = configuration_json(default_configuration())
         errors = {}
         validation_error = ""
         if user_input is not None:
@@ -913,9 +911,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             return self.async_abort(reason="yaml_managed")
         if not hasattr(self, "_yaml_baseline_revision"):
             self._yaml_baseline_revision = configuration_revision(self._current())
-            self._yaml_text = yaml.safe_dump(
-                self._current(), sort_keys=False, allow_unicode=True,
-            )
+            self._yaml_text = configuration_json(self._current())
             self._yaml_mode = "replace"
         errors = {}
         self._yaml_validation_error = ""
@@ -949,7 +945,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             }),
             description_placeholders={
                 "note": (
-                    "Data-only YAML. The existing Home Assistant Config Entry remains "
+                    "Complete JSON (also accepts safe YAML). The one Home Assistant Config Entry remains "
                     "authoritative. Review all additions/removals before Save. "
                     "Physical commissioning or owner changes are blocked."
                     + (f"\nValidation: {self._yaml_validation_error}"
