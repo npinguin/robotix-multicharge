@@ -1109,6 +1109,12 @@ class RobotixMultiChargeCard extends HTMLElement {
       container.append(card);
     }
     if(!assets.length&&chargers.length)this.notice(container,"No vehicles",false);
+    if(this.canEditSettings()){
+      const add=mcButton(mcTr("Add guest or vehicle"),()=>{
+        this._tab="Chargeable Assets";this._assetEditor="new";this.render();
+      });
+      container.append(add);
+    }
     const next=mcEl("div","card");next.append(mcEl("h3","","Next action"));
     next.append(mcEl("p","",!chargers.length?"Configure a charger to begin":d.status==="unavailable"?"Not ready":"Plan"));
     if(!chargers.length)this.configure(next);
@@ -1424,6 +1430,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     });
     action.disabled=this._settingsBusy;
     form.append(controls,action);
+    if(draft.mode==="budget")form.append(mcEl("p","muted small",
+      mcTr("Indicative energy budget, not a guaranteed electricity bill")));
     card.append(form);
   }
   assets(container){
@@ -1455,6 +1463,11 @@ class RobotixMultiChargeCard extends HTMLElement {
         a.requested_kwh!==undefined?a.requested_kwh+" kWh":
         a.target_soc!==undefined?a.target_soc+"%":mcTr("Not set");
       mcPair(card,mcTr("Charging goal"),goal);
+      mcPair(card,mcTr("Charging pattern"),a.continuous_charging?
+        mcTr("One continuous charge"):mcTr("Flexible cheapest quarters"));
+      if(a.maximum_price_per_kwh!==undefined)mcPair(card,
+        mcTr("Price ceiling per kWh"),
+        a.maximum_price_per_kwh+" "+(a.price_currency||"")+"/kWh");
       this.assetGoalEditor(card,a);
       if(this.canEditSettings()){
         const calendar=mcButton(
