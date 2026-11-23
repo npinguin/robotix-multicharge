@@ -38,7 +38,8 @@
           "ready_by_repeat": "Herhalen (optioneel)",
           "temporary": "Gast (optioneel)",
           "expires_at": "Vervalt (optioneel)",
-          "expected_connection_at": "Verwachte aansluiting (optioneel)"
+          "expected_connection_at": "Verwachte aansluiting (optioneel)",
+          "soc_stale_entity": "OEM-gegevens verouderd (binary sensor: aan = verouderd)"
         }
       },
       "sources": {
@@ -172,7 +173,8 @@
           "soc_entity": "Batterij",
           "capacity_kwh": "Batterij",
           "vehicle_control_entity": "Schakelaar voertuigsturing (bron)",
-          "vehicle_current_entity": "Voertuigstroominstelling (bron)"
+          "vehicle_current_entity": "Voertuigstroominstelling (bron)",
+          "soc_stale_entity": "OEM-gegevens verouderd (binary sensor: aan = verouderd)"
         }
       },
       "charger": {
