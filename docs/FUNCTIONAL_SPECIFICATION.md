@@ -302,6 +302,13 @@ Een verse HA-installatie biedt **Guided setup** of **Configure entire charging s
 **Negatief / fail-closed:** Service 200 response alone, unavailable meter or stale result never becomes confirmed.  
 **Bewijs:** HA requests, native readback timestamps and STOP trace.
 
+### UC22-STOP-LATENCY — Fysieke STOP mag niet achter andere START-readback blijven wachten
+**WHY:** De ene bestaande Controller-Executor beschermt concurrerende START-acties met een globale lock; de huidige implementatie wacht binnen die lock tot 45 seconden op fysieke readback. Daardoor kan de expliciete/protectieve STOP voor een **ander reeds actief laadpunt** de eigen fysieke dispatch missen, ook als zijn eigen onafhankelijke native switch en meter beschikbaar zijn.
+
+**ACCEPT / `STOP-LATENCY-01`:** Twee gecommissioneerde MultiCharge-laadpunten A/B. A heeft een fysiek onbevestigde START waarvan de native service wel is gestuurd en readback nog wacht. De gebruiker vraagt een STOP voor reeds actieve B. De native B-STOP moet **onmiddellijk kunnen worden verzonden zonder de volledige readback-timeout van A af te wachten**, en blijft `pending` tot B onafhankelijk fysiek 0 W bevestigt. Geen onbewezen `confirmed`, geen verhulde tweede writer en geen fysieke aansturing van Charger A door B's STOP. Bij hoge vertraging of falende B-readback wordt status `execution_unknown`, nooit een fictieve STOP.
+
+**NEGATIVE / `STOP-LATENCY-02`:** Concurrente STOP op **dezelfde** Charger met nog open START/readback, tegenstrijdige current-service, externe eigenaar, onbewezen commissioning, herstart en dubbele request-ID laten geen ongeautoriseerde bypass, replay of parallel START toe. Behoud de ene executor, oorspronkelijke native controles, gecontroleerde sessie-evidence en het groepsbudget. Geen generieke lock-verwijdering of tweede command-gateway. Bewijs met echte async HA-services/tests plus daarna echte hardwarelatentie vóór field GO.
+
 ### UC23 — Offline charger fails safe and recovers after verification
 **Persona / eigenaar:** Resident / MultiCharge  
 **GIVEN — beginsituatie:** Charger offline/unavailable during active session, with pending identity and persisted control state.  
