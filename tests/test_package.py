@@ -65,7 +65,7 @@ class PackageTest(unittest.TestCase):
         for title in (
             "Overview", "Charging Plan", "Chargeable Assets", "Chargers",
             "Settings", "Charging site", "Sources & bindings",
-            "Charging strategy", "Safety & limits", "Integrations",
+            "Charging strategy", "Safety & limits", "Integrations", "YAML configuration",
         ):
             self.assertIn(title, source)
         self.assertIn("robotix-multicharge-card", source)
