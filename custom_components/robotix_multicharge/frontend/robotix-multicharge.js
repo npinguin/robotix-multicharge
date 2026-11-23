@@ -66,6 +66,8 @@ for(const [locale,terms] of Object.entries({
   de:{"Stop charging before changing charger":"Laden vor dem Ladepunktwechsel stoppen","Settings changed; refresh and retry":"Einstellungen geändert; aktualisieren und erneut versuchen"},
   es:{"Stop charging before changing charger":"Detenga la carga antes de cambiar de cargador","Settings changed; refresh and retry":"La configuración cambió; actualice e inténtelo de nuevo"}
 }))Object.assign(MC_TEXT[locale],terms);
+for(const [locale,translation] of Object.entries({"nl":"Wijs eerst het andere voertuig af","fr":"Désattribuez d'abord l'autre véhicule","da":"Fjern først det andet køretøjs tilknytning","nb":"Fjern tilordningen for det andre kjøretøyet først","sv":"Ta först bort det andra fordonets tilldelning","de":"Zuerst die Zuweisung des anderen Fahrzeugs aufheben","es":"Quite primero la asignación del otro vehículo"}))
+  MC_TEXT[locale]["Unassign the other vehicle first"]=translation;
 const MC_MODES = ["Automatic", "Solar", "Economy", "Ready By", "Force Charge", "Off"];
 const MC_STYLE = [
   ":host{display:block;color:var(--primary-text-color,#20252b);font:inherit}",
@@ -291,6 +293,8 @@ class RobotixMultiChargeCard extends HTMLElement {
       const detail=String(error?.message||error?.code||"");
       const reason=detail.includes("CHARGER_BUSY_STOP_FIRST")?
         "Stop charging before changing charger":
+        detail.includes("CHARGER_HAS_OTHER_ASSET")?
+          "Unassign the other vehicle first":
         detail.includes("STALE_SETTINGS_REFRESH")?
           "Settings changed; refresh and retry":"Unavailable";
       this._settingsFeedback={status:"rejected",message:reason};
