@@ -575,6 +575,8 @@ class _AssetIntentSensor(_NativeMultiChargeSensor):
             status = "energy"
         elif current.get("requested_duration_minutes") is not None:
             status = "duration"
+        elif current.get("requested_budget_amount") is not None:
+            status = "budget"
         elif current.get("target_soc") is not None:
             status = "target_soc"
         else:
@@ -584,6 +586,11 @@ class _AssetIntentSensor(_NativeMultiChargeSensor):
             "selected_charger_id": assigned,
             "requested_kwh": current.get("requested_kwh"),
             "requested_duration_minutes": current.get("requested_duration_minutes"),
+            "requested_budget_amount": current.get("requested_budget_amount"),
+            "requested_budget_currency": current.get("requested_budget_currency"),
+            "ready_by_repeat": current.get("ready_by_repeat", "none"),
+            "ready_by_weekdays": current.get("ready_by_weekdays"),
+            "charging_windows": current.get("charging_windows"),
             "target_soc": current.get("target_soc"),
             "ready_by": current.get("ready_by"),
             "priority": current.get("priority", 0),
