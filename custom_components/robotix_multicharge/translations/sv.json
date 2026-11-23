@@ -380,6 +380,12 @@
       },
       "opportunistic_kind": {
         "name": "Opportunistiskt prisläge"
+      },
+      "solar_source_kind": {
+        "name": "Typ av solkälla"
+      },
+      "grid_power_direction": {
+        "name": "Nätmätarens riktning"
       }
     },
     "number": {
@@ -602,6 +608,24 @@
       },
       "price_currency": {
         "name": "Prisvaluta"
+      },
+      "solar_power_entity": {
+        "name": "Solproduktion"
+      },
+      "home_power_entity": {
+        "name": "Hemförbrukning"
+      },
+      "grid_power_entity": {
+        "name": "Näteffekt"
+      },
+      "solar_surplus_entity": {
+        "name": "Solöverskott"
+      },
+      "current_price_entity": {
+        "name": "Aktuellt importpris"
+      },
+      "export_price_entity": {
+        "name": "Aktuellt exportpris"
       }
     },
     "binary_sensor": {
