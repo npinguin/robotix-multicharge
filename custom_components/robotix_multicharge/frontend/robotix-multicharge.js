@@ -259,6 +259,154 @@ function mcPlanName(slot,configuration,labels){
   return labels==="vehicle"?car:labels==="charger"?station:car+" · "+station;
 }
 
+// One Basic-style power/price overview above the existing per-Charger lanes.
+// Never invent unavailable meter samples, convert a quote to a bill, or
+// attribute anonymous historical power to today's selected vehicle.
+function mcCombinedChargingChart(data, visibleChargers, slots, actuals){
+  const wrapper=mcEl("section","card combined-plan");
+  wrapper.append(mcEl("h3","",mcTr("All charging · Power & price")));
+  wrapper.append(mcEl("p","muted small",
+    mcTr("Shaded planned · outlined accepted · solid measured · price line")));
+  const from=Date.parse(data.start), until=Date.parse(data.end);
+  if(!Number.isFinite(from)||!Number.isFinite(until)||until<=from){
+    wrapper.append(mcEl("p","muted",mcTr("No qualified timeline")));
+    return wrapper;
+  }
+  const count=Math.ceil((until-from)/900000);
+  if(count>200){
+    wrapper.append(mcEl("p","muted",mcTr("Unavailable")));
+    return wrapper;
+  }
+  const visible=new Set(visibleChargers.map(x=>x.id));
+  const buckets=Array.from({length:count},()=>({
+    proposed:null,accepted:null,actual:null,price:null
+  }));
+  function collect(rows,key){
+    for(const row of rows){
+      if(!visible.has(row.charger_id)||typeof row[key]!=="number"||
+         !Number.isFinite(row[key])||row[key]<0)continue;
+      const start=Date.parse(row.start),end=Date.parse(row.end);
+      if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start)continue;
+      const ix=Math.round((start-from)/900000);
+      if(ix<0||ix>=count||Math.abs(start-(from+ix*900000))>50)continue;
+      // Data contract has one sourced 15-minute row per Charger per field.
+      if(end-start!==900000)continue;
+      const k=key==="actual_power_kw"?"actual":
+        key==="accepted_power_kw"?"accepted":"proposed";
+      buckets[ix][k]=(buckets[ix][k]??0)+row[key];
+    }
+  }
+  collect(slots,"proposed_power_kw");
+  collect(slots,"accepted_power_kw");
+  collect(actuals,"actual_power_kw");
+  const quotes=Array.isArray(data.price_slots)?data.price_slots.filter(q=>
+    typeof q.price_per_kwh==="number"&&Number.isFinite(q.price_per_kwh)&&
+    typeof q.currency==="string"&&q.currency.length===3):[];
+  const currencies=[...new Set(quotes.map(x=>x.currency))];
+  const basis=[...new Set(quotes.map(x=>x.basis||"unqualified"))];
+  let priceReady=currencies.length===1&&basis.length===1;
+  if(priceReady){
+    for(let i=0;i<count;i++){
+      const start=from+i*900000;
+      const matched=quotes.filter(q=>Date.parse(q.start)<=start&&
+        Date.parse(q.end)>=start+900000);
+      if(matched.length===1)buckets[i].price=matched[0].price_per_kwh;
+    }
+  }
+  const values=buckets.flatMap(x=>
+    [x.proposed,x.accepted,x.actual].filter(Number.isFinite));
+  const cap=Math.max(0.5,...values,0);
+  const priceValues=priceReady?buckets.map(x=>x.price).filter(Number.isFinite):[];
+  const lo=priceValues.length?Math.min(...priceValues):0;
+  const hi=priceValues.length?Math.max(...priceValues):0;
+  const spread=hi-lo||1;
+  const x0=69,width=807,top=34,bottom=190,height=bottom-top;
+  const svg=mcSVG("svg",{
+    viewBox:"0 0 960 246",role:"img",class:"timeline",
+    "aria-label":mcTr("Combined actual charging power, planned and accepted charging, and independently scaled electricity price")
+  });
+  svg.append(mcSVG("text",{x:4,y:16,"font-size":13},mcTr("Power")+" · kW"));
+  svg.append(mcSVG("text",{x:955,y:16,"text-anchor":"end","font-size":12},
+    priceValues.length?basis[0]+" · "+currencies[0]+"/kWh":
+      mcTr("Price unavailable")));
+  svg.append(mcSVG("line",{x1:x0,y1:bottom,x2:x0+width,y2:bottom,
+    stroke:"currentColor","stroke-opacity":0.35}));
+  for(let t=0;t<=4;t++){
+    const y=bottom-t*height/4;
+    svg.append(mcSVG("line",{x1:x0,y1:y,x2:x0+width,y2:y,
+      stroke:"currentColor","stroke-opacity":0.12}));
+    svg.append(mcSVG("text",{x:x0-7,y:y+4,"text-anchor":"end",
+      "font-size":11},(t*cap/4).toFixed(1)));
+  }
+  const colors={proposed:"#667e9f",accepted:"#326f9d",actual:"#18856d"};
+  const layers=[["proposed",0.18],["accepted",0.8],["actual",1]];
+  for(let i=0;i<count;i++){
+    const tick=buckets[i];
+    const x=x0+i*width/count,bar=width/count;
+    for(const [key,opacity] of layers){
+      const kw=tick[key];
+      if(!Number.isFinite(kw))continue;
+      const bh=Math.min(height,(kw/cap)*height);
+      const rect=mcSVG("rect",{
+        x:x+(key==="proposed"?0:key==="accepted"?bar*0.10:bar*0.20),
+        y:bottom-bh,width:Math.max(0.6,bar*(key==="proposed"?0.88:0.68)),
+        height:bh,fill:key==="accepted"?"none":colors[key],
+        "fill-opacity":opacity,stroke:key==="accepted"?colors[key]:"none",
+        "stroke-width":key==="accepted"?1:0
+      });
+      rect.append(mcSVG("title",{},
+        mcTr(key==="actual"?"Measured":key==="accepted"?"Accepted":"Proposed")+
+        " · "+mcTime(new Date(from+i*900000).toISOString(),data.timezone)+
+        " · "+kw.toFixed(2)+" kW"));
+      svg.append(rect);
+    }
+  }
+  if(priceValues.length){
+    let d="",last=-2;
+    for(let i=0;i<count;i++){
+      const price=buckets[i].price;
+      if(!Number.isFinite(price)){last=-2;continue;}
+      const x=x0+(i+0.5)*width/count;
+      const y=bottom-(price-lo)/spread*height;
+      d+=(i===last+1?" L":" M")+x.toFixed(2)+" "+y.toFixed(2);
+      last=i;
+    }
+    if(d)svg.append(mcSVG("path",{d,fill:"none",stroke:"#ab6d13",
+      "stroke-width":2,"stroke-linecap":"round","stroke-linejoin":"round"}));
+    svg.append(mcSVG("text",{x:950,y:top+2,"text-anchor":"end",
+      "font-size":11},hi.toFixed(3)));
+    svg.append(mcSVG("text",{x:950,y:bottom+4,"text-anchor":"end",
+      "font-size":11},lo.toFixed(3)));
+  }
+  const now=Date.now();
+  if(now>=from&&now<until){
+    const at=x0+(now-from)/(until-from)*width;
+    svg.append(mcSVG("line",{x1:at,y1:top,x2:at,y2:bottom,
+      stroke:"var(--warning-color,#b76b64)","stroke-width":2}));
+    svg.append(mcSVG("text",{x:at+3,y:top-6,"font-size":10},mcTr("Now")));
+  }
+  for(let i=0;i<=4;i++){
+    const stamp=new Date(from+(until-from)*i/4);
+    svg.append(mcSVG("text",{
+      x:x0+i*width/4,y:225,
+      "text-anchor":i===0?"start":i===4?"end":"middle",
+      "font-size":11
+    },stamp.toLocaleString(undefined,{timeZone:data.timezone||"UTC",
+      weekday:"short",hour:"2-digit",minute:"2-digit"})));
+  }
+  const plot=mcEl("div","chart");plot.append(svg);wrapper.append(plot);
+  const legend=mcEl("div","legend");
+  for(const name of ["Proposed","Accepted","Measured"]){
+    legend.append(mcEl("span","",mcTr(name)));
+  }
+  legend.append(mcEl("span","",priceValues.length?
+    basis[0]+" · "+currencies[0]+"/kWh":mcTr("Price unavailable")));
+  wrapper.append(legend);
+  if(!values.length)wrapper.append(mcEl("p","muted small",
+    mcTr("No qualified physical or planned power in this period")));
+  return wrapper;
+}
+
 class RobotixMultiChargeCard extends HTMLElement {
   constructor(){
     super();
