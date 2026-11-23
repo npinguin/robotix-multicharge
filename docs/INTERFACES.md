@@ -99,6 +99,12 @@ Upstream `Keep charger on`/preconditioning has **no generic actuator claim** in 
 
 Asset `target_soc`, `requested_kwh`, `requested_duration_minutes` and `requested_budget_amount` are visible as a novice-level exclusive choice with **one atomic** `update_settings` request and authoritative Config Entry readback. Specific weekday Ready By and allowed charging windows reuse the same Asset native ownership. STOP from Overview uses only the existing `command` path and is shown when the backend specifically advertises stop capability; no second hardware service. `source`/connection/readback/price remains authoritative, and 0, 1, 4 or 10 Charger/Asset counts do not change the public contract. Browser/installed-HA/physical acceptance remains a separate gate.
 
+### Owning Device and full UX introspection
+
+The read-only `robotix_multicharge/get_plan` result exposes authoritative `configuration`, observation/evidence quality, accepted/actual/proposed/indicative slots and each actual logical owner's `preference_entities` from the native Home Assistant Registry. Controller IDs resolve all ten actual energy/tariff/source Text entities, its solar source-kind and grid-meter-sign Selects, charging mode and existing site limit/visual controls. Asset and Charger maintain their own native identity, charging intents, schedule, source, power setting and confirmation controls. The object Details projection displays all canonical persisted fields (and unrecognized additive keys) **only as evidence**; no browser-local setter or new physical source-of-truth is created.
+
+All HA native Select, Number, Text and DateTime preference mutators reject a missing or non-administrator `context.user_id`. The ordinary `update_settings` WebSocket retains Home Assistant `require_admin`, Config Entry revision/readback and the existing physical executor lock. Site electrical/Charger structural/source/commissioning changes remain the existing safeguarded Options Flow; an informative config value is not automatically writable. The integrated source/static and isolated installed HA native Registry+actor tests establish only their respective proof levels, not the actual Browser/Site/PHYSICAL_READBACK qualifications.
+
 ## Native HA contracts for independently installed consumers
 
 - Source-neutral native HA entities for new logical properties and qualifying control actions. Stable unique IDs keyed on logical IDs and semantic property, never mutable names. No copied historical controls.
