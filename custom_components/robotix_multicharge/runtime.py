@@ -334,6 +334,7 @@ class MultiChargeRuntime:
                 asset_uid=asset["id"], charger_uid=uid,
                 remaining_grid_kwh=amount, ready_by=deadline,
                 priority=asset.get("priority", 0),
+                continuous_charging=asset.get("continuous_charging", False),
                 remaining_duration_minutes=minutes,
                 remaining_budget_amount=budget,
                 budget_currency=(asset.get("requested_budget_currency")
