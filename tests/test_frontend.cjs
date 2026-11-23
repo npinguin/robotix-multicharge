@@ -225,7 +225,7 @@ async function main(){
 
   minimalData.command_capabilities.plug.manual_one_off_allowed=true;
   minimalData.command_capabilities.plug.manual_one_off_reason="READY";
-  minimalCard.render();
+  await minimalCard.load();
   const enabledStart=find(minimalCard.shadowRoot,"button","Start bounded session");
   assert.equal(enabledStart.disabled,false,
     "Existing safe executor remains reachable once qualification succeeds");
