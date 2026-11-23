@@ -1687,7 +1687,13 @@ async def test_native_ha_service_injects_context_for_real_vehicle_quick_action(
     assert hass.states.get(target).state == "90.0"
 
     def user_for_context(user_id):
-        return SimpleNamespace(is_admin=user_id == "admin")
+        return SimpleNamespace(
+            is_admin=user_id == "admin",
+            # HA's native service registry checks entity permissions before
+            # dispatch. Grant service visibility here to test MultiCharge's
+            # stricter independent admin-only write authorization.
+            permissions=SimpleNamespace(check_entity=lambda *args: True),
+        )
 
     with patch.object(
         hass.auth, "async_get_user",
