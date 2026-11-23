@@ -933,7 +933,7 @@ async function main(){
   await new Promise(resolve=>setImmediate(resolve));
   editorCard._tab="Settings";
   editorCard._settingsOpen="Charging site";
-  editorCard._editingField="controller:home:name";
+  editorCard._editingField="controller:site:name";
   editorCard.render();
   let typed=null;
   visit(editorCard.shadowRoot,x=>{
