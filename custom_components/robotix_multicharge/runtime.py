@@ -364,7 +364,9 @@ class MultiChargeRuntime:
         tariff, tariff_quality = intervals(
             self.hass, setting.get("price_entity"), "price", at
         )
-        solar_kind = setting.get("solar_source_kind", "none")
+        solar_kind = setting.get(
+            "solar_source_kind", "intervals" if setting.get("solar_entity") else "none",
+        )
         solar, solar_quality = (), "SOLAR_NOT_SELECTED"
         if solar_kind == "intervals":
             solar, solar_quality = intervals(
