@@ -1018,7 +1018,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         "config/config_entries/options/flow/"+encodeURIComponent(pending.flow_id),
         {next_step_id:"yaml"});
       if(flow?.type!=="form"||flow.step_id!=="yaml")
-        throw Error("Home Assistant rejected YAML edit");
+        throw Error("Home Assistant rejected JSON edit");
       this._yamlFlow=flow;
       const input=(flow.data_schema||[]).find(x=>x.name==="yaml_text");
       const mode=(flow.data_schema||[]).find(x=>x.name==="mode");
@@ -1069,7 +1069,7 @@ class RobotixMultiChargeCard extends HTMLElement {
           const detail=source.includes("Validation:")?
             source.split("Validation:").pop().trim():
             Object.values(next.errors).join(", ");
-          this._yamlError="YAML rejected: "+detail;
+          this._yamlError="JSON/YAML rejected: "+detail;
         }
       }else throw Error("Unexpected native configuration response");
     }catch(error){
@@ -1082,11 +1082,11 @@ class RobotixMultiChargeCard extends HTMLElement {
     const flow=this._yamlFlow;
     const area=mcEl("section","yaml-editor");
     const heading=mcEl("h3","",flow.step_id==="yaml_review"?
-      "Review configuration changes":"YAML configuration (advanced)");
+      "Review configuration changes":"JSON configuration (advanced)");
     area.append(heading);
     area.append(mcEl("p","muted small",flow.step_id==="yaml_review"?
       "Nothing is saved until you confirm. No charging commands are sent.":
-      "Edit current Config Entry YAML. Keep existing IDs. Home Assistant validates the full draft."));
+      "Edit the complete current Config Entry as JSON. Keep existing IDs. Home Assistant validates the full draft before Save."));
     if(this._yamlError){
       const msg=mcEl("p","yaml-error",this._yamlError);
       msg.setAttribute("role","alert");area.append(msg);
@@ -1105,12 +1105,12 @@ class RobotixMultiChargeCard extends HTMLElement {
       mode.value=this._yamlMode;
       mode.addEventListener("change",()=>{this._yamlMode=mode.value;});
       const edit=mcEl("textarea");
-      edit.setAttribute("aria-label","MultiCharge YAML configuration");
+      edit.setAttribute("aria-label","MultiCharge JSON configuration");
       edit.value=this._yamlText;
       edit.rows=18;
       edit.spellcheck=false;
       edit.addEventListener("input",()=>{this._yamlText=edit.value;});
-      field.append(label,mode,mcEl("label","",mcTr("Configuration YAML")),edit);
+      field.append(label,mode,mcEl("label","",mcTr("Configuration JSON")),edit);
       area.append(field);
       const buttons=mcEl("div","yaml-actions");
       const review=mcButton("Continue / review",()=>this.advanceYamlEditor({
@@ -1124,7 +1124,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       const actions=mcEl("div","yaml-actions");
       const confirm=mcButton("Apply reviewed changes",()=>this.advanceYamlEditor({confirm:true}));
       confirm.disabled=this._yamlBusy;
-      const back=mcButton("Back to YAML",()=>this.advanceYamlEditor({edit_again:true}));
+      const back=mcButton("Back to JSON",()=>this.advanceYamlEditor({edit_again:true}));
       back.disabled=this._yamlBusy;
       actions.append(confirm,back,mcButton("Cancel",()=>this.cancelYamlEditor()));
       area.append(actions);
@@ -1809,6 +1809,19 @@ class RobotixMultiChargeCard extends HTMLElement {
         const label=MC_OWNER_NAMES[field]||field.replace(/_/g," ");
         mcPair(section,mcTr(label),
           mcOwnerReadValue(record[field],field,this._data?.timezone));
+        // Only existing native HA entities may edit ordinary properties.
+        // Hardware ownership, commissioning and stable IDs remain guarded.
+        const entity=this.ownerEntity(scope,record.id,field);
+        if(this.canEditSettings()&&entity&&field!=="id"&&
+           field!=="control_owner"&&field!=="physical_commissioned"){
+          section.append(mcButton(mcTr("Edit"),()=>
+            this.openNative(scope,record.id,field)));
+        }
+      }
+      if(this.canEditSettings()){
+        // All advanced properties, including complex source and electrical
+        // mappings, are edited through the same reviewed Config Entry JSON.
+        section.append(mcButton("Edit JSON",()=>this.openYamlEditor()));
       }
       wrapper.append(section);
     }
@@ -1821,6 +1834,9 @@ class RobotixMultiChargeCard extends HTMLElement {
       for(const field of extra){
         mcPair(rest,mcTr(MC_OWNER_NAMES[field]||field.replace(/_/g," ")),
           mcOwnerReadValue(record[field],field,this._data?.timezone));
+        if(this.canEditSettings())rest.append(
+          mcButton("Edit JSON",()=>this.openYamlEditor())
+        );
       }
       wrapper.append(rest);
     }
@@ -2410,7 +2426,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     const toolbar=mcEl("div","settings-toolbar");
     this.configure(toolbar);
     if(this.canEditSettings()){
-      const edit=mcButton(this._yamlFlow?"Cancel YAML":"Edit YAML",()=>
+      const edit=mcButton(this._yamlFlow?"Cancel JSON":"Edit JSON",()=>
         this._yamlFlow?this.cancelYamlEditor():this.openYamlEditor());
       edit.disabled=this._yamlBusy;
       toolbar.append(edit);
@@ -2564,7 +2580,7 @@ class RobotixMultiChargeCard extends HTMLElement {
           detail.append(mcEl("p","muted small",
             d.configuration_managed_by_yaml?
               "This site is managed by external Home Assistant YAML/JSON. Edit its existing source file, validate and restart. The dashboard will not overwrite that authority.":
-              "For GUI-managed sites, use Edit YAML above, review changes and save through Home Assistant. The Config Entry remains the only authority; no separate file or charging writer is created."));
+              "For GUI-managed sites, use Edit JSON above, review every change and save through Home Assistant. The Config Entry remains the only authority; no separate file or charging writer is created."));
           if(!d.configuration_managed_by_yaml)detail.append(mcEl(
             "p","muted small",
             "Select native Home Assistant sources through Configure → Energy & prices; "+
