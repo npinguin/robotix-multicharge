@@ -88,6 +88,41 @@ def charging_window_allows(windows: Mapping[str, Mapping[str, str]],
     return False
 
 
+def qualified_price_policy_cap(
+    cap: float | None, kind: str, level: float | None,
+    currency: str | None, prices: Sequence[PriceSlot],
+    first: datetime, deadline: datetime,
+) -> tuple[float | None, str | None]:
+    """Shared source-qualified upstream price policy, never a second planner.
+
+    The original upstream Type1/Type2 strategy adjusts the *allowed rate*
+    based on the last actually observed future quote, not a guessed spot.
+    Returned 'error' is explicit; no caller may treat it as a zero price.
+    """
+    if kind == "off":
+        return cap, None
+    if kind not in ("type1", "type2") or cap is None:
+        return None, "INVALID_PRICE_POLICY"
+    future = [
+        p for p in prices if p.end > first and p.start < deadline
+        and p.currency == currency
+    ]
+    if not future:
+        return None, "PRICE_SOURCE_UNAVAILABLE"
+    last = max(future, key=lambda q: q.start)
+    fraction = (level if level is not None else
+                (50.0 if kind == "type1" else 90.0))
+    if kind == "type1":
+        threshold = cap * fraction / 100
+        if last.effective_price_per_kwh < threshold:
+            return threshold, None
+        return cap, None
+    last_price = last.effective_price_per_kwh
+    calculated = (last_price * fraction / 100 if last_price >= 0
+                  else last_price * (200 - fraction) / 100)
+    return min(cap, calculated), None
+
+
 def resolve_recurring_ready_by(
     anchor: datetime | None, now: datetime, repeat: str, site_time_zone: str,
     weekday_times: Mapping[str, str] | None = None,
@@ -344,33 +379,16 @@ def compile_plan(
         # Upstream v2.6.1 price policies are Asset-owned preferences,
         # interpreted by the ONE 15-min Controller planner. A price limit
         # never invents a currency or source interval.
-        effective_cap = demand.maximum_price_per_kwh
-        if demand.opportunistic_kind != "off":
-            future = [
-                q for q in (tariffs or {}).get(uid, ())
-                if q.end > begin and q.start < deadline
-                and q.currency == demand.price_currency
-            ]
-            if not future:
-                reasons[uid] = "PRICE_SOURCE_UNAVAILABLE"
-                shortfall[uid] = demand.remaining_grid_kwh
-                coverage[uid] = "UNAVAILABLE"
-                continue
-            last = max(future, key=lambda q: q.start)
-            level = (demand.opportunistic_level_pct
-                     if demand.opportunistic_level_pct is not None
-                     else (50.0 if demand.opportunistic_kind == "type1"
-                           else 90.0))
-            if demand.opportunistic_kind == "type1":
-                threshold = effective_cap * level / 100
-                if last.effective_price_per_kwh < threshold:
-                    effective_cap = threshold
-            else:
-                last_rate = last.effective_price_per_kwh
-                adjusted = (last_rate * level / 100
-                            if last_rate >= 0
-                            else last_rate * (200 - level) / 100)
-                effective_cap = min(effective_cap, adjusted)
+        effective_cap, price_policy_error = qualified_price_policy_cap(
+            demand.maximum_price_per_kwh, demand.opportunistic_kind,
+            demand.opportunistic_level_pct, demand.price_currency,
+            (tariffs or {}).get(uid, ()), begin, deadline,
+        )
+        if price_policy_error:
+            reasons[uid] = price_policy_error
+            shortfall[uid] = demand.remaining_grid_kwh
+            coverage[uid] = "UNAVAILABLE"
+            continue
         possible = []
         blocked_price = set()
         low_price_eligible = set()
