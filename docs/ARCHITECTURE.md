@@ -1,5 +1,7 @@
 # Architecture and user experience
 
+> **Functional authority:** [FUNCTIONAL_SPECIFICATION.md](FUNCTIONAL_SPECIFICATION.md) defines the permanent UC01–UC29, FLEX/FORECAST/UI-OWNER outcomes and user acceptance (following the same single-source principle as Multimedia). This document explains how the existing MultiCharge architecture implements them; repeated design examples below are technical guidance, not independent functional scope or a second backlog. Actual implementation/qualification evidence belongs to Issue #1 and the existing PR/release workflow.
+
 ## Purpose and ownership
 
 Robotix MultiCharge is an independent Home Assistant integration for coordinating electrical charging. It starts with cars but can support other rechargeable mobility assets when their real charging capabilities are known.
