@@ -21,6 +21,34 @@ Robotix MultiCharge is an open-source Home Assistant integration being built to 
 
 ## Simple in Home Assistant
 
+### One product, two different workflows
+
+**Installation, native hardware binding and commissioning:** Use Home Assistant's
+initial Config Flow and Options Flow to add or remove a Charger, configure an
+Asset's source/hardware identity, wire native HA sources, verify electrical
+limits and deliberately grant/relinquish the one physical command writer.
+Commissioning requires an explicitly verified idle EVSE, independent connection,
+power/current evidence and confirmed absence of competing automation/writers.
+These flows must never be used as the routine charging-settings UI.
+
+**Daily charging and preferences:** Use the integrated **MultiCharge five-tab
+dashboard**, or the corresponding native HA entities on the three logical
+Devices. This covers Controller charging modes, site operating power limits,
+Asset SoC target (80% default for newly created car profiles), charging amount
+or duration, recurring daily/weekly Ready By schedules, priority, Charger
+vehicle selection and supported Charger min/max/set charging kW. The dashboard
+writes the **MultiCharge-owned** native entities and receives verified state;
+it does not address physical vendor services or create a second settings
+database. The Ready By datetime is accessible through the native HA entity
+dialog from the Asset dashboard, preserving HA's timezone-aware semantics.
+Unsupported physical modulation is shown as on/off only.
+
+A standalone installation needs only Home Assistant and suitable native
+HA provider entities. No Robotix Foundation, Basic, Premium, Wessels package,
+Finance integration or specific charger brand is required. Community source
+and native HA tests are necessary but do not replace real charger commissioning
+and physical acceptance for each installation.
+
 The planned everyday experience has five sections:
 
 | View | Purpose |
