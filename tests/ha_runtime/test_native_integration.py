@@ -1019,7 +1019,7 @@ async def test_initial_bulk_yaml_rejects_templates_duplicate_keys_and_commission
         assert not hass.config_entries.async_entries(DOMAIN)
     # Full empty-site source is valid and cannot accidentally start charging.
     good = ("controller:\n  id: home\n  name: Empty site\n"
-            "  mode: Off\n  max_parallel: 1\n")
+            "  mode: 'Off'\n  max_parallel: 1\n")
     preview = await hass.config_entries.flow.async_configure(
         editor["flow_id"], {"yaml_text": good}
     )
