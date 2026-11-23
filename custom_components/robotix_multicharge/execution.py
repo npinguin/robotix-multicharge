@@ -780,6 +780,13 @@ class NativeSwitchExecutor:
             return "MAX_PARALLEL_REACHED"
         if reserved > cap + 1e-9:
             return "SITE_CAPACITY_EXCEEDED"
+        if (ctl.get("mode") == "Solar"
+                and ctl.get("solar_source_kind") in ("grid_export", "direct_surplus")):
+            available_solar, quality = self.runtime.native_surplus_power(at)
+            if quality != "OK" or available_solar is None:
+                return "NATIVE_SOLAR_SOURCE_UNQUALIFIED"
+            if reserved > available_solar + 1e-9:
+                return "NATIVE_SOLAR_SURPLUS_INSUFFICIENT"
         phases = charger.get("phase_ids") or []
         if ctl.get("phase_limits_a"):
             limits = ctl["phase_limits_a"]
