@@ -432,6 +432,63 @@ async def test_new_asset_from_dashboard_gets_its_own_native_inputs(
 
 
 @pytest.mark.asyncio
+async def test_options_created_charger_auto_registers_device_owned_controls(
+    hass: HomeAssistant,
+):
+    """One Options setup adds a Charger; native controls appear automatically."""
+    from homeassistant.helpers import entity_registry as er
+
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    cfg = validate_configuration({
+        "controller": {"id": "home", "name": "Home",
+                       "mode": "Automatic", "max_parallel": 1},
+        "assets": [], "chargers": [],
+    })
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="MultiCharge Community",
+        data={"source": "ui", "configuration": cfg}, unique_id=DOMAIN,
+    )
+    entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+
+    menu = await hass.config_entries.options.async_init(entry.entry_id)
+    form = await hass.config_entries.options.async_configure(
+        menu["flow_id"], {"next_step_id": "charger"}
+    )
+    saved = await hass.config_entries.options.async_configure(
+        form["flow_id"], {
+            "action": "save", "id": "wallbox",
+            "name": "Standalone EVSE",
+            "kind": "variable_current", "rated_power_kw": 3.6,
+        }
+    )
+    assert saved["type"] == FlowResultType.CREATE_ENTRY, saved
+    await hass.async_block_till_done()
+    registry = er.async_get(hass)
+    device = dr.async_get(hass).async_get_device_by_identifier(
+        (DOMAIN, "charger/wallbox"), entry.entry_id
+    )
+    assert device is not None
+    for platform, field in (
+        ("number", "min_charging_power_kw"),
+        ("number", "max_charging_power_kw"),
+        ("number", "set_charging_power_kw"),
+        ("select", "asset"),
+        ("button", "stop"),
+    ):
+        entity_id = registry.async_get_entity_id(
+            platform, DOMAIN, f"{DOMAIN}:charger:wallbox:{field}"
+        )
+        assert entity_id is not None, (platform, field)
+        assert registry.async_get(entity_id).device_id == device.id
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
 async def test_options_flow_is_device_setup_not_daily_charge_operations(
     hass: HomeAssistant,
 ):
