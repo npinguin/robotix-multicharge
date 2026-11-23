@@ -877,7 +877,7 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_minimal_unassigned_charger_exposes_specific_manual_start_holds(self):
         """UC05/11/17: no SoC, price or PV prerequisite; no fake cable proof."""
-        rt, sources, services = rig(owner="external")
+        rt, sources, services = rig(owner="external", commissioned=False)
         charger = rt.configuration["chargers"][0]
         charger.pop("asset")
         cap = rt.executor.capabilities()["evse"]
