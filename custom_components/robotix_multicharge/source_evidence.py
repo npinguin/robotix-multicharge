@@ -80,6 +80,63 @@ def number(hass, entity_id, kind: str, now: datetime) -> Evidence:
     return Evidence(round(value, 6), "ok", evidence.observed_at, "OK")
 
 
+def live_power(hass, entity_id: str | None, now: datetime, *,
+               signed=False) -> Evidence:
+    """Instantaneous native HA W/kW power, never energy (Wh/kWh) or forecasts.
+
+    Limit observation age to two minutes for live energy decisions and display.
+    Signed grid import/export power is permitted only when sign semantics
+    are explicitly selected in the charging-site configuration.
+    """
+    obj, evidence = _state(hass, entity_id, now, timedelta(minutes=2))
+    if obj is None:
+        return evidence
+    factor = {"W": 0.001, "kW": 1.0}.get(
+        obj.attributes.get("unit_of_measurement")
+    )
+    if factor is None:
+        return Evidence(None, "invalid", evidence.observed_at, "POWER_UNIT_UNVERIFIED")
+    try:
+        value = float(obj.state) * factor
+        if not isfinite(value) or (value < 0 and not signed):
+            raise ValueError("power reading not physically valid")
+    except (TypeError, ValueError, OverflowError):
+        return Evidence(None, "invalid", evidence.observed_at, "POWER_VALUE_INVALID")
+    return Evidence(round(value, 6), "ok", evidence.observed_at, "OK")
+
+
+def live_price(hass, entity_id: str | None, now: datetime):
+    """Indicative current native HA tariff, not a future pricing schedule.
+
+    Return a separately qualified currency and never infer billing basis.
+    The actual effective tariff receipts still require covered price slots.
+    """
+    obj, evidence = _state(hass, entity_id, now, timedelta(minutes=20))
+    if obj is None:
+        return evidence, None
+    unit = obj.attributes.get("unit_of_measurement")
+    currency, divisor = None, None
+    if isinstance(unit, str) and unit.count("/") == 1:
+        currency, denom = unit.split("/")
+        if currency == "€":
+            currency = "EUR"
+        if (len(currency) == 3 and currency.isascii()
+                and currency.isalpha() and currency.isupper()):
+            divisor = {"kWh": 1, "MWh": 1000}.get(denom)
+    if divisor is None:
+        return Evidence(None, "invalid", evidence.observed_at,
+                        "PRICE_UNIT_UNVERIFIED"), None
+    try:
+        value = float(obj.state) / divisor
+        if not isfinite(value):
+            raise ValueError("invalid price")
+    except (TypeError, ValueError, OverflowError):
+        return Evidence(None, "invalid", evidence.observed_at,
+                        "PRICE_VALUE_INVALID"), None
+    return Evidence(round(value, 8), "ok", evidence.observed_at,
+                    "CURRENT_PRICE_ONLY"), currency
+
+
 def connection(hass, entity_id: str | None, now: datetime, *,
                connected_states=None, disconnected_states=None) -> Evidence:
     obj, evidence = _state(hass, entity_id, now, timedelta(minutes=30))
