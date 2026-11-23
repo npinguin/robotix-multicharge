@@ -221,6 +221,10 @@ def validate_configuration(value):
                           "requested_budget_amount", "requested_budget_currency", "ready_by",
                           "ready_by_repeat", "ready_by_weekdays", "charging_windows",
             "continuous_charging",
+            "minimum_soc_pct", "maximum_price_per_kwh", "price_currency",
+            "low_price_trigger_per_kwh", "low_soc_trigger_pct",
+            "opportunistic_kind", "opportunistic_level_pct",
+            "earliest_start_at",
             "charge_efficiency", "priority",
                           "temporary", "expires_at", "expected_connection_at",
                           "plan_color"), "asset")
@@ -346,6 +350,50 @@ def validate_configuration(value):
             if type(source["continuous_charging"]) is not bool:
                 raise ValueError("asset.continuous_charging: expected boolean")
             asset["continuous_charging"] = source["continuous_charging"]
+        for field in ("minimum_soc_pct", "low_soc_trigger_pct",
+                      "opportunistic_level_pct"):
+            if source.get(field) is None:
+                continue
+            level = _number(source[field], "asset." + field, zero=True)
+            if level > 100:
+                raise ValueError("asset." + field + ": outside 0..100")
+            asset[field] = level
+        for field in ("maximum_price_per_kwh", "low_price_trigger_per_kwh"):
+            if source.get(field) is None:
+                continue
+            quote = source[field]
+            if type(quote) not in (float, int) or not isfinite(quote):
+                raise ValueError("asset." + field + ": finite price required")
+            asset[field] = float(quote)
+        if source.get("opportunistic_kind") is not None:
+            if source["opportunistic_kind"] not in ("off", "type1", "type2"):
+                raise ValueError("asset.opportunistic_kind: off/type1/type2")
+            asset["opportunistic_kind"] = source["opportunistic_kind"]
+        if (asset.get("opportunistic_kind") in ("type1", "type2")
+                and "maximum_price_per_kwh" not in asset):
+            raise ValueError("asset.opportunistic_kind: price cap required")
+        if any(k in asset for k in (
+                "maximum_price_per_kwh", "low_price_trigger_per_kwh")):
+            currency = source.get("price_currency")
+            if (not isinstance(currency, str)
+                    or fullmatch(r"[A-Z]{3}", currency) is None):
+                raise ValueError("asset.price_currency: ISO-4217 required")
+            asset["price_currency"] = currency
+        elif source.get("price_currency") is not None:
+            raise ValueError("asset.price_currency: price policy required")
+        if (asset.get("minimum_soc_pct") is not None
+                and asset.get("target_soc") is not None
+                and asset["minimum_soc_pct"] > asset["target_soc"]):
+            raise ValueError("asset.minimum_soc_pct: must not exceed target")
+        if source.get("earliest_start_at") is not None:
+            raw_start = _text(source["earliest_start_at"], "asset.earliest_start_at")
+            try:
+                start = datetime.fromisoformat(raw_start.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError("asset.earliest_start_at: invalid ISO") from exc
+            if start.utcoffset() is None:
+                raise ValueError("asset.earliest_start_at: timezone required")
+            asset["earliest_start_at"] = start.isoformat()
         if source.get("ready_by_repeat") is not None:
             asset["ready_by_repeat"] = repeat
         ChargeableAsset(uid=uid, name=asset["name"], kind=asset["kind"],
@@ -642,6 +690,10 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
                           "requested_budget_amount", "requested_budget_currency",
             "ready_by", "ready_by_repeat", "ready_by_weekdays", "charging_windows",
             "continuous_charging",
+            "minimum_soc_pct", "maximum_price_per_kwh", "price_currency",
+            "low_price_trigger_per_kwh", "low_soc_trigger_pct",
+            "opportunistic_kind", "opportunistic_level_pct",
+            "earliest_start_at",
             "charge_efficiency", "priority",
             "temporary", "expires_at", "expected_connection_at",
             "plan_color",
@@ -775,6 +827,10 @@ def is_in_place_runtime_preference_change(before, after):
                            "requested_budget_currency", "ready_by",
                           "ready_by_repeat", "ready_by_weekdays", "charging_windows",
             "continuous_charging",
+            "minimum_soc_pct", "maximum_price_per_kwh", "price_currency",
+            "low_price_trigger_per_kwh", "low_soc_trigger_pct",
+            "opportunistic_kind", "opportunistic_level_pct",
+            "earliest_start_at",
             "charge_efficiency", "priority",
                           "temporary", "expires_at", "expected_connection_at"):
                 asset.pop(field, None)
@@ -942,6 +998,9 @@ def normalize_expert_json(value):
             "Requested-budget-amount", "Requested-budget-currency",
             "Ready-by-repeat", "Ready-by-weekdays", "Charging-windows",
             "Continuous-charging",
+            "Minimum-SoC-pct", "Maximum-price-per-kWh", "Price-currency",
+            "Low-price-trigger-per-kWh", "Low-SoC-trigger-pct",
+            "Opportunistic-kind", "Opportunistic-level-pct", "Earliest-start-at",
             "Charging-efficiency", "Priority",
             "Temporary", "Expires-at", "Expected-connection-at", "Plan-color",
         ), "ChargingAsset")
@@ -975,6 +1034,14 @@ def normalize_expert_json(value):
             ("Ready-by-weekdays", "ready_by_weekdays"),
             ("Charging-windows", "charging_windows"),
             ("Continuous-charging", "continuous_charging"),
+            ("Minimum-SoC-pct", "minimum_soc_pct"),
+            ("Maximum-price-per-kWh", "maximum_price_per_kwh"),
+            ("Price-currency", "price_currency"),
+            ("Low-price-trigger-per-kWh", "low_price_trigger_per_kwh"),
+            ("Low-SoC-trigger-pct", "low_soc_trigger_pct"),
+            ("Opportunistic-kind", "opportunistic_kind"),
+            ("Opportunistic-level-pct", "opportunistic_level_pct"),
+            ("Earliest-start-at", "earliest_start_at"),
             ("Charging-efficiency", "charge_efficiency"),
             ("Priority", "priority"), ("Temporary", "temporary"),
             ("Expires-at", "expires_at"),
