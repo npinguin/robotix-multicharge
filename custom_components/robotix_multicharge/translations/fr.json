@@ -377,6 +377,9 @@
       },
       "continuous_charging": {
         "name": "Mode de recharge"
+      },
+      "opportunistic_kind": {
+        "name": "Mode opportuniste"
       }
     },
     "number": {
@@ -418,6 +421,21 @@
       },
       "requested_budget_amount": {
         "name": "Budget de recharge (€)"
+      },
+      "minimum_soc_pct": {
+        "name": "Niveau minimal de batterie"
+      },
+      "maximum_price_per_kwh": {
+        "name": "Prix maximal par kWh"
+      },
+      "low_price_trigger_per_kwh": {
+        "name": "Déclencheur prix bas"
+      },
+      "low_soc_trigger_pct": {
+        "name": "Déclencheur batterie faible"
+      },
+      "opportunistic_level_pct": {
+        "name": "Seuil opportuniste"
       }
     },
     "datetime": {
@@ -429,6 +447,9 @@
       },
       "expires_at": {
         "name": "Invité valable jusqu’à"
+      },
+      "earliest_start_at": {
+        "name": "Début de recharge au plus tôt"
       }
     },
     "sensor": {
@@ -578,6 +599,9 @@
       },
       "charging_window_sun": {
         "name": "Dimanche charging hours"
+      },
+      "price_currency": {
+        "name": "Devise tarifaire"
       }
     },
     "binary_sensor": {
