@@ -438,7 +438,8 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
     allowed = {
         "controller": {
             "name", "max_parallel", "max_power_kw", "phase_limits_a",
-            "price_entity", "solar_entity", "binding_entity", "mode",
+            "price_entity", "solar_entity", "site_power_entity",
+            "binding_entity", "mode",
             "plan_label_mode", "plan_color_by", "show_indicative_forecast",
         },
         "asset": {
