@@ -10,8 +10,8 @@ import voluptuous as vol
 from datetime import datetime, timezone
 
 from .configuration import (
-    apply_settings_change, configuration_revision,
-    is_plan_presentation_only_change,
+    apply_settings_change, apply_dashboard_structure, configuration_revision,
+    is_plan_presentation_only_change, is_in_place_runtime_preference_change,
 )
 from .source_evidence import number
 from .execution import stop_power_limit
@@ -82,8 +82,9 @@ async def require_native_admin(hass, context):
 
 
 async def apply_native_preference(hass, entry, runtime, scope, target_id, changes,
-                                  *, expected_revision=None, action="save"):
-    """Single native settings writer for HA entities and admin WebSocket.
+                                  *, expected_revision=None, action="save",
+                                  structural=False):
+    """Single native settings writer for HA entities and dashboard.
 
     Under the physical executor lock, validate the one Config Entry source and
     never reload a working EVSE for a visual-only preference.
@@ -95,10 +96,24 @@ async def apply_native_preference(hass, entry, runtime, scope, target_id, change
         if expected_revision is not None and (
                 expected_revision != configuration_revision(runtime.configuration)):
             raise ValueError("stale_settings")
-        updated = apply_settings_change(
-            runtime.configuration, scope, target_id, changes, action,
+        updated = (
+            apply_dashboard_structure(
+                runtime.configuration, scope, target_id, changes, action,
+            ) if structural else apply_settings_change(
+                runtime.configuration, scope, target_id, changes, action,
+            )
         )
-        if not is_plan_presentation_only_change(runtime.configuration, updated):
+        if structural:
+            # Reuse the very same guarded structural safety contract as native
+            # Options, no new physical writer or readback rules.
+            if not (
+                is_plan_presentation_only_change(runtime.configuration, updated)
+                or is_in_place_runtime_preference_change(
+                    runtime.configuration, updated)
+            ):
+                from .config_flow import _assert_safe_yaml_ui_commit
+                _assert_safe_yaml_ui_commit(runtime, updated)
+        elif not is_plan_presentation_only_change(runtime.configuration, updated):
             # A charger assignment changes both its own command boundary and
             # the former charger's assignment. Other active chargers are safe.
             atomic_guest_assignment = (
@@ -167,6 +182,7 @@ async def apply_native_preference(hass, entry, runtime, scope, target_id, change
     vol.Required("changes"): dict,
     vol.Required("expected_revision"): str,
     vol.Optional("action"): vol.In(("save", "create", "delete")),
+    vol.Optional("structural", default=False): bool,
 })
 @websocket_api.async_response
 async def websocket_update_settings(
@@ -183,7 +199,7 @@ async def websocket_update_settings(
         return
     entry_id, runtime = rows[0]
     entry = hass.config_entries.async_get_entry(entry_id)
-    if entry is None or entry.data.get("source") == "yaml":
+    if entry is None or entry.data.get("source") in ("yaml", "json"):
         connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT,
                               "Expert-managed configuration is edited in its JSON/YAML source")
         return
@@ -192,6 +208,7 @@ async def websocket_update_settings(
             hass, entry, runtime, msg["scope"], msg["target_id"],
             msg["changes"], expected_revision=msg["expected_revision"],
             action=msg.get("action", "save"),
+            structural=msg.get("structural", False),
         )
     except (ValueError, TypeError, KeyError) as exc:
         # Give the admin an actionable *bounded* reason, never raw source
