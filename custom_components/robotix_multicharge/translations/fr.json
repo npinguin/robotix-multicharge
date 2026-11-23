@@ -2,14 +2,9 @@
   "config": {
     "step": {
       "user": {
-        "title": "Site de recharge",
-        "description": "Étape 1/5 — Nommez le site de recharge; toutes les limites électriques sont facultatives.",
-        "data": {
-          "name": "Nom (facultatif)",
-          "max_parallel": "Nombre (facultatif)",
-          "max_power_kw": "Puissance (facultatif)",
-          "phase_limits_a": "Phases (facultatif)",
-          "mode": "Mode de charge initial"
+        "menu_options": {
+          "guided": "Configuration guidée",
+          "expert": "Configurer tout le site de charge"
         }
       },
       "charger": {
@@ -89,6 +84,32 @@
           "circuit_limit_a": "Courant (facultatif)",
           "current_control_entity": "Courant (facultatif)",
           "current_readback_entity": "Courant (facultatif)"
+        }
+      },
+      "guided": {
+        "title": "Site de recharge",
+        "description": "Étape 1/5 — Nommez le site de recharge; toutes les limites électriques sont facultatives.",
+        "data": {
+          "name": "Nom (facultatif)",
+          "max_parallel": "Nombre (facultatif)",
+          "max_power_kw": "Puissance (facultatif)",
+          "phase_limits_a": "Phases (facultatif)",
+          "mode": "Mode de charge initial"
+        }
+      },
+      "expert": {
+        "title": "Configuration complète",
+        "description": "Vérifiez les bornes, véhicules et sources avant de sauvegarder. Aucune commande physique n'est envoyée. {note}",
+        "data": {
+          "yaml_text": "Configuration YAML MultiCharge complète (controller/assets/chargers)"
+        }
+      },
+      "expert_review": {
+        "title": "Vérifier la configuration complète",
+        "description": "{summary} Confirmez après vérification de toute la configuration.",
+        "data": {
+          "confirm": "J'ai vérifié la configuration complète",
+          "edit_again": "Retour au YAML"
         }
       }
     },
