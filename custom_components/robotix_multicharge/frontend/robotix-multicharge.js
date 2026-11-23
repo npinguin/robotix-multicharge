@@ -335,7 +335,7 @@ function mcMountApex(plot,options){
     plot._mcApex=chart;
     return chart.render().catch(error=>{
       chart.destroy();plot._mcApex=null;
-      plot.append(mcEl("p","plan-caution","ApexCharts render failed: "+String(error?.message||error)));
+      plot.append(mcEl("p","plan-caution","ApexCharts render failed: "+String(error?.stack||error?.message||error).slice(0,650)));
     });
   }).catch(error=>{
     if(plot.isConnected!==false)
@@ -399,14 +399,21 @@ function mcApexLane(data,charger,rows,actuals,forecast){
     ["Measured · physical","actual_power_kw",actuals],
     ["Indicative · not reserved","indicative_power_kw",forecast]
   ];
-  const series=fields.map(([name,key,source])=>({
-    name,data:mcSeriesFromRows(source,key,from,until,charger.id)
-  }));
+  const available=fields.map(([name,key,source],index)=>({
+    index,name,data:mcSeriesFromRows(source,key,from,until,charger.id)
+  })).filter(row=>row.data.length);
+  // Old ApexCharts may reject zero-length subordinate series in a stacked
+  // multi-lane Shadow DOM; absent evidence is an absent series, never a 0.
   const options=mcApexCommon(from,until,190,"Charger "+charger.id);
   options.chart.type="line";
-  options.series=series;
-  options.stroke={curve:"stepline",width:[1.8,2,3,1.6],dashArray:[5,0,0,7]};
-  options.fill={opacity:[0.06,1,0.18,0.05]};
+  options.series=available.map(({name,data})=>({name,data}));
+  options.colors=available.map(({index})=>
+    ["#7890aa","#478ab8","#18856d","#b78330"][index]);
+  options.stroke={curve:"stepline",
+    width:available.map(({index})=>[1.8,2,3,1.6][index]),
+    dashArray:available.map(({index})=>[5,0,0,7][index])};
+  options.fill={opacity:available.map(({index})=>
+    [0.06,1,0.18,0.05][index])};
   mcMountApex(plot,options);
   return plot;
 }
