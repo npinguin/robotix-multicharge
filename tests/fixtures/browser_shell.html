@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Chromium viewport harness</title>
+<style>html,body{margin:0;background:#f1f3f6} iframe{border:0;display:block} pre{display:none}</style>
+</head><body><pre id="smoke-result"></pre>
+<script>
+(function(){
+  // Headless Chrome enforces a 500px top-level minimum on Linux. A real
+  // same-origin iframe owns the exact CSS viewport (390/1024/1600) so the
+  // integration's native responsive @media rules are genuinely exercised.
+  const params=new URLSearchParams(location.search);
+  const width=Number(params.get("width")||390);
+  const frame=document.createElement("iframe");
+  frame.style.width=width+"px";
+  frame.style.height="900px";
+  frame.setAttribute("title","MultiCharge genuine responsive viewport");
+  params.delete("width");
+  frame.src="browser_smoke.html?"+params.toString();
+  document.body.append(frame);
+  const poll=setInterval(()=>{
+    try{
+      const value=frame.contentDocument?.getElementById("smoke-result")?.textContent;
+      if(value){clearInterval(poll);document.getElementById("smoke-result").textContent=value;}
+    }catch(error){clearInterval(poll);document.getElementById("smoke-result").textContent=JSON.stringify({fatal:String(error)});}
+  },70);
+})();
+</script></body></html>
