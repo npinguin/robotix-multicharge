@@ -461,7 +461,10 @@ async function main(){
   card._tab="Chargeable Assets";card._open="";card.render();
   find(card.shadowRoot,"button","Details").click();
   assert.ok(find(card.shadowRoot,"select"),"vehicle offers a native color choice");
-  assert.ok(find(card.shadowRoot,"button","Edit"),"native vehicle settings open standard HA entity");
+  assert.ok(find(card.shadowRoot,"button","Apply"),
+    "Vehicle target and energy settings are controlled inline by native HA Numbers");
+  assert.ok(find(card.shadowRoot,"button","Set charging deadline"),
+    "Vehicle Ready By opens its native HA DateTime entity from the dashboard");
   let colorSelect;
   visit(card.shadowRoot,x=>{
     if(x.tag==="select"&&x.attributes.id==="multicharge-plan-color")colorSelect=x;
