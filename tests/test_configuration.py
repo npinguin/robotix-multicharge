@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -20,11 +21,58 @@ for name in ("domain", "configuration"):
 
 from multicharge_configuration_tests.configuration import (  # noqa: E402 - imported after isolated pure-module bootstrap
     default_configuration, effective_configuration, validate_configuration,
-    normalize_expert_json, prepare_expert_yaml_revision,
+    normalize_expert_json, prepare_expert_yaml_revision, configuration_json,
 )
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_complete_json_round_trip_uses_only_canonical_configuration(self):
+        """UC14-UX-OWNER-02: JSON can edit every supported owner field."""
+        source = validate_configuration({
+            "controller": {
+                "id": "home", "name": "House", "mode": "Off",
+                "max_parallel": 2, "max_power_kw": 7.0,
+                "phase_limits_a": {"L1": 16, "L2": 16},
+                "grid_power_entity": "sensor.grid",
+                "grid_power_direction": "import_positive",
+            },
+            "assets": [{
+                "id": "guest", "name": "Guest", "kind": "car",
+                "requested_duration_minutes": 30,
+                "ready_by_repeat": "specific_days",
+                "ready_by_weekdays": {"mon": "07:00"},
+                "charging_windows": {"fri": {"start": "22:00", "end": "06:00"}},
+            }],
+            "chargers": [{
+                "id": "plug", "name": "Utility", "kind": "on_off",
+                "rated_power_kw": 2.0,
+                "control_entity": "switch.plug",
+                "control_owner": "external",
+                "physical_commissioned": False,
+            }],
+        })
+        exported = configuration_json(source)
+        self.assertEqual(json.loads(exported), source)
+        self.assertEqual(normalize_expert_json(json.loads(exported)), source)
+        self.assertEqual(
+            prepare_expert_yaml_revision(source, json.loads(exported), "replace"),
+            source,
+        )
+        # The same route merges existing objects, not a parallel shadow store.
+        patch = {"assets": [{"id": "guest", "priority": 25}]}
+        updated = prepare_expert_yaml_revision(source, patch, "merge")
+        self.assertEqual(updated["assets"][0]["priority"], 25)
+        self.assertEqual(updated["chargers"], source["chargers"])
+        self.assertEqual(updated["controller"], source["controller"])
+        with self.assertRaisesRegex(ValueError, "ownership or commissioning"):
+            prepare_expert_yaml_revision(source, {
+                "chargers": [{
+                    **source["chargers"][0],
+                    "control_owner": "multicharge",
+                    "physical_commissioned": True,
+                }],
+            }, "merge")
+
     def test_energy_dashboard_suggestions_reuse_native_power_and_price_only(self):
         from multicharge_configuration_tests.configuration import (
             energy_dashboard_suggestions,
