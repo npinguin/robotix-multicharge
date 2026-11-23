@@ -330,6 +330,15 @@
       },
       "charge_efficiency": {
         "name": "Charging efficiency"
+      },
+      "min_charging_power_kw": {
+        "name": "Minste ladeeffekt"
+      },
+      "max_charging_power_kw": {
+        "name": "Høyeste ladeeffekt"
+      },
+      "set_charging_power_kw": {
+        "name": "Still inn ladeeffekt"
       }
     },
     "datetime": {
