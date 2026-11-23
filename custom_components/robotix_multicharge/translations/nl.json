@@ -330,6 +330,15 @@
       },
       "charge_efficiency": {
         "name": "Laadrendement"
+      },
+      "min_charging_power_kw": {
+        "name": "Minimaal laadvermogen"
+      },
+      "max_charging_power_kw": {
+        "name": "Maximaal laadvermogen"
+      },
+      "set_charging_power_kw": {
+        "name": "Laadvermogen instellen"
       }
     },
     "datetime": {
