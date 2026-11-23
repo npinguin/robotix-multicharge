@@ -883,11 +883,8 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                     "name": user_input.get("name") or asset.get("name"),
                     "kind": user_input.get("kind") or asset.get("kind", "car"),
                 })
-                for field in ("soc_entity", "capacity_kwh", "target_soc", "max_charge_kw",
-                              "requested_kwh", "requested_duration_minutes",
-                              "ready_by", "ready_by_repeat", "charge_efficiency", "priority",
-                              "temporary", "expires_at",
-                              "expected_connection_at"):
+                for field in ("soc_entity", "capacity_kwh",
+                              "vehicle_control_entity", "vehicle_current_entity"):
                     if user_input.get(field) is not None and user_input.get(field) != "":
                         asset[field] = user_input[field]
                 if not any(a["id"] == uid for a in cfg["assets"]):
@@ -911,13 +908,11 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional("capacity_kwh"): selector.NumberSelector(selector.NumberSelectorConfig(
                     min=0.01, max=1000, step=0.1, mode=selector.NumberSelectorMode.BOX
                 )),
-                vol.Optional("temporary"): bool,
-                vol.Optional("expires_at"): str,
-                vol.Optional("charge_efficiency"): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0.01, max=1, step=0.01,
-                        mode=selector.NumberSelectorMode.BOX
-                    )
+                vol.Optional("vehicle_control_entity"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="switch")
+                ),
+                vol.Optional("vehicle_current_entity"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="number")
                 ),
             }),
             errors={"base": "invalid_config"} if user_input else {},
@@ -944,7 +939,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                     charger["kind"] = "on_off"
                 if user_input.get("rated_power_kw") is not None:
                     charger["rated_power_kw"] = user_input["rated_power_kw"]
-                for field in ("asset", "control_entity", "connected_entity", "power_entity",
+                for field in ("control_entity", "connected_entity", "power_entity",
                               "energy_entity", "phase_count", "min_current_a", "max_current_a",
                               "voltage_v", "current_step_a", "fixed_current_a",
                               "circuit_id", "circuit_limit_a", "current_control_entity",
