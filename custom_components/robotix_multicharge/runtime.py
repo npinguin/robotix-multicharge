@@ -269,7 +269,8 @@ class MultiChargeRuntime:
                 continue
             amount = asset.get("requested_kwh")
             minutes = asset.get("requested_duration_minutes")
-            if amount is None and minutes is None:
+            budget = asset.get("requested_budget_amount")
+            if amount is None and minutes is None and budget is None:
                 reading = self.observations["assets"][asset["id"]]["soc"]
                 if (
                     reading.quality == "ok"
@@ -294,13 +295,18 @@ class MultiChargeRuntime:
                 if deadline is None:
                     self.excluded[uid] = reason
                     continue
-            if amount is not None or minutes is not None:
+            if amount is not None or minutes is not None or budget is not None:
                 progress = self.executor.measured_intent_usage(asset, raw, deadline, at)
                 if amount is not None:
                     if progress["energy_kwh"] is None:
                         self.excluded[uid] = "ASSET_MEASURED_PROGRESS_UNAVAILABLE"
                         continue
                     amount = max(0, amount - progress["energy_kwh"])
+                if budget is not None:
+                    if progress.get("budget_amount") is None:
+                        self.excluded[uid] = "BUDGET_MEASURED_PROGRESS_UNAVAILABLE"
+                        continue
+                    budget = max(0, budget - progress["budget_amount"])
                 if minutes is not None:
                     if progress["duration_minutes"] is None:
                         self.excluded[uid] = "ASSET_DURATION_PROGRESS_UNAVAILABLE"
@@ -312,7 +318,10 @@ class MultiChargeRuntime:
                         # never an exception that kills an HA refresh.
                         amount, minutes = 0.0, None
                 if self.executor.intent_completed(asset, raw, deadline):
-                    amount, minutes = 0.0, None
+                    if budget is not None:
+                        budget = 0.0
+                    else:
+                        amount, minutes = 0.0, None
             assumed_arrival = (
                 datetime.fromisoformat(asset["expected_connection_at"])
                 if disconnected and asset.get("expected_connection_at") else None
@@ -322,6 +331,9 @@ class MultiChargeRuntime:
                 remaining_grid_kwh=amount, ready_by=deadline,
                 priority=asset.get("priority", 0),
                 remaining_duration_minutes=minutes,
+                remaining_budget_amount=budget,
+                budget_currency=(asset.get("requested_budget_currency")
+                                 if budget is not None else None),
                 max_power_kw=asset.get("max_charge_kw"),
                 not_before=max(at, assumed_arrival)
                 if disconnected and assumed_arrival else None,
