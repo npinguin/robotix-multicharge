@@ -25,6 +25,42 @@ from multicharge_configuration_tests.configuration import (  # noqa: E402 - impo
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_charger_user_power_envelope_is_hardware_bounded_and_native_editable(self):
+        from multicharge_configuration_tests.configuration import (
+            apply_settings_change, is_in_place_runtime_preference_change,
+        )
+        cfg = default_configuration()
+        cfg["controller"]["phase_limits_a"] = {"L1": 16}
+        cfg["chargers"] = [{
+            "id": "drive", "name": "Driveway", "kind": "variable_current",
+            "rated_power_kw": 3.68, "phase_count": 1, "phase_ids": ["L1"],
+            "voltage_v": 230, "min_current_a": 6, "max_current_a": 16,
+            "current_step_a": 1, "circuit_id": "drive", "circuit_limit_a": 16,
+        }]
+        original = validate_configuration(cfg)
+        after_min = apply_settings_change(
+            original, "charger", "drive", {"min_charging_power_kw": 2.0}
+        )
+        updated = apply_settings_change(
+            after_min, "charger", "drive", {"max_charging_power_kw": 3.0}
+        )
+        self.assertTrue(is_in_place_runtime_preference_change(original, updated))
+        self.assertEqual(updated["chargers"][0]["min_charging_power_kw"], 2.0)
+        self.assertEqual(updated["chargers"][0]["max_charging_power_kw"], 3.0)
+        for field, value in (
+            ("min_charging_power_kw", 0.5),
+            ("max_charging_power_kw", 4.0),
+            ("min_charging_power_kw", 3.2),
+        ):
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                apply_settings_change(updated, "charger", "drive", {field: value})
+        fixed = default_configuration()
+        fixed["chargers"] = [{"id": "plug", "name": "Plug",
+                              "kind": "on_off", "rated_power_kw": 2.0,
+                              "max_charging_power_kw": 1.0}]
+        with self.assertRaises(ValueError):
+            validate_configuration(fixed)
+
     def test_direct_expert_json_normalizes_charger_and_vehicle_without_wizard(self):
         """Owner's JSON fields are the complete input, not internal YAML keys."""
         data = {
