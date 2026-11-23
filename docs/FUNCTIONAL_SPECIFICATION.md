@@ -143,7 +143,7 @@ Een verse HA-installatie biedt **Guided setup** of **Configure entire charging s
 
 **Acceptatie en regressie:**
 1. `SCHEDULE-01` Kies ma 06:45, wo 08:30 en vr 17:15; de afgeleide eerstvolgende Ready By wisselt correct en dagen zonder keuze hebben geen deadline.
-2. `SCHEDULE-02` Kies enkel ma-vr 22:00–06:00 als venster; gedurende daglicht en heel het weekend zijn er nul geaccepteerde of uitgevoerde vensteroverschrijdende laadslots. Een lopende sessie stopt aan de grens met onafhankelijke fysieke readback.
+2. `SCHEDULE-02` Kies enkel ma-do 22:00–06:00 als venster; buiten deze geselecteerde grensoverschrijdende vensters, inclusief vrijdag- en weekendavonden, zijn er nul geaccepteerde of uitgevoerde laadslots. Een lopende sessie stopt aan de grens met onafhankelijke fysieke readback.
 3. `SCHEDULE-03` Kruis over middernacht, weekgrens en Europe/Brussels DST 23/25-uursdag met echte UTC-kwartieren; onbestaand/dubbel lokaal uur wordt volgens expliciete bronlogica opgelost of fail-closed getoond, nooit stil verschoven.
 4. `SCHEDULE-04` Migratie van een opgeslagen legacy `weekly` herstelt exact de oorspronkelijke weekdag+tijd als `specific_days`; `ready_by`/reguliere `daily`/eenmalige records en oorspronkelijke device/entity IDs blijven behouden.
 5. `SCHEDULE-05` Ongeldige tijden, lege selectie, onmogelijke deadline binnen het venster, herstart/reload, mislukte STOP en ongeldige permissie geven zichtbare status en geen onveilige fysieke write. Forecastrijen mogen nooit executable slots worden.
