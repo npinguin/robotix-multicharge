@@ -82,6 +82,34 @@ def number(hass, entity_id, kind: str, now: datetime) -> Evidence:
 
 def connection(hass, entity_id: str | None, now: datetime) -> Evidence:
     obj, evidence = _state(hass, entity_id, now, timedelta(minutes=30))
+    if obj is None and evidence.reason == "SOURCE_STALE":
+        # A site-owned semantic cable template can remain *unchanged* in HA
+        # even while its native hardware source reports an identical physical
+        # state periodically. Never freshen it with now(); instead require an
+        # actually fresh native source and exact matching raw source status.
+        # Unknown manual-confirmation templates do NOT qualify by this path.
+        bridge = hass.states.get(entity_id)
+        attrs = getattr(bridge, "attributes", {}) or {}
+        origin_id = attrs.get("source_entity_id")
+        if (attrs.get("source_type") == "native_charger_status"
+                and isinstance(origin_id, str)
+                and origin_id.startswith("sensor.")
+                and origin_id != entity_id):
+            origin, observed = _state(
+                hass, origin_id, now, timedelta(minutes=30)
+            )
+            if origin is None:
+                return observed
+            original_raw = attrs.get("raw_status")
+            if (not isinstance(original_raw, str)
+                    or original_raw.strip().casefold()
+                    != str(origin.state).strip().casefold()):
+                return Evidence(
+                    None, "invalid", observed.observed_at,
+                    "BRIDGE_SOURCE_STATUS_DIVERGED",
+                )
+            obj = bridge
+            evidence = observed
     if obj is None:
         return evidence
     # A plug being ON is not proof a vehicle is physically connected. Only
