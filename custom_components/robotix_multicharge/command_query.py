@@ -107,9 +107,11 @@ async def apply_native_preference(hass, entry, runtime, scope, target_id, change
             )
         )
         if structural:
-            # Reuse the very same guarded structural safety contract as native
-            # Options, no new physical writer or readback rules.
-            if not (
+            # A selected-vehicle change requires real idle/power evidence even
+            # though it is an in-place preference without HA platform reload.
+            # Never silently reassign an occupied external Charger.
+            rebind = scope == "charger" and "asset" in changes
+            if rebind or not (
                 is_plan_presentation_only_change(runtime.configuration, updated)
                 or is_in_place_runtime_preference_change(
                     runtime.configuration, updated)
