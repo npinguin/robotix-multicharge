@@ -196,11 +196,26 @@ class MultiChargeRuntime:
         # Observe every logical asset, including unassigned assets and explicit
         # kWh/duration intents. Do not reconstruct a second OEM/vehicle truth.
         for asset in cfg["assets"]:
+            recurrence = asset.get("ready_by_repeat", "none")
+            saved_due = asset.get("ready_by")
+            due = datetime.fromisoformat(saved_due) if saved_due else None
+            reason = "ONE_OFF"
+            if recurrence != "none" and (
+                    due is not None or recurrence == "specific_days"):
+                try:
+                    due, reason = resolve_recurring_ready_by(
+                        due, at, recurrence, self.hass.config.time_zone,
+                        asset.get("ready_by_weekdays"),
+                    )
+                except (ValueError, TypeError, KeyError):
+                    due, reason = None, "DEADLINE_INVALID"
             self.observations["assets"][asset["id"]] = {
                 "soc": soc_with_health(
                     self.hass, asset.get("soc_entity"),
                     asset.get("soc_stale_entity"), at,
-                )
+                ),
+                "next_ready_by": due.isoformat() if due is not None else None,
+                "deadline_quality": reason,
             }
         for raw in cfg["chargers"]:
             uid = raw["id"]
@@ -754,6 +769,8 @@ class MultiChargeRuntime:
                 "assets": {
                     uid: {
                         "soc": _evidence(readings.get("soc")),
+                        "next_ready_by": readings.get("next_ready_by"),
+                        "deadline_quality": readings.get("deadline_quality"),
                         "effective_power_kw": _evidence(readings.get("effective_power_kw")),
                         "power_charger_id": readings.get("power_charger_id"),
                     }
