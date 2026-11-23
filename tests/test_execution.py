@@ -6,6 +6,7 @@ Target HA installation and hardware acceptance are separate requirements.
 """
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import sys
 import unittest
@@ -1102,6 +1103,47 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(receipt["actual_energy_kwh"])
         self.assertIsNone(receipt["cost"])
         self.assertEqual(receipt["energy_quality"], "unknown")
+
+    async def test_urgent_stop_other_evse_dispatched_before_unconfirmed_start_timeout(self):
+        rt, sources, services = rig(group_kw=8.0)
+        rt.configuration["controller"]["max_parallel"] = 2
+        rt.configuration["chargers"].append({
+            "id": "other", "name": "Other", "kind": "on_off",
+            "rated_power_kw": 2.0, "phase_count": 1,
+            "control_owner": "multicharge",
+            "physical_commissioned": True,
+            "control_entity": "switch.other_control",
+            "power_entity": "sensor.other_power",
+            "connected_entity": "binary_sensor.other_cable",
+        })
+        sources["switch.other_control"] = state("on")
+        sources["sensor.other_power"] = state("1600", "W")
+        sources["binary_sensor.other_cable"] = state("on")
+        # Keep A's physical START unconfirmed, holding the global lock.
+        # B already charges; its urgent physical STOP must not await A.
+        services.reconcile_observations = False
+        pending_a = asyncio.create_task(
+            rt.executor.execute("evse", "start", readback_seconds=0.65))
+        for _ in range(80):
+            if "evse" in rt.executor._start_pending:
+                break
+            await asyncio.sleep(0.005)
+        self.assertIn("evse", rt.executor._start_pending)
+        pending_b = asyncio.create_task(
+            rt.executor.execute("other", "stop", readback_seconds=0.05))
+        await asyncio.sleep(0.05)
+        self.assertTrue(any(
+            action == "turn_off" and args.get("entity_id") ==
+            "switch.other_control"
+            for domain, action, args, *_ in services.calls
+            if domain == "switch"
+        ), "B physical STOP must be issued before A readback timeout")
+        self.assertFalse(pending_a.done(),
+                         "A still awaits independent source confirmation")
+        result_a, result_b = await asyncio.gather(pending_a, pending_b)
+        self.assertNotEqual(result_a["status"], "confirmed")
+        self.assertNotEqual(result_b["status"], "confirmed")
+        # A second request cannot bypass physical confirmation of B's STOP.
 
     async def test_qualified_eur_budget_physically_stops_with_measured_kwh(self):
         rt, states, service = rig()
