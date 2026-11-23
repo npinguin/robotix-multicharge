@@ -1094,8 +1094,8 @@ class RobotixMultiChargeCard extends HTMLElement {
       return;
     }
     const day=mcEl("div","controls");
-    for(const chosen of ["today","tomorrow"]){
-      const b=mcButton(chosen==="today"?"Today":"Tomorrow",()=>{
+    for(const chosen of ["today","tomorrow","both"]){
+      const b=mcButton(chosen==="today"?"Today":chosen==="tomorrow"?"Tomorrow":"48h",()=>{
         this._day=chosen;this._last=0;this.load();
       },this._day===chosen?"active":"");
       day.append(b);
@@ -1154,6 +1154,8 @@ class RobotixMultiChargeCard extends HTMLElement {
         [...rows,...forecast,...measured].some(s=>
           s.charger_id===item.id&&s.asset_id===assetId);
     });
+    container.append(mcCombinedChargingChart(d,shown,rows,measured));
+    container.append(mcEl("h3","",mcTr("Charging per vehicle and charger")));
     const values=[["proposed_power_kw",rows,"Proposed"],
       ["accepted_power_kw",rows,"Physically accepted"],
       ["actual_power_kw",measured,"Measured physical"],
@@ -1174,8 +1176,12 @@ class RobotixMultiChargeCard extends HTMLElement {
         (historicAsset?historicAsset.name:historicalAssetId)+" (historical)":
         selected?selected.name:"No vehicle selected";
       const source=(d.observations||{}).chargers?.[charger.id]?.connected;
+      const identity=(d.connection_identity||{})[charger.id];
+      const verified=selected&&identity?.asset_id===selected.id;
       const plugged=source&&source.quality==="ok"?
-        source.value?mcTr("Connected")+" · "+mcTr("Vehicle unknown"):mcTr("Disconnected"):mcTr("Connection unknown");
+        source.value?(verified?mcTr("Connected")+" · "+selected.name:
+          mcTr("Connected")+" · "+mcTr("Vehicle unknown")):
+        mcTr("Disconnected"):mcTr("Connection unknown");
       const fullName=labelMode==="vehicle"?vehicleLabel:
         labelMode==="charger"?charger.name:vehicleLabel+" · "+charger.name;
       const color=colorBy==="charger"?
@@ -1185,6 +1191,27 @@ class RobotixMultiChargeCard extends HTMLElement {
       const swatch=mcEl("span","plan-swatch");swatch.style.background=color;
       lhs.append(swatch,mcEl("strong","",fullName));
       label.append(lhs,mcEl("span","muted small",plugged));card.append(label);
+      const readback=(d.observations||{}).assets?.[selected?.id]||{};
+      const next=activeRows.find(item=>typeof item.proposed_power_kw==="number"&&
+        Date.parse(item.end)>Date.now());
+      const reason=(d.reasons||{})[charger.id];
+      const shortfall=(d.shortfall_kwh||{})[charger.id];
+      const summary=mcEl("p","small lane-summary",
+        mcTr("Battery")+" "+mcValue(readback.soc,"%")+" · "+
+        mcTr("Target")+" "+(selected?.target_soc===undefined?mcTr("Not set"):
+          selected.target_soc+"%")+" · "+mcTr("Ready By")+" "+
+        mcTime(readback.next_ready_by?.value||selected?.ready_by,d.timezone)+
+        (next?" · "+mcTr("Next charge")+" "+
+          mcTime(next.start,d.timezone)+" · "+next.proposed_power_kw+" kW":""));
+      card.append(summary);
+      if(typeof shortfall==="number"&&shortfall>0)
+        card.append(mcEl("p","plan-caution",mcTr("Shortfall")+" · "+
+          shortfall.toFixed(2)+" kWh"));
+      if(reason&&reason!=="PROPOSED"&&reason!=="TARGET_MET")
+        card.append(mcEl("p","plan-caution",mcReason(reason)));
+      if(actualRows.some(row=>row.asset_provenance!=="confirmed_closed_session"))
+        card.append(mcEl("p","muted small",
+          mcTr("Measured power is attributed to this charger; vehicle may be unknown")));
       if(!hasData){
         card.append(mcEl("p","muted small","No qualified slots for this day."));
       }else{
@@ -1285,46 +1312,6 @@ class RobotixMultiChargeCard extends HTMLElement {
           (result?" · "+mcReason(result):"")));
       }
       container.append(forecastInfo);
-    }
-    const prices=(d.price_slots||[]).filter(p=>typeof p.price_per_kwh==="number");
-    if(prices.length){
-      const currencies=[...new Set(prices.map(p=>p.currency))];
-      if(currencies.length===1){
-        const lo=Math.min(...prices.map(p=>p.price_per_kwh));
-        const hi=Math.max(...prices.map(p=>p.price_per_kwh));
-        const range=hi-lo||1;
-        const wrapper=mcEl("div","card");
-        wrapper.append(mcEl("h3","",mcTr("Tariff")+" · "+currencies[0]+"/kWh"));
-        const graph=mcEl("div","chart");
-        const svg=mcSVG("svg",{
-          viewBox:"0 0 960 72",style:"height:auto",
-          role:"img","aria-label":"Qualified energy tariff over actual clock intervals; not confirmed charging costs"
-        });
-        const x0=105,width=820;
-        let path="",lastSlot=-2;
-        for(let i=0;i<count;i++){
-          const tick=from+i*900000;
-          const covered=prices.filter(p=>
-            new Date(p.start).getTime()<=tick &&
-            new Date(p.end).getTime()>=tick+900000);
-          if(covered.length!==1){lastSlot=-2;continue;}
-          const x=x0+(i+0.5)*width/count;
-          const y=44-(covered[0].price_per_kwh-lo)/range*32;
-          path+=(i===lastSlot+1?" L":" M")+x.toFixed(2)+" "+y.toFixed(2);
-          lastSlot=i;
-        }
-        if(path)svg.append(mcSVG("path",{
-          d:path,fill:"none",stroke:"#bf8a22","stroke-width":2
-        }));
-        svg.append(mcSVG("text",{x:2,y:17},String(hi.toFixed(3))));
-        svg.append(mcSVG("text",{x:2,y:48},String(lo.toFixed(3))));
-        graph.append(svg);wrapper.append(graph);
-        wrapper.append(mcEl("p","muted small",
-          lo.toFixed(3)+"–"+hi.toFixed(3)+" "+currencies[0]+"/kWh"));
-        container.append(wrapper);
-      }else{
-        this.notice(container,"Unavailable",true);
-      }
     }
     if(!measured.some(row=>typeof row.actual_power_kw==="number")){
       this.notice(container,"Measured power unavailable",false);
