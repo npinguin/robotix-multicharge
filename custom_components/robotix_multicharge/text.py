@@ -33,8 +33,9 @@ async def async_setup_entry(
                       "binding_entity")
     )
     entities.extend(
-        _SourceBindingText(entry, runtime, "asset", asset, "soc_entity")
+        _SourceBindingText(entry, runtime, "asset", asset, field)
         for asset in config["assets"]
+        for field in ("soc_entity", "price_currency")
     )
     entities.extend(
         _AssetWindowText(entry, runtime, asset, day)
