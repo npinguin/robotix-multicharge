@@ -80,7 +80,8 @@ def number(hass, entity_id, kind: str, now: datetime) -> Evidence:
     return Evidence(round(value, 6), "ok", evidence.observed_at, "OK")
 
 
-def connection(hass, entity_id: str | None, now: datetime) -> Evidence:
+def connection(hass, entity_id: str | None, now: datetime, *,
+               connected_states=None, disconnected_states=None) -> Evidence:
     obj, evidence = _state(hass, entity_id, now, timedelta(minutes=30))
     if obj is None and evidence.reason == "SOURCE_STALE":
         # A site-owned semantic cable template can remain *unchanged* in HA
@@ -120,7 +121,21 @@ def connection(hass, entity_id: str | None, now: datetime) -> Evidence:
         else {"connected": True, "disconnected": False} if domain == "sensor"
         else {}
     )
-    value = allowed.get(str(obj.state).lower())
+    if connected_states is not None or disconnected_states is not None:
+        if (domain != "sensor"
+                or not isinstance(connected_states, list)
+                or not isinstance(disconnected_states, list)
+                or not connected_states or not disconnected_states):
+            return Evidence(None, "invalid", evidence.observed_at,
+                            "CONNECTION_MAPPING_INVALID")
+        positive = {label.casefold() for label in connected_states}
+        negative = {label.casefold() for label in disconnected_states}
+        if positive & negative:
+            return Evidence(None, "invalid", evidence.observed_at,
+                            "CONNECTION_MAPPING_AMBIGUOUS")
+        allowed = {**dict.fromkeys(positive, True),
+                   **dict.fromkeys(negative, False)}
+    value = allowed.get(str(obj.state).strip().casefold())
     if value is None:
         return Evidence(None, "invalid", evidence.observed_at, "CONNECTION_AMBIGUOUS")
     return Evidence(value, "ok", evidence.observed_at, "OK")
