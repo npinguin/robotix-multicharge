@@ -142,7 +142,8 @@ def _assert_safe_yaml_ui_commit(runtime, updated):
         if (current is not None and
                 all(previous.get(key) == current.get(key)
                     for key in ("asset", "control_entity", "power_entity",
-                                "connected_entity", "energy_entity",
+                                "connected_entity", "connected_states",
+                                "disconnected_states", "energy_entity",
                                 "session_entity", "kind", "rated_power_kw"))):
             continue
         if (uid in runtime.executor._sessions or
