@@ -47,6 +47,8 @@ class ConfigurationTests(unittest.TestCase):
                 "id": "plug", "name": "Utility", "kind": "on_off",
                 "rated_power_kw": 2.0,
                 "control_entity": "switch.plug",
+                "connected_entity": "binary_sensor.plug_connected",
+                "power_entity": "sensor.plug_power",
                 "control_owner": "external",
                 "physical_commissioned": False,
             }],
