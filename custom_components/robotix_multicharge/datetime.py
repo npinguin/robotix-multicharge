@@ -72,7 +72,7 @@ class _AssetDateTime(DateTimeEntity):
         await super().async_will_remove_from_hass()
 
     async def async_set_value(self, value: datetime):
-        await require_native_admin(self.hass, self.context)
+        await require_native_admin(self.hass, self._context)
         if not self.available:
             raise ValueError("ASSET_GUEST_EXPIRY_ONLY_FOR_TEMPORARY_ASSET")
         if value.tzinfo is None or value.utcoffset() is None:
