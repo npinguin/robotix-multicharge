@@ -36,6 +36,7 @@ async def async_setup_entry(
         entities.append(_OwnedSelect(entry, runtime, "asset", asset, "ready_by_repeat"))
         entities.append(_OwnedSelect(entry, runtime, "asset", asset, "kind"))
         entities.append(_OwnedSelect(entry, runtime, "asset", asset, "continuous_charging"))
+        entities.append(_OwnedSelect(entry, runtime, "asset", asset, "opportunistic_kind"))
         entities.extend(
             _OwnedSelect(entry, runtime, "asset", asset, "ready_day_" + day)
             for day in WEEKDAYS
@@ -76,7 +77,7 @@ class _OwnedSelect(SelectEntity):
         self._attr_translation_key = (
             "selected_vehicle" if field == "asset" else field
         )
-        if field in ("mode", "ready_by_repeat", "asset", "plan_color", "continuous_charging") or field.startswith("ready_day_"):
+        if field in ("mode", "ready_by_repeat", "asset", "plan_color", "continuous_charging", "opportunistic_kind") or field.startswith("ready_day_"):
             self._attr_entity_category = None
         self._attr_device_info = {
             "identifiers": {(DOMAIN, f"{kind}/{self.uid}")},
@@ -118,6 +119,8 @@ class _OwnedSelect(SelectEntity):
             return ["none", "daily", "specific_days"]
         if self.field == "continuous_charging":
             return ["flexible", "continuous"]
+        if self.field == "opportunistic_kind":
+            return ["off", "type1", "type2"]
         if self.field == "kind":
             return ["car", "bicycle", "motorcycle", "scooter", "other"]
         # The selected Charger owns the ONLY editable assignment relationship.
@@ -164,6 +167,8 @@ class _OwnedSelect(SelectEntity):
         elif self.field == "continuous_charging":
             self._attr_current_option = ("continuous" if current.get(self.field, False)
                                          else "flexible")
+        elif self.field == "opportunistic_kind":
+            self._attr_current_option = current.get(self.field, "off")
         elif self.field == "ready_by_repeat":
             # Keep legacy Weekly on disk until an explicit edit; never show it
             # as a new resident option or silently rewrite HA identities.
