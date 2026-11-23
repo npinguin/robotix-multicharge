@@ -96,7 +96,18 @@
           "max_parallel": "Antall (valgfritt)",
           "max_power_kw": "Effekt (valgfritt)",
           "phase_limits_a": "Faser (valgfritt)",
-          "mode": "Innledende lademodus"
+          "mode": "Innledende lademodus",
+          "solar_power_entity": "Aktuell solproduksjon (W/kW)",
+          "home_power_entity": "Samlet strømforbruk i boligen (W/kW)",
+          "grid_power_entity": "Nettimport/-eksport (W/kW)",
+          "solar_surplus_entity": "Målt soloverskudd (W/kW)",
+          "solar_entity": "Validerte solintervaller (kW)",
+          "price_entity": "Validerte fremtidige priser",
+          "current_price_entity": "Gjeldende kjøpspris (valuta/kWh)",
+          "export_price_entity": "Gjeldende eksportpris (valuta/kWh)",
+          "solar_source_kind": "Kilde for solstyring",
+          "grid_power_direction": "Retning for nettmåler",
+          "use_energy_dashboard": "Bruk kilder fra Energipanelet"
         }
       },
       "expert": {
@@ -134,7 +145,8 @@
           "charger": "Chargers",
           "display": "Dashboard card",
           "yaml": "Edit YAML (review before save)",
-          "commission": "Sett lader i drift"
+          "commission": "Sett lader i drift",
+          "energy": "Energi og priser"
         },
         "title": "Innstillinger"
       },
@@ -223,6 +235,23 @@
           "commission": "Aktiver MultiCharge-kontroll",
           "exclusive_writer_confirmed": "Andre styringer har gitt fra seg kontroll over laderen",
           "electrical_limits_confirmed": "Strømgrenser, effekt og uavhengige målinger er bekreftet"
+        }
+      },
+      "energy": {
+        "title": "Energi og priser",
+        "description": "{note}",
+        "data": {
+          "solar_power_entity": "Aktuell solproduksjon (W/kW)",
+          "home_power_entity": "Samlet strømforbruk i boligen (W/kW)",
+          "grid_power_entity": "Nettimport/-eksport (W/kW)",
+          "solar_surplus_entity": "Målt soloverskudd (W/kW)",
+          "solar_entity": "Validerte solintervaller (kW)",
+          "price_entity": "Validerte fremtidige priser",
+          "current_price_entity": "Gjeldende kjøpspris (valuta/kWh)",
+          "export_price_entity": "Gjeldende eksportpris (valuta/kWh)",
+          "solar_source_kind": "Kilde for solstyring",
+          "grid_power_direction": "Retning for nettmåler",
+          "use_energy_dashboard": "Bruk kilder fra Energipanelet"
         }
       }
     },
