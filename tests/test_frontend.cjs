@@ -1179,13 +1179,13 @@ async function main(){
   find(card.shadowRoot,"button","Settings").click();
   card._settingsOpen="";card.render();
   for(const name of ["Charging site","Sources & bindings","Charging strategy",
-                     "Safety & limits","Integrations","Advanced & YAML"]){
+                     "Safety & limits","Integrations","Advanced & JSON"]){
     assert.ok(content(card.shadowRoot).includes(name),name);
   }
   assert.ok(find(card.shadowRoot,"a"),"Settings open real HA integration configuration");
   assert.ok(content(card.shadowRoot).includes("Expert YAML / JSON configuration"),
     "Settings summary exposes real expert configuration instead of a fake editor");
-  card._settingsOpen="Advanced & YAML";card.render();
+  card._settingsOpen="Advanced & JSON";card.render();
   assert.ok(content(card.shadowRoot).includes("Home Assistant Energy Dashboard sources may be reused"),
     "GUI config reuses HA Energy and standalone sources");
   assert.ok(!content(card.shadowRoot).includes("/config/packages/multicharge.yaml"),
