@@ -38,7 +38,8 @@
           "ready_by_repeat": "Wiederholung (optional)",
           "temporary": "Temporärer Gast (optional)",
           "expires_at": "Ablauf des Gasts (optional)",
-          "expected_connection_at": "Voraussichtliche Verbindung (optional)"
+          "expected_connection_at": "Voraussichtliche Verbindung (optional)",
+          "soc_stale_entity": "OEM-Daten veraltet (Binärsensor: an = veraltet)"
         }
       },
       "sources": {
@@ -171,7 +172,8 @@
           "soc_entity": "Batteriestand-Sensor",
           "capacity_kwh": "Batteriekapazität (kWh)",
           "vehicle_control_entity": "Fahrzeug-Steuerschalter (Quelle)",
-          "vehicle_current_entity": "Fahrzeug-Stromvorgabe (Quelle)"
+          "vehicle_current_entity": "Fahrzeug-Stromvorgabe (Quelle)",
+          "soc_stale_entity": "OEM-Daten veraltet (Binärsensor: an = veraltet)"
         }
       },
       "charger": {
