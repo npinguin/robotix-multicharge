@@ -1097,12 +1097,8 @@ class RobotixMultiChargeCard extends HTMLElement {
                 session.target_current_a*c.voltage_v*c.phase_ids.length/1000:null):
               c[field];
             mcPair(detail,mcTr(label),kw==null?mcTr("Not set"):Number(kw).toFixed(2)+" kW");
-            if(this.canEditSettings()&&this.ownerEntity("charger",c.id,field)){
-              const control=mcEl("div","row");
-              control.append(mcEl("span","muted small",mcTr(label)),
-                mcButton(mcTr("Edit"),()=>this.openNative("charger",c.id,field)));
-              detail.append(control);
-            }
+            this.nativeNumberEditor(detail,"charger",c.id,field,label,
+              kw,"kW");
           }
         }else{
           mcPair(detail,mcTr("Charging power control"),mcTr("On/off only"));
