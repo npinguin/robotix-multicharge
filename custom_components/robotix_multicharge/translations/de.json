@@ -379,6 +379,12 @@
       },
       "opportunistic_kind": {
         "name": "Opportunistischer Preismodus"
+      },
+      "solar_source_kind": {
+        "name": "Solarquellentyp"
+      },
+      "grid_power_direction": {
+        "name": "Zählerrichtung Netz"
       }
     },
     "number": {
@@ -601,6 +607,24 @@
       },
       "price_currency": {
         "name": "Preiswährung"
+      },
+      "solar_power_entity": {
+        "name": "Solarerzeugung"
+      },
+      "home_power_entity": {
+        "name": "Hausverbrauch"
+      },
+      "grid_power_entity": {
+        "name": "Netzleistung"
+      },
+      "solar_surplus_entity": {
+        "name": "Solarüberschuss"
+      },
+      "current_price_entity": {
+        "name": "Aktueller Bezugspreis"
+      },
+      "export_price_entity": {
+        "name": "Aktueller Einspeisepreis"
       }
     },
     "binary_sensor": {
