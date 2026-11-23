@@ -1233,3 +1233,101 @@ async def test_native_state_events_invalidate_identity_on_fast_replug(hass: Home
         for action in runtime.executor.snapshot().values()
     )
     assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
+async def test_ha_idle_rebind_is_atomic_and_keeps_logical_device_ids(hass: HomeAssistant):
+    """FLEX-06/08/17, UC16/29: real HA entry revision, idle gate and registry."""
+    from custom_components.robotix_multicharge.command_query import (
+        apply_native_preference,
+    )
+    from custom_components.robotix_multicharge.configuration import (
+        configuration_revision,
+    )
+
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    for charger in ("c1", "c2"):
+        hass.states.async_set(f"sensor.{charger}_power", "0",
+                              {"unit_of_measurement": "W"})
+        hass.states.async_set(f"switch.{charger}", "off")
+    config = validate_configuration({
+        "controller": {
+            "id": "home", "name": "Home", "mode": "Off",
+            "max_parallel": 2, "max_power_kw": 7.2,
+        },
+        "assets": [{"id": "a", "name": "A", "kind": "car",
+                    "requested_kwh": 2.0}],
+        "chargers": [
+            {"id": "c1", "name": "C1", "kind": "on_off",
+             "rated_power_kw": 3.6, "asset": "a",
+             "control_entity": "switch.c1",
+             "power_entity": "sensor.c1_power",
+             "control_owner": "external"},
+            {"id": "c2", "name": "C2", "kind": "on_off",
+             "rated_power_kw": 3.6,
+             "control_entity": "switch.c2",
+             "power_entity": "sensor.c2_power",
+             "control_owner": "external"},
+        ],
+    })
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Two independent chargers",
+        data={"source": "ui", "configuration": config},
+        unique_id=DOMAIN,
+    )
+    entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    devices = dr.async_get(hass)
+    old_ids = {
+        key: devices.async_get_device_by_identifier(
+            (DOMAIN, key), entry.entry_id
+        ).id for key in ("controller/home", "charger/c1",
+                        "charger/c2", "asset/a")
+    }
+    previous_revision = configuration_revision(runtime.configuration)
+
+    # An observed 2 kW source reading on C1 forbids an implicit handoff.
+    hass.states.async_set("sensor.c1_power", "2000",
+                          {"unit_of_measurement": "W"})
+    await hass.async_block_till_done()
+    with pytest.raises(ValueError, match="charger_busy"):
+        await apply_native_preference(
+            hass, entry, runtime, "charger", "c2", {"asset": "a"},
+            expected_revision=previous_revision,
+        )
+    assert entry.options.get("configuration") is None
+    assert runtime.configuration["chargers"][0]["asset"] == "a"
+
+    # Explicit fresh observed idle evidence enables a single atomic rebind.
+    hass.states.async_set("sensor.c1_power", "0",
+                          {"unit_of_measurement": "W"})
+    await hass.async_block_till_done()
+    revision = await apply_native_preference(
+        hass, entry, runtime, "charger", "c2", {"asset": "a"},
+        expected_revision=previous_revision,
+    )
+    await hass.async_block_till_done()
+    assert configuration_revision(runtime.configuration) == revision
+    assert runtime is hass.data[DOMAIN][entry.entry_id], (
+        "Idle-only assignment must not reload/STOP an unrelated HA device"
+    )
+    assert [(c["id"], c.get("asset")) for c in runtime.configuration["chargers"]] == [
+        ("c1", None), ("c2", "a"),
+    ]
+    assert all(
+        devices.async_get_device_by_identifier((DOMAIN, key), entry.entry_id).id
+        == original for key, original in old_ids.items()
+    )
+    with pytest.raises(ValueError, match="stale_settings"):
+        await apply_native_preference(
+            hass, entry, runtime, "charger", "c1", {"asset": "a"},
+            expected_revision=previous_revision,
+        )
+    assert hass.states.get("switch.c1").state == "off"
+    assert hass.states.get("switch.c2").state == "off"
+    assert await hass.config_entries.async_unload(entry.entry_id)
