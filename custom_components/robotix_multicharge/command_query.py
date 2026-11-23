@@ -337,6 +337,128 @@ async def websocket_dashboard_config(
         )
 
 
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): "robotix_multicharge/yaml_configuration",
+    vol.Required("action"): vol.In(("read", "preview", "apply")),
+    vol.Optional("mode", default="replace"): vol.In(("replace", "merge")),
+    vol.Optional("yaml_text"): str,
+    vol.Optional("expected_revision"): str,
+    vol.Optional("reviewed_revision"): str,
+})
+@websocket_api.async_response
+async def websocket_dashboard_yaml_configuration(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
+) -> None:
+    """One dashboard YAML editor, one guarded HA Config Entry, no Options flow.
+
+    Preview never commits; applying requires the exact baseline and a reviewed
+    fingerprint of the same parsed YAML, rechecked under the physical lock.
+    """
+    import yaml
+    from .config_flow import (
+        _parse_editor_yaml, _yaml_review_summary, _assert_safe_yaml_ui_commit,
+    )
+    from .configuration import prepare_expert_yaml_revision
+
+    rows = tuple(hass.data.get(DOMAIN, {}).items())
+    if len(rows) != 1:
+        connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND,
+                              "Exactly one configured Controller required")
+        return
+    entry_id, runtime = rows[0]
+    entry = hass.config_entries.async_get_entry(entry_id)
+    if entry is None:
+        connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND,
+                              "Config Entry unavailable")
+        return
+    readonly = (entry.source == "import"
+                or entry.data.get("source") in ("yaml", "json"))
+    action = msg["action"]
+    if action == "read":
+        connection.send_result(msg["id"], {
+            "status": "read_only" if readonly else "ready",
+            "yaml_text": yaml.safe_dump(
+                runtime.configuration, sort_keys=False,
+                allow_unicode=True, default_flow_style=False,
+            ),
+            "configuration_revision": configuration_revision(runtime.configuration),
+        })
+        return
+    if readonly:
+        connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT,
+                              "SOURCE_OWNED_READONLY")
+        return
+    try:
+        text = msg.get("yaml_text")
+        if not isinstance(text, str):
+            raise ValueError("YAML_DOCUMENT_REQUIRED")
+        baseline = msg.get("expected_revision")
+        if not baseline or len(baseline) != 20:
+            raise ValueError("BASELINE_REVISION_REQUIRED")
+        if action == "apply" and not msg.get("reviewed_revision"):
+            raise ValueError("REVIEW_REQUIRED")
+        async with runtime.executor._lock:
+            before = runtime.configuration
+            if configuration_revision(before) != baseline:
+                raise ValueError("STALE_SETTINGS_REFRESH")
+            parsed = _parse_editor_yaml(text)
+            updated = prepare_expert_yaml_revision(
+                before, parsed, msg.get("mode", "replace"),
+            )
+            # Every structural source/wiring edit is guarded regardless of
+            # commissioning. No physical START/STOP is performed here.
+            _assert_safe_yaml_ui_commit(runtime, updated)
+            fingerprint = configuration_revision(updated)
+            if action == "preview":
+                connection.send_result(msg["id"], {
+                    "status": "preview",
+                    "baseline_revision": baseline,
+                    "reviewed_revision": fingerprint,
+                    "summary": _yaml_review_summary(before, updated),
+                    "groups": {
+                        group: {
+                            "add": sorted({x["id"] for x in updated[group]} -
+                                          {x["id"] for x in before[group]}),
+                            "remove": sorted({x["id"] for x in before[group]} -
+                                             {x["id"] for x in updated[group]}),
+                            "modify": sorted(uid for uid in
+                                {x["id"] for x in updated[group]} &
+                                {x["id"] for x in before[group]}
+                                if next(x for x in updated[group] if x["id"] == uid) !=
+                                   next(x for x in before[group] if x["id"] == uid)),
+                            "total": len(updated[group]),
+                        } for group in ("assets", "chargers")
+                    },
+                    "changes_present": before != updated,
+                })
+                return
+            if msg["reviewed_revision"] != fingerprint:
+                raise ValueError("REVIEW_CHANGED_REVALIDATE")
+            runtime.record_settings_action(
+                "controller", before["controller"]["id"], "yaml_apply",
+                {"mode": msg.get("mode", "replace"),
+                 "reviewed_revision": fingerprint}, fingerprint,
+            )
+            if not await runtime.persist_control_state():
+                raise ValueError("SETTINGS_AUDIT_PERSISTENCE_UNAVAILABLE")
+            hass.config_entries.async_update_entry(
+                entry, options={**entry.options, "configuration": updated},
+            )
+            connection.send_result(msg["id"], {
+                "status": "accepted_unconfirmed",
+                "expected_revision": fingerprint,
+                "reason": "Config Entry reload and readback pending",
+            })
+    except (ValueError, TypeError, KeyError) as exc:
+        # A rejected draft is never saved or passed to any physical service.
+        connection.send_error(
+            msg["id"], websocket_api.ERR_INVALID_FORMAT, str(exc)[:260],
+        )
+
+
+
 def register_settings_query(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_update_settings)
+    websocket_api.async_register_command(hass, websocket_dashboard_yaml_configuration)
     websocket_api.async_register_command(hass, websocket_dashboard_config)
