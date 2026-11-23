@@ -156,6 +156,8 @@ class MultiChargeRuntime:
                 phase_ids=tuple(raw.get("phase_ids", ())),
                 voltage_v=raw.get("voltage_v"),
                 current_step_a=raw.get("current_step_a"),
+                min_charging_power_kw=raw.get("min_charging_power_kw"),
+                max_charging_power_kw=raw.get("max_charging_power_kw"),
                 fixed_current_a=raw.get("fixed_current_a"),
                 circuit_id=raw.get("circuit_id"),
                 circuit_limit_a=raw.get("circuit_limit_a"),
