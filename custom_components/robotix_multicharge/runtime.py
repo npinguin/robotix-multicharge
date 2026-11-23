@@ -307,6 +307,10 @@ class MultiChargeRuntime:
                         self.excluded[uid] = "BUDGET_MEASURED_PROGRESS_UNAVAILABLE"
                         continue
                     budget = max(0, budget - progress["budget_amount"])
+                    if progress["duration_minutes"] >= 24 * 60:
+                        # A zero-cost or negative-price period cannot become
+                        # an unbounded recurring budget intent.
+                        budget = 0.0
                 if minutes is not None:
                     if progress["duration_minutes"] is None:
                         self.excluded[uid] = "ASSET_DURATION_PROGRESS_UNAVAILABLE"
