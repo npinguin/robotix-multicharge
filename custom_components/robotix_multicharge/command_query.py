@@ -15,6 +15,7 @@ import json
 from .configuration import (
     apply_settings_change, apply_dashboard_structure, configuration_revision,
     is_plan_presentation_only_change, is_in_place_runtime_preference_change,
+    prepare_expert_yaml_revision, validate_configuration,
 )
 from .source_evidence import number
 from .execution import stop_power_limit
