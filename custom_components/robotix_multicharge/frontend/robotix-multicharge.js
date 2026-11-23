@@ -1434,23 +1434,30 @@ class RobotixMultiChargeCard extends HTMLElement {
         // authoritative for native source/safety/physical permission.
         const oneOff=mcEl("section","card");
         oneOff.append(mcEl("h3","",mcTr("Manual one-off charge")));
-        const draft=this._manualDrafts[c.id]||{energy:"",minutes:""};
+        const draft=this._manualDrafts[c.id]||{energy:"",minutes:"",budget:""};
         this._manualDrafts[c.id]=draft;
         const energy=this.field(oneOff,mcTr("Energy limit (kWh)"),draft.energy,"number");
         const minutes=this.field(oneOff,mcTr("Time limit (minutes)"),draft.minutes,"number");
+        const budget=this.field(oneOff,mcTr("Budget limit (€)"),draft.budget,"number");
         energy.addEventListener("input",()=>{draft.energy=energy.value;});
         minutes.addEventListener("input",()=>{draft.minutes=minutes.value;});
+        budget.addEventListener("input",()=>{draft.budget=budget.value;});
         const submit=mcButton(mcTr("Start bounded session"),()=>{
-          const amount=energy.value.trim(),time=minutes.value.trim();
-          draft.energy=amount;draft.minutes=time;
-          if((!!amount)===(!!time)){
+          const amount=energy.value.trim(),time=minutes.value.trim(),
+                money=budget.value.trim();
+          draft.energy=amount;draft.minutes=time;draft.budget=money;
+          if([amount,time,money].filter(Boolean).length!==1||
+              [amount,time,money].filter(Boolean).some(x=>
+                !Number.isFinite(Number(x))||Number(x)<=0)||
+              (time&&!Number.isInteger(Number(time)))){
             this._commandFeedback[c.id]={
               status:"rejected",reason:"ONE_FINITE_MANUAL_LIMIT_REQUIRED"
             };
             this.render();return;
           }
-          this.command(c.id,"start",amount?
-            {energy_kwh:Number(amount)}:{duration_minutes:Number(time)});
+          this.command(c.id,"start",amount?{energy_kwh:Number(amount)}:
+            time?{duration_minutes:Number(time)}:
+            {cost_amount:Number(money),currency:"EUR"});
         });
         submit.disabled=this._commandBusy||!capability.manual_one_off_allowed;
         oneOff.append(submit);
