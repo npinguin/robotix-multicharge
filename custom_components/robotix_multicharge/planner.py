@@ -264,12 +264,14 @@ def compile_plan(
             shortfall[uid] = demand.remaining_grid_kwh
             coverage[uid] = "NOT_REQUIRED"
             continue
-        if demand.remaining_grid_kwh is None and demand.remaining_duration_minutes is None:
+        if (demand.remaining_grid_kwh is None
+                and demand.remaining_duration_minutes is None
+                and demand.remaining_budget_amount is None):
             reasons[uid] = "DEMAND_UNKNOWN"
             shortfall[uid] = None
             coverage[uid] = "UNAVAILABLE"
             continue
-        if demand.remaining_grid_kwh == 0:
+        if demand.remaining_grid_kwh == 0 or demand.remaining_budget_amount == 0:
             reasons[uid] = "TARGET_MET"
             shortfall[uid] = 0.0
             coverage[uid] = "NOT_REQUIRED"
@@ -430,6 +432,11 @@ def compile_plan(
             if mode == "Economy" and tariff is None:
                 missing_price = True
                 continue
+            if demand.remaining_budget_amount is not None:
+                if (tariff is None or tariff.basis != "effective"
+                        or tariff.currency != demand.budget_currency):
+                    missing_price = True
+                    continue
             rate = tariff.effective_price_per_kwh if tariff is not None else None
             if mode == "Automatic":
                 available_solar = _cover(solar or (), slot, finish)
@@ -450,15 +457,26 @@ def compile_plan(
                 key, chosen_strategy = (0, rate), "economy"
             else:
                 key, chosen_strategy = (0, 0.0), mode
-            possible.append((key, slot, chosen_strategy, power, current))
+            possible.append((key, slot, chosen_strategy, power, current, rate))
         possible.sort(key=lambda item: (item[0], item[1]))
         chosen = []
         delivered = 0.0
-        for _, slot, selected_mode, power, current in possible:
+        budget_consumed = 0.0
+        for _, slot, selected_mode, power, current, rate in possible:
+            if demand.remaining_budget_amount is not None:
+                # A complete quarter must fit the remaining positive spend.
+                # Negative tariffs never give unlimited credit or permission.
+                if (rate is None or rate < 0 and not isfinite(rate)):
+                    continue
+                charge_cost = max(0.0, rate) * power / 4
+                if budget_consumed + charge_cost > demand.remaining_budget_amount + 1e-9:
+                    continue
+                budget_consumed += charge_cost
             if demand.remaining_duration_minutes is not None:
                 if len(chosen) * 15 >= demand.remaining_duration_minutes:
                     break
-            elif delivered + 1e-9 >= demand.remaining_grid_kwh:
+            elif (demand.remaining_budget_amount is None
+                    and delivered + 1e-9 >= demand.remaining_grid_kwh):
                 break
             chosen.append((slot, selected_mode, power, current))
             delivered += power / 4
@@ -487,7 +505,9 @@ def compile_plan(
             if demand.remaining_grid_kwh is not None else None
         )
         completed = (
-            len(chosen) * 15 >= demand.remaining_duration_minutes
+            budget_consumed + 1e-9 >= demand.remaining_budget_amount
+            if demand.remaining_budget_amount is not None
+            else len(chosen) * 15 >= demand.remaining_duration_minutes
             if demand.remaining_duration_minutes is not None
             else delivered + 1e-9 >= demand.remaining_grid_kwh
         )
@@ -498,6 +518,8 @@ def compile_plan(
             reasons[uid] = (
                 "BINDING_CAPACITY_UNAVAILABLE" if missing_binding
                 else "SOLAR_UNAVAILABLE" if mode == "Solar" and missing_solar
+                else "BUDGET_EFFECTIVE_TARIFF_UNAVAILABLE" if (
+                    demand.remaining_budget_amount is not None and missing_price)
                 else "PRICE_UNAVAILABLE" if mode == "Economy" and missing_price
                 else "CHARGING_WINDOW_LIMITED" if outside_window
                 else "INSUFFICIENT_CAPACITY_OR_TIME"
