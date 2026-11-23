@@ -292,6 +292,73 @@ async function main(){
     r.charger_id==="plug"&&r.action==="start"&&r.duration_minutes===15),
     "Only a bounded real executor request can start an eligible manual session");
 
+  // GUEST-UX-02 budget one-off: still the same native guarded command.
+  const moneyDraft=finiteInput(minimalCard,"Budget limit (€)");
+  assert.ok(moneyDraft);
+  moneyDraft.value="10";
+  moneyDraft.events.input();
+  minimalCard.render();
+  // Two incompatible goals never send a physical command.
+  const beforeMoney=manualWS.filter(r=>
+    r.type==="robotix_multicharge/command").length;
+  find(minimalCard.shadowRoot,"button","Start bounded session").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(manualWS.filter(r=>
+    r.type==="robotix_multicharge/command").length,beforeMoney,
+    "budget plus time cannot authorize a contradictory charge");
+  const minutesNew=finiteInput(minimalCard,"Time limit (minutes)");
+  minutesNew.value="";minutesNew.events.input();
+  minimalCard.render();
+  find(minimalCard.shadowRoot,"button","Start bounded session").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(manualWS.some(r=>r.type==="robotix_multicharge/command"&&
+    r.action==="start"&&r.cost_amount===10&&r.currency==="EUR"),
+    "€10 manual Charger-only intent reaches one owner-protected executor");
+
+  // GUEST-UX-01: an ordinary Guest is created with an amount and relative
+  // expiry, not a raw ISO timestamp edited by a resident.
+  const guestData=JSON.parse(JSON.stringify(fixture));
+  guestData.configuration_revision="guest-rev";
+  const guestWS=[];
+  const guestCard=new Card();
+  guestCard.setConfig({});
+  guestCard.hass={user:{is_admin:true},states:{},
+    callWS:async msg=>{
+      guestWS.push(msg);
+      return msg.type==="robotix_multicharge/update_settings"?
+        {status:"accepted_unconfirmed",expected_revision:"guest-next"}:guestData;
+    }
+  };
+  await new Promise(resolve=>setImmediate(resolve));
+  guestCard._tab="Chargeable Assets";guestCard.render();
+  find(guestCard.shadowRoot,"button","Add asset").click();
+  assert.ok(content(guestCard.shadowRoot).includes("Guest for"),
+    "guest creation uses relative expiry rather than technical ISO text");
+  function formField(card,label){
+    let result;
+    visit(card.shadowRoot,node=>{
+      if(node.className==="field"&&node.children[0]?.textContent===label)
+        result=node.children[1];
+    });
+    return result;
+  }
+  const guestName=formField(guestCard,"Asset name");
+  const guestGoal=formField(guestCard,"Charging goal");
+  const guestAmount=formField(guestCard,"Charging amount");
+  assert.ok(guestName&&guestGoal&&guestAmount);
+  guestName.value="Visitor";
+  guestGoal.value="budget";guestAmount.value="10";
+  find(guestCard.shadowRoot,"button","Create asset").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  const create=guestWS.find(x=>
+    x.type==="robotix_multicharge/update_settings"&&x.action==="create");
+  assert.ok(create);
+  assert.equal(create.changes.requested_budget_amount,10);
+  assert.equal(create.changes.requested_budget_currency,"EUR");
+  assert.equal(create.changes.temporary,true);
+  assert.ok(Number.isFinite(Date.parse(create.changes.expires_at)),
+    "Guest expiry is a real timestamp derived from selected duration");
+
   // A structural/config revision ends a pending local draft. It is never a
   // second persisted charge-request store or a physical session.
   minimalData.configuration_revision="minimal-rev-b";
