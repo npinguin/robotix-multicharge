@@ -303,7 +303,7 @@ class NativeSwitchExecutor:
                 "sources", {}).get("tariff_quality") == "OK"):
             matching = [p for p in self.runtime.price_slots
                         if p.start <= begun and p.end >= end]
-            if len(matching) == 1:
+            if len(matching) == 1 and matching[0].basis == "effective":
                 cost = round(delivered * matching[0].effective_price_per_kwh, 6)
                 currency = matching[0].currency
         self._session_history.append({
