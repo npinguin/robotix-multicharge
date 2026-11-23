@@ -124,6 +124,31 @@ for(const [locale,b] of Object.entries({
     "One continuous charge","Continuity and price strategy"].entries())
     MC_TEXT[locale][key]=b[i];
 }
+for(const [locale,b] of Object.entries({
+  nl:["Minimum laden vóór prijsgrens","Prijsplafond per kWh",
+      "Onmiddellijk laden bij lage prijs","Onmiddellijk laden bij lage SoC",
+      "Opportunistisch percentage","Prijsvaluta","Kies eerst de valuta",
+      "Stel valuta in","Vroegste start instellen","Opportunistisch laden",
+      "Type 1 — fractie van prijsplafond","Type 2 — prijs volgende dag"],
+  fr:["Minimum avant le plafond","Plafond de prix par kWh",
+      "Seuil de prix bas immédiat","Seuil batterie faible immédiat",
+      "Pourcentage opportuniste","Devise tarifaire","Choisir d'abord la devise",
+      "Choisir la devise","Définir le début le plus tôt","Charge opportuniste",
+      "Type 1 — fraction du plafond","Type 2 — prix de demain"],
+  de:["Mindestladung vor Preislimit","Preislimit pro kWh",
+      "Sofortladen bei Niedrigpreis","Sofortladen bei niedrigem Akkustand",
+      "Opportunistischer Prozentsatz","Preiswährung","Zuerst Währung wählen",
+      "Währung einstellen","Frühester Start","Opportunistisches Laden",
+      "Typ 1 — Preislimitanteil","Typ 2 — morgiger Preis"]
+})){
+  for(const [i,key] of ["Minimum charge before price limits","Price ceiling per kWh",
+    "Immediate low-price threshold","Immediate low-SoC threshold",
+    "Opportunistic percentage","Price currency",
+    "Choose currency before price limits","Set price currency",
+    "Set earliest start","Opportunistic charging",
+    "Type 1 — cap fraction","Type 2 — tomorrow price"].entries())
+    MC_TEXT[locale][key]=b[i];
+}
 const MC_DAY_NAMES={
   mon:"Monday",tue:"Tuesday",wed:"Wednesday",thu:"Thursday",
   fri:"Friday",sat:"Saturday",sun:"Sunday"
@@ -1277,6 +1302,11 @@ class RobotixMultiChargeCard extends HTMLElement {
           ["requested_kwh","Requested energy","kWh"],
           ["requested_duration_minutes","Requested charging duration","minutes"],
           ["requested_budget_amount","Requested budget (€)","EUR"],
+          ["minimum_soc_pct","Minimum charge before price limits","%"],
+          ["maximum_price_per_kwh","Price ceiling per kWh","currency/kWh"],
+          ["low_price_trigger_per_kwh","Immediate low-price threshold","currency/kWh"],
+          ["low_soc_trigger_pct","Immediate low-SoC threshold","%"],
+          ["opportunistic_level_pct","Opportunistic percentage","%"],
           ["max_charge_kw","Maximum vehicle charging power","kW"],
           ["priority","Priority",""],
           ["capacity_kwh","Battery capacity","kWh"],
@@ -1289,6 +1319,31 @@ class RobotixMultiChargeCard extends HTMLElement {
             this.openNative("asset",a.id,"ready_by")));
         detail.append(deadline);
         this.nativeRepeatEditor(detail,a);
+        // Native upstream price/SoC policy remains Asset-owned and one
+        // Config Entry preference; this view never stores price decisions.
+        mcPair(detail,mcTr("Price currency"),
+          a.price_currency||mcTr("Choose currency before price limits"));
+        if(this.canEditSettings()&&this.ownerEntity("asset",a.id,"price_currency")){
+          const edit=mcButton(mcTr("Set price currency"),()=>
+            this.openNative("asset",a.id,"price_currency"));
+          edit.disabled=this._settingsBusy;
+          detail.append(edit);
+        }
+        if(this.canEditSettings()&&this.ownerEntity("asset",a.id,"earliest_start_at")){
+          detail.append(mcButton(mcTr("Set earliest start"),()=>
+            this.openNative("asset",a.id,"earliest_start_at")));
+        }
+        if(this.canEditSettings()&&this.ownerEntity("asset",a.id,"opportunistic_kind")){
+          const strategy=this.field(detail,mcTr("Opportunistic charging"),
+            a.opportunistic_kind||"off",null,[
+              ["off",mcTr("Off")],["type1",mcTr("Type 1 — cap fraction")],
+              ["type2",mcTr("Type 2 — tomorrow price")],
+            ]);
+          strategy.disabled=this._settingsBusy;
+          strategy.addEventListener("change",()=>
+            void this.nativeSelect("asset",a.id,"opportunistic_kind",
+                                   strategy.value));
+        }
         if(this.canEditSettings()&&this.ownerEntity("asset",a.id,"continuous_charging")){
           detail.append(mcEl("h4","",mcTr("Continuity and price strategy")));
           const continuity=this.field(
