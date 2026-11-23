@@ -279,6 +279,100 @@ async def test_variable_charger_native_power_controls_share_owning_device(hass: 
 
 
 @pytest.mark.asyncio
+async def test_every_logical_device_auto_creates_own_native_inputs(hass: HomeAssistant):
+    """No user-created input_number/input_select/helpers; one owned Config Entry.
+
+    An adjustable Charger gets native inputs from creation even before its
+    physical Amp and phase facts are known. Those entities are unavailable,
+    not represented as a working physical setpoint.
+    """
+    from homeassistant.helpers import entity_registry as er
+
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    cfg = validate_configuration({
+        "controller": {
+            "id": "site", "name": "Community",
+            "mode": "Automatic", "max_parallel": 1, "max_power_kw": 3.6,
+        },
+        "assets": [{"id": "car", "name": "Car", "kind": "car",
+                    "target_soc": 80}],
+        "chargers": [
+            {"id": "socket", "name": "Fixed outlet",
+             "kind": "on_off", "rated_power_kw": 2.0},
+            {"id": "smart", "name": "Adjustable EVSE",
+             "kind": "variable_current", "rated_power_kw": 3.6},
+        ],
+    })
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Independent Community",
+        data={"source": "ui", "configuration": cfg},
+        unique_id=DOMAIN,
+    )
+    entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+    registry = er.async_get(hass)
+    devreg = dr.async_get(hass)
+
+    expected = {
+        ("controller", "site"): {
+            "select": ("mode", "plan_color_by", "plan_label_mode",
+                       "show_indicative_forecast"),
+            "number": ("max_parallel", "max_power_kw"),
+            "text": ("name", "price_entity", "solar_entity",
+                     "site_power_entity", "binding_entity"),
+        },
+        ("asset", "car"): {
+            "number": ("target_soc", "requested_kwh",
+                       "requested_duration_minutes", "priority",
+                       "max_charge_kw", "capacity_kwh",
+                       "charge_efficiency"),
+            "select": ("plan_color", "ready_by_repeat", "kind"),
+            "datetime": ("ready_by", "expected_connection_at", "expires_at"),
+            "text": ("name", "soc_entity"),
+        },
+        ("charger", "socket"): {
+            "select": ("plan_color", "asset"),
+            "text": ("name",),
+            "button": ("confirm_connection", "stop", "pause", "resume"),
+        },
+        ("charger", "smart"): {
+            "number": ("min_charging_power_kw", "max_charging_power_kw",
+                       "set_charging_power_kw"),
+            "select": ("plan_color", "asset"),
+            "text": ("name",),
+            "button": ("confirm_connection", "stop", "pause", "resume"),
+        },
+    }
+    for (kind, uid), platforms in expected.items():
+        device = devreg.async_get_device_by_identifier(
+            (DOMAIN, f"{kind}/{uid}"), entry.entry_id
+        )
+        assert device is not None, (kind, uid)
+        for platform, fields in platforms.items():
+            for field in fields:
+                entity_id = registry.async_get_entity_id(
+                    platform, DOMAIN, f"{DOMAIN}:{kind}:{uid}:{field}"
+                )
+                assert entity_id is not None, (kind, uid, field)
+                assert registry.async_get(entity_id).device_id == device.id
+                assert not entity_id.startswith("input_")
+    for field in ("min_charging_power_kw", "max_charging_power_kw",
+                  "set_charging_power_kw"):
+        uid = f"{DOMAIN}:charger:smart:{field}"
+        entity_id = registry.async_get_entity_id("number", DOMAIN, uid)
+        assert hass.states.get(entity_id).state == "unavailable", field
+        # Fixed on/off equipment cannot advertise fake current modulation.
+        assert registry.async_get_entity_id(
+            "number", DOMAIN, f"{DOMAIN}:charger:socket:{field}"
+        ) is None
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
 async def test_options_flow_is_device_setup_not_daily_charge_operations(
     hass: HomeAssistant,
 ):
