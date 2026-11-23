@@ -162,7 +162,11 @@ class MultiChargeRuntime:
                 circuit_id=raw.get("circuit_id"),
                 circuit_limit_a=raw.get("circuit_limit_a"),
             )
-            cable = connection(self.hass, raw.get("connected_entity"), at)
+            cable = connection(
+                self.hass, raw.get("connected_entity"), at,
+                connected_states=raw.get("connected_states"),
+                disconnected_states=raw.get("disconnected_states"),
+            )
             power = number(self.hass, raw.get("power_entity"), "power", at)
             session = session_status(self.hass, raw.get("session_entity"), at)
             self.observations["chargers"][uid] = {
