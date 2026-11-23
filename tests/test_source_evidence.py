@@ -20,7 +20,9 @@ for name in ("contracts", "source_evidence"):
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
 
-from multicharge_source_test.source_evidence import binding, connection, intervals, number, session_status  # noqa: E402 - imported after isolated pure-module bootstrap
+from multicharge_source_test.source_evidence import (
+    binding, connection, intervals, number, session_status, live_power, live_price,
+)  # noqa: E402 - imported after isolated pure-module bootstrap
 
 NOW = datetime(2026, 11, 22, 12, tzinfo=timezone.utc)
 
@@ -37,6 +39,36 @@ def hass(data):
 
 
 class EvidenceTests(unittest.TestCase):
+    def test_native_live_power_and_price_are_unit_and_freshness_qualified(self):
+        source = hass({
+            "sensor.pv": state("2200", "W"),
+            "sensor.home": state("1.2", "kW"),
+            "sensor.grid": state("-1200", "W"),
+            "sensor.surplus": state("0", "W"),
+            "sensor.negative_pv": state("-100", "W"),
+            "sensor.energy_not_power": state("3.2", "kWh"),
+            "sensor.stale": state("1", "kW", observed=NOW-timedelta(minutes=5)),
+            "sensor.price": state("-0.11", "€/kWh"),
+            "sensor.price_mwh": state("100", "EUR/MWh"),
+            "sensor.price_unknown": state("0.05", "USD"),
+        })
+        self.assertEqual(live_power(source, "sensor.pv", NOW).value, 2.2)
+        self.assertEqual(live_power(source, "sensor.home", NOW).value, 1.2)
+        self.assertEqual(live_power(source, "sensor.grid", NOW, signed=True).value, -1.2)
+        self.assertEqual(live_power(source, "sensor.surplus", NOW).value, 0)
+        self.assertEqual(live_power(source, "sensor.grid", NOW).quality, "invalid")
+        self.assertEqual(live_power(source, "sensor.negative_pv", NOW).quality, "invalid")
+        self.assertEqual(live_power(source, "sensor.energy_not_power", NOW).reason,
+                         "POWER_UNIT_UNVERIFIED")
+        self.assertEqual(live_power(source, "sensor.stale", NOW).quality, "stale")
+        price, currency = live_price(source, "sensor.price", NOW)
+        self.assertEqual((price.value, currency), (-0.11, "EUR"))
+        eur_mwh, currency = live_price(source, "sensor.price_mwh", NOW)
+        self.assertEqual((eur_mwh.value, currency), (0.1, "EUR"))
+        invalid, currency = live_price(source, "sensor.price_unknown", NOW)
+        self.assertEqual(invalid.quality, "invalid")
+        self.assertIsNone(currency)
+
     def test_measured_zero_and_units_are_not_guessed(self):
         obj = hass({
             "sensor.power": state("0", "W"),
