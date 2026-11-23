@@ -43,6 +43,20 @@ database. The Ready By datetime is accessible through the native HA entity
 dialog from the Asset dashboard, preserving HA's timezone-aware semantics.
 Unsupported physical modulation is shown as on/off only.
 
+**Automatic logical-device entities:** When MultiCharge creates its
+ChargeController, a Charger or a ChargeableAsset, it registers all supported
+native HA `number`, `select`, `datetime`, `text`, and action `button`
+entities on that device. A person configuring MultiCharge never needs to
+create HA `input_number`, `input_select`, `input_datetime`, template
+helpers, scripts or automations for these settings. Existing entities keep
+their stable unique IDs across upgrades; newly created vehicles get their
+own entities after the normal Config Entry reload. Hardware-dependent inputs
+exist but show *Unavailable* until commissioning has verified the relevant
+charger capability. An on/off-only Charger does not advertise adjustable
+current or kW power controls. Native provider measurements (e.g. cable state,
+actual current, SoC or tariff quotes) remain external sources selected at
+setup; MultiCharge never fabricates those physical measurements.
+
 A standalone installation needs only Home Assistant and suitable native
 HA provider entities. No Robotix Foundation, Basic, Premium, Wessels package,
 Finance integration or specific charger brand is required. Community source
