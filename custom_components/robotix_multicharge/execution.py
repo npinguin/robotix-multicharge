@@ -613,6 +613,81 @@ class NativeSwitchExecutor:
         ]
         return quotes[0] if len(quotes) == 1 else None
 
+    def _asset_price_policy_issue(self, asset, at, *, finite_goal=False):
+        """One tariff/SoC policy for START and ongoing physical supervision.
+
+        The owner never infers a currency, settled price or BMS SoC. A
+        price policy can restrict an already energised Charger as well as
+        prevent a new start, avoiding a second policy evaluator in HA.
+        """
+        if not any(asset.get(field) is not None for field in (
+                "maximum_price_per_kwh", "low_price_trigger_per_kwh")):
+            return None
+        currency = asset.get("price_currency")
+        if self.runtime.observations.get("sources", {}).get(
+                "tariff_quality") != "OK":
+            return "PRICE_SOURCE_UNAVAILABLE"
+        current_quotes = [
+            row for row in self.runtime.price_slots
+            if row.start <= at < row.end and row.currency == currency
+        ]
+        if len(current_quotes) != 1:
+            return "PRICE_POLICY_CURRENCY_MISMATCH"
+        future_deadline = at + timedelta(hours=48)
+        if (asset.get("ready_by")
+                or asset.get("ready_by_repeat") == "specific_days"):
+            try:
+                raw = asset.get("ready_by")
+                anchor = datetime.fromisoformat(raw) if raw else None
+                repeat = asset.get("ready_by_repeat", "none")
+                if repeat != "none":
+                    due, issue = resolve_recurring_ready_by(
+                        anchor, at, repeat,
+                        self.runtime.hass.config.time_zone,
+                        asset.get("ready_by_weekdays"),
+                    )
+                    if due is None:
+                        return issue
+                else:
+                    due = anchor
+                if due is not None:
+                    future_deadline = min(future_deadline, due)
+            except (ValueError, TypeError):
+                return "READY_BY_INVALID"
+        price_cap, issue = qualified_price_policy_cap(
+            asset.get("maximum_price_per_kwh"),
+            asset.get("opportunistic_kind", "off"),
+            asset.get("opportunistic_level_pct"),
+            currency, self.runtime.price_slots, at, future_deadline,
+        )
+        if issue:
+            return issue
+        actual_rate = current_quotes[0].effective_price_per_kwh
+        low_price = asset.get("low_price_trigger_per_kwh")
+        low_price_eligible = (
+            low_price is not None and actual_rate <= low_price + 1e-9
+        )
+        priority_eligible = False
+        if not finite_goal and (
+                asset.get("minimum_soc_pct") is not None
+                or asset.get("low_soc_trigger_pct") is not None):
+            soc = soc_with_health(
+                self.runtime.hass, asset.get("soc_entity"),
+                asset.get("soc_stale_entity"), at,
+            )
+            if soc.quality != "ok":
+                return "SOC_PRIORITY_SOURCE_UNAVAILABLE"
+            priority_eligible = any(
+                soc.value < asset[field]
+                for field in ("minimum_soc_pct", "low_soc_trigger_pct")
+                if asset.get(field) is not None
+            )
+        if (price_cap is not None and actual_rate > price_cap + 1e-9
+                and not priority_eligible and not low_price_eligible):
+            return "PRICE_LIMIT_BLOCKED"
+        return None
+
+
     def _admit_start(self, charger, at, *, planned=False, target_current=None,
                      manual_request=None):
         cfg = self.runtime.configuration
@@ -680,57 +755,14 @@ class NativeSwitchExecutor:
             earliest = datetime.fromisoformat(asset["earliest_start_at"])
             if at < earliest:
                 return "EARLIEST_START_NOT_REACHED"
-        if asset is not None and any(
-                asset.get(field) is not None for field in (
-                    "maximum_price_per_kwh",
-                    "low_price_trigger_per_kwh",
-                )):
-            currency = asset.get("price_currency")
-            if self.runtime.observations.get("sources", {}).get(
-                    "tariff_quality") != "OK":
-                return "PRICE_SOURCE_UNAVAILABLE"
-            current_quotes = [
-                row for row in self.runtime.price_slots
-                if row.start <= at < row.end
-                and row.currency == currency
-            ]
-            if len(current_quotes) != 1:
-                return "PRICE_POLICY_CURRENCY_MISMATCH"
-            price_cap, issue = qualified_price_policy_cap(
-                asset.get("maximum_price_per_kwh"),
-                asset.get("opportunistic_kind", "off"),
-                asset.get("opportunistic_level_pct"),
-                currency, self.runtime.price_slots,
-                at, at + timedelta(hours=48),
+        if asset is not None:
+            policy_issue = self._asset_price_policy_issue(
+                asset, at,
+                finite_goal=(amount is not None or duration is not None
+                             or money is not None),
             )
-            if issue:
-                return issue
-            actual_rate = current_quotes[0].effective_price_per_kwh
-            low_price = asset.get("low_price_trigger_per_kwh")
-            low_price_eligible = (
-                low_price is not None and actual_rate <= low_price + 1e-9
-            )
-            priority_eligible = False
-            # Minimum/low-SoC priority applies only to verified vehicle
-            # target charging. It cannot bypass a finite EUR budget, kWh or
-            # minutes intent, and never overrides device ownership/safety.
-            if (amount is None and duration is None and money is None
-                    and (asset.get("minimum_soc_pct") is not None
-                         or asset.get("low_soc_trigger_pct") is not None)):
-                observed_soc = soc_with_health(
-                    self.runtime.hass, asset.get("soc_entity"),
-                    asset.get("soc_stale_entity"), at,
-                )
-                if observed_soc.quality != "ok":
-                    return "SOC_PRIORITY_SOURCE_UNAVAILABLE"
-                priority_eligible = any(
-                    observed_soc.value < asset[field]
-                    for field in ("minimum_soc_pct", "low_soc_trigger_pct")
-                    if asset.get(field) is not None
-                )
-            if (price_cap is not None and actual_rate > price_cap + 1e-9
-                    and not priority_eligible and not low_price_eligible):
-                return "PRICE_LIMIT_BLOCKED"
+            if policy_issue:
+                return policy_issue
         if manual_request is None and (amount is not None or duration is not None or money is not None):
             raw_due = asset.get("ready_by")
             due = datetime.fromisoformat(raw_due) if raw_due else None
@@ -1088,6 +1120,14 @@ class NativeSwitchExecutor:
                 self.runtime.hass.config.time_zone,
             ):
                 return "CHARGING_WINDOW_CLOSED"
+            policy_issue = self._asset_price_policy_issue(
+                asset, now, finite_goal=(
+                    session["requested_kwh"] is not None
+                    or session["requested_duration_minutes"] is not None
+                    or session.get("requested_budget_amount") is not None),
+            )
+            if policy_issue:
+                return policy_issue
         if now >= session["hard_stop_at"]:
             return "SESSION_SAFETY_DEADLINE_REACHED"
         if session["requested_duration_minutes"] is not None:
