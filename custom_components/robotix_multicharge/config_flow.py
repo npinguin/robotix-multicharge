@@ -13,7 +13,7 @@ from homeassistant.helpers import selector
 
 from .configuration import (
     default_configuration, is_plan_presentation_only_change,
-    configuration_revision, configuration_json, prepare_expert_yaml_revision, validate_configuration,
+    configuration_json, prepare_expert_yaml_revision, validate_configuration,
     apply_new_asset_defaults, energy_dashboard_suggestions,
 )
 from .source_evidence import number
@@ -223,8 +223,12 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             # Preserve direct legacy user-flow submissions from older HA clients.
             return await self.async_step_guided(user_input)
-        return self.async_show_menu(
-            step_id="user", menu_options=["guided", "expert"]
+        # Install the single native Config Entry immediately. Every site,
+        # Charger and Asset setting is configured subsequently in MultiCharge.
+        # Do not force a native HA wizard or free-text JSON/YAML upon users.
+        cfg = default_configuration()
+        return self.async_create_entry(
+            title=NAME, data={"source": "ui", "configuration": cfg},
         )
 
     async def async_step_guided(self, user_input=None):
@@ -266,99 +270,13 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_expert(self, user_input=None):
-        """Configure a complete standalone site on first install via GUI JSON.
-
-        The existing native Config Entry remains the only settings authority.
-        Unlike file import, a GUI-authored draft stays editable in the dashboard.
-        """
-        if self._async_current_entries():
-            return self.async_abort(reason="already_configured")
-        if not hasattr(self, "_expert_yaml"):
-            self._expert_yaml = configuration_json(default_configuration())
-        errors = {}
-        validation_error = ""
-        if user_input is not None:
-            self._expert_yaml = user_input.get("yaml_text", self._expert_yaml)
-            try:
-                document = _parse_editor_yaml(self._expert_yaml)
-                candidate = prepare_expert_yaml_revision(
-                    default_configuration(), document, "replace",
-                )
-                # Preview and installation must never seize physical EVSE
-                # ownership. Commissioning belongs to guarded Options flow.
-                if any(c["control_owner"] != "external"
-                       or c["physical_commissioned"] for c in candidate["chargers"]):
-                    raise ValueError("physical ownership needs qualified commissioning")
-                self._expert_draft = candidate
-                self._expert_summary = _yaml_review_summary(
-                    default_configuration(), candidate,
-                )
-                return await self.async_step_expert_review()
-            except (ValueError, TypeError, KeyError) as exc:
-                errors["base"] = "invalid_config"
-                validation_error = str(exc)[:260]
-        return self.async_show_form(
-            step_id="expert", errors=errors,
-            data_schema=vol.Schema({
-                vol.Required("yaml_text", default=self._expert_yaml):
-                    selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
-            }),
-            description_placeholders={
-                "note": (
-                    "Paste the complete controller/assets/chargers configuration. "
-                    "This is stored in Home Assistant, not in an external file. "
-                    "Native provider sensors must already exist; "
-                    "template: and physical commissioning are not supported here."
-                    + (f" Validation: {validation_error}" if validation_error else "")
-                ),
-            },
-        )
+        """Retired text editor: setup and all settings are dashboard-only."""
+        return self.async_abort(reason="dashboard_only")
 
     async def async_step_expert_review(self, user_input=None):
-        """Keep the reviewed full-site draft inert until explicit confirmation."""
-        if self._async_current_entries():
-            return self.async_abort(reason="already_configured")
-        if not hasattr(self, "_expert_draft"):
-            return await self.async_step_expert()
-        errors = {}
-        validation_error = ""
-        if user_input is not None:
-            if user_input.get("edit_again"):
-                return await self.async_step_expert()
-            if not user_input.get("confirm"):
-                errors["base"] = "verification_required"
-            else:
-                try:
-                    candidate = prepare_expert_yaml_revision(
-                        default_configuration(), _parse_editor_yaml(self._expert_yaml),
-                        "replace",
-                    )
-                    if candidate != self._expert_draft:
-                        raise ValueError("reviewed draft has changed")
-                    if any(c["control_owner"] != "external"
-                           or c["physical_commissioned"] for c in candidate["chargers"]):
-                        raise ValueError("physical ownership needs commissioning")
-                    await self.async_set_unique_id(DOMAIN)
-                    self._abort_if_unique_id_configured()
-                    return self.async_create_entry(
-                        title=NAME, data={"source": "ui", "configuration": candidate}
-                    )
-                except (ValueError, TypeError, KeyError) as exc:
-                    errors["base"] = "invalid_config"
-                    validation_error = str(exc)[:260]
-        return self.async_show_form(
-            step_id="expert_review", errors=errors,
-            data_schema=vol.Schema({
-                vol.Required("confirm", default=False): bool,
-                vol.Optional("edit_again", default=False): bool,
-            }),
-            description_placeholders={
-                "summary": self._expert_summary
-                + (f" Validation: {validation_error}" if validation_error else ""),
-            },
-        )
+        """No dormant first-install JSON editor may write the Config Entry."""
+        return self.async_abort(reason="dashboard_only")
 
-    @staticmethod
     def _site_schema(suggestions=None):
         suggestions = suggestions or {}
         # Explicit box widgets, never implicit range sliders in HA forms.
@@ -910,11 +828,8 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         return self.async_abort(reason="yaml_editor_in_dashboard")
 
     async def async_step_init(self, user_input=None):
-        if self.config_entry.data.get("source") in ("yaml", "json"):
-            return self.async_abort(reason="yaml_managed")
-        return self.async_show_menu(
-            step_id="init", menu_options=["controller", "energy", "asset", "charger", "commission", "display"]
-        )
+        """Existing Config Entry stays owned by dashboard, never HA Options."""
+        return self.async_abort(reason="dashboard_only")
 
     async def async_step_energy(self, user_input=None):
         """Optional HA-standard source choices; Energy Dashboard is read-only.
