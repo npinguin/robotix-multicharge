@@ -38,7 +38,8 @@
           "ready_by_repeat": "Upprepa (valfritt)",
           "temporary": "Gäst (valfritt)",
           "expires_at": "Upphör (valfritt)",
-          "expected_connection_at": "Förväntad anslutning (valfritt)"
+          "expected_connection_at": "Förväntad anslutning (valfritt)",
+          "soc_stale_entity": "OEM-data inaktuella (binärsensor: på = inaktuella)"
         }
       },
       "sources": {
@@ -172,7 +173,8 @@
           "soc_entity": "Batteri",
           "capacity_kwh": "Batteri",
           "vehicle_control_entity": "Fordonsstyrningsbrytare (källa)",
-          "vehicle_current_entity": "Fordonets ströminställning (källa)"
+          "vehicle_current_entity": "Fordonets ströminställning (källa)",
+          "soc_stale_entity": "OEM-data inaktuella (binärsensor: på = inaktuella)"
         }
       },
       "charger": {
