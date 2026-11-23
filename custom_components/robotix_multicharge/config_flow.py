@@ -257,9 +257,8 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     errors={"base": "invalid_config"},
                 )
             return await self.async_step_charger()
-        suggestions = await _energy_dashboard_defaults(self.hass)
         return self.async_show_form(
-            step_id="guided", data_schema=self._site_schema(suggestions)
+            step_id="guided", data_schema=self._site_schema()
         )
 
     async def async_step_expert(self, user_input=None):
@@ -1048,10 +1047,13 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             if result is not None:
                 return result
             errors["base"] = "invalid_config"
-        chosen = {**discovered, **{
+        # Existing saved selection is the only default. Energy Dashboard
+        # suggestions are intentionally NOT silently imported when the
+        # operator leaves its opt-in checkbox unticked.
+        chosen = {
             key: cfg["controller"][key] for key in ENERGY_ENTITY_FIELDS
             if cfg["controller"].get(key)
-        }}
+        }
         return self.async_show_form(
             step_id="energy", errors=errors,
             data_schema=vol.Schema({
@@ -1077,9 +1079,12 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             description_placeholders={
                 "note": (
                     "Choose existing native Home Assistant sensors. "
-                    "Use Energy Dashboard reads its configured grid/solar live "
-                    "power and price entity IDs as suggestions; verify selections "
-                    "before saving. Home consumption is selected manually, not "
+                    "Use Energy Dashboard imports its configured grid/solar "
+                    "live power and current price entity references only when "
+                    "opted in. Available suggestions: "
+                    + (", ".join(f"{key}: {value}" for key, value in
+                                 sorted(discovered.items())) or "none")
+                    + ". Home consumption is selected manually, not "
                     "calculated by adding appliance counters. Power W/kW is "
                     "different from Energy Wh/kWh. Live prices are indicative "
                     "and cannot replace future tariff intervals."
