@@ -639,9 +639,12 @@ def compile_plan(
                 else "SOLAR_UNAVAILABLE" if mode == "Solar" and missing_solar
                 else "BUDGET_EFFECTIVE_TARIFF_UNAVAILABLE" if (
                     demand.remaining_budget_amount is not None and missing_price)
+                else "PRICE_UNAVAILABLE" if (
+                    mode == "Economy" and missing_price
+                    and demand.maximum_price_per_kwh is None
+                    and demand.low_price_trigger_per_kwh is None)
                 else "PRICE_SOURCE_UNAVAILABLE" if missing_price
                 else "PRICE_LIMIT_BLOCKED" if blocked_price
-                else "PRICE_UNAVAILABLE" if mode == "Economy" and missing_price
                 else "CHARGING_WINDOW_LIMITED" if outside_window
                 else "INSUFFICIENT_CAPACITY_OR_TIME"
             )
