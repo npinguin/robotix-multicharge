@@ -11,11 +11,14 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
-from .contracts import ChargeDemand, PowerEnvelope
+from .contracts import ChargeDemand, PowerEnvelope, PowerLimitSlot
 from .configuration import configuration_revision, PLAN_COLORS
 from .domain import ChargeController, Charger
 from .planner import compile_plan, resolve_recurring_ready_by
-from .source_evidence import Evidence, binding, connection, intervals, number, session_status
+from .source_evidence import (
+    Evidence, binding, connection, intervals, number, session_status,
+    live_power, live_price,
+)
 from .execution import NativeSwitchExecutor
 
 _LOGGER = logging.getLogger(__name__)
@@ -49,6 +52,57 @@ class MultiChargeRuntime:
         self._listeners = set()
         self._unsubscribers = []
         self.active = True
+
+    def native_surplus_power(self, at):
+        """Compute strictly current, not forecast solar/export capacity.
+
+        No PV generation reading alone establishes chargeable surplus. Live
+        grid import/export can be interpreted only with a configured sign,
+        while retained owned sessions are added back once, from real power
+        readback and a confirmed internal physical session.
+        """
+        ctl = self.configuration["controller"]
+        source_kind = ctl.get("solar_source_kind", "none")
+        if source_kind not in ("grid_export", "direct_surplus"):
+            return None, "NATIVE_SOLAR_NOT_SELECTED"
+        if source_kind == "direct_surplus":
+            source = live_power(
+                self.hass, ctl.get("solar_surplus_entity"), at,
+            )
+            return (source.value, "OK") if source.quality == "ok" else (
+                None, source.reason,
+            )
+        source = live_power(
+            self.hass, ctl.get("grid_power_entity"), at, signed=True,
+        )
+        if source.quality != "ok":
+            return None, source.reason
+        exported = (
+            -source.value if ctl.get("grid_power_direction") == "import_positive"
+            else source.value
+        )
+        available = max(0.0, exported)
+        for charger in self.configuration["chargers"]:
+            if (charger.get("control_owner") != "multicharge"
+                    or charger.get("physical_commissioned") is not True):
+                continue
+            state = self.executor._switch(
+                self.hass, charger.get("control_entity"),
+            )
+            if state is None:
+                return None, "OWNED_CHARGER_SWITCH_UNKNOWN"
+            if state.state != "on":
+                continue
+            session = self.executor._sessions.get(charger["id"])
+            if session is None:
+                return None, "OWNED_CHARGER_SESSION_UNKNOWN"
+            measured = live_power(
+                self.hass, charger.get("power_entity"), at,
+            )
+            if measured.quality != "ok":
+                return None, "OWNED_CHARGER_POWER_UNKNOWN"
+            available += measured.value
+        return round(available, 6), "OK"
 
     def attach_control_store(self, store, snapshot):
         self._control_store = store
@@ -310,9 +364,28 @@ class MultiChargeRuntime:
         tariff, tariff_quality = intervals(
             self.hass, setting.get("price_entity"), "price", at
         )
-        solar, solar_quality = intervals(
-            self.hass, setting.get("solar_entity"), "solar", at
-        )
+        solar_kind = setting.get("solar_source_kind", "none")
+        solar, solar_quality = (), "SOLAR_NOT_SELECTED"
+        if solar_kind == "intervals":
+            solar, solar_quality = intervals(
+                self.hass, setting.get("solar_entity"), "solar", at
+            )
+        elif solar_kind in ("grid_export", "direct_surplus"):
+            instant, solar_quality = self.native_surplus_power(at)
+            if instant is not None:
+                # A live W/kW reading cannot be tomorrow's solar forecast.
+                # Only permit the immediately starting quarter; a new
+                # quarter requires another fresh independent measurement.
+                begin = datetime.fromtimestamp(
+                    ((int(at.timestamp()) + 899) // 900) * 900,
+                    timezone.utc,
+                )
+                if begin - at <= timedelta(minutes=2):
+                    solar = (PowerLimitSlot(
+                        begin, begin + timedelta(minutes=15), instant,
+                    ),)
+                else:
+                    solar_quality = "LIVE_MEASUREMENT_NO_FUTURE_FORECAST"
         self.price_slots = tuple(tariff)
         current = [row for row in tariff if row.start <= at < row.end]
         current_price = (
@@ -340,10 +413,43 @@ class MultiChargeRuntime:
                     "binding", (),
                 )
                 self.excluded["controller"] = "BINDING_CAPACITY_UNAVAILABLE"
+        native_price, native_currency = live_price(
+            self.hass, setting.get("current_price_entity"), at,
+        )
+        native_export_price, export_currency = live_price(
+            self.hass, setting.get("export_price_entity"), at,
+        )
+        if current_price["quality"] != "ok" and native_price.quality == "ok":
+            current_price = {
+                "quality": "ok", "value": native_price.value,
+                "currency": native_currency, "basis": "current_only",
+            }
         self.observations["sources"] = {
             "tariff_quality": tariff_quality, "solar_quality": solar_quality,
             "binding_quality": binding_quality,
             "current_price": current_price,
+            "solar_power": _evidence(live_power(
+                self.hass, setting.get("solar_power_entity"), at,
+            )),
+            "home_power": _evidence(live_power(
+                self.hass, setting.get("home_power_entity"), at,
+            )),
+            "grid_power": _evidence(live_power(
+                self.hass, setting.get("grid_power_entity"), at, signed=True,
+            )),
+            "surplus_power": _evidence(live_power(
+                self.hass, setting.get("solar_surplus_entity"), at,
+            )),
+            "available_solar_kw": (
+                {"quality": solar_quality, "value": instant
+                 if solar_kind in ("grid_export", "direct_surplus") else None}
+                if solar_kind in ("grid_export", "direct_surplus")
+                else {"quality": solar_quality, "value": None}
+            ),
+            "current_export_price": {
+                **_evidence(native_export_price), "currency": export_currency,
+                "basis": "current_only",
+            },
         }
         try:
             self.assessment = compile_plan(
