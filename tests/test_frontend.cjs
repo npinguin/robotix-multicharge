@@ -90,6 +90,7 @@ async function main(){
     owned["ready_day_"+day]="select.car_day_"+day;
     owned["charging_window_"+day]="text.car_window_"+day;
   }
+  owned.continuous_charging="select.car_continuity";
   const scheduleCalls=[];
   const scheduleCard=new Card();
   scheduleCard.setConfig({});
@@ -107,6 +108,19 @@ async function main(){
   await new Promise(resolve=>setImmediate(resolve));
   scheduleCard._tab="Chargeable Assets";scheduleCard.render();
   find(scheduleCard.shadowRoot,"button","Details").click();
+  // PARITY-07 native continuous Select on the same Asset and Config Entry.
+  let pattern;
+  visit(scheduleCard.shadowRoot,node=>{
+    if(node.className==="field"&&node.children[0]?.textContent==="Charging pattern")
+      pattern=node.children[1];
+  });
+  assert.ok(pattern,"continuity is editable on the normal Asset card");
+  assert.deepEqual(pattern.children.map(x=>x.value),["flexible","continuous"]);
+  pattern.value="continuous";pattern.events.change();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(scheduleCalls.some(x=>x.domain==="select"&&
+    x.args.entity_id==="select.car_continuity"&&x.args.option==="continuous"),
+    "Continuous selection reaches native owner, not a second JS store");
   assert.ok(content(scheduleCard.shadowRoot).includes("Specific days"),
     "Single Weekly user option replaced by Specific days");
   assert.ok(!content(scheduleCard.shadowRoot).includes("Every week"),
