@@ -1202,11 +1202,15 @@ async def test_expert_json_include_skips_wizard_and_reuses_entry(hass: HomeAssis
 
 
 @pytest.mark.asyncio
-async def test_native_yaml_options_review_save_and_recorder_identity(hass: HomeAssistant):
-    """Real pinned Home Assistant Options Flow: edit, validate, review and save."""
+async def test_dashboard_yaml_review_commit_and_recorder_identity(hass: HomeAssistant):
+    """Actual HA runtime Config Entry, guarded YAML WebSocket handler, no Options YAML."""
     import yaml
+    from types import SimpleNamespace
+    from custom_components.robotix_multicharge.command_query import (
+        websocket_dashboard_yaml_configuration,
+    )
 
-    source = (Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN)
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
     installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
     if not installed.exists():
         shutil.copytree(source, installed)
@@ -1215,43 +1219,61 @@ async def test_native_yaml_options_review_save_and_recorder_identity(hass: HomeA
             "id": "home", "name": "Original home", "mode": "Off",
             "max_parallel": 1,
         },
-        "assets": [],
-        "chargers": [],
+        "assets": [], "chargers": [],
     })
     entry = MockConfigEntry(
         domain=DOMAIN, title="Robotix MultiCharge",
-        data={"source": "ui", "configuration": initial},
-        unique_id=DOMAIN,
+        data={"source": "ui", "configuration": initial}, unique_id=DOMAIN,
     )
     entry.add_to_hass(hass)
     assert await async_setup_component(hass, DOMAIN, {})
     await hass.async_block_till_done()
     devices = dr.async_get(hass)
-    controller_before = devices.async_get_device_by_identifier(
-        (DOMAIN, "controller/home"), entry.entry_id
+    before = devices.async_get_device_by_identifier(
+        (DOMAIN, "controller/home"), entry.entry_id,
     )
-    assert controller_before is not None
-
+    assert before is not None
     opts = await hass.config_entries.options.async_init(entry.entry_id)
     assert opts["type"] == FlowResultType.MENU
-    assert "yaml" in opts["menu_options"]
-    opts = await hass.config_entries.options.async_configure(
-        opts["flow_id"], {"next_step_id": "yaml"}
+    assert "yaml" not in opts["menu_options"], (
+        "YAML must never be an HA Options Flow menu entry"
     )
-    assert opts["type"] == FlowResultType.FORM
-    assert opts["step_id"] == "yaml"
+    legacy = await hass.config_entries.options.async_configure(
+        opts["flow_id"], {"next_step_id": "yaml"},
+    )
+    assert legacy["type"] == FlowResultType.ABORT
 
-    # Invalid/ambiguous YAML must not silently overwrite an existing key.
-    opts = await hass.config_entries.options.async_configure(
-        opts["flow_id"], {
-            "mode": "replace",
-            "yaml_text": "controller:\n  id: home\n  id: other\n",
-        },
-    )
-    assert opts["step_id"] == "yaml"
-    assert opts["errors"]["base"] == "invalid_config"
-    assert "duplicate YAML key" in opts["description_placeholders"]["note"]
-    assert entry.data["configuration"] == initial
+    class AdminConnection:
+        user = SimpleNamespace(is_admin=True)
+        result = None
+        failure = None
+
+        def send_result(self, _id, value):
+            self.result = value
+            self.failure = None
+
+        def send_error(self, _id, code, message):
+            self.result = None
+            self.failure = (code, message)
+
+    conn = AdminConnection()
+
+    async def send(action, **kwargs):
+        await websocket_dashboard_yaml_configuration(hass, conn, {
+            "id": 4, "type": "robotix_multicharge/yaml_configuration",
+            "action": action, **kwargs,
+        })
+        return conn.result
+
+    read = await send("read")
+    assert read["status"] == "ready"
+    assert yaml.safe_load(read["yaml_text"]) == initial
+    revision = read["configuration_revision"]
+    assert len(revision) == 20
+
+    assert await send("preview", yaml_text="controller:\n  id: home\n  id: other\n",
+                      expected_revision=revision) is None
+    assert "duplicate YAML key" in conn.failure[1]
     assert not entry.options.get("configuration")
 
     updated = validate_configuration({
@@ -1263,43 +1285,49 @@ async def test_native_yaml_options_review_save_and_recorder_identity(hass: HomeA
             "control_owner": "external", "physical_commissioned": False,
         }],
     })
-    opts = await hass.config_entries.options.async_configure(
-        opts["flow_id"], {"mode": "replace",
-                          "yaml_text": yaml.safe_dump(updated, sort_keys=False)}
+    raw = yaml.safe_dump(updated, sort_keys=False)
+    preview = await send("preview", yaml_text=raw,
+                         mode="replace", expected_revision=revision)
+    assert preview["status"] == "preview"
+    assert preview["changes_present"] is True
+    assert preview["groups"]["chargers"]["add"] == ["outside"]
+    assert not entry.options.get("configuration"), (
+        "Validate/Review never persists or commissions a charger"
     )
-    assert opts["type"] == FlowResultType.FORM
-    assert opts["step_id"] == "yaml_review"
-    assert "Outside" not in str(opts.get("description_placeholders", {})) or (
-        "outside" in str(opts["description_placeholders"]))
-    assert entry.options.get("configuration") is None, (
-        "Preview and review must not persist any configuration"
-    )
+    assert await send(
+        "apply", yaml_text=raw, mode="replace",
+        expected_revision=revision, reviewed_revision="not-the-review",
+    ) is None
+    assert "REVIEW_CHANGED_REVALIDATE" in conn.failure[1]
+    assert not entry.options.get("configuration")
 
-    # Continue editing is a real native server-backed step, not a UI rewind.
-    opts = await hass.config_entries.options.async_configure(
-        opts["flow_id"], {"edit_again": True}
+    result = await send(
+        "apply", yaml_text=raw, mode="replace",
+        expected_revision=revision,
+        reviewed_revision=preview["reviewed_revision"],
     )
-    assert opts["step_id"] == "yaml"
-    opts = await hass.config_entries.options.async_configure(
-        opts["flow_id"], {"mode": "replace",
-                          "yaml_text": yaml.safe_dump(updated, sort_keys=False)}
-    )
-    assert opts["step_id"] == "yaml_review"
-    saved = await hass.config_entries.options.async_configure(
-        opts["flow_id"], {"confirm": True}
-    )
-    assert saved["type"] == FlowResultType.CREATE_ENTRY
+    assert result["status"] == "accepted_unconfirmed"
     await hass.async_block_till_done()
-    assert entry.entry_id in [x.entry_id for x in hass.config_entries.async_entries(DOMAIN)]
-    assert entry.data["source"] == "ui"
     assert entry.options["configuration"]["controller"]["name"] == "Reviewed home"
     assert entry.options["configuration"]["chargers"][0]["control_owner"] == "external"
     assert entry.options["configuration"]["chargers"][0]["physical_commissioned"] is False
     assert devices.async_get_device_by_identifier(
-        (DOMAIN, "controller/home"), entry.entry_id
-    ).id == controller_before.id
+        (DOMAIN, "controller/home"), entry.entry_id,
+    ).id == before.id
     assert len(hass.config_entries.async_entries(DOMAIN)) == 1
-    assert entry.state.value == "loaded"
+
+    assert await send(
+        "apply", yaml_text=raw, mode="replace",
+        expected_revision=revision,
+        reviewed_revision=preview["reviewed_revision"],
+    ) is None
+    assert "STALE_SETTINGS_REFRESH" in conn.failure[1]
+
+    assert await send("preview",
+                      yaml_text="template:\n- sensor: []\ncontroller:\n  id: home\n",
+                      expected_revision=result["expected_revision"]) is None
+    assert conn.failure is not None
+    assert await hass.config_entries.async_unload(entry.entry_id)
 
 
 @pytest.mark.asyncio
