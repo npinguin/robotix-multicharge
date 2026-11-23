@@ -896,8 +896,12 @@ class RobotixMultiChargeCard extends HTMLElement {
         for(const [field,label] of [
           ["kind","Asset type"],["target_soc","Target"],["requested_kwh","Requested energy"],
           ["requested_duration_minutes","Duration"],["priority","Priority"],
+          ["max_charge_kw","Maximum vehicle charging power"],
+          ["capacity_kwh","Battery capacity"],
+          ["charge_efficiency","Charging efficiency"],
           ["ready_by","Ready By"],["expected_connection_at","Expected"],
-          ["ready_by_repeat","Repeat"]
+          ["ready_by_repeat","Repeat"],["expires_at","Guest expiry"],
+          ["name","Asset name"]
         ]){
           if(!this.canEditSettings()||!this.ownerEntity("asset",a.id,field))continue;
           const row=mcEl("div","row");
