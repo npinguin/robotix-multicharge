@@ -166,6 +166,45 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rejected["reason"], "PHYSICAL_CONNECTION_UNVERIFIED")
         self.assertEqual(len(services.calls), before)
 
+    async def test_current_plug_confirmation_survives_connected_substate_not_replug(self):
+        """Preparing -> Charging is the same observed plug; unplug is not."""
+        runtime, sources, services = rig()
+        charger = runtime.configuration["chargers"][0]
+        charger["connected_entity"] = "sensor.native_charger_state"
+        charger["connected_states"] = ["preparing", "charging"]
+        charger["disconnected_states"] = ["available"]
+        sources["sensor.native_charger_state"] = state("Preparing")
+        runtime.refresh()
+        record = runtime.executor.confirm_current_connection("evse")
+        self.assertEqual(record["status"], "confirmed")
+        first_epoch = record["connected_at"]
+        sources["sensor.native_charger_state"].state = "Charging"
+        sources["sensor.native_charger_state"].last_updated = datetime.now(timezone.utc)
+        sources["sensor.native_charger_state"].last_changed = datetime.now(timezone.utc)
+        runtime.refresh()
+        kept = runtime.executor.connection_confirmation(
+            charger, datetime.now(timezone.utc)
+        )
+        self.assertIsNotNone(kept)
+        self.assertEqual(kept["connected_at"], first_epoch)
+        self.assertEqual(services.calls, [])
+
+        sources["sensor.native_charger_state"].state = "Available"
+        sources["sensor.native_charger_state"].last_changed = datetime.now(timezone.utc)
+        sources["sensor.native_charger_state"].last_updated = datetime.now(timezone.utc)
+        runtime.refresh()
+        self.assertIsNone(runtime.executor.connection_confirmation(
+            charger, datetime.now(timezone.utc)
+        ))
+        sources["sensor.native_charger_state"].state = "Preparing"
+        sources["sensor.native_charger_state"].last_changed = datetime.now(timezone.utc)
+        sources["sensor.native_charger_state"].last_updated = datetime.now(timezone.utc)
+        runtime.refresh()
+        self.assertIsNone(runtime.executor.connection_confirmation(
+            charger, datetime.now(timezone.utc)
+        ), "A replug cannot inherit the previous vehicle identity")
+        self.assertEqual(services.calls, [])
+
     async def test_manual_force_start_is_durably_held_across_restart(self):
         rt, states, services = rig()
         class MemoryStore:
