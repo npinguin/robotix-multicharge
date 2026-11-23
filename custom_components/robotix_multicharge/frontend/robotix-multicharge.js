@@ -229,7 +229,16 @@ const MC_STYLE = [
   ".plan-swatch{width:12px;height:12px;border-radius:3px;display:inline-block;margin-right:4px}",
   ".plan-caution{font-size:12px;color:var(--secondary-text-color,#65717e);line-height:1.5}",
   "svg{width:100%;min-width:440px;height:220px}svg text{fill:var(--secondary-text-color,#65717e);font-size:11px}",
-  "@media(max-width:600px){.root{padding:12px}.grid{grid-template-columns:1fr}.tabs{display:flex;overflow-x:auto;flex-wrap:nowrap}.tabs button{font-size:12px;padding:9px 10px;white-space:nowrap;flex-shrink:0}.settings-grid{grid-template-columns:1fr}}"
+  "@media(max-width:600px){.root{padding:12px}.grid{grid-template-columns:1fr}.tabs{display:flex;overflow-x:auto;flex-wrap:nowrap}.tabs button{font-size:12px;padding:9px 10px;white-space:nowrap;flex-shrink:0}.settings-grid{grid-template-columns:1fr}}",
+  // Calm dense object-first D0/D1 cards; D3/D4 properties are native
+  // keyboard-accessible foldable rows, never a simultaneous 82-field form.
+  ".object-card{margin:9px 0;padding:14px 16px;border-radius:12px;box-shadow:0 1px 2px #00000009}.object-card>.row:first-child{padding-bottom:7px;border-bottom:1px solid var(--divider-color,#e5e7eb)}.object-card h3{font-size:15px;letter-spacing:-.01em}.object-card>.pair{padding:4px 0}.object-card .plan-key{margin:7px 0}",
+  ".object-card .controls{margin:10px 0 4px}.object-card .quick-goal{margin:10px 0;background:transparent}.object-card .details{margin-top:14px}.object-card>.small{color:var(--secondary-text-color,#667085)}",
+  ".owner-inventory{margin:16px 0 0;border-top:1px solid var(--divider-color,#d9dce2);padding:12px 0 0}.owner-inventory>h4{font-size:14px;margin:0 0 8px}.owner-group{margin:6px 0;padding:0;overflow:hidden;border-radius:9px;background:var(--card-background-color,#fff)}",
+  ".owner-group>summary{cursor:pointer;padding:11px 12px;font-size:13px;font-weight:600;display:list-item;list-style-position:inside;user-select:none}.owner-group>summary:hover{background:var(--secondary-background-color,#f6f8fa)}.owner-group[open]>summary{border-bottom:1px solid var(--divider-color,#e1e4e8)}.owner-summary-count{font-size:11px;font-weight:400;color:var(--secondary-text-color,#65717e);margin-left:7px}",
+  ".owner-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,285px),1fr));gap:0 16px;padding:3px 12px 8px}.owner-field{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;min-width:0;padding:7px 0;border-bottom:1px solid var(--divider-color,#e1e4e8)}.owner-field:last-child{border-bottom:0}.owner-field-info{flex:1;min-width:0;overflow-wrap:anywhere}.owner-field-label{font-size:11px;color:var(--secondary-text-color,#65717e);line-height:1.35}.owner-field-value{font-size:12px;font-weight:550;line-height:1.35;margin-top:3px;overflow-wrap:anywhere}.owner-field button{min-height:27px;padding:3px 8px;font-size:11px;border-radius:6px;white-space:nowrap;background:transparent}",
+  ".owner-inventory>.owner-configure{margin-top:10px;display:flex;flex-wrap:wrap;align-items:center;gap:8px}.owner-inventory>.owner-configure p{flex-basis:100%}.owner-inventory>button{margin:8px 0;min-height:34px}",
+  "@media(max-width:600px){.object-card{padding:11px}.owner-fields{grid-template-columns:1fr}.owner-group>summary{padding:12px 9px}.pair{grid-template-columns:minmax(0,42%) minmax(0,58%);gap:9px}}"
 ].join("");
 
 function mcEl(tag, css, text) {
@@ -833,6 +842,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._day="today";
     this._filter="";
     this._open="";
+    this._folds={}; // disclosure-only UI state; never configuration or charging truth
     this._settingsOpen="";
     this._data=null;
     this._error="";
@@ -1794,56 +1804,58 @@ class RobotixMultiChargeCard extends HTMLElement {
   // One visible resident-readable goal control, one authorized atomic
   // settings transaction. Unsubmitted drafts are local form state only.
   ownerFacts(container,scope,record){
-    // Qualified technical source of truth is the owning Config Entry.
-    // This is a read-only projection of its exact persisted values, never
-    // a second editable mirror or a source of inferred hardware status.
+    // Every accepted persisted field appears under the one owning Device.
+    // Details are compact by default and fold independently by stable ID.
     const groups=MC_OWNER_GROUPS[scope]||[];
     const wrapper=mcEl("section","owner-inventory");
     wrapper.append(mcEl("h4","",mcTr("Complete object settings & sources")));
     const covered=new Set();
-    for(const [title,fields] of groups){
-      const section=mcEl("div","owner-group");
-      section.append(mcEl("h4","",mcTr(title)));
-      for(const field of fields){
-        covered.add(field);
-        const label=MC_OWNER_NAMES[field]||field.replace(/_/g," ");
-        mcPair(section,mcTr(label),
-          mcOwnerReadValue(record[field],field,this._data?.timezone));
-        // Only existing native HA entities may edit ordinary properties.
-        // Hardware ownership, commissioning and stable IDs remain guarded.
-        const entity=this.ownerEntity(scope,record.id,field);
-        if(this.canEditSettings()&&entity&&field!=="id"&&
-           field!=="control_owner"&&field!=="physical_commissioned"){
-          section.append(mcButton(mcTr("Edit"),()=>
-            this.openNative(scope,record.id,field)));
-        }
+    const renderField=(parent,field)=>{
+      const label=MC_OWNER_NAMES[field]||field.replace(/_/g," ");
+      const line=mcEl("div","owner-field");
+      const info=mcEl("div","owner-field-info");
+      info.append(mcEl("div","owner-field-label",mcTr(label)),
+        mcEl("div","owner-field-value",
+          mcOwnerReadValue(record[field],field,this._data?.timezone)));
+      line.append(info);
+      const entity=this.ownerEntity(scope,record.id,field);
+      if(this.canEditSettings()&&entity&&field!=="id"&&
+         field!=="control_owner"&&field!=="physical_commissioned"){
+        const edit=mcButton(mcTr("Edit"),()=>
+          this.openNative(scope,record.id,field));
+        edit.setAttribute("aria-label",mcTr("Edit")+" "+mcTr(label)+" · "+record.name);
+        line.append(edit);
       }
-      if(this.canEditSettings()){
-        // All advanced properties, including complex source and electrical
-        // mappings, are edited through the same reviewed Config Entry JSON.
-        section.append(mcButton("Edit JSON",()=>this.openYamlEditor()));
-      }
+      parent.append(line);
+    };
+    const fold=(title,fields,key)=>{
+      const section=mcEl("details","owner-group");
+      section.setAttribute("data-owner-group",key);
+      section.open=this._folds[key]===true;
+      section.addEventListener("toggle",()=>{this._folds[key]=section.open;});
+      const summary=mcEl("summary","",mcTr(title));
+      const configured=fields.filter(field=>
+        record[field]!==undefined&&record[field]!==null&&record[field]!=="").length;
+      summary.append(mcEl("span","owner-summary-count",
+        configured+"/"+fields.length+" "+mcTr("configured fields")));
+      section.append(summary);
+      const fieldsNode=mcEl("div","owner-fields");
+      fields.forEach(field=>renderField(fieldsNode,field));
+      section.append(fieldsNode);
       wrapper.append(section);
+    };
+    for(const [title,fields] of groups){
+      fields.forEach(field=>covered.add(field));
+      fold(title,fields,scope+":"+record.id+":"+title);
     }
-    // Forward compatibility: never silently hide a new domain-owned
-    // configuration field added by HA/Options Flow in a future version.
+    // A newly supported source key may never disappear during a version
+    // upgrade just because the bundled frontend is older than the backend.
     const extra=Object.keys(record).filter(key=>!covered.has(key));
-    if(extra.length){
-      const rest=mcEl("div","owner-group");
-      rest.append(mcEl("h4","",mcTr("Additional owner settings")));
-      for(const field of extra){
-        mcPair(rest,mcTr(MC_OWNER_NAMES[field]||field.replace(/_/g," ")),
-          mcOwnerReadValue(record[field],field,this._data?.timezone));
-        if(this.canEditSettings())rest.append(
-          mcButton("Edit JSON",()=>this.openYamlEditor())
-        );
-      }
-      wrapper.append(rest);
-    }
-    const count=Object.keys(record).length;
+    if(extra.length)fold("Additional owner settings",extra,
+      scope+":"+record.id+":additional");
     wrapper.append(mcEl("p","muted small",
-      mcTr("Read from Home Assistant configuration")+" · "+count+" "+
-      mcTr("configured fields")+" · "+
+      mcTr("Read from Home Assistant configuration")+" · "+
+      Object.keys(record).length+" "+mcTr("configured fields")+" · "+
       mcTr("Missing values are not assumed")));
     if(scope==="charger"||scope==="controller"||scope==="asset"){
       const next=mcEl("div","owner-configure");
@@ -1853,7 +1865,11 @@ class RobotixMultiChargeCard extends HTMLElement {
           mcTr("Vehicle source mappings use the native Vehicle options"):
           mcTr("Site source configuration uses the native Controller/Energy options");
       next.append(mcEl("p","muted small",note));
-      if(this.canEditSettings())this.configure(next);
+      // One reviewed JSON transaction, not per-row independent write paths.
+      if(this.canEditSettings()){
+        next.append(mcButton("Edit JSON",()=>this.openYamlEditor()));
+        this.configure(next);
+      }
       wrapper.append(next);
     }
     container.append(wrapper);
@@ -1934,7 +1950,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         mcTr("Selected vehicle")+" · "+selected.name));
     }
     for(const a of arranged){
-      const card=mcEl("div","card");const charger=chargers.find(x=>x.asset===a.id);
+      const card=mcEl("div","card object-card");const charger=chargers.find(x=>x.asset===a.id);
       const obs=((d.observations||{}).assets||{})[a.id]||{};
       const header=mcEl("div","row");header.append(mcEl("h3","",a.name),mcButton(this._open===a.id?"Hide details":"Details",()=>{this._open=this._open===a.id?"":a.id;this.render();}));
       card.append(header);
@@ -2219,7 +2235,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     if(!chargers.length)this.notice(container,"No charging points",false);
     for(const c of chargers){
       const obs=observations[c.id]||{};
-      const card=mcEl("div","card");
+      const card=mcEl("div","card object-card");
       const head=mcEl("div","row");head.append(mcEl("h3","",c.name),mcButton(this._open===c.id?"Hide details":"Details",()=>{this._open=this._open===c.id?"":c.id;this.render();}));
       card.append(head);
       const chip=mcEl("div","plan-key"),dot=mcEl("span","plan-swatch");
