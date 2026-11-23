@@ -1159,3 +1159,75 @@ async def test_initial_bulk_yaml_rejects_templates_duplicate_keys_and_commission
     )
     assert not_confirmed["step_id"] == "expert_review"
     assert not hass.config_entries.async_entries(DOMAIN)
+
+
+@pytest.mark.asyncio
+async def test_native_state_events_invalidate_identity_on_fast_replug(hass: HomeAssistant):
+    """UC21/23/29: every HA event is processed before planner refresh coalescing."""
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+
+    hass.states.async_set("sensor.real_status", "Preparing")
+    hass.states.async_set("sensor.real_power", "0",
+                          {"unit_of_measurement": "W"})
+    config = validate_configuration({
+        "controller": {
+            "id": "site", "name": "Independent site", "mode": "Automatic",
+            "max_parallel": 1, "max_power_kw": 3.6,
+        },
+        "assets": [{
+            "id": "car", "name": "Registered car", "kind": "car",
+            "requested_kwh": 1.0,
+        }],
+        "chargers": [{
+            "id": "evse", "name": "Native EVSE", "kind": "on_off",
+            "rated_power_kw": 3.6, "control_owner": "external",
+            "physical_commissioned": False,
+            "asset": "car", "control_entity": "switch.real_control",
+            "connected_entity": "sensor.real_status",
+            "connected_states": ["preparing", "charging"],
+            "disconnected_states": ["available"],
+            "power_entity": "sensor.real_power",
+        }],
+    })
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Native event protection",
+        data={"source": "ui", "configuration": config},
+        unique_id=DOMAIN,
+    )
+    entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    charger = runtime.configuration["chargers"][0]
+
+    confirmed = runtime.executor.confirm_current_connection("evse")
+    assert confirmed["status"] == "confirmed"
+    assert runtime.executor.connection_confirmation(charger, datetime.now(timezone.utc))
+    original_epoch = confirmed["connected_at"]
+
+    # Mapped connected substate transition preserves the same physical plug,
+    # but does not bypass actual writer ownership or issue a command.
+    hass.states.async_set("sensor.real_status", "Charging")
+    await hass.async_block_till_done()
+    current = runtime.executor.connection_confirmation(charger, datetime.now(timezone.utc))
+    assert current is not None
+    assert current["connected_at"] == original_epoch
+
+    # Quick unplug -> new plug, with no intermediate planner refresh. HA
+    # state_changed events retain both transitions even when refresh coalesces.
+    hass.states.async_set("sensor.real_status", "Available")
+    hass.states.async_set("sensor.real_status", "Preparing")
+    await hass.async_block_till_done()
+    assert runtime.executor.connection_confirmation(
+        charger, datetime.now(timezone.utc)
+    ) is None, "Observed physical disconnect invalidates previous Asset"
+    runtime.refresh()
+    assert not runtime.assessment.plan.slots
+    assert runtime.executor.snapshot() == {} or all(
+        action.get("status") != "confirmed"
+        for action in runtime.executor.snapshot().values()
+    )
+    assert await hass.config_entries.async_unload(entry.entry_id)
