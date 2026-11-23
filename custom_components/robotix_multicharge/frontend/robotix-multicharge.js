@@ -431,6 +431,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._pendingSettings=null;
     this._assetEditor="";
     this._assignmentEditor="";
+    this._goalDrafts={};
+    this._scheduleEditor="";
     this._refreshTimer=null;
     this._refreshPending=false;
     this._pendingNative=null;
@@ -1329,6 +1331,68 @@ class RobotixMultiChargeCard extends HTMLElement {
       reasons.map(([k,val])=>k+" · "+mcReason(val)).slice(0,4).join("; ")));
     container.append(next);
   }
+  // One visible resident-readable goal control, one authorized atomic
+  // settings transaction. Unsubmitted drafts are local form state only.
+  assetGoalEditor(card,asset){
+    const kind=asset.requested_budget_amount!==undefined?"budget":
+      asset.requested_duration_minutes!==undefined?"duration":
+      asset.requested_kwh!==undefined?"energy":"soc";
+    const original=kind==="budget"?asset.requested_budget_amount:
+      kind==="duration"?asset.requested_duration_minutes:
+      kind==="energy"?asset.requested_kwh:asset.target_soc;
+    const stored=this._goalDrafts[asset.id];
+    const draft=stored||{mode:kind,value:original===undefined?"":String(original)};
+    if(!this.canEditSettings())return;
+    const form=mcEl("section","quick-goal");
+    form.append(mcEl("h4","",mcTr("Set charging goal")));
+    const controls=mcEl("div","goal-controls");
+    const goal=this.field(controls,mcTr("I want to charge to"),
+      draft.mode,null,[
+        ["soc",mcTr("Battery target (%)")],
+        ["energy",mcTr("Extra energy (kWh)")],
+        ["duration",mcTr("Charging time (minutes)")],
+        ["budget",mcTr("Charging budget (€)")]
+      ]);
+    const amount=this.field(controls,mcTr("Amount"),draft.value,"number");
+    amount.setAttribute("min",draft.mode==="soc"?"0":"0.01");
+    amount.setAttribute("step",draft.mode==="duration"?"1":"0.01");
+    goal.disabled=this._settingsBusy;
+    amount.disabled=this._settingsBusy;
+    goal.addEventListener("change",()=>{
+      this._goalDrafts[asset.id]={mode:goal.value,value:""};
+      this.render();
+    });
+    amount.addEventListener("input",()=>{
+      this._goalDrafts[asset.id]={mode:goal.value,value:amount.value};
+    });
+    const action=mcButton(mcTr("Save charging goal"),()=>{
+      const number=Number(amount.value);
+      if(!amount.value.trim()||!Number.isFinite(number)||
+          number<0||(goal.value!=="soc"&&number<=0)||
+          (goal.value==="soc"&&number>100)||
+          (goal.value==="duration"&&!Number.isInteger(number))||
+          (goal.value==="budget"&&number>10000)){
+        this._settingsFeedback={status:"rejected",message:"Invalid charging amount"};
+        this.render();return;
+      }
+      const changes={
+        requested_kwh:null,requested_duration_minutes:null,
+        requested_budget_amount:null,requested_budget_currency:null
+      };
+      if(goal.value==="soc")changes.target_soc=number;
+      if(goal.value==="energy")changes.requested_kwh=number;
+      if(goal.value==="duration")changes.requested_duration_minutes=number;
+      if(goal.value==="budget"){
+        changes.requested_budget_amount=number;
+        changes.requested_budget_currency="EUR";
+      }
+      delete this._goalDrafts[asset.id];
+      void this.saveSettings("asset",asset.id,changes,"save");
+    });
+    action.disabled=this._settingsBusy;
+    form.append(controls,action);
+    card.append(form);
+  }
   assets(container){
     const d=this._data,assets=d.configuration.assets||[],chargers=d.configuration.chargers||[];
     this.title(container,mcTr("Chargeable Assets")+" ("+assets.length+")");
@@ -1351,6 +1415,33 @@ class RobotixMultiChargeCard extends HTMLElement {
       mcPair(card,"Target",a.target_soc===undefined?"Not set":a.target_soc+"%");
       mcPair(card,"Ready By",mcTime(obs.next_ready_by!==undefined?obs.next_ready_by:a.ready_by,d.timezone));
       mcPair(card,"Charger",charger?charger.name:"Not assigned");
+      const goal=a.requested_budget_amount!==undefined?
+        a.requested_budget_amount+" EUR":
+        a.requested_duration_minutes!==undefined?
+          a.requested_duration_minutes+" min":
+        a.requested_kwh!==undefined?a.requested_kwh+" kWh":
+        a.target_soc!==undefined?a.target_soc+"%":mcTr("Not set");
+      mcPair(card,mcTr("Charging goal"),goal);
+      this.assetGoalEditor(card,a);
+      if(this.canEditSettings()){
+        const calendar=mcButton(
+          this._scheduleEditor===a.id?mcTr("Hide charging schedule"):
+            mcTr("Schedule charging"),()=>{
+            this._scheduleEditor=this._scheduleEditor===a.id?"":a.id;
+            this.render();
+          });
+        calendar.disabled=this._settingsBusy;
+        card.append(calendar);
+        if(this._scheduleEditor===a.id){
+          const schedule=mcEl("div","details schedule-editor");
+          schedule.append(mcEl("h4","",mcTr("When should the vehicle be ready?")));
+          if(this.ownerEntity("asset",a.id,"ready_by"))
+            schedule.append(mcButton(mcTr("Set one-time or daily Ready By"),()=>
+              this.openNative("asset",a.id,"ready_by")));
+          this.nativeRepeatEditor(schedule,a);
+          card.append(schedule);
+        }
+      }
       if(this.canEditSettings()&&chargers.length){
         const change=mcButton(
           mcTr(charger?"Change charger":"Assign charger"),()=>{
@@ -1453,7 +1544,7 @@ class RobotixMultiChargeCard extends HTMLElement {
           deadline.append(mcButton(mcTr("Set charging deadline"),()=>
             this.openNative("asset",a.id,"ready_by")));
         detail.append(deadline);
-        this.nativeRepeatEditor(detail,a);
+        if(this._scheduleEditor!==a.id)this.nativeRepeatEditor(detail,a);
         // Native upstream price/SoC policy remains Asset-owned and one
         // Config Entry preference; this view never stores price decisions.
         mcPair(detail,mcTr("Price currency"),
