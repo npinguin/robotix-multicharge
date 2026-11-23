@@ -96,7 +96,18 @@
           "max_parallel": "Aantal (optioneel)",
           "max_power_kw": "Vermogen (optioneel)",
           "phase_limits_a": "Fasen (optioneel)",
-          "mode": "Initiële laadmodus"
+          "mode": "Initiële laadmodus",
+          "solar_power_entity": "Actuele zonneproductie (W/kW)",
+          "home_power_entity": "Actueel verbruik volledige woning (W/kW)",
+          "grid_power_entity": "Actueel netvermogen import/export (W/kW)",
+          "solar_surplus_entity": "Gemeten beschikbaar zonne-overschot (W/kW)",
+          "solar_entity": "Gekwalificeerde zonintervallen (kW)",
+          "price_entity": "Gekwalificeerde toekomstige prijsintervallen",
+          "current_price_entity": "Huidige aankoopprijs (valuta/kWh)",
+          "export_price_entity": "Huidige injectievergoeding (valuta/kWh)",
+          "solar_source_kind": "Bron voor zonne-laadregeling",
+          "grid_power_direction": "Richting van de netmeter",
+          "use_energy_dashboard": "Gebruik bestaande bronnen uit het Energie-dashboard"
         }
       },
       "expert": {
@@ -134,7 +145,8 @@
           "charger": "Chargers",
           "display": "Dashboard card",
           "yaml": "YAML bewerken (eerst controleren)",
-          "commission": "Laadpaal in bedrijf stellen"
+          "commission": "Laadpaal in bedrijf stellen",
+          "energy": "Energie en tarieven"
         },
         "title": "Instellingen"
       },
@@ -223,6 +235,23 @@
           "commission": "Fysieke MultiCharge-aansturing inschakelen",
           "exclusive_writer_confirmed": "Andere controllers en automatiseringen sturen deze laadpaal niet meer aan",
           "electrical_limits_confirmed": "Elektrische limieten, werkelijk vermogen en onafhankelijke sensoren zijn gecontroleerd"
+        }
+      },
+      "energy": {
+        "title": "Energie en tarieven",
+        "description": "{note}",
+        "data": {
+          "solar_power_entity": "Actuele zonneproductie (W/kW)",
+          "home_power_entity": "Actueel verbruik volledige woning (W/kW)",
+          "grid_power_entity": "Actueel netvermogen import/export (W/kW)",
+          "solar_surplus_entity": "Gemeten beschikbaar zonne-overschot (W/kW)",
+          "solar_entity": "Gekwalificeerde zonintervallen (kW)",
+          "price_entity": "Gekwalificeerde toekomstige prijsintervallen",
+          "current_price_entity": "Huidige aankoopprijs (valuta/kWh)",
+          "export_price_entity": "Huidige injectievergoeding (valuta/kWh)",
+          "solar_source_kind": "Bron voor zonne-laadregeling",
+          "grid_power_direction": "Richting van de netmeter",
+          "use_energy_dashboard": "Gebruik bestaande bronnen uit het Energie-dashboard"
         }
       }
     },
