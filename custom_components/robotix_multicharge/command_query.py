@@ -174,6 +174,7 @@ async def websocket_update_settings(
         # entity IDs or internal exceptions. Physical authority is unchanged.
         code = {
             "charger_busy": "CHARGER_BUSY_STOP_FIRST",
+            "charger_occupied": "CHARGER_HAS_OTHER_ASSET",
             "stale_settings": "STALE_SETTINGS_REFRESH",
         }.get(str(exc), "SETTINGS_REJECTED")
         runtime.record_settings_action(
