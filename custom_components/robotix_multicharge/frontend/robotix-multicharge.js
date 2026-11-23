@@ -911,6 +911,9 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._refreshTimer=null;
     this._refreshPending=false;
     this._pendingNative=null;
+    this._inlineEditor=null; // ephemeral, never a second settings authority
+    this._jsonEditor=null; // unsaved draft + returned server preview only
+    this._commissionEditor=null;
   }
   canManage(){return this._hass?.user?.is_admin===true;}
   canEditSettings(){return this.canManage()&&!this._data?.configuration_managed_by_yaml;}
@@ -1281,10 +1284,13 @@ class RobotixMultiChargeCard extends HTMLElement {
   }
   openNative(scope,uid,field){
     const entity=this.ownerEntity(scope,uid,field);
-    if(!this.canEditSettings()||!entity){this._settingsFeedback={status:"rejected",message:"Unavailable"};this.render();return;}
-    this.dispatchEvent(new CustomEvent("hass-more-info",{
-      bubbles:true,composed:true,detail:{entityId:entity}
-    }));
+    if(!this.canEditSettings()||!entity){
+      this._settingsFeedback={status:"rejected",message:"Unavailable"};
+      this.render();return;
+    }
+    this._inlineEditor={scope,uid,field,entity};
+    this._jsonEditor=null;this._commissionEditor=null;
+    this.render();
   }
   ownerColorControl(container,scope,row){
     const palette=this._data?.plan_palette||{};
@@ -1331,8 +1337,9 @@ class RobotixMultiChargeCard extends HTMLElement {
     container.append(mcEl("div","notice"+(bad?" error":""),message));
   }
   configure(container){
-    if(!this.canManage())return;
-    const link=mcEl("a","action",mcTr("Configure in Home Assistant"));
+    // First installation only; configured runtime never navigates out for edits.
+    if(!this.canManage()||this._data)return;
+    const link=mcEl("a","action",mcTr("Install MultiCharge once in Home Assistant"));
     link.href="/config/integrations/integration/robotix_multicharge";
     link.setAttribute("aria-label",mcTr("Home Assistant"));
     container.append(link);
@@ -1363,6 +1370,9 @@ class RobotixMultiChargeCard extends HTMLElement {
       tabs.append(btn);
     }
     shell.append(tabs);
+    if(this.canEditSettings()&&this._inlineEditor)this.inlineEditor(shell);
+    if(this.canEditSettings()&&this._commissionEditor)this.commissionEditor(shell);
+    if(this.canEditSettings()&&this._jsonEditor)this.jsonEditor(shell);
     if(this._loading&&!this._data)this.notice(shell,"Loading",false);
     if(this._error){
       this.notice(shell,"Unavailable",true);
@@ -1779,14 +1789,11 @@ class RobotixMultiChargeCard extends HTMLElement {
       mcTr("Missing values are not assumed")));
     if(scope==="charger"||scope==="controller"||scope==="asset"){
       const next=mcEl("div","owner-configure");
-      const note=scope==="charger"?
-        mcTr("Hardware source bindings and commissioning use the native Charger options"):
-        scope==="asset"?
-          mcTr("Vehicle source mappings use the native Vehicle options"):
-          mcTr("Site source configuration uses the native Controller/Energy options");
-      next.append(mcEl("p","muted small",note));
-      // One runtime Config Entry; native HA device/entity and Options paths.
-      if(this.canEditSettings())this.configure(next);
+      next.append(mcEl("p","muted small",
+        mcTr("All configuration is edited in this dashboard and saved to one Home Assistant Config Entry")));
+      if(this.canEditSettings())next.append(mcButton(
+        mcTr("Edit JSON"),()=>this.openJsonEditor(scope,record.id)
+      ));
       wrapper.append(next);
     }
     container.append(wrapper);
@@ -2365,13 +2372,12 @@ class RobotixMultiChargeCard extends HTMLElement {
     this.title(container,"Settings");
     if(d.configuration_managed_by_yaml)mcPair(
       container,"Configuration",
-      d.configuration_managed_by_json?
-        "JSON · read-only; edit your MultiCharge JSON and restart":
-        "YAML · read-only; edit Home Assistant YAML and restart"
+      "Legacy file-owned configuration is read-only; migrate once to GUI ownership"
     );
-
     const toolbar=mcEl("div","settings-toolbar");
-    this.configure(toolbar);
+    if(this.canEditSettings())toolbar.append(mcButton(
+      mcTr("Edit JSON"),()=>this.openJsonEditor()
+    ));
     container.append(toolbar);
     this.feedback(container);
     const settingsGrid=mcEl("div","settings-grid");
@@ -2389,7 +2395,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         title==="Charging strategy"?ctl.mode||"Off":
         title==="Safety & limits"?(ctl.max_power_kw===undefined?"No capacity":ctl.max_power_kw+" kW")+" · "+(ctl.max_parallel||1)+" parallel":
         title==="Integrations"?(c.chargers||[]).length+" chargers":
-        d.configuration_managed_by_yaml?"Legacy file source · read-only":"Native HA runtime configuration";
+        d.configuration_managed_by_yaml?"Legacy file source · read-only":"One dashboard-owned configuration";
       heading.append(mcEl("p","muted small",summary));
       const row=mcEl("div","row");
       row.append(heading,mcButton(open?"Close":"Details",()=>{
@@ -2508,8 +2514,10 @@ class RobotixMultiChargeCard extends HTMLElement {
           mcPair(detail,"Electrical limits",
             phases.length?phases.map(([id,amps])=>id+": "+amps+" A").join(" · "):mcTr("Not set"));
           detail.append(mcEl("p","muted small",
-            mcTr("Phase and wiring settings are changed through the native Controller options after physical verification")));
-          if(this.canEditSettings())this.configure(detail);
+            mcTr("Edit JSON in Settings to change phase and wiring parameters after physical verification")));
+          if(this.canEditSettings())detail.append(mcButton(
+            mcTr("Edit JSON"),()=>this.openJsonEditor()
+          ));
         }
         group.append(detail);
       }
