@@ -96,7 +96,10 @@ class PackageTest(unittest.TestCase):
         self.assertIn('"robotix_multicharge/get_plan"', read)
         self.assertNotIn("@websocket_api.require_admin", read)
         self.assertIn('@websocket_api.websocket_command({', read)
-        self.assertEqual(writes.count("@websocket_api.require_admin"), 2)
+        self.assertEqual(writes.count("@websocket_api.require_admin"), 3)
+        self.assertNotIn("websocket_dashboard_yaml_configuration", writes)
+        self.assertNotIn('"robotix_multicharge/yaml_configuration"', writes)
+
 
     def test_local_robotix_brand_is_packaged_as_real_pngs(self):
         """HA 2026.3+ and Marketplace use native local integration branding."""
