@@ -373,6 +373,65 @@ async def test_every_logical_device_auto_creates_own_native_inputs(hass: HomeAss
 
 
 @pytest.mark.asyncio
+async def test_new_asset_from_dashboard_gets_its_own_native_inputs(
+    hass: HomeAssistant,
+):
+    """Creating a car in the Community dashboard provisions its HA entities.
+
+    Only the MultiCharge Config Entry is updated. The user never creates
+    input_number, input_datetime or input_select helpers.
+    """
+    from homeassistant.helpers import entity_registry as er
+    from custom_components.robotix_multicharge.command_query import (
+        apply_native_preference,
+    )
+
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    cfg = validate_configuration({
+        "controller": {"id": "home", "name": "Home",
+                       "mode": "Automatic", "max_parallel": 1},
+        "assets": [], "chargers": [],
+    })
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="MultiCharge Community",
+        data={"source": "ui", "configuration": cfg},
+        unique_id=DOMAIN,
+    )
+    entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    await apply_native_preference(
+        hass, entry, runtime, "asset", "fresh_car",
+        {"name": "Fresh car", "kind": "car"}, action="create",
+    )
+    await hass.async_block_till_done()
+    current = entry.options["configuration"]
+    assert current["assets"][0]["target_soc"] == 80
+    registry = er.async_get(hass)
+    for platform, field in (
+        ("number", "target_soc"),
+        ("number", "requested_duration_minutes"),
+        ("select", "ready_by_repeat"),
+        ("datetime", "ready_by"),
+        ("text", "name"),
+    ):
+        entity_id = registry.async_get_entity_id(
+            platform, DOMAIN, f"{DOMAIN}:asset:fresh_car:{field}"
+        )
+        assert entity_id is not None, (platform, field)
+        device = dr.async_get(hass).async_get_device_by_identifier(
+            (DOMAIN, "asset/fresh_car"), entry.entry_id,
+        )
+        assert device is not None
+        assert registry.async_get(entity_id).device_id == device.id
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
 async def test_options_flow_is_device_setup_not_daily_charge_operations(
     hass: HomeAssistant,
 ):
