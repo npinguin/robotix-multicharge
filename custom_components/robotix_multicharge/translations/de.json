@@ -96,7 +96,18 @@
           "max_parallel": "Gleichzeitige Ladepunkte (optional)",
           "max_power_kw": "Maximale Ladeleistung (kW) (optional)",
           "phase_limits_a": "Phasengrenzen (A) (optional)",
-          "mode": "Anfänglicher Lademodus"
+          "mode": "Anfänglicher Lademodus",
+          "solar_power_entity": "Aktuelle Solarleistung (W/kW)",
+          "home_power_entity": "Gesamter Hausverbrauch (W/kW)",
+          "grid_power_entity": "Netzleistung Bezug/Einspeisung (W/kW)",
+          "solar_surplus_entity": "Gemessener Solarüberschuss (W/kW)",
+          "solar_entity": "Qualifizierte Solarintervalle (kW)",
+          "price_entity": "Qualifizierte zukünftige Preisintervalle",
+          "current_price_entity": "Aktueller Bezugspreis (Währung/kWh)",
+          "export_price_entity": "Aktuelle Einspeisevergütung (Währung/kWh)",
+          "solar_source_kind": "Quelle für Solarsteuerung",
+          "grid_power_direction": "Vorzeichen des Netzzählers",
+          "use_energy_dashboard": "Quellen aus dem Energie-Dashboard übernehmen"
         }
       },
       "expert": {
@@ -134,7 +145,8 @@
           "charger": "Ladepunkt",
           "display": "Dashboardkarte",
           "yaml": "YAML bearbeiten (vor dem Speichern prüfen)",
-          "commission": "Ladepunkt in Betrieb nehmen"
+          "commission": "Ladepunkt in Betrieb nehmen",
+          "energy": "Energie und Preise"
         }
       },
       "controller": {
@@ -222,6 +234,23 @@
           "commission": "MultiCharge-Steuerung aktivieren",
           "exclusive_writer_confirmed": "Andere Steuerungen und Automationen greifen nicht mehr auf diesen Ladepunkt zu",
           "electrical_limits_confirmed": "Elektrische Grenzen, Leistung und unabhängige Rückmeldung geprüft"
+        }
+      },
+      "energy": {
+        "title": "Energie und Preise",
+        "description": "{note}",
+        "data": {
+          "solar_power_entity": "Aktuelle Solarleistung (W/kW)",
+          "home_power_entity": "Gesamter Hausverbrauch (W/kW)",
+          "grid_power_entity": "Netzleistung Bezug/Einspeisung (W/kW)",
+          "solar_surplus_entity": "Gemessener Solarüberschuss (W/kW)",
+          "solar_entity": "Qualifizierte Solarintervalle (kW)",
+          "price_entity": "Qualifizierte zukünftige Preisintervalle",
+          "current_price_entity": "Aktueller Bezugspreis (Währung/kWh)",
+          "export_price_entity": "Aktuelle Einspeisevergütung (Währung/kWh)",
+          "solar_source_kind": "Quelle für Solarsteuerung",
+          "grid_power_direction": "Vorzeichen des Netzzählers",
+          "use_energy_dashboard": "Quellen aus dem Energie-Dashboard übernehmen"
         }
       }
     },
