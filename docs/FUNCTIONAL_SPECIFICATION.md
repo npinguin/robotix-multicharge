@@ -132,6 +132,25 @@ Een verse HA-installatie biedt **Guided setup** of **Configure entire charging s
 **Negatief / fail-closed:** Unknown SoC with no finite alternative, invalid DST deadline or missing capacity ⇒ no invented feasibility.  
 **Bewijs:** Plan, timestamped inputs, readback and shortfall reason.
 
+### UC06-SCHEDULE — Specifieke weekdagen en lokale laadtijden (2026-11-23 owner clarification)
+**Productkeuze:** In de dagelijkse MultiCharge-UX vervalt de beperkte optie **Weekly** (= één vaste weekdag afgeleid uit één datum). De zichtbare opties zijn **Eenmalig / Once**, **Dagelijks / Daily** en **Specifieke dagen / Specific days**. Bij Specifieke dagen kiest de gebruiker meerdere weekdagen (maandag t/m zondag) en **per geselecteerde dag een eigen lokaal tijdstip**; niet-geselecteerde dagen hebben geen terugkerend Ready By-doel. Bijvoorbeeld ma 06:45, wo 08:30, vr 17:15. De Vehicle/ChargeableAsset blijft de enige eigenaar van Ready By; de Controller leidt de volgende deadline af en plant in UTC. Bestaande eerder opgeslagen `weekly`-instellingen worden bij migratie naar één expliciet geselecteerde weekdag plus bestaand lokaal tijdstip vertaald; bestaande unieke HA IDs, opgeslagen instellingen en historie blijven behouden. Nieuwe gebruikers krijgen de oude Weekly-optie niet meer aangeboden. **Dit is toegezegde scope, geen huidige code-PASS.**
+
+**Twee afzonderlijke tijdsbetekenissen, geen vermenging:**
+- **Ready By** = wanneer het voertuig geladen moet zijn. Dit is een doel/deadline, **geen verbod** om op andere dagen of uren te laden.
+- **Toegestane laadmomenten / Charging windows** = optionele, expliciet gekozen **weekdagen en lokale start-/eindtijden waarop laden werkelijk toegestaan is**. Zonder vensters geldt geen extra kalenderbeperking. Een venster over middernacht (bv. ma 22:00–di 06:00) hoort bij de gekozen startdag; de laatste eindgrens blijft bindend. Kalenderbeperkingen gelden voor alle gewone Automatic/Solar/Economy/Ready By-plans én voor daadwerkelijke command-admission; een bestaande actieve sessie wordt bij het einde van het venster gecontroleerd verminderd of fysiek gestopt. Manual Force Charge mag een bewuste venster-override alleen gebruiken als de UX die expliciet bevestigt en het fysieke veiligheids-/eigendomscontract onverkort blijft gelden. Nooit heimelijk twee schedulers/HA-automations voor kalender en planner.
+
+**Resident-UX:** In het bestaande **Chargeable Assets**-scherm staan compact `Wanneer moet het klaar zijn?` (Eenmalig / Dagelijks / Specifieke dagen), weekdagchips en per geselecteerde dag een gewone HH:MM-tijdkeuze. `Wanneer mag geladen worden?` is een aparte optionele vensterkeuze (weekdag + van/tot). De bestaande native Asset-eigendom en één gevalideerde Config Entry blijven de opslagautoriteit. De **Charging Plan**-weergave laat duidelijk zien wanneer een laadslot buiten het venster valt, of de deadline daardoor onhaalbaar is; geen technisch ISO-invoerveld voor normale bewoners.
+
+**Acceptatie en regressie:**
+1. `SCHEDULE-01` Kies ma 06:45, wo 08:30 en vr 17:15; de afgeleide eerstvolgende Ready By wisselt correct en dagen zonder keuze hebben geen deadline.
+2. `SCHEDULE-02` Kies enkel ma-vr 22:00–06:00 als venster; gedurende daglicht en heel het weekend zijn er nul geaccepteerde of uitgevoerde vensteroverschrijdende laadslots. Een lopende sessie stopt aan de grens met onafhankelijke fysieke readback.
+3. `SCHEDULE-03` Kruis over middernacht, weekgrens en Europe/Brussels DST 23/25-uursdag met echte UTC-kwartieren; onbestaand/dubbel lokaal uur wordt volgens expliciete bronlogica opgelost of fail-closed getoond, nooit stil verschoven.
+4. `SCHEDULE-04` Migratie van een opgeslagen legacy `weekly` herstelt exact de oorspronkelijke weekdag+tijd als `specific_days`; `ready_by`/reguliere `daily`/eenmalige records en oorspronkelijke device/entity IDs blijven behouden.
+5. `SCHEDULE-05` Ongeldige tijden, lege selectie, onmogelijke deadline binnen het venster, herstart/reload, mislukte STOP en ongeldige permissie geven zichtbare status en geen onveilige fysieke write. Forecastrijen mogen nooit executable slots worden.
+6. `SCHEDULE-06` Echte HA-UX op 390/1024/1600, resident/admin, licht/donker en relevante talen toont de gekozen weekdagen/tijden en de resulterende planreden zonder technische waarden of dubbele eigenaar.
+
+**Herbruikbaar referentiebewijs (geen directe runtime-dependency):** De private historische EVSC V2-fork heeft `custom_components/ev_smart_charging/v2/ready_schedule.py` met Once/Daily/7-weekdag-tijdmapping en `tests/v2/test_ready_schedule.py`; migreer de bewezen semantiek minimaal naar de ene MultiCharge-planner, niet de oude fork-architectuur. De huidige MultiCharge-`resolve_recurring_ready_by(..., "weekly")` kan slechts één ankerweekdag; `ready_by_repeat` biedt `none/daily/weekly` en ondersteunt deze gevraagde UX dus nog **niet**.
+
 ### UC07 — Economy charging with valid tariff inputs
 **Persona / eigenaar:** Resident / MultiCharge  
 **GIVEN — beginsituatie:** Bounded future intervals with explicit currency, unit, basis and freshness.  
