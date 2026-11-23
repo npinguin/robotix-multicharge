@@ -548,9 +548,15 @@ class ConfigurationTests(unittest.TestCase):
              "rated_power_kw": 3.5},
         ]
         before = validate_configuration(config)
-        # A destination occupied by B must never silently discard B.
-        with self.assertRaisesRegex(ValueError, "charger_occupied"):
-            apply_settings_change(before, "charger", "c2", {"asset": "a"})
+        # A one-step native Quick Action can replace B with A on the same
+        # Charger without first selecting None. This pure edit is not
+        # physical permission: apply_native_preference rejects any active or
+        # unobserved target/old charger before persisting (HA integration test).
+        replaced = apply_settings_change(before, "charger", "c2", {"asset": "a"})
+        self.assertNotIn("asset", replaced["chargers"][0])
+        self.assertEqual(replaced["chargers"][1]["asset"], "a")
+        self.assertFalse(any(x.get("asset") == "b" for x in replaced["chargers"]))
+        self.assertTrue(is_in_place_runtime_preference_change(before, replaced))
         after = apply_settings_change(before, "charger", "c3", {"asset": "a"})
         self.assertTrue(is_in_place_runtime_preference_change(before, after))
         self.assertNotIn("asset", after["chargers"][0])
