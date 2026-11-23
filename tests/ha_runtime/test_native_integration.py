@@ -1320,21 +1320,51 @@ async def test_new_install_dashboard_yaml_configures_four_chargers_four_assets(
 
 
 @pytest.mark.asyncio
-async def test_initial_bulk_yaml_rejects_templates_duplicate_keys_and_commissioning(
+async def test_dashboard_yaml_rejects_templates_duplicate_keys_and_commissioning(
     hass: HomeAssistant,
 ):
-    """UC01/02 negative paths: no hidden provider creation or physical writer."""
+    """No invalid YAML or ownership transfer can persist via dashboard preview."""
+    from types import SimpleNamespace
+    from custom_components.robotix_multicharge.command_query import (
+        websocket_dashboard_yaml_configuration,
+    )
+
     source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
     installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
     if not installed.exists():
         shutil.copytree(source, installed)
     assert await async_setup_component(hass, DOMAIN, {})
-    start = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    created = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER},
     )
-    editor = await hass.config_entries.flow.async_configure(
-        start["flow_id"], {"next_step_id": "expert"}
-    )
+    assert created["type"] == FlowResultType.CREATE_ENTRY
+    entry = created["result"]
+    await hass.async_block_till_done()
+
+    class AdminConnection:
+        user = SimpleNamespace(is_admin=True)
+        result = None
+        failure = None
+
+        def send_result(self, _id, result):
+            self.result = result
+            self.failure = None
+
+        def send_error(self, _id, code, message):
+            self.result = None
+            self.failure = (code, message)
+
+    conn = AdminConnection()
+
+    async def send(action, **values):
+        await websocket_dashboard_yaml_configuration(hass, conn, {
+            "id": 9, "type": "robotix_multicharge/yaml_configuration",
+            "action": action, **values,
+        })
+        return conn.result
+
+    loaded = await send("read")
+    revision = loaded["configuration_revision"]
     documents = (
         "controller:\n  id: home\n  id: another\n",
         "template:\n- sensor: []\ncontroller:\n  id: home\n",
@@ -1344,24 +1374,23 @@ async def test_initial_bulk_yaml_rejects_templates_duplicate_keys_and_commission
         "  control_owner: multicharge\n  physical_commissioned: true\n",
     )
     for doc in documents:
-        editor = await hass.config_entries.flow.async_configure(
-            editor["flow_id"], {"yaml_text": doc}
-        )
-        assert editor["step_id"] == "expert"
-        assert editor["errors"]["base"] == "invalid_config"
-        assert not hass.config_entries.async_entries(DOMAIN)
-    # Full empty-site source is valid and cannot accidentally start charging.
+        assert await send("preview", mode="replace", yaml_text=doc,
+                          expected_revision=revision) is None
+        assert conn.failure is not None
+        assert entry.options.get("configuration") is None
+
     good = ("controller:\n  id: home\n  name: Empty site\n"
-            "  mode: 'Off'\n  max_parallel: 1\n")
-    preview = await hass.config_entries.flow.async_configure(
-        editor["flow_id"], {"yaml_text": good}
-    )
-    assert preview["step_id"] == "expert_review"
-    not_confirmed = await hass.config_entries.flow.async_configure(
-        preview["flow_id"], {"confirm": False}
-    )
-    assert not_confirmed["step_id"] == "expert_review"
-    assert not hass.config_entries.async_entries(DOMAIN)
+            "  mode: 'Off'\n  max_parallel: 1\n"
+            "assets: []\nchargers: []\n")
+    preview = await send("preview", mode="replace", yaml_text=good,
+                         expected_revision=revision)
+    assert preview["status"] == "preview"
+    assert entry.options.get("configuration") is None
+    assert await send("apply", mode="replace", yaml_text=good,
+                      expected_revision=revision) is None
+    assert "REVIEW_REQUIRED" in conn.failure[1]
+    assert entry.options.get("configuration") is None
+    assert await hass.config_entries.async_unload(entry.entry_id)
 
 
 @pytest.mark.asyncio
