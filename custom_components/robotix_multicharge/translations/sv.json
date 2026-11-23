@@ -115,7 +115,7 @@
         "title": "Fullständig konfiguration",
         "description": "Kontrollera laddare, fordon och källor före sparande. Inga fysiska kommandon. {note}",
         "data": {
-          "yaml_text": "Komplett MultiCharge YAML (controller/assets/chargers)"
+          "yaml_text": "Komplett MultiCharge JSON (controller/assets/chargers)"
         }
       },
       "expert_review": {
@@ -123,7 +123,7 @@
         "description": "{summary} Bekräfta efter kontroll av alla inställningar.",
         "data": {
           "confirm": "Jag har granskat hela konfigurationen",
-          "edit_again": "Tillbaka till YAML"
+          "edit_again": "Tillbaka till JSON"
         }
       }
     },
@@ -145,7 +145,7 @@
           "asset": "Chargeable assets",
           "charger": "Chargers",
           "display": "Dashboard card",
-          "yaml": "Edit YAML (review before save)",
+          "yaml": "Edit JSON (review before save)",
           "commission": "Driftsätt laddare",
           "energy": "Energi och priser"
         },
@@ -214,19 +214,19 @@
         }
       },
       "yaml": {
-        "title": "MultiCharge — YAML configuration",
+        "title": "MultiCharge — JSON configuration",
         "description": "Edit all current settings or submit scoped changes. All changes are validated before review; no physical controls are activated. {note}",
         "data": {
           "mode": "Update mode",
-          "yaml_text": "MultiCharge configuration (YAML / JSON data)"
+          "yaml_text": "MultiCharge configuration (JSON data)"
         }
       },
       "yaml_review": {
-        "title": "Review YAML changes",
+        "title": "Review JSON changes",
         "description": "{summary}\nConfirm only after checking the complete impact. No charger command is sent by this operation.",
         "data": {
           "confirm": "Apply these reviewed configuration changes",
-          "edit_again": "Return to YAML editing"
+          "edit_again": "Return to JSON editing"
         }
       },
       "commission": {
