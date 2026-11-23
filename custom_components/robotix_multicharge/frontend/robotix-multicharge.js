@@ -1145,7 +1145,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         const input=mcEl("input");input.setAttribute("type","checkbox");
         input.checked=(prior||[]).includes(key);
         const label=mcEl("label","dashboard-check",key);
-        label.prepend(input);container.append(label);checked[key]=input;
+        label.append(input);container.append(label);checked[key]=input;
       }
       return ()=>{
         const values=Object.keys(checked).filter(key=>checked[key].checked);
