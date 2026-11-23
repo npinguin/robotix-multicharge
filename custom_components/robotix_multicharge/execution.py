@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from .source_evidence import binding, connection, number, soc_with_health
-from .planner import resolve_recurring_ready_by
+from .planner import resolve_recurring_ready_by, charging_window_allows
 
 _LOGGER = logging.getLogger(__name__)
 START_POWER_KW = 0.10
@@ -588,13 +588,21 @@ class NativeSwitchExecutor:
         cable = self._connection(charger, at)
         if cable.quality != "ok" or cable.value is not True:
             return "PHYSICAL_CONNECTION_UNVERIFIED"
+        if asset is not None and asset.get("charging_windows"):
+            if not charging_window_allows(
+                asset["charging_windows"], at, timedelta(seconds=1),
+                self.runtime.hass.config.time_zone,
+                asset.get("ready_by_weekdays"),
+            ):
+                return "CHARGING_WINDOW_CLOSED"
         if manual_request is None and (amount is not None or duration is not None):
             raw_due = asset.get("ready_by")
             due = datetime.fromisoformat(raw_due) if raw_due else None
-            if due is not None and asset.get("ready_by_repeat", "none") != "none":
+            if asset.get("ready_by_repeat", "none") != "none" and (due is not None or asset.get("ready_by_repeat") == "specific_days"):
                 due, error = resolve_recurring_ready_by(
                     due, at, asset["ready_by_repeat"],
                     self.runtime.hass.config.time_zone,
+                    asset.get("ready_by_weekdays"),
                 )
                 if due is None:
                     return error
@@ -640,19 +648,22 @@ class NativeSwitchExecutor:
                 return "ASSET_SOC_UNAVAILABLE"
             if soc.value >= asset["target_soc"]:
                 return "TARGET_ALREADY_MET"
-        if asset is not None and asset.get("ready_by"):
+        if asset is not None and (
+                asset.get("ready_by")
+                or asset.get("ready_by_repeat") == "specific_days"):
             try:
-                due = datetime.fromisoformat(
+                due = (datetime.fromisoformat(
                     asset["ready_by"].replace("Z", "+00:00")
-                )
+                ) if asset.get("ready_by") else None)
                 repeat = asset.get("ready_by_repeat", "none")
                 if repeat != "none":
                     due, reason = resolve_recurring_ready_by(
-                        due, at, repeat, self.runtime.hass.config.time_zone
+                        due, at, repeat, self.runtime.hass.config.time_zone,
+                        asset.get("ready_by_weekdays"),
                     )
                     if due is None:
                         return reason
-                if due.tzinfo is None or due.utcoffset() is None or at >= due:
+                if due is None or due.tzinfo is None or due.utcoffset() is None or at >= due:
                     return "READY_BY_EXPIRED"
             except ValueError:
                 return "READY_BY_INVALID"
@@ -915,6 +926,12 @@ class NativeSwitchExecutor:
             if (asset.get("temporary")
                     and datetime.fromisoformat(asset["expires_at"]) <= now):
                 return "TEMPORARY_ASSET_EXPIRED"
+            if asset.get("charging_windows") and not charging_window_allows(
+                asset["charging_windows"], now, timedelta(seconds=1),
+                self.runtime.hass.config.time_zone,
+                asset.get("ready_by_weekdays"),
+            ):
+                return "CHARGING_WINDOW_CLOSED"
         if now >= session["hard_stop_at"]:
             return "SESSION_SAFETY_DEADLINE_REACHED"
         if session["requested_duration_minutes"] is not None:
@@ -965,10 +982,11 @@ class NativeSwitchExecutor:
         if asset is not None:
             raw_due = asset.get("ready_by")
             due = datetime.fromisoformat(raw_due) if raw_due else None
-            if due is not None and asset.get("ready_by_repeat", "none") != "none":
+            if asset.get("ready_by_repeat", "none") != "none" and (due is not None or asset.get("ready_by_repeat") == "specific_days"):
                 due, error = resolve_recurring_ready_by(
                     due, now, asset["ready_by_repeat"],
                     self.runtime.hass.config.time_zone,
+                    asset.get("ready_by_weekdays"),
                 )
                 if due is None:
                     return error
@@ -1003,14 +1021,17 @@ class NativeSwitchExecutor:
         end = now + timedelta(hours=24)
         if duration is not None:
             end = min(end, now + timedelta(minutes=duration))
-        if asset is not None and asset.get("ready_by"):
-            due = datetime.fromisoformat(
+        if asset is not None and (
+                asset.get("ready_by")
+                or asset.get("ready_by_repeat") == "specific_days"):
+            due = (datetime.fromisoformat(
                 asset["ready_by"].replace("Z", "+00:00")
-            ).astimezone(timezone.utc)
+            ).astimezone(timezone.utc) if asset.get("ready_by") else None)
             if asset.get("ready_by_repeat", "none") != "none":
                 due, _ = resolve_recurring_ready_by(
                     due, now, asset["ready_by_repeat"],
-                    self.runtime.hass.config.time_zone
+                    self.runtime.hass.config.time_zone,
+                    asset.get("ready_by_weekdays"),
                 )
             if due is None:
                 return "READY_BY_UNAVAILABLE"
@@ -1110,10 +1131,11 @@ class NativeSwitchExecutor:
                 deadline = datetime.fromisoformat(asset["ready_by"]) if (
                     asset.get("ready_by")
                 ) else None
-                if deadline is not None and asset.get("ready_by_repeat", "none") != "none":
+                if asset.get("ready_by_repeat", "none") != "none" and (deadline is not None or asset.get("ready_by_repeat") == "specific_days"):
                     deadline, reason = resolve_recurring_ready_by(
                         deadline, quarter_start, asset["ready_by_repeat"],
                         self.runtime.hass.config.time_zone,
+                        asset.get("ready_by_weekdays"),
                     )
                     if deadline is None:
                         continue
@@ -1260,10 +1282,11 @@ class NativeSwitchExecutor:
                             occurrence = datetime.fromisoformat(
                                 asset["ready_by"]
                             ) if asset.get("ready_by") else None
-                            if occurrence and asset.get("ready_by_repeat", "none") != "none":
+                            if asset.get("ready_by_repeat", "none") != "none" and (occurrence is not None or asset.get("ready_by_repeat") == "specific_days"):
                                 occurrence, _ = resolve_recurring_ready_by(
                                     occurrence, at, asset["ready_by_repeat"],
                                     self.runtime.hass.config.time_zone,
+                                    asset.get("ready_by_weekdays"),
                                 )
                             if asset.get("requested_kwh") is not None or (
                                 asset.get("requested_duration_minutes") is not None
@@ -1491,12 +1514,11 @@ class NativeSwitchExecutor:
                         due = datetime.fromisoformat(asset["ready_by"]) if (
                             asset.get("ready_by")
                         ) else None
-                        if due is not None and asset.get(
-                            "ready_by_repeat", "none"
-                        ) != "none":
+                        if asset.get("ready_by_repeat", "none") != "none" and (due is not None or asset.get("ready_by_repeat") == "specific_days"):
                             due, issue = resolve_recurring_ready_by(
                                 due, at, asset["ready_by_repeat"],
                                 self.runtime.hass.config.time_zone,
+                                asset.get("ready_by_weekdays"),
                             )
                             if due is None:
                                 return result("rejected", issue)
