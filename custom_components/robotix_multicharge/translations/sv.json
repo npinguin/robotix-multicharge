@@ -66,7 +66,9 @@
           "connected_entity": "Anslutning (valfritt)",
           "power_entity": "Effekt (valfritt)",
           "energy_entity": "Energimätare (valfritt)",
-          "configure_electrical": "Konfigurera elektriska detaljer (valfritt)"
+          "configure_electrical": "Konfigurera elektriska detaljer (valfritt)",
+          "connected_states": "Native statusvärden för ansluten (kommatecken)",
+          "disconnected_states": "Native statusvärden för frånkopplad (kommatecken)"
         }
       },
       "charger_electrical": {
@@ -185,7 +187,9 @@
           "circuit_limit_a": "Ström",
           "current_control_entity": "Ström",
           "current_readback_entity": "Ström",
-          "session_entity": "Laddsessionssensor (valfri)"
+          "session_entity": "Laddsessionssensor (valfri)",
+          "connected_states": "Native statusvärden för ansluten (kommatecken)",
+          "disconnected_states": "Native statusvärden för frånkopplad (kommatecken)"
         }
       },
       "display": {
