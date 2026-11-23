@@ -80,6 +80,29 @@ def number(hass, entity_id, kind: str, now: datetime) -> Evidence:
     return Evidence(round(value, 6), "ok", evidence.observed_at, "OK")
 
 
+def soc_with_health(hass, soc_entity, stale_entity, now) -> Evidence:
+    """One native SoC with optional independent OEM stale/validity evidence.
+
+    A stale flag is not a value source; a stale numeric SoC must never become
+    a trustworthy target or remaining-demand signal.
+    """
+    reading = number(hass, soc_entity, "soc", now)
+    if not stale_entity:
+        return reading
+    if not isinstance(stale_entity, str) or not stale_entity.startswith(
+            "binary_sensor."):
+        return Evidence(None, "invalid", None, "SOC_HEALTH_DOMAIN_INVALID")
+    state, flag = _state(hass, stale_entity, now, timedelta(hours=2))
+    if state is None:
+        return Evidence(None, flag.quality, flag.observed_at,
+                        "SOC_HEALTH_" + flag.reason)
+    if state.state == "on":
+        return Evidence(None, "stale", flag.observed_at, "SOC_OEM_DATA_STALE")
+    if state.state != "off":
+        return Evidence(None, "invalid", flag.observed_at, "SOC_HEALTH_AMBIGUOUS")
+    return reading
+
+
 def live_power(hass, entity_id: str | None, now: datetime, *,
                signed=False) -> Evidence:
     """Instantaneous native HA W/kW power, never energy (Wh/kWh) or forecasts.
