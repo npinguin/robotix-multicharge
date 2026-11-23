@@ -68,6 +68,19 @@ def register_command_query(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_charge_command)
 
 
+async def require_native_admin(hass, context):
+    """Only actual HA administrators may edit domain-owned native settings.
+
+    Entity-service contexts originate in Home Assistant, never from the
+    browser's client-side role claims. Automated/system calls without an
+    authenticated user must use an explicitly authorized Config Flow instead.
+    """
+    actor = getattr(context, "user_id", None)
+    user = await hass.auth.async_get_user(actor) if actor else None
+    if user is None or not user.is_admin:
+        raise RuntimeError("MultiCharge settings require a Home Assistant administrator")
+
+
 async def apply_native_preference(hass, entry, runtime, scope, target_id, changes,
                                   *, expected_revision=None, action="save"):
     """Single native settings writer for HA entities and admin WebSocket.
