@@ -474,6 +474,8 @@ function mcCombinedChargingChart(data, visibleChargers, slots, actuals){
     [{x:Date.now(),borderColor:"#b86a44",label:{text:"Now"}}]:[]};
   mcMountApex(plot,options);
   wrapper.append(plot);
+  if(validPrice)wrapper.append(mcEl("p","muted small",
+    basis[0]+" · "+currency[0]+"/kWh · "+mcTr("reference price, not an invoice")));
   if(!validPrice)wrapper.append(mcEl("p","muted small",
     mcTr("Price unavailable · no price series is fabricated")));
   else if(buckets.some(q=>q.price===null))
