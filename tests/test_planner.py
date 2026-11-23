@@ -22,7 +22,9 @@ for name in ("domain", "contracts", "planner"):
 
 from multicharge_plan_test.contracts import ChargeDemand, PowerEnvelope, PowerLimitSlot, PriceSlot  # noqa: E402 - imported after isolated pure-module bootstrap
 from multicharge_plan_test.domain import Charger, ChargeController  # noqa: E402 - imported after isolated pure-module bootstrap
-from multicharge_plan_test.planner import compile_plan, resolve_recurring_ready_by  # noqa: E402 - imported after isolated pure-module bootstrap
+from multicharge_plan_test.planner import (  # noqa: E402 - imported after isolated pure-module bootstrap
+    compile_plan, resolve_recurring_ready_by, charging_window_allows,
+)
 
 NOW = datetime(2026, 11, 22, 12, tzinfo=timezone.utc)
 
@@ -313,6 +315,81 @@ class PlannerTests(unittest.TestCase):
         )
         self.assertEqual(reason, "RECURRING")
         self.assertEqual(deadline.astimezone(zone).date().isoformat(), "2026-11-30")
+
+    def test_specific_weekdays_replace_single_weekly(self):
+        zone = ZoneInfo("Europe/Brussels")
+        monday = datetime(2026, 11, 23, 7, tzinfo=zone)
+        deadline, status = resolve_recurring_ready_by(
+            None, monday, "specific_days", "Europe/Brussels",
+            {"mon": "06:45", "wed": "08:30", "fri": "17:15"},
+        )
+        self.assertEqual(status, "RECURRING")
+        self.assertEqual(deadline.astimezone(zone).strftime("%a %H:%M"), "Wed 08:30")
+        friday = datetime(2026, 11, 27, 18, tzinfo=zone)
+        deadline, _ = resolve_recurring_ready_by(
+            None, friday, "specific_days", "Europe/Brussels",
+            {"mon": "06:45", "wed": "08:30", "fri": "17:15"},
+        )
+        self.assertEqual(deadline.astimezone(zone).strftime("%a %H:%M"), "Mon 06:45")
+        deadline, reason = resolve_recurring_ready_by(
+            None, monday, "specific_days", "Europe/Brussels", {},
+        )
+        self.assertIsNone(deadline)
+        self.assertEqual(reason, "DEADLINE_UNAVAILABLE")
+
+    def test_specific_days_dst_uses_real_future_instants(self):
+        spring = datetime(2027, 3, 27, 20, tzinfo=timezone.utc)
+        got, reason = resolve_recurring_ready_by(
+            None, spring, "specific_days", "Europe/Brussels",
+            {"sun": "02:30"},
+        )
+        self.assertEqual(reason, "RECURRING")
+        self.assertEqual(got, datetime(2027, 3, 28, 1, tzinfo=timezone.utc))
+        fall = datetime(2026, 10, 25, 0, 15, tzinfo=timezone.utc)
+        got, reason = resolve_recurring_ready_by(
+            None, fall, "specific_days", "Europe/Brussels",
+            {"sun": "02:30"},
+        )
+        self.assertEqual(reason, "RECURRING")
+        self.assertEqual(got, datetime(2026, 10, 25, 1, 30, tzinfo=timezone.utc))
+
+    def test_weekday_charging_windows_are_binding_in_one_planner(self):
+        zone = "Europe/Brussels"
+        window = {"mon": {"start": "22:00", "end": "06:00"}}
+        for local, expected in (
+            (datetime(2026, 11, 23, 22, 0, tzinfo=ZoneInfo(zone)), True),
+            (datetime(2026, 11, 24, 5, 45, tzinfo=ZoneInfo(zone)), True),
+            (datetime(2026, 11, 24, 6, 0, tzinfo=ZoneInfo(zone)), False),
+            (datetime(2026, 11, 28, 23, 0, tzinfo=ZoneInfo(zone)), False),
+        ):
+            self.assertEqual(
+                charging_window_allows(window, local, timedelta(minutes=15), zone),
+                expected,
+            )
+        ctl, chargers = build()
+        plan = compile_plan(
+            ctl, chargers,
+            [ChargeDemand("a0", "c0", 4.0,
+                          datetime(2026, 11, 24, 8, tzinfo=timezone.utc))],
+            datetime(2026, 11, 23, 19, tzinfo=timezone.utc),
+            mode="Ready By", horizon_hours=18,
+            charging_windows={"c0": window}, site_time_zone=zone,
+        )
+        self.assertTrue(plan.plan.slots)
+        self.assertTrue(all(
+            charging_window_allows(window, slot.start, timedelta(minutes=15), zone)
+            for slot in plan.plan.slots
+        ))
+        blocked = compile_plan(
+            ctl, chargers,
+            [ChargeDemand("a0", "c0", 1.0,
+                          datetime(2026, 11, 23, 21, tzinfo=timezone.utc))],
+            datetime(2026, 11, 23, 12, tzinfo=timezone.utc),
+            mode="Ready By",
+            charging_windows={"c0": window}, site_time_zone=zone,
+        )
+        self.assertFalse(blocked.plan.slots)
+        self.assertEqual(blocked.reasons["c0"], "CHARGING_WINDOW_LIMITED")
 
     def test_dst_is_real_utc_quarters_not_fixed_local_96(self):
         tz = ZoneInfo("Europe/Brussels")
