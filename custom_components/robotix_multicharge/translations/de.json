@@ -376,6 +376,9 @@
       },
       "continuous_charging": {
         "name": "Lademuster"
+      },
+      "opportunistic_kind": {
+        "name": "Opportunistischer Preismodus"
       }
     },
     "number": {
@@ -417,6 +420,21 @@
       },
       "requested_budget_amount": {
         "name": "Ladebudget (€)"
+      },
+      "minimum_soc_pct": {
+        "name": "Mindestladestand"
+      },
+      "maximum_price_per_kwh": {
+        "name": "Höchstpreis pro kWh"
+      },
+      "low_price_trigger_per_kwh": {
+        "name": "Laden bei niedrigem Preis"
+      },
+      "low_soc_trigger_pct": {
+        "name": "Laden bei niedrigem Akkustand"
+      },
+      "opportunistic_level_pct": {
+        "name": "Opportunistisches Niveau"
       }
     },
     "datetime": {
@@ -428,6 +446,9 @@
       },
       "expires_at": {
         "name": "Gast bis"
+      },
+      "earliest_start_at": {
+        "name": "Frühester Ladebeginn"
       }
     },
     "sensor": {
@@ -577,6 +598,9 @@
       },
       "charging_window_sun": {
         "name": "Sonntag charging hours"
+      },
+      "price_currency": {
+        "name": "Preiswährung"
       }
     },
     "binary_sensor": {
