@@ -13,7 +13,7 @@ from homeassistant.helpers import selector
 
 from .configuration import (
     default_configuration, is_plan_presentation_only_change,
-    configuration_json, prepare_expert_yaml_revision, validate_configuration,
+    validate_configuration,
     apply_new_asset_defaults, energy_dashboard_suggestions,
 )
 from .source_evidence import number
