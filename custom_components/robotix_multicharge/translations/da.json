@@ -462,6 +462,21 @@
     "text": {
       "name": {
         "name": "Name"
+      },
+      "price_entity": {
+        "name": "Tarifkilde"
+      },
+      "solar_entity": {
+        "name": "Solenergikilde"
+      },
+      "site_power_entity": {
+        "name": "Kilde til anlægseffekt"
+      },
+      "binding_entity": {
+        "name": "Kilde til effektgrænse"
+      },
+      "soc_entity": {
+        "name": "Batteriniveaukilde"
       }
     },
     "binary_sensor": {
