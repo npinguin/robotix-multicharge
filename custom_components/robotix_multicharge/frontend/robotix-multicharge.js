@@ -91,6 +91,39 @@ for(const [locale,labels] of Object.entries({"nl":["Variabel referentietarief","
   MC_TEXT[locale]["Variable reference price"]=labels[0];
   MC_TEXT[locale]["Spot price"]=labels[1];
 }
+const MC_DAY_NAMES={
+  mon:"Monday",tue:"Tuesday",wed:"Wednesday",thu:"Thursday",
+  fri:"Friday",sat:"Saturday",sun:"Sunday"
+};
+const MC_CLOCKS=Array.from({length:96},(_,index)=>
+  String(Math.floor(index/4)).padStart(2,"0")+":"+
+  String((index%4)*15).padStart(2,"0"));
+for(const [locale,terms] of Object.entries({
+  nl:{"Once":"Eenmalig","Daily":"Dagelijks","Specific days":"Specifieke dagen",
+    "Monday":"Maandag","Tuesday":"Dinsdag","Wednesday":"Woensdag",
+    "Thursday":"Donderdag","Friday":"Vrijdag","Saturday":"Zaterdag","Sunday":"Zondag",
+    "Allowed charging times":"Toegestane laaduren","Charging days":"Laaddagen",
+    "No day selected":"Dag niet geselecteerd","Window enabled":"Venster actief",
+    "Window disabled":"Geen venster","Start hour":"Startuur","End hour":"Einduur",
+    "Select at least one weekday":"Selecteer minstens één weekdag"},
+  fr:{"Once":"Une fois","Daily":"Chaque jour","Specific days":"Jours spécifiques",
+    "Monday":"Lundi","Tuesday":"Mardi","Wednesday":"Mercredi","Thursday":"Jeudi",
+    "Friday":"Vendredi","Saturday":"Samedi","Sunday":"Dimanche",
+    "Allowed charging times":"Heures de recharge autorisées","Charging days":"Jours de recharge",
+    "No day selected":"Jour non sélectionné","Window enabled":"Plage active",
+    "Window disabled":"Aucune plage","Start hour":"Début","End hour":"Fin",
+    "Select at least one weekday":"Sélectionnez au moins un jour"},
+  de:{"Once":"Einmalig","Daily":"Täglich","Specific days":"Bestimmte Tage",
+    "Allowed charging times":"Erlaubte Ladezeiten"},
+  es:{"Once":"Una vez","Daily":"Diario","Specific days":"Días específicos",
+    "Allowed charging times":"Horarios de carga permitidos"},
+  da:{"Once":"Én gang","Daily":"Dagligt","Specific days":"Bestemte dage",
+    "Allowed charging times":"Tilladte ladetider"},
+  nb:{"Once":"Én gang","Daily":"Daglig","Specific days":"Bestemte dager",
+    "Allowed charging times":"Tillatte ladetider"},
+  sv:{"Once":"En gång","Daily":"Dagligen","Specific days":"Specifika dagar",
+    "Allowed charging times":"Tillåtna laddtider"}
+}))Object.assign(MC_TEXT[locale],terms);
 const MC_MODES = ["Automatic", "Solar", "Economy", "Ready By", "Force Charge", "Off"];
 const MC_STYLE = [
   ":host{display:block;color:var(--primary-text-color,#20252b);font:inherit}",
@@ -185,6 +218,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._commandFeedback={};
     // Local, unsubmitted form values only; not an execution or settings store.
     this._manualDrafts={};
+    this._calendarDrafts={};
+    this._windowsOpen="";
     this._settingsBusy=false;
     this._settingsFeedback=null;
     this._pendingSettings=null;
@@ -501,6 +536,28 @@ class RobotixMultiChargeCard extends HTMLElement {
       this._settingsFeedback={status:"rejected",message:"Unavailable"};
     }finally{this._settingsBusy=false;this.render();}
   }
+  async nativeText(scope,uid,field,value){
+    const entity=this.ownerEntity(scope,uid,field);
+    if(!this.canEditSettings()||!entity||!this._hass?.callService||this._settingsBusy)
+      return;
+    this._settingsBusy=true;
+    this._settingsFeedback={status:"requested",message:"Updating"};
+    try{
+      await this._hass.callService("text","set_value",{entity_id:entity,value});
+      this._pendingNative={entity,expected:value};
+      this._last=0;await this.load();
+      const observed=this._hass?.states?.[entity]?.state;
+      const confirmed=observed===value;
+      if(confirmed)this._pendingNative=null;
+      this._settingsFeedback={
+        status:confirmed?"confirmed":"accepted_unconfirmed",
+        message:confirmed?"Saved":"Awaiting native state"
+      };
+    }catch(error){
+      this._settingsFeedback={status:"rejected",
+        message:String(error?.message||"Window settings rejected")};
+    }finally{this._settingsBusy=false;this.render();}
+  }
   async nativeButton(scope,uid,field){
     const entity=this.ownerEntity(scope,uid,field);
     if(!this.canManage()||!entity||!this._hass?.callService){
@@ -589,19 +646,92 @@ class RobotixMultiChargeCard extends HTMLElement {
   }
   nativeRepeatEditor(container,asset){
     const field="ready_by_repeat",entity=this.ownerEntity("asset",asset.id,field);
+    const mode=this._calendarDrafts[asset.id]||
+      (asset.ready_by_repeat==="weekly"?"specific_days":asset.ready_by_repeat||"none");
     if(!this.canEditSettings()||!entity)return;
-    const input=this.field(container,mcTr("Charging schedule"),asset.ready_by_repeat||"none",null,[
-      ["none",mcTr("One time / none")],
-      ["daily",mcTr("Every day")],
-      ["weekly",mcTr("Every week")]
+    container.append(mcEl("h4","specific-day-calendar",mcTr("Charging days")));
+    const choice=this.field(container,mcTr("Charging schedule"),mode,null,[
+      ["none",mcTr("Once")],["daily",mcTr("Daily")],
+      ["specific_days",mcTr("Specific days")]
     ]);
-    input.disabled=this._settingsBusy||!asset.ready_by;
-    input.setAttribute("aria-label",mcTr("Charging schedule"));
-    input.addEventListener("change",()=>
-      this.nativeSelect("asset",asset.id,field,input.value)
-    );
-    if(!asset.ready_by)container.append(mcEl("p","muted small",
-      mcTr("Set Ready By first to enable recurring charging")));
+    choice.disabled=this._settingsBusy;
+    choice.addEventListener("change",()=>{
+      this._calendarDrafts[asset.id]=choice.value;
+      if(choice.value==="specific_days" && !asset.ready_by_weekdays &&
+          asset.ready_by_repeat!=="weekly"){
+        this.render();return; // first explicit weekday selection commits both
+      }
+      if(choice.value==="daily" && !asset.ready_by){
+        this._settingsFeedback={status:"rejected",
+          message:"Set Ready By before selecting Daily"};
+        this.render();return;
+      }
+      void this.nativeSelect("asset",asset.id,field,choice.value);
+      this.render();
+    });
+    if(mode==="daily"&&!asset.ready_by)
+      container.append(mcEl("p","muted small",mcTr("Set Ready By first to enable recurring charging")));
+    if(mode==="specific_days"){
+      const days=mcEl("div","details specific-days");
+      for(const [day,label] of Object.entries(MC_DAY_NAMES)){
+        const owned=this.ownerEntity("asset",asset.id,"ready_day_"+day);
+        if(!owned)continue;
+        const observed=this._hass?.states?.[owned]?.state;
+        const saved=asset.ready_by_weekdays?.[day]||
+          (observed && observed!=="unknown" && observed!=="unavailable"?
+           observed:"off");
+        const select=this.field(days,mcTr(label),saved,null,[
+          ["off",mcTr("No day selected")],
+          ...MC_CLOCKS.map(hour=>[hour,hour])
+        ]);
+        select.disabled=this._settingsBusy;
+        select.addEventListener("change",()=>{
+          void this.nativeSelect("asset",asset.id,"ready_day_"+day,select.value);
+          delete this._calendarDrafts[asset.id];
+        });
+      }
+      container.append(days);
+    }
+    this.nativeChargingWindowsEditor(container,asset);
+  }
+  nativeChargingWindowsEditor(container,asset){
+    const available=Object.values(MC_DAY_NAMES).length;
+    if(!available)return;
+    const button=mcButton(mcTr("Allowed charging times"),()=>{
+      this._windowsOpen=this._windowsOpen===asset.id?"":asset.id;
+      this.render();
+    });
+    container.append(button);
+    if(this._windowsOpen!==asset.id)return;
+    const panel=mcEl("div","details");
+    for(const [day,label] of Object.entries(MC_DAY_NAMES)){
+      const field="charging_window_"+day;
+      if(!this.ownerEntity("asset",asset.id,field))continue;
+      const window=asset.charging_windows?.[day];
+      const enabled=this.field(panel,mcTr(label),
+        window?"on":"off",null,[
+          ["off",mcTr("Window disabled")],["on",mcTr("Window enabled")]
+        ]);
+      const start=this.field(panel,mcTr(label)+" · "+mcTr("Start hour"),
+        window?.start||"22:00","time");
+      const end=this.field(panel,mcTr(label)+" · "+mcTr("End hour"),
+        window?.end||"06:00","time");
+      const save=()=>{
+        if(enabled.value==="on"&&(!start.value||!end.value||
+                                   start.value===end.value)){
+          this._settingsFeedback={status:"rejected",
+             message:"Start and end hours must differ"};
+          this.render();return;
+        }
+        void this.nativeText("asset",asset.id,field,
+          enabled.value==="on"?start.value+"-"+end.value:"");
+      };
+      for(const fieldNode of [enabled,start,end]){
+        fieldNode.disabled=this._settingsBusy;
+        fieldNode.addEventListener("change",save);
+      }
+    }
+    container.append(panel);
   }
   openNative(scope,uid,field){
     const entity=this.ownerEntity(scope,uid,field);
