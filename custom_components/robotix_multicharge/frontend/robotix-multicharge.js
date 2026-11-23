@@ -1321,6 +1321,157 @@ class RobotixMultiChargeCard extends HTMLElement {
     wrapper.append(label,input);container.append(wrapper);
     return input;
   }
+  openJsonEditor(scope=null,uid=null){
+    if(!this.canEditSettings()||!this._data?.configuration)return;
+    const cfg=this._data.configuration;
+    const row=scope==="controller"?cfg.controller:
+      scope==="charger"?cfg.chargers?.find(c=>c.id===uid):
+      scope==="asset"?cfg.assets?.find(a=>a.id===uid):null;
+    if(scope&&!row){
+      this._settingsFeedback={status:"rejected",message:"Unknown object"};
+      this.render();return;
+    }
+    const payload=scope?
+      {[scope==="controller"?"controller":scope==="charger"?"chargers":"assets"]:
+       scope==="controller"?row:[row]}:cfg;
+    this._jsonEditor={
+      text:JSON.stringify(payload,null,2),
+      mode:scope?"merge":"replace",
+      base:this._data.configuration_revision,
+      review:null,error:"",busy:false,confirmed:false,
+      scope:scope||"all",uid:uid||"",
+    };
+    this._inlineEditor=null;this._commissionEditor=null;
+    this._tab="Settings";this.render();
+  }
+  async previewJson(){
+    const draft=this._jsonEditor;
+    if(!draft||draft.busy||!this.canEditSettings())return;
+    draft.busy=true;draft.error="";draft.review=null;
+    this.render();
+    try{
+      const proof=await this._hass.callWS({
+        type:"robotix_multicharge/dashboard_config",
+        operation:"preview",document:draft.text,mode:draft.mode,
+        expected_revision:draft.base
+      });
+      if(proof.status!=="preview_only"||!proof.review_fingerprint)
+        throw new Error("Dashboard JSON preview not accepted");
+      draft.review=proof;
+      draft.confirmed=false;
+    }catch(error){
+      draft.error=String(error?.message||error?.code||"JSON preview rejected").slice(0,250);
+    }finally{draft.busy=false;this.render();}
+  }
+  async applyJson(){
+    const draft=this._jsonEditor;
+    if(!draft||!draft.review||!draft.confirmed||draft.busy||
+       !this.canEditSettings())return;
+    draft.busy=true;draft.error="";
+    this.render();
+    try{
+      const result=await this._hass.callWS({
+        type:"robotix_multicharge/dashboard_config",
+        operation:"apply",document:draft.text,mode:draft.mode,
+        expected_revision:draft.base,
+        review_fingerprint:draft.review.review_fingerprint,
+        confirm:true
+      });
+      if(result.status!=="accepted_unconfirmed"||!result.expected_revision)
+        throw new Error("Configuration save not admitted");
+      this._pendingSettings={expected_revision:result.expected_revision};
+      this._settingsFeedback={status:"accepted_unconfirmed",
+        message:"Saved in HA; waiting for Config Entry readback"};
+      this._last=0;
+      await this.load();
+      if(this._data?.configuration_revision===result.expected_revision){
+        this._jsonEditor=null;
+        this._settingsFeedback={status:"confirmed",message:"Saved"};
+      }else{
+        draft.error="HA Config Entry reload pending · refresh to verify";
+      }
+    }catch(error){
+      draft.error=String(error?.message||error?.code||"JSON commit rejected").slice(0,250);
+      draft.confirmed=false;
+    }finally{
+      draft.busy=false;this.render();
+    }
+  }
+  jsonEditor(container){
+    const draft=this._jsonEditor;
+    if(!draft||!this.canEditSettings())return;
+    const card=mcEl("section","card dashboard-editor");
+    card.setAttribute("data-dashboard-json-editor","true");
+    const top=mcEl("div","row");
+    top.append(mcEl("h3","",mcTr("Edit full configuration · JSON")),
+      mcButton(mcTr("Close"),()=>{
+        this._jsonEditor=null;this.render();
+      }));
+    card.append(top);
+    card.append(mcEl("p","muted small",
+      "One authoritative Home Assistant Config Entry · no YAML or HA Options. "+
+      "Physical commissioning is a separate verified dashboard action."));
+    const mode=this.field(card,mcTr("JSON change mode"),draft.mode,null,[
+      ["replace",mcTr("Complete configuration · replace omitted objects")],
+      ["merge",mcTr("Scoped changes · keep omitted objects")]
+    ]);
+    mode.disabled=draft.busy;
+    mode.addEventListener("change",()=>{
+      draft.mode=mode.value;draft.review=null;draft.confirmed=false;
+      draft.error="";this.render();
+    });
+    const label=mcEl("label","",mcTr("Configuration JSON"));
+    const field=mcEl("textarea","dashboard-json-text");
+    field.setAttribute("rows","18");
+    field.setAttribute("spellcheck","false");
+    field.setAttribute("aria-label",mcTr("Configuration JSON"));
+    field.value=draft.text;field.disabled=draft.busy;
+    field.addEventListener("input",()=>{
+      draft.text=field.value;draft.review=null;draft.confirmed=false;
+      draft.error="";
+    });
+    card.append(label,field);
+    const actions=mcEl("div","row");
+    const preview=mcButton(mcTr("Review changes"),()=>this.previewJson());
+    preview.disabled=draft.busy;
+    actions.append(preview);
+    card.append(actions);
+    if(draft.review){
+      const review=mcEl("section","dashboard-review");
+      review.setAttribute("data-reviewed-json","true");
+      review.append(mcEl("h4","",mcTr("Review before saving")));
+      review.append(mcEl("pre","review-summary",draft.review.summary));
+      const groups=draft.review.groups||{};
+      for(const name of ["chargers","assets"]){
+        const group=groups[name]||{};
+        review.append(mcEl("p","small",
+          name+" · "+group.total+" total · "+
+          ["add","modify","remove"].map(type=>
+            type+": "+(group[type]?.join(", ")||"—")).join(" · ")));
+      }
+      if(draft.review.changes_present){
+        const confirm=mcEl("label","dashboard-confirm");
+        const tick=mcEl("input");tick.setAttribute("type","checkbox");
+        tick.checked=draft.confirmed;
+        tick.addEventListener("change",()=>{
+          draft.confirmed=tick.checked;this.render();
+        });
+        confirm.append(tick,mcEl("span","",
+          mcTr("I reviewed all changes and removals")));
+        review.append(confirm);
+        const save=mcButton(mcTr("Apply reviewed configuration"),()=>this.applyJson());
+        save.disabled=draft.busy||!draft.confirmed;
+        review.append(save);
+      }else review.append(mcEl("p","muted",mcTr("No changes to save")));
+      card.append(review);
+    }
+    if(draft.error){
+      const error=mcEl("p","message error",draft.error);
+      error.setAttribute("role","alert");
+      card.append(error);
+    }
+    container.append(card);
+  }
   feedback(container){
     if(!this._settingsFeedback)return;
     const result=this._settingsFeedback;
