@@ -12,6 +12,7 @@
 html,body { margin:0; padding:0; width:100%; background:var(--secondary-background-color); color:var(--primary-text-color); font:14px/1.5 system-ui,sans-serif; }
 main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
 </style>
+<script src="../../custom_components/robotix_multicharge/frontend/vendor/apexcharts.min.js"></script>
 <script src="../../custom_components/robotix_multicharge/frontend/robotix-multicharge.js"></script>
 </head>
 <body>
@@ -57,10 +58,26 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
       assets:Object.fromEntries(assets.map(a=>[a.id,{
         target_soc:"number."+a.id+"_soc",ready_by:"datetime."+a.id+"_ready"
       }])),
-      chargers:Object.fromEntries(devices.map(c=>[c.id,{}]))
+      chargers:Object.fromEntries(devices.map(c=>[c.id,{
+        asset:"select."+c.id+"_selected_vehicle"
+      }]))
     },
     plan_palette:{blue:"#3779B9"}
   };
+  // Nonfabricated source-backed plan test observations: missing intervals
+  // remain empty, and price may only appear with one explicit EUR/spot basis.
+  if(count>0&&view==="plan"){
+    data.actual_slots=[{charger_id:"charger_0",asset_id:null,
+      start:"2026-11-23T10:00:00+01:00",
+      end:"2026-11-23T10:15:00+01:00",actual_power_kw:1.43}];
+    data.slots=[{charger_id:"charger_0",asset_id:"vehicle_0",
+      start:"2026-11-23T11:00:00+01:00",
+      end:"2026-11-23T11:15:00+01:00",proposed_power_kw:2.3,
+      accepted_power_kw:0,proposed_energy_kwh:0.575}];
+    data.price_slots=[{start:"2026-11-23T10:00:00+01:00",
+      end:"2026-11-23T10:15:00+01:00",price_per_kwh:0.23,
+      currency:"EUR",basis:"spot"}];
+  }
   const card=document.querySelector("robotix-multicharge-card");
   card.setConfig({});
   card.hass={user:{is_admin:role==="admin"},language:"en",states:{},
@@ -76,17 +93,26 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
       b=>b.textContent==="Details");
     if(details)details.click();
   }
+  // The chart must be real Apex-generated SVG, not our previous static SVG
+  // or a lightweight Apex-looking replacement.
+  await new Promise(resolve=>setTimeout(resolve,550));
   const root=card.shadowRoot,frame=root.querySelector(".root");
   const folds=[...root.querySelectorAll("details.owner-group")];
   const cards=[...root.querySelectorAll(".object-card")];
   const buttons=[...root.querySelectorAll("button")].map(b=>b.textContent);
   const rect=frame?.getBoundingClientRect();
+  const apexHosts=[...root.querySelectorAll('[data-chart-engine="apexcharts-3.49.1"]')];
+  const apexLive=apexHosts.filter(x=>x.querySelector(".apexcharts-svg")).length;
+  const quick=[...root.querySelectorAll('select[data-quick-assignment]')];
   const report={
     count,role,view,viewport:innerWidth,
     render:!!frame,frameWidth:Math.round(rect?.width||0),
     documentWidth:document.documentElement.scrollWidth,
     tabs:[...root.querySelectorAll(".tabs button")].map(b=>b.textContent),
     cards:cards.length,folds:folds.length,
+    apexHosts:apexHosts.length,apexLive,
+    quickSelectors:quick.length,
+    quickEditable:quick.filter(x=>!x.disabled).length,
     firstFoldClosed:folds.length?folds[0].open===false:null,
     keyboardSummary:folds.every(x=>x.firstElementChild?.tagName==="SUMMARY"),
     goalEditable:buttons.includes("Save charging goal"),
