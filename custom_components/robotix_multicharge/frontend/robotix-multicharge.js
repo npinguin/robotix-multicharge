@@ -375,6 +375,21 @@ function mcCombinedChargingChart(data, visibleChargers, slots, actuals){
     }
     if(d)svg.append(mcSVG("path",{d,fill:"none",stroke:"#ab6d13",
       "stroke-width":2,"stroke-linecap":"round","stroke-linejoin":"round"}));
+    for(let i=0;i<count;i++){
+      const price=buckets[i].price;
+      if(!Number.isFinite(price))continue;
+      const circle=mcSVG("circle",{
+        cx:x0+(i+0.5)*width/count,
+        cy:bottom-(price-lo)/spread*height,
+        r:Math.max(1.5,Math.min(2.5,width/count/2)),
+        fill:"#ab6d13"
+      });
+      circle.append(mcSVG("title",{},
+        mcTime(new Date(from+i*900000).toISOString(),data.timezone)+
+        " · "+price.toFixed(4)+" "+currencies[0]+"/kWh"+
+        " · "+basis[0]+", "+mcTr("reference price, not an invoice")));
+      svg.append(circle);
+    }
     svg.append(mcSVG("text",{x:950,y:top+2,"text-anchor":"end",
       "font-size":11},hi.toFixed(3)));
     svg.append(mcSVG("text",{x:950,y:bottom+4,"text-anchor":"end",
@@ -404,6 +419,21 @@ function mcCombinedChargingChart(data, visibleChargers, slots, actuals){
   legend.append(mcEl("span","",priceValues.length?
     basis[0]+" · "+currencies[0]+"/kWh":mcTr("Price unavailable")));
   wrapper.append(legend);
+  if(priceReady&&priceValues.length&&priceValues.length<count)
+    wrapper.append(mcEl("p","muted small",
+      mcTr("Price intervals incomplete; missing periods are not zero")));
+  const future=slots.filter(row=>visible.has(row.charger_id)&&
+    Date.parse(row.start)>=Date.now()&&typeof row.proposed_power_kw==="number"&&
+    Number.isFinite(row.proposed_power_kw)&&row.proposed_power_kw>=0);
+  if(future.length){
+    const kwh=future.reduce((sum,row)=>sum+(
+      typeof row.proposed_energy_kwh==="number"?
+        row.proposed_energy_kwh:row.proposed_power_kw/4),0);
+    const chargers=new Set(future.map(row=>row.charger_id));
+    wrapper.append(mcEl("p","small",mcTr("Still planned")+" · "+
+      kwh.toFixed(2)+" kWh · "+chargers.size+" "+
+      mcTr(chargers.size===1?"charger":"chargers")));
+  }
   if(!values.length)wrapper.append(mcEl("p","muted small",
     mcTr("No qualified physical or planned power in this period")));
   return wrapper;
