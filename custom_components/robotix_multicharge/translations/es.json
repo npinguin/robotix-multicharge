@@ -376,6 +376,9 @@
       },
       "continuous_charging": {
         "name": "Patrón de carga"
+      },
+      "opportunistic_kind": {
+        "name": "Modo de precio oportunista"
       }
     },
     "number": {
@@ -417,6 +420,21 @@
       },
       "requested_budget_amount": {
         "name": "Presupuesto de carga (€)"
+      },
+      "minimum_soc_pct": {
+        "name": "Nivel mínimo de batería"
+      },
+      "maximum_price_per_kwh": {
+        "name": "Precio máximo por kWh"
+      },
+      "low_price_trigger_per_kwh": {
+        "name": "Activador de precio bajo"
+      },
+      "low_soc_trigger_pct": {
+        "name": "Activador de batería baja"
+      },
+      "opportunistic_level_pct": {
+        "name": "Nivel oportunista"
       }
     },
     "datetime": {
@@ -428,6 +446,9 @@
       },
       "expires_at": {
         "name": "Invitado hasta"
+      },
+      "earliest_start_at": {
+        "name": "Inicio de carga más temprano"
       }
     },
     "sensor": {
@@ -577,6 +598,9 @@
       },
       "charging_window_sun": {
         "name": "Domingo charging hours"
+      },
+      "price_currency": {
+        "name": "Moneda de precio"
       }
     },
     "binary_sensor": {
