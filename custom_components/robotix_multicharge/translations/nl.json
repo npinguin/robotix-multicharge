@@ -115,7 +115,7 @@
         "title": "Volledige laadlocatie",
         "description": "Controleer alle laadpalen, voertuigen en bronnen vóór opslaan. Er wordt geen laadopdracht uitgevoerd. {note}",
         "data": {
-          "yaml_text": "Volledige MultiCharge YAML (controller/assets/chargers)"
+          "yaml_text": "Plak de volledige MultiCharge-configuratie als JSON (controller/assets/chargers)"
         }
       },
       "expert_review": {
@@ -123,7 +123,7 @@
         "description": "{summary} Bevestig pas na controle van de volledige configuratie.",
         "data": {
           "confirm": "Ik heb de volledige configuratie gecontroleerd",
-          "edit_again": "Terug naar YAML"
+          "edit_again": "Terug naar JSON-editor"
         }
       }
     },
@@ -145,7 +145,7 @@
           "asset": "Chargeable assets",
           "charger": "Chargers",
           "display": "Dashboard card",
-          "yaml": "YAML bewerken (eerst controleren)",
+          "yaml": "Volledige JSON bewerken (eerst controleren)",
           "commission": "Laadpaal in bedrijf stellen",
           "energy": "Energie en tarieven"
         },
@@ -214,19 +214,19 @@
         }
       },
       "yaml": {
-        "title": "MultiCharge — YAML-configuratie",
+        "title": "MultiCharge — JSON-configuratie",
         "description": "Bewerk de volledige configuratie of pas onderdelen aan. Eerst valideren en beoordelen; geen fysieke laadcommando's. {note}",
         "data": {
           "mode": "Bijwerkmodus",
-          "yaml_text": "MultiCharge-configuratie (YAML/JSON)"
+          "yaml_text": "MultiCharge-configuratie (JSON, veilige YAML ook ondersteund)"
         }
       },
       "yaml_review": {
-        "title": "YAML-wijzigingen controleren",
+        "title": "JSON-wijzigingen controleren",
         "description": "{summary}\nControleer alle wijzigingen voordat je bevestigt.",
         "data": {
           "confirm": "Deze gecontroleerde wijzigingen toepassen",
-          "edit_again": "Terug naar YAML"
+          "edit_again": "Terug naar JSON-editor"
         }
       },
       "commission": {
