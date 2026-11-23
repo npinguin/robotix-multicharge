@@ -14,6 +14,7 @@ from homeassistant.helpers import selector
 from .configuration import (
     default_configuration, is_plan_presentation_only_change,
     configuration_revision, prepare_expert_yaml_revision, validate_configuration,
+    apply_new_asset_defaults,
 )
 from .source_evidence import number
 from .execution import stop_power_limit
@@ -423,6 +424,7 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                 "priority"):
                         if user_input.get(key) is not None:
                             asset[key] = user_input[key]
+                    apply_new_asset_defaults(asset)
                     trial = deepcopy(self._draft)
                     trial["assets"].append(asset)
                     validate_configuration(trial)
