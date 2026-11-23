@@ -618,6 +618,25 @@ async def test_options_flow_is_device_setup_not_daily_charge_operations(
 
 
 @pytest.mark.asyncio
+async def test_unconfigured_energy_dashboard_does_not_initialize_component(
+    hass: HomeAssistant,
+):
+    """Optional discovery must not start Energy on clean standalone HA."""
+    from unittest.mock import patch
+    from custom_components.robotix_multicharge.config_flow import (
+        _energy_dashboard_defaults,
+    )
+
+    assert "energy" not in hass.config.components
+    with patch(
+        "homeassistant.components.energy.data.async_get_manager",
+    ) as manager:
+        suggestions = await _energy_dashboard_defaults(hass)
+        assert suggestions == {}
+        manager.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_energy_dashboard_opt_in_reuses_native_sources_without_copying_energy_settings(
     hass: HomeAssistant,
 ):
