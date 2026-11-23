@@ -96,7 +96,18 @@
           "max_parallel": "Puntos de carga simultáneos (opcional)",
           "max_power_kw": "Potencia máxima (kW) (opcional)",
           "phase_limits_a": "Límites de fase (A) (opcional)",
-          "mode": "Modo de carga inicial"
+          "mode": "Modo de carga inicial",
+          "solar_power_entity": "Potencia solar actual (W/kW)",
+          "home_power_entity": "Consumo total de la vivienda (W/kW)",
+          "grid_power_entity": "Potencia de red importada/exportada (W/kW)",
+          "solar_surplus_entity": "Excedente solar medido (W/kW)",
+          "solar_entity": "Intervalos solares validados (kW)",
+          "price_entity": "Intervalos futuros de precio validados",
+          "current_price_entity": "Precio de compra actual (moneda/kWh)",
+          "export_price_entity": "Precio de exportación actual (moneda/kWh)",
+          "solar_source_kind": "Fuente de control solar",
+          "grid_power_direction": "Signo de potencia de red",
+          "use_energy_dashboard": "Usar fuentes del panel de Energía"
         }
       },
       "expert": {
@@ -134,7 +145,8 @@
           "charger": "Punto de carga",
           "display": "Tarjeta del panel",
           "yaml": "Edit YAML (review before save)",
-          "commission": "Puesta en servicio del cargador"
+          "commission": "Puesta en servicio del cargador",
+          "energy": "Energía y precios"
         }
       },
       "controller": {
@@ -222,6 +234,23 @@
           "commission": "Activar control MultiCharge",
           "exclusive_writer_confirmed": "Otros controladores y automatizaciones ya no controlan este cargador",
           "electrical_limits_confirmed": "Límites eléctricos, potencia y sensores independientes verificados"
+        }
+      },
+      "energy": {
+        "title": "Energía y precios",
+        "description": "{note}",
+        "data": {
+          "solar_power_entity": "Potencia solar actual (W/kW)",
+          "home_power_entity": "Consumo total de la vivienda (W/kW)",
+          "grid_power_entity": "Potencia de red importada/exportada (W/kW)",
+          "solar_surplus_entity": "Excedente solar medido (W/kW)",
+          "solar_entity": "Intervalos solares validados (kW)",
+          "price_entity": "Intervalos futuros de precio validados",
+          "current_price_entity": "Precio de compra actual (moneda/kWh)",
+          "export_price_entity": "Precio de exportación actual (moneda/kWh)",
+          "solar_source_kind": "Fuente de control solar",
+          "grid_power_direction": "Signo de potencia de red",
+          "use_energy_dashboard": "Usar fuentes del panel de Energía"
         }
       }
     },
