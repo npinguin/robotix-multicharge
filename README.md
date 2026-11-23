@@ -322,7 +322,8 @@ real-site physical acceptance.
 
 - [Architecture, UI and ownership](docs/ARCHITECTURE.md)
 - [Candidate contracts and interfaces](docs/INTERFACES.md)
-- [Functional use cases and acceptance](https://github.com/npinguin/robotix-multicharge/issues/1)
+- [Canonical functional specification — UC01–UC29 and extensions](docs/FUNCTIONAL_SPECIFICATION.md)
+- [Development gaps and acceptance evidence](https://github.com/npinguin/robotix-multicharge/issues/1)
 - [Open development issues](https://github.com/npinguin/robotix-multicharge/issues)
 
 Source checks (no Home Assistant installation needed):
