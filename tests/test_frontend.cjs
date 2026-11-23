@@ -248,6 +248,33 @@ async function main(){
   assert.equal(find(residentMinimal.shadowRoot,"button","Start bounded session"),undefined,
     "Resident read access never exposes admin-only manual command");
 
+  // UC15: tariff-period native Recorder costs are explicitly indicative,
+  // never displayed as a verified bill or written back to HA persistence.
+  const pricedData=JSON.parse(JSON.stringify(fixture));
+  pricedData.completed_sessions=[{
+    charger_id:"drive",asset_id:"car",ended_at:"2026-11-22T12:30:00+01:00",
+    actual_energy_kwh:1.5,energy_quality:"measured",cost:null,currency:null,
+    cost_quality:"unknown",physical_stop_confirmed:true,
+    estimated_variable_cost:0.42,estimated_variable_cost_currency:"EUR",
+    estimated_variable_cost_energy_kwh:1.5,
+    estimated_variable_cost_quality:"observed_power_integral_effective_tariff",
+    estimated_variable_cost_basis:"indicative_variable_energy_only"
+  }];
+  const pricedCard=new Card();
+  pricedCard.setConfig({});
+  pricedCard.hass={user:{is_admin:false},states:{},
+    callWS:async()=>pricedData};
+  await new Promise(resolve=>setImmediate(resolve));
+  find(pricedCard.shadowRoot,"button","Chargers").click();
+  const pricedText=content(pricedCard.shadowRoot);
+  assert.ok(pricedText.includes("Indicative variable energy cost"),
+    "Multi-tariff measured power estimate must have a distinct honest label");
+  assert.ok(pricedText.includes("0.42 EUR"));
+  assert.ok(pricedText.includes("Power-derived estimate, not a bill"),
+    "A derived variable estimate must never impersonate billed actual money");
+  assert.equal(pricedData.completed_sessions[0].cost,null,
+    "Read-only financial presentation cannot overwrite persisted cost");
+
   const adjustableFixture=JSON.parse(JSON.stringify(fixture));
   adjustableFixture.configuration.chargers[0].kind="variable_current";
   Object.assign(adjustableFixture.configuration.chargers[0],{
