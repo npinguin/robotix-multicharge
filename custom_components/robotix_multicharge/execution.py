@@ -669,7 +669,7 @@ class NativeSwitchExecutor:
                 self.runtime.hass.config.time_zone,
             ):
                 return "CHARGING_WINDOW_CLOSED"
-        if manual_request is None and (amount is not None or duration is not None):
+        if manual_request is None and (amount is not None or duration is not None or money is not None):
             raw_due = asset.get("ready_by")
             due = datetime.fromisoformat(raw_due) if raw_due else None
             if asset.get("ready_by_repeat", "none") != "none" and (due is not None or asset.get("ready_by_repeat") == "specific_days"):
@@ -681,6 +681,13 @@ class NativeSwitchExecutor:
                 if due is None:
                     return error
             progress = self.measured_intent_usage(asset, charger, due, at)
+            if money is not None:
+                if progress.get("budget_amount") is None:
+                    return "BUDGET_MEASURED_PROGRESS_UNAVAILABLE"
+                money = max(0.0, money - progress["budget_amount"])
+                if (money <= 0.000001
+                        or self.intent_completed(asset, charger, due)):
+                    return "TARGET_ALREADY_MET"
             if amount is not None:
                 if progress["energy_kwh"] is None:
                     return "ASSET_MEASURED_PROGRESS_UNAVAILABLE"
