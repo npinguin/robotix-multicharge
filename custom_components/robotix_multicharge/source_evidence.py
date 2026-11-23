@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from math import isfinite
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .contracts import PowerEnvelope, PowerLimitSlot, PriceSlot
 
@@ -296,7 +297,7 @@ def _native_spot_price_intervals(obj, now):
         return (), "INTERVAL_PAYLOAD_INVALID"
 
 
-def _native_all_in_reference_intervals(obj, now):
+def _native_all_in_reference_intervals(hass, obj, now):
     """Use full native electricity-price days without a Robotix bridge.
 
     A provider that explicitly publishes timestamped all_in EUR/kWh values
@@ -317,6 +318,16 @@ def _native_all_in_reference_intervals(obj, now):
         return (), "INTERVAL_PAYLOAD_INVALID"
     if not raw_today:
         return (), "INTERVAL_PAYLOAD_INVALID"
+    zone_name = attrs.get("time_zone") or getattr(
+        getattr(hass, "config", None), "time_zone", None
+    )
+    if not isinstance(zone_name, str) or not zone_name:
+        return (), "INTERVAL_TIMEZONE_UNVERIFIED"
+    try:
+        zone = ZoneInfo(zone_name)
+    except (ZoneInfoNotFoundError, ValueError):
+        return (), "INTERVAL_TIMEZONE_UNVERIFIED"
+    local_today = now.astimezone(zone).date()
     raw_days = [raw_today] + ([raw_tomorrow] if raw_tomorrow else [])
     all_slots = []
     previous_end = None
@@ -324,25 +335,27 @@ def _native_all_in_reference_intervals(obj, now):
         price_now = float(obj.state)
         if not isfinite(price_now):
             return (), "INTERVAL_PAYLOAD_INVALID"
-        for day in raw_days:
+        for index_day, day in enumerate(raw_days):
             count = len(day)
             if count not in (23, 24, 25, 92, 96, 100):
                 return (), "INTERVAL_COVERAGE_INCOMPLETE"
             step = timedelta(minutes=15) if count >= 90 else timedelta(hours=1)
-            first_raw = day[0]["start"]
-            if isinstance(first_raw, datetime):
-                local_first = first_raw
-            elif isinstance(first_raw, str):
-                local_first = datetime.fromisoformat(first_raw.replace("Z", "+00:00"))
-            else:
-                return (), "INTERVAL_PAYLOAD_INVALID"
-            if (local_first.tzinfo is None or local_first.utcoffset() is None
-                    or local_first.hour != 0 or local_first.minute != 0
-                    or local_first.second != 0 or local_first.microsecond != 0):
-                return (), "INTERVAL_TIME_INVALID"
-            first = _date(first_raw)
-            if previous_end is not None and first != previous_end:
+            local_date = local_today + timedelta(days=index_day)
+            next_date = local_date + timedelta(days=1)
+            expected_start = datetime(
+                local_date.year, local_date.month, local_date.day,
+                tzinfo=zone,
+            ).astimezone(timezone.utc)
+            expected_end = datetime(
+                next_date.year, next_date.month, next_date.day,
+                tzinfo=zone,
+            ).astimezone(timezone.utc)
+            if expected_end - expected_start != count * step:
                 return (), "INTERVAL_COVERAGE_INCOMPLETE"
+            first = _date(day[0]["start"])
+            if first != expected_start or (
+                    previous_end is not None and first != previous_end):
+                return (), "INTERVAL_TIME_INVALID"
             for index, row in enumerate(day):
                 stamp = _date(row["start"])
                 expected = first + index * step
@@ -356,6 +369,8 @@ def _native_all_in_reference_intervals(obj, now):
                     basis="variable_reference",
                 ))
             previous_end = first + count * step
+            if previous_end != expected_end:
+                return (), "INTERVAL_COVERAGE_INCOMPLETE"
         if all_slots[-1].end <= now:
             return (), "INTERVAL_SOURCE_EXPIRED"
         if all_slots[0].start > now:
@@ -387,7 +402,7 @@ def intervals(hass, entity_id: str | None, kind: str, now: datetime):
         if (kind == "price" and "today" in obj.attributes
                 and obj.attributes.get("unit_of_measurement")
                     in ("EUR/kWh", "€/kWh")):
-            return _native_all_in_reference_intervals(obj, now)
+            return _native_all_in_reference_intervals(hass, obj, now)
         return (), "INTERVAL_SEMANTICS_UNVERIFIED"
     try:
         expires = _date(obj.attributes["valid_until"])
