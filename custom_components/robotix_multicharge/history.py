@@ -239,8 +239,8 @@ async def read_actual_history(hass, configuration, start, end, *,
     entities = [c.get("power_entity") for c in selected]
     if any(not entity for entity in entities):
         return reply([], "POWER_METER_NOT_CONFIGURED")
-    if last <= first or last - first > timedelta(hours=48):
-        raise ValueError("historical view must be bounded to 48 hours")
+    if last <= first or last - first > timedelta(hours=49):
+        raise ValueError("historical view must be bounded to two civil days (<=49h)")
     if first >= now:
         return reply([], "FUTURE_ONLY")
     if "recorder" not in hass.config.components:
