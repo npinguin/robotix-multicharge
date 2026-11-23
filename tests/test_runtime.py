@@ -377,7 +377,7 @@ class RuntimeTests(unittest.TestCase):
         rt.refresh(NOW)
         response = rt.read_plan(NOW, NOW + timedelta(minutes=45))
         self.assertEqual(response["observations"]["sources"]["current_price"], {
-            "quality": "ok", "value": -0.05, "currency": "EUR"
+            "quality": "ok", "value": -0.05, "currency": "EUR", "basis": "effective"
         })
         self.assertEqual(response["price_slots"][0]["currency"], "EUR")
         self.assertEqual(response["price_slots"][0]["price_per_kwh"], -0.05)
