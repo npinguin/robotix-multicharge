@@ -91,6 +91,19 @@ for(const [locale,labels] of Object.entries({"nl":["Variabel referentietarief","
   MC_TEXT[locale]["Variable reference price"]=labels[0];
   MC_TEXT[locale]["Spot price"]=labels[1];
 }
+for(const [locale,b] of Object.entries({
+  nl:["Conservatieve bovengrens budget","Budget resterend (conservatief)","Budgetvoortgang"],
+  fr:["Plafond prudent du budget","Budget restant (prudent)","Suivi du budget"],
+  da:["Konservativ budgetgrænse","Resterende budget (konservativt)","Budgetforbrug"],
+  nb:["Konservativ budsjettgrense","Resterende budsjett (konservativt)","Budsjettfremdrift"],
+  sv:["Konservativ budgetgräns","Återstående budget (konservativt)","Budgetförbrukning"],
+  de:["Konservative Budgetobergrenze","Restbudget (konservativ)","Budgetfortschritt"],
+  es:["Límite superior conservador","Presupuesto restante (prudente)","Progreso del presupuesto"]
+})){
+  for(const [i,key] of ["Conservative budget upper bound",
+     "Budget remaining (conservative)","Budget progress"].entries())
+    MC_TEXT[locale][key]=b[i];
+}
 const MC_DAY_NAMES={
   mon:"Monday",tue:"Tuesday",wed:"Wednesday",thu:"Thursday",
   fri:"Friday",sat:"Saturday",sun:"Sunday"
@@ -1224,14 +1237,19 @@ class RobotixMultiChargeCard extends HTMLElement {
           a.requested_budget_amount+" "+(a.requested_budget_currency||"EUR"));
         if(charger&&a.requested_budget_amount!==undefined){
           const current=(d.active_sessions||{})[charger.id];
-          if(current?.budget_quality==="qualified_effective_meter_increments"){
-            mcPair(detail,mcTr("Indicative variable spending"),
+          if(current?.budget_quality==="qualified_effective_meter_increments"||
+             current?.budget_quality==="conservative_effective_upper_bound"){
+            const conservative=current.budget_quality==="conservative_effective_upper_bound";
+            mcPair(detail,mcTr(conservative?"Conservative budget upper bound":
+              "Indicative variable spending"),
               Number(current.budget_cost||0).toFixed(2)+" "+
               (current.requested_budget_currency||"EUR"));
-            mcPair(detail,mcTr("Budget remaining"),
+            mcPair(detail,mcTr(conservative?"Budget remaining (conservative)":
+              "Budget remaining"),
               Math.max(0,a.requested_budget_amount-(current.budget_cost||0)).toFixed(2)+
               " "+(current.requested_budget_currency||"EUR"));
-          }
+          }else if(current?.requested_budget_amount!=null)
+            mcPair(detail,mcTr("Budget progress"),mcTr("Unavailable"));
         }
         detail.append(mcEl("h4","",mcTr("Charging preferences")));
         for(const [field,label,unit] of [
