@@ -1559,6 +1559,55 @@ class RobotixMultiChargeCard extends HTMLElement {
   }
   // One visible resident-readable goal control, one authorized atomic
   // settings transaction. Unsubmitted drafts are local form state only.
+  ownerFacts(container,scope,record){
+    // Qualified technical source of truth is the owning Config Entry.
+    // This is a read-only projection of its exact persisted values, never
+    // a second editable mirror or a source of inferred hardware status.
+    const groups=MC_OWNER_GROUPS[scope]||[];
+    const wrapper=mcEl("section","owner-inventory");
+    wrapper.append(mcEl("h4","",mcTr("Complete object settings & sources")));
+    const covered=new Set();
+    for(const [title,fields] of groups){
+      const section=mcEl("div","owner-group");
+      section.append(mcEl("h4","",mcTr(title)));
+      for(const field of fields){
+        covered.add(field);
+        const label=MC_OWNER_NAMES[field]||field.replace(/_/g," ");
+        mcPair(section,mcTr(label),
+          mcOwnerReadValue(record[field],field,this._data?.timezone));
+      }
+      wrapper.append(section);
+    }
+    // Forward compatibility: never silently hide a new domain-owned
+    // configuration field added by HA/Options Flow in a future version.
+    const extra=Object.keys(record).filter(key=>!covered.has(key));
+    if(extra.length){
+      const rest=mcEl("div","owner-group");
+      rest.append(mcEl("h4","",mcTr("Additional owner settings")));
+      for(const field of extra){
+        mcPair(rest,mcTr(MC_OWNER_NAMES[field]||field.replace(/_/g," ")),
+          mcOwnerReadValue(record[field],field,this._data?.timezone));
+      }
+      wrapper.append(rest);
+    }
+    const count=Object.keys(record).length;
+    wrapper.append(mcEl("p","muted small",
+      mcTr("Read from Home Assistant configuration")+" · "+count+" "+
+      mcTr("configured fields")+" · "+
+      mcTr("Missing values are not assumed")));
+    if(scope==="charger"||scope==="controller"||scope==="asset"){
+      const next=mcEl("div","owner-configure");
+      const note=scope==="charger"?
+        mcTr("Hardware source bindings and commissioning use the native Charger options"):
+        scope==="asset"?
+          mcTr("Vehicle source mappings use the native Vehicle options"):
+          mcTr("Site source configuration uses the native Controller/Energy options");
+      next.append(mcEl("p","muted small",note));
+      if(this.canEditSettings())this.configure(next);
+      wrapper.append(next);
+    }
+    container.append(wrapper);
+  }
   assetGoalEditor(card,asset){
     const kind=asset.requested_budget_amount!==undefined?"budget":
       asset.requested_duration_minutes!==undefined?"duration":
@@ -1827,6 +1876,7 @@ class RobotixMultiChargeCard extends HTMLElement {
             ()=>this.openNative("asset",a.id,field)));
           detail.append(row);
         }
+        this.ownerFacts(detail,"asset",a);
         card.append(detail);
       }
       container.append(card);
@@ -1974,6 +2024,7 @@ class RobotixMultiChargeCard extends HTMLElement {
             mcButton("Edit",()=>this.openNative("charger",c.id,"asset")));
           detail.append(setting);
         }
+        this.ownerFacts(detail,"charger",c);
         card.append(detail);
       }
       const capability=(d.command_capabilities||{})[c.id]||{};
@@ -2110,6 +2161,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         const detail=mcEl("div","details");
         if(title==="Charging site"){
           mcPair(detail,"Site name",ctl.name);
+          mcPair(detail,mcTr("Site controller ID"),ctl.id);
           if(this.canEditSettings()&&this.ownerEntity("controller",ctl.id,"name")){
             const rename=mcEl("div","row");
             rename.append(mcEl("span","",mcTr("Site name")),
@@ -2120,6 +2172,7 @@ class RobotixMultiChargeCard extends HTMLElement {
             "Parallel chargers",ctl.max_parallel);
           this.nativeNumberEditor(detail,"controller",ctl.id,"max_power_kw",
             "Maximum group power",ctl.max_power_kw,"kW");
+          this.ownerFacts(detail,"controller",ctl);
         }else if(title==="Charging strategy"){
           const options=mcEl("div","chips");
           for(const mode of this.canEditSettings()?MC_MODES:[]){
