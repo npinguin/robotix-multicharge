@@ -25,6 +25,31 @@ from multicharge_configuration_tests.configuration import (  # noqa: E402 - impo
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_new_car_defaults_to_80_without_overriding_existing_or_finite_goal(self):
+        from multicharge_configuration_tests.configuration import (
+            apply_settings_change, apply_new_asset_defaults,
+        )
+        base = validate_configuration(default_configuration())
+        created = apply_settings_change(
+            base, "asset", "new_car", {"name": "New car", "kind": "car"},
+            action="create",
+        )
+        self.assertEqual(created["assets"][0]["target_soc"], 80)
+        manually = apply_settings_change(
+            created, "asset", "new_car", {"target_soc": 90}
+        )
+        self.assertEqual(manually["assets"][0]["target_soc"], 90)
+        finite = apply_settings_change(
+            base, "asset", "guest", {"name": "Guest", "kind": "car",
+                                   "requested_kwh": 3.0}, action="create"
+        )
+        self.assertNotIn("target_soc", finite["assets"][0])
+        bicycle = apply_new_asset_defaults({"name": "Bike", "kind": "bicycle"})
+        self.assertNotIn("target_soc", bicycle)
+        imported = default_configuration()
+        imported["assets"] = [{"id": "legacy", "name": "Legacy car", "kind": "car"}]
+        self.assertNotIn("target_soc", validate_configuration(imported)["assets"][0])
+
     def test_charger_user_power_envelope_is_hardware_bounded_and_native_editable(self):
         from multicharge_configuration_tests.configuration import (
             apply_settings_change, is_in_place_runtime_preference_change,
