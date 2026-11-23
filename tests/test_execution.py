@@ -1241,6 +1241,80 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
                 asset, rt.configuration["chargers"][0], None)["budget_amount"],
             0.4)
 
+    async def test_money_negative_tariff_does_not_make_unlimited_24h_intent(self):
+        rt, states, service = rig()
+        asset = rt.configuration["assets"][0]
+        asset.pop("requested_kwh")
+        asset["requested_budget_amount"] = 10.0
+        asset["requested_budget_currency"] = "EUR"
+        now = datetime.now(timezone.utc)
+        provider = state("ready")
+        provider.attributes = {
+            "kind": "effective_price_kwh", "currency": "EUR",
+            "valid_until": (now + timedelta(hours=3)).isoformat(),
+            "intervals": [{
+                "start": (now - timedelta(hours=1)).isoformat(),
+                "end": (now + timedelta(hours=3)).isoformat(),
+                "value": -0.08,
+            }],
+        }
+        states["sensor.price"] = provider
+        rt.configuration["controller"]["price_entity"] = "sensor.price"
+        rt.refresh()
+        self.assertEqual(
+            rt.observations["sources"]["tariff_quality"], "OK")
+        # Earlier independently-confirmed session receipts exhaust a
+        # combined 24h money-intent safety ceiling even at zero price.
+        target_key = rt.executor._intent_key(
+            asset, rt.configuration["chargers"][0], None)
+        rt.executor._session_history.append({
+            "charger_id": "evse", "asset_id": "car",
+            "intent_key": target_key,
+            "started_at": (now - timedelta(hours=24)).isoformat(),
+            "ended_at": now.isoformat(),
+            "duration_minutes": 1440,
+            "actual_energy_kwh": 0.0,
+            "budget_accrued_cost": 0.0,
+            "budget_cost_quality": "qualified_effective_meter_increments",
+            "budget_currency": "EUR",
+            "physical_stop_confirmed": True,
+        })
+        rt.refresh()
+        blocked = await rt.executor.execute("evse", "start")
+        self.assertEqual(blocked["reason"], "TARGET_ALREADY_MET")
+        self.assertEqual(service.calls, [])
+
+    async def test_money_stop_remains_safe_if_meter_entity_removed(self):
+        rt, states, _ = rig()
+        asset = rt.configuration["assets"][0]
+        asset.pop("requested_kwh")
+        asset.update(requested_budget_amount=10.0,
+                     requested_budget_currency="EUR")
+        now = datetime.now(timezone.utc)
+        provider = state("ready")
+        provider.attributes = {
+            "kind": "effective_price_kwh", "currency": "EUR",
+            "valid_until": (now + timedelta(hours=3)).isoformat(),
+            "intervals": [{
+                "start": (now - timedelta(hours=1)).isoformat(),
+                "end": (now + timedelta(hours=3)).isoformat(),
+                "value": 0.15,
+            }],
+        }
+        states["sensor.price"] = provider
+        rt.configuration["controller"]["price_entity"] = "sensor.price"
+        rt.refresh()
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"],
+                         "confirmed")
+        rt.configuration["chargers"][0].pop("energy_entity")
+        result = await rt.executor.execute("evse", "stop")
+        self.assertEqual(result["status"], "confirmed")
+        receipt = rt.executor.completed_sessions()[0]
+        self.assertIsNone(receipt["budget_accrued_cost"])
+        self.assertEqual(receipt["budget_cost_quality"], "unknown")
+        self.assertIsNone(receipt["actual_energy_kwh"])
+        self.assertTrue(receipt["physical_stop_confirmed"])
+
     async def test_eur_budget_spot_reference_and_missing_meter_fail_closed(self):
         rt, states, service = rig()
         asset = rt.configuration["assets"][0]
