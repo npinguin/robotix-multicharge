@@ -678,9 +678,6 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                         "multicharge" if desired else "external"
                     )
                     selected["physical_commissioned"] = desired
-                    if (desired and user_input.get("enable_automatic")
-                            and trial["controller"].get("mode") == "Off"):
-                        trial["controller"]["mode"] = "Automatic"
                     result = await self._safe_structural_save(trial)
                     if result is not None:
                         return result
@@ -693,7 +690,6 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 vol.Required("commission", default=True): bool,
                 vol.Required("exclusive_writer_confirmed", default=False): bool,
                 vol.Required("electrical_limits_confirmed", default=False): bool,
-                vol.Optional("enable_automatic", default=True): bool,
             }),
             description_placeholders={
                 "note": (
@@ -837,13 +833,6 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         cfg = self._current()
         if user_input is not None:
             cfg["controller"]["name"] = user_input["name"]
-            cfg["controller"]["max_parallel"] = int(user_input["max_parallel"])
-            if user_input.get("max_power_kw"):
-                cfg["controller"]["max_power_kw"] = user_input["max_power_kw"]
-            else:
-                cfg["controller"].pop("max_power_kw", None)
-            if user_input.get("mode"):
-                cfg["controller"]["mode"] = user_input["mode"]
             if user_input.get("phase_limits_a"):
                 cfg["controller"]["phase_limits_a"] = _phase_limits(user_input["phase_limits_a"])
             for key in ("price_entity", "solar_entity", "site_power_entity", "binding_entity"):
@@ -858,15 +847,6 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             step_id="controller",
             data_schema=vol.Schema({
                 vol.Required("name", default=cfg["controller"]["name"]): str,
-                vol.Required("max_parallel", default=cfg["controller"]["max_parallel"]):
-                    selector.NumberSelector(selector.NumberSelectorConfig(
-                        min=1, max=16, step=1, mode=selector.NumberSelectorMode.BOX
-                    )),
-                vol.Optional("max_power_kw"): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0.01, max=1000, step=0.1,
-                        mode=selector.NumberSelectorMode.BOX
-                    )),
                 vol.Optional("phase_limits_a",
                              default=",".join(f"{p}:{x}" for p,x in
                                     cfg["controller"].get("phase_limits_a", {}).items())): str,
@@ -882,9 +862,6 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional("site_power_entity"): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
                 ),
-                vol.Optional("mode", default=cfg["controller"].get("mode", "Off")):
-                    vol.In(["Automatic", "Solar", "Economy", "Ready By",
-                            "Force Charge", "Off"]),
             }),
             errors={"base": "invalid_config"} if user_input else {},
         )
@@ -934,24 +911,6 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional("capacity_kwh"): selector.NumberSelector(selector.NumberSelectorConfig(
                     min=0.01, max=1000, step=0.1, mode=selector.NumberSelectorMode.BOX
                 )),
-                vol.Optional("target_soc"): selector.NumberSelector(selector.NumberSelectorConfig(
-                    min=0, max=100, step=1, mode=selector.NumberSelectorMode.BOX
-                )),
-                vol.Optional("max_charge_kw"): selector.NumberSelector(selector.NumberSelectorConfig(
-                    min=0.01, max=100, step=0.1, mode=selector.NumberSelectorMode.BOX
-                )),
-                vol.Optional("requested_kwh"): selector.NumberSelector(selector.NumberSelectorConfig(
-                    min=0, max=200, step=0.1, mode=selector.NumberSelectorMode.BOX
-                )),
-                vol.Optional("requested_duration_minutes"): selector.NumberSelector(selector.NumberSelectorConfig(
-                    min=1, max=1440, step=1, mode=selector.NumberSelectorMode.BOX
-                )),
-                vol.Optional("ready_by"): selector.DateTimeSelector(),
-                vol.Optional("ready_by_repeat"): vol.In(["none", "daily", "weekly"]),
-                vol.Optional("expected_connection_at"): selector.DateTimeSelector(),
-                vol.Optional("priority"): selector.NumberSelector(selector.NumberSelectorConfig(
-                    min=0, max=100, step=1, mode=selector.NumberSelectorMode.BOX
-                )),
                 vol.Optional("temporary"): bool,
                 vol.Optional("expires_at"): str,
                 vol.Optional("charge_efficiency"): selector.NumberSelector(
@@ -989,8 +948,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                               "energy_entity", "phase_count", "min_current_a", "max_current_a",
                               "voltage_v", "current_step_a", "fixed_current_a",
                               "circuit_id", "circuit_limit_a", "current_control_entity",
-                              "current_readback_entity", "session_entity",
-                              "min_charging_power_kw", "max_charging_power_kw"): 
+                              "current_readback_entity", "session_entity"):
 
                     if user_input.get(field) is not None and user_input.get(field) != "":
                         charger[field] = user_input[field]
@@ -1055,18 +1013,6 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 ),
                 vol.Optional("session_entity"): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain=["sensor", "binary_sensor"])
-                ),
-                vol.Optional("min_charging_power_kw"): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0.01, max=100, step=0.01,
-                        mode=selector.NumberSelectorMode.BOX
-                    )
-                ),
-                vol.Optional("max_charging_power_kw"): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0.01, max=100, step=0.01,
-                        mode=selector.NumberSelectorMode.BOX
-                    )
                 ),
             }),
             errors={"base": "invalid_config"} if user_input else {},
