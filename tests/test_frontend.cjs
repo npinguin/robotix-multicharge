@@ -91,6 +91,13 @@ async function main(){
     owned["charging_window_"+day]="text.car_window_"+day;
   }
   owned.continuous_charging="select.car_continuity";
+  owned.opportunistic_kind="select.car_opportunity";
+  owned.price_currency="text.car_price_currency";
+  owned.earliest_start_at="datetime.car_earliest";
+  for(const field of ["minimum_soc_pct","maximum_price_per_kwh",
+                       "low_price_trigger_per_kwh","low_soc_trigger_pct",
+                       "opportunistic_level_pct"])
+    owned[field]="number.car_"+field;
   const scheduleCalls=[];
   const scheduleCard=new Card();
   scheduleCard.setConfig({});
@@ -121,6 +128,27 @@ async function main(){
   assert.ok(scheduleCalls.some(x=>x.domain==="select"&&
     x.args.entity_id==="select.car_continuity"&&x.args.option==="continuous"),
     "Continuous selection reaches native owner, not a second JS store");
+  // PARITY-08 per-Asset price/SoC policy controls live on the same
+  // owner-native device, and never write the provider tariff or OEM SoC.
+  assert.ok(find(scheduleCard.shadowRoot,"button","Set price currency"));
+  assert.ok(find(scheduleCard.shadowRoot,"button","Set earliest start"));
+  assert.ok(content(scheduleCard.shadowRoot).includes(
+    "Minimum charge before price limits"));
+  assert.ok(content(scheduleCard.shadowRoot).includes(
+    "Price ceiling per kWh"));
+  let opportunity;
+  visit(scheduleCard.shadowRoot,node=>{
+    if(node.className==="field"&&
+       node.children[0]?.textContent==="Opportunistic charging")
+      opportunity=node.children[1];
+  });
+  assert.ok(opportunity);
+  opportunity.value="type1";opportunity.events.change();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(scheduleCalls.some(call=>call.domain==="select"&&
+    call.args.entity_id==="select.car_opportunity"&&
+    call.args.option==="type1"),
+    "native per-Asset opportunistic selection uses only existing settings writer");
   assert.ok(content(scheduleCard.shadowRoot).includes("Specific days"),
     "Single Weekly user option replaced by Specific days");
   assert.ok(!content(scheduleCard.shadowRoot).includes("Every week"),
