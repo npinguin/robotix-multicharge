@@ -15,7 +15,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 ROOT = Path(__file__).resolve().parents[1]
-PAGE = ROOT / "tests" / "fixtures" / "browser_smoke.html"
+PAGE = ROOT / "tests" / "fixtures" / "browser_shell.html"
 PROOF = ROOT / "dist" / "ux-browser-proof"
 
 # Deliberately bounded real Chromium process count. All five count/role
@@ -44,7 +44,7 @@ def chrome_path():
 
 
 def run_case(chrome: str, size: int, count: int, role: str, view: str, dark: bool):
-    query = urlencode({"count": count, "role": role, "view": view})
+    query = urlencode({"width": size, "count": count, "role": role, "view": view})
     url = PAGE.resolve().as_uri() + "?" + query
     label = f"{size}px_{count}chargers_{role}_{view}_{'dark' if dark else 'light'}"
     PROOF.mkdir(parents=True, exist_ok=True)
@@ -53,7 +53,7 @@ def run_case(chrome: str, size: int, count: int, role: str, view: str, dark: boo
         chrome, "--headless=new", "--no-sandbox", "--disable-gpu",
         "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check",
         "--hide-scrollbars", "--force-device-scale-factor=1",
-        f"--window-size={size},900", "--virtual-time-budget=1900",
+        f"--window-size={max(500,size)},900", "--virtual-time-budget=1900",
         f"--screenshot={screenshot}", "--dump-dom",
     ]
     if dark:
