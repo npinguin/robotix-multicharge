@@ -2,14 +2,9 @@
   "config": {
     "step": {
       "user": {
-        "title": "Laddplats",
-        "description": "Steg 1/5 — Namnge laddplatsen; elektriska gränser är valfria vid installation.",
-        "data": {
-          "name": "Namn (valfritt)",
-          "max_parallel": "Antal (valfritt)",
-          "max_power_kw": "Effekt (valfritt)",
-          "phase_limits_a": "Faser (valfritt)",
-          "mode": "Inledande laddningsläge"
+        "menu_options": {
+          "guided": "Guidad konfiguration",
+          "expert": "Konfigurera hela laddplatsen"
         }
       },
       "charger": {
@@ -89,6 +84,32 @@
           "circuit_limit_a": "Ström (valfritt)",
           "current_control_entity": "Ström (valfritt)",
           "current_readback_entity": "Ström (valfritt)"
+        }
+      },
+      "guided": {
+        "title": "Laddplats",
+        "description": "Steg 1/5 — Namnge laddplatsen; elektriska gränser är valfria vid installation.",
+        "data": {
+          "name": "Namn (valfritt)",
+          "max_parallel": "Antal (valfritt)",
+          "max_power_kw": "Effekt (valfritt)",
+          "phase_limits_a": "Faser (valfritt)",
+          "mode": "Inledande laddningsläge"
+        }
+      },
+      "expert": {
+        "title": "Fullständig konfiguration",
+        "description": "Kontrollera laddare, fordon och källor före sparande. Inga fysiska kommandon. {note}",
+        "data": {
+          "yaml_text": "Komplett MultiCharge YAML (controller/assets/chargers)"
+        }
+      },
+      "expert_review": {
+        "title": "Granska hela konfigurationen",
+        "description": "{summary} Bekräfta efter kontroll av alla inställningar.",
+        "data": {
+          "confirm": "Jag har granskat hela konfigurationen",
+          "edit_again": "Tillbaka till YAML"
         }
       }
     },
