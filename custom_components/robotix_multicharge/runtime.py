@@ -270,11 +270,11 @@ class MultiChargeRuntime:
             ready = asset.get("ready_by")
             deadline = datetime.fromisoformat(ready) if ready else None
             repeat = asset.get("ready_by_repeat", "none")
-            if deadline is not None and repeat != "none":
+            if repeat != "none" and (deadline is not None or repeat == "specific_days"):
                 zone = getattr(getattr(self.hass, "config", None),
                                "time_zone", "UTC")
                 deadline, reason = resolve_recurring_ready_by(
-                    deadline, at, repeat, zone
+                    deadline, at, repeat, zone, asset.get("ready_by_weekdays")
                 )
                 if deadline is None:
                     self.excluded[uid] = reason
@@ -456,11 +456,22 @@ class MultiChargeRuntime:
                 "basis": "current_only",
             },
         }
+        # Asset-local calendar preferences restrict the ONE Controller planner.
+        # No HA time automation or second executable charging calendar exists.
+        active_windows = {
+            charger["id"]: assets[charger["asset"]]["charging_windows"]
+            for charger in cfg["chargers"]
+            if charger.get("asset") in assets
+            and assets[charger["asset"]].get("charging_windows")
+        }
+        site_zone = getattr(getattr(self.hass, "config", None),
+                            "time_zone", "UTC")
         try:
             self.assessment = compile_plan(
                 controller, chargers, demands, at, mode=setting["mode"],
                 tariffs={uid: tariff for uid in chargers}, solar=solar,
                 binding=external_binding,
+                charging_windows=active_windows, site_time_zone=site_zone,
             )
             if indicative_demands and setting.get("show_indicative_forecast", True):
                 # The real plan is complete FIRST; forecast slots only consume
@@ -471,6 +482,7 @@ class MultiChargeRuntime:
                     tariffs={uid: tariff for uid in chargers}, solar=solar,
                     binding=external_binding,
                     reserved_slots=self.assessment.plan.slots,
+                    charging_windows=active_windows, site_time_zone=site_zone,
                 )
         except (ValueError, TypeError, OverflowError) as exc:
             _LOGGER.warning("MultiCharge proposal unavailable: %s", exc)
