@@ -47,6 +47,16 @@ for(const [locale,translations] of Object.entries({
   de:{"Configure in Home Assistant":"In Home Assistant konfigurieren","Selected":"Ausgewählt"},
   es:{"Configure in Home Assistant":"Configurar en Home Assistant","Selected":"Seleccionado"}
 }))Object.assign(MC_TEXT[locale],translations);
+// One Asset-side chooser; all writes still target the Charger-owned Config Entry.
+for(const [locale,terms] of Object.entries({
+  nl:{"Assign charger":"Laadpaal toewijzen","Change charger":"Laadpaal wijzigen","Select charger":"Kies laadpaal","Assign selected charger":"Laadpaal toewijzen","Unassign charger":"Laadpaal loskoppelen","No free charger":"Geen vrije laadpaal","Close assignment":"Sluiten","Idle-only reassignment. Stop charging separately before moving a vehicle.":"Alleen bij stilstand. Stop het laden apart vóór de overdracht."},
+  fr:{"Assign charger":"Attribuer une borne","Change charger":"Changer de borne","Select charger":"Choisir une borne","Assign selected charger":"Attribuer cette borne","Unassign charger":"Désattribuer la borne","No free charger":"Aucune borne libre","Close assignment":"Fermer","Idle-only reassignment. Stop charging separately before moving a vehicle.":"Uniquement à l'arrêt. Arrêtez la recharge avant de déplacer un véhicule."},
+  da:{"Assign charger":"Tildel lader","Change charger":"Skift lader","Select charger":"Vælg lader","Assign selected charger":"Tildel valgt lader","Unassign charger":"Fjern tilknytning","No free charger":"Ingen ledig lader","Close assignment":"Luk","Idle-only reassignment. Stop charging separately before moving a vehicle.":"Kun ved stilstand. Stop opladning før flytning af køretøjet."},
+  nb:{"Assign charger":"Tildel lader","Change charger":"Bytt lader","Select charger":"Velg lader","Assign selected charger":"Tildel valgt lader","Unassign charger":"Fjern tilordning","No free charger":"Ingen ledig lader","Close assignment":"Lukk","Idle-only reassignment. Stop charging separately before moving a vehicle.":"Bare når laderne er stoppet. Stopp lading før flytting."},
+  sv:{"Assign charger":"Tilldela laddare","Change charger":"Byt laddare","Select charger":"Välj laddare","Assign selected charger":"Tilldela vald laddare","Unassign charger":"Ta bort tilldelning","No free charger":"Ingen ledig laddare","Close assignment":"Stäng","Idle-only reassignment. Stop charging separately before moving a vehicle.":"Endast i viloläge. Stoppa laddning före flytt."},
+  de:{"Assign charger":"Ladepunkt zuweisen","Change charger":"Ladepunkt wechseln","Select charger":"Ladepunkt auswählen","Assign selected charger":"Ladepunkt zuweisen","Unassign charger":"Zuweisung aufheben","No free charger":"Kein freier Ladepunkt","Close assignment":"Schließen","Idle-only reassignment. Stop charging separately before moving a vehicle.":"Nur im Stillstand. Laden vor dem Wechsel separat stoppen."},
+  es:{"Assign charger":"Asignar cargador","Change charger":"Cambiar cargador","Select charger":"Elegir cargador","Assign selected charger":"Asignar cargador elegido","Unassign charger":"Quitar asignación","No free charger":"No hay cargadores libres","Close assignment":"Cerrar","Idle-only reassignment. Stop charging separately before moving a vehicle.":"Solo en reposo. Detenga la carga antes de cambiar el vehículo."}
+}))Object.assign(MC_TEXT[locale],terms);
 const MC_MODES = ["Automatic", "Solar", "Economy", "Ready By", "Force Charge", "Off"];
 const MC_STYLE = [
   ":host{display:block;color:var(--primary-text-color,#20252b);font:inherit}",
@@ -143,6 +153,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._settingsFeedback=null;
     this._pendingSettings=null;
     this._assetEditor="";
+    this._assignmentEditor="";
     this._refreshTimer=null;
     this._refreshPending=false;
     this._pendingNative=null;
@@ -964,6 +975,55 @@ class RobotixMultiChargeCard extends HTMLElement {
       mcPair(card,"Target",a.target_soc===undefined?"Not set":a.target_soc+"%");
       mcPair(card,"Ready By",mcTime(a.ready_by,d.timezone));
       mcPair(card,"Charger",charger?charger.name:"Not assigned");
+      if(this.canEditSettings()&&chargers.length){
+        const change=mcButton(
+          mcTr(charger?"Change charger":"Assign charger"),()=>{
+            this._assignmentEditor=this._assignmentEditor===a.id?"":a.id;
+            this.render();
+          }
+        );
+        change.disabled=this._settingsBusy;
+        card.append(change);
+        if(this._assignmentEditor===a.id){
+          // A selected Vehicle belongs to exactly one Charger Config Entry
+          // field. Do not silently replace a different assigned Vehicle.
+          const candidates=chargers.filter(c=>!c.asset||c.asset===a.id);
+          const editor=mcEl("div","details");
+          editor.append(mcEl("p","muted small",
+            "Idle-only reassignment. Stop charging separately before moving a vehicle."));
+          if(candidates.length){
+            const chooser=mcEl("select");
+            chooser.setAttribute("aria-label",mcTr("Select charger"));
+            for(const candidate of candidates){
+              const option=mcEl("option","",candidate.name);
+              option.value=candidate.id;
+              chooser.append(option);
+            }
+            chooser.value=charger?.id||candidates[0].id;
+            const apply=mcButton(mcTr("Assign selected charger"),()=>{
+              if(!chooser.value||chooser.value===charger?.id)return;
+              this.saveSettings("charger",chooser.value,{asset:a.id},"save");
+            });
+            apply.disabled=this._settingsBusy||
+              !chooser.value||chooser.value===charger?.id;
+            chooser.addEventListener("change",()=>{
+              apply.disabled=this._settingsBusy||
+                !chooser.value||chooser.value===charger?.id;
+            });
+            editor.append(chooser,apply);
+          }else editor.append(mcEl("p","muted small","No free charger"));
+          if(charger){
+            const detach=mcButton(mcTr("Unassign charger"),()=>
+              this.saveSettings("charger",charger.id,{asset:null},"save"));
+            detach.disabled=this._settingsBusy;
+            editor.append(detach);
+          }
+          editor.append(mcButton(mcTr("Close assignment"),()=>{
+            this._assignmentEditor="";this.render();
+          }));
+          card.append(editor);
+        }
+      }
       if(this._open===a.id){
         const detail=mcEl("div","details");
         mcPair(detail,"Charging priority",a.priority===undefined?"Not set":a.priority);
