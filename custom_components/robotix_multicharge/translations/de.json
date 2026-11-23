@@ -8,7 +8,8 @@
           "name": "Name (optional)",
           "max_parallel": "Gleichzeitige Ladepunkte (optional)",
           "max_power_kw": "Maximale Ladeleistung (kW) (optional)",
-          "phase_limits_a": "Phasengrenzen (A) (optional)"
+          "phase_limits_a": "Phasengrenzen (A) (optional)",
+          "mode": "Anfänglicher Lademodus"
         }
       },
       "charger": {
@@ -109,23 +110,19 @@
           "asset": "Lade-Asset",
           "charger": "Ladepunkt",
           "display": "Dashboardkarte",
-          "yaml": "YAML bearbeiten (vor dem Speichern prüfen)"
+          "yaml": "YAML bearbeiten (vor dem Speichern prüfen)",
+          "commission": "Ladepunkt in Betrieb nehmen"
         }
       },
       "controller": {
         "title": "Ladestandort",
         "data": {
           "name": "Name",
-          "max_parallel": "Gleichzeitige Ladepunkte",
-          "max_power_kw": "Maximale Ladeleistung (kW) (optional)",
-          "mode": "Lademodus",
           "price_entity": "Preisquelle (optional)",
           "solar_entity": "Solarquelle (optional)",
           "binding_entity": "Leistungsgrenzquelle (optional)",
           "phase_limits_a": "Phasengrenzen (A) (optional)",
-          "plan_label_mode": "Planbeschriftung",
-          "plan_color_by": "Farbe nach",
-          "show_indicative_forecast": "Prognose anzeigen"
+          "site_power_entity": "Leistungsgrenzquelle (optional)"
         }
       },
       "asset": {
@@ -138,29 +135,19 @@
           "kind": "Typ",
           "soc_entity": "Batteriestand-Sensor",
           "capacity_kwh": "Batteriekapazität (kWh)",
-          "target_soc": "Ziel-Ladestand (%)",
-          "max_charge_kw": "Maximale Ladeleistung des Assets (kW)",
-          "requested_kwh": "Gewünschte Energie (kWh)",
-          "requested_duration_minutes": "Ladedauer (Minuten)",
-          "ready_by": "Bereit bis",
-          "charge_efficiency": "Ladewirkungsgrad",
-          "priority": "Priorität",
-          "ready_by_repeat": "Wiederholung",
-          "temporary": "Temporärer Gast",
-          "expires_at": "Ablauf des Gasts",
-          "expected_connection_at": "Voraussichtliche Verbindung"
+          "vehicle_control_entity": "Fahrzeug-Steuerschalter (Quelle)",
+          "vehicle_current_entity": "Fahrzeug-Stromvorgabe (Quelle)"
         }
       },
       "charger": {
         "title": "Ladepunkt",
-        "description": "MultiCharge erst nach überprüfter exklusiver Steuerungsübergabe wählen. Vor Inbetriebnahme Leistungsrückmeldung und elektrische Grenzen prüfen.",
+        "description": "Hardware, Sensoren und Verkabelung konfigurieren. Die physische Steuerung wird unter Inbetriebnahme aktiviert.",
         "data": {
           "action": "Aktion",
           "id": "Stabile ID",
           "name": "Name",
           "kind": "Typ",
           "rated_power_kw": "Nennleistung (kW)",
-          "asset": "Lade-Asset",
           "control_entity": "Schaltentität",
           "connected_entity": "Verbindungssensor",
           "power_entity": "Leistungssensor",
@@ -168,8 +155,6 @@
           "phase_count": "Phasenanzahl",
           "min_current_a": "Mindeststrom (A)",
           "max_current_a": "Maximalstrom (A)",
-          "control_owner": "Steuerungsinhaber",
-          "physical_commissioned": "Inbetriebnahme bestätigt",
           "phase_ids": "Verdrahtete Phasen",
           "voltage_v": "Spannung (V)",
           "current_step_a": "Stromschritt (A)",
@@ -177,7 +162,8 @@
           "circuit_id": "Stromkreis-ID",
           "circuit_limit_a": "Stromkreisgrenze (A)",
           "current_control_entity": "Stromsollwert (number)",
-          "current_readback_entity": "Gemessener Strom (A)"
+          "current_readback_entity": "Gemessener Strom (A)",
+          "session_entity": "Ladesitzungssensor (optional)"
         }
       },
       "display": {
@@ -201,6 +187,16 @@
         "data": {
           "confirm": "Geprüfte Änderungen anwenden",
           "edit_again": "Zurück zum YAML"
+        }
+      },
+      "commission": {
+        "title": "Physische Inbetriebnahme des Ladepunkts",
+        "description": "Exklusive Steuerung und gemessenen Ruhezustand prüfen. Hier wird kein Ladebefehl gesendet.",
+        "data": {
+          "charger_id": "Ladepunkt",
+          "commission": "MultiCharge-Steuerung aktivieren",
+          "exclusive_writer_confirmed": "Andere Steuerungen und Automationen greifen nicht mehr auf diesen Ladepunkt zu",
+          "electrical_limits_confirmed": "Elektrische Grenzen, Leistung und unabhängige Rückmeldung geprüft"
         }
       }
     },
