@@ -143,6 +143,49 @@ async def test_native_pause_resume_never_bypass_admin_authorization():
 
 
 @pytest.mark.asyncio
+async def test_all_native_owner_settings_deny_resident_service_bypass():
+    """Backend enforces HA admin regardless of a browser's hidden controls."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from custom_components.robotix_multicharge.command_query import (
+        require_native_admin,
+    )
+    from custom_components.robotix_multicharge.select import _OwnedSelect
+    from custom_components.robotix_multicharge.number import _AssetNumber
+    from custom_components.robotix_multicharge.datetime import _AssetDateTime
+    from custom_components.robotix_multicharge.text import (
+        _OwnerName, _AssetWindowText,
+    )
+
+    fake = SimpleNamespace(
+        context=SimpleNamespace(user_id="resident"),
+        hass=SimpleNamespace(auth=SimpleNamespace(
+            async_get_user=AsyncMock(
+                return_value=SimpleNamespace(is_admin=False)
+            )
+        )),
+    )
+    for action in (
+        lambda: _OwnedSelect.async_select_option(fake, "off"),
+        lambda: _AssetNumber.async_set_native_value(fake, 40),
+        lambda: _AssetDateTime.async_set_value(
+            fake, datetime.now(timezone.utc)),
+        lambda: _OwnerName.async_set_value(fake, "Other"),
+        lambda: _AssetWindowText.async_set_value(fake, "22:00-06:00"),
+    ):
+        with pytest.raises(RuntimeError, match="administrator"):
+            await action()
+    fake.context.user_id = None
+    with pytest.raises(RuntimeError, match="administrator"):
+        await require_native_admin(fake.hass, fake.context)
+    fake.context.user_id = "admin"
+    fake.hass.auth.async_get_user.return_value = SimpleNamespace(
+        is_admin=True
+    )
+    await require_native_admin(fake.hass, fake.context)
+
+
+@pytest.mark.asyncio
 async def test_clean_ha_minimal_unassigned_charger_has_finite_manual_hold(
     hass: HomeAssistant,
 ):
@@ -508,19 +551,32 @@ async def test_every_logical_device_auto_creates_own_native_inputs(hass: HomeAss
     expected = {
         ("controller", "site"): {
             "select": ("mode", "plan_color_by", "plan_label_mode",
-                       "show_indicative_forecast"),
+                       "show_indicative_forecast", "solar_source_kind",
+                       "grid_power_direction"),
             "number": ("max_parallel", "max_power_kw"),
             "text": ("name", "price_entity", "solar_entity",
-                     "site_power_entity", "binding_entity"),
+                     "site_power_entity", "binding_entity",
+                     "solar_power_entity", "home_power_entity",
+                     "grid_power_entity", "solar_surplus_entity",
+                     "current_price_entity", "export_price_entity"),
         },
         ("asset", "car"): {
             "number": ("target_soc", "requested_kwh",
                        "requested_duration_minutes", "priority",
                        "max_charge_kw", "capacity_kwh",
                        "charge_efficiency"),
-            "select": ("plan_color", "ready_by_repeat", "kind"),
-            "datetime": ("ready_by", "expected_connection_at", "expires_at"),
-            "text": ("name", "soc_entity"),
+            "select": ("plan_color", "ready_by_repeat", "kind",
+                       "continuous_charging", "opportunistic_kind",
+                       "ready_day_mon", "ready_day_tue", "ready_day_wed",
+                       "ready_day_thu", "ready_day_fri", "ready_day_sat",
+                       "ready_day_sun"),
+            "datetime": ("ready_by", "expected_connection_at",
+                         "expires_at", "earliest_start_at"),
+            "text": ("name", "soc_entity", "price_currency",
+                     "charging_window_mon", "charging_window_tue",
+                     "charging_window_wed", "charging_window_thu",
+                     "charging_window_fri", "charging_window_sat",
+                     "charging_window_sun"),
         },
         ("charger", "socket"): {
             "select": ("plan_color", "asset"),
