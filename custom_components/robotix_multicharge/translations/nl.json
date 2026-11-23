@@ -374,6 +374,9 @@
       },
       "ready_day_sun": {
         "name": "Zondag Ready By"
+      },
+      "continuous_charging": {
+        "name": "Laadpatroon"
       }
     },
     "number": {
