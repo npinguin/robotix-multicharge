@@ -270,8 +270,19 @@ class MultiChargeRuntime:
             amount = asset.get("requested_kwh")
             minutes = asset.get("requested_duration_minutes")
             budget = asset.get("requested_budget_amount")
-            if amount is None and minutes is None and budget is None:
-                reading = self.observations["assets"][asset["id"]]["soc"]
+            soc_based = amount is None and minutes is None and budget is None
+            reading = self.observations["assets"][asset["id"]]["soc"]
+            minimum_priority = 0.0
+            low_soc_priority = 0.0
+            if soc_based and (
+                    asset.get("minimum_soc_pct") is not None
+                    or asset.get("low_soc_trigger_pct") is not None):
+                if (reading.quality != "ok"
+                        or "capacity_kwh" not in asset
+                        or "charge_efficiency" not in asset):
+                    self.excluded[uid] = "SOC_PRIORITY_SOURCE_UNAVAILABLE"
+                    continue
+            if soc_based:
                 if (
                     reading.quality == "ok"
                     and "target_soc" in asset
@@ -283,6 +294,20 @@ class MultiChargeRuntime:
                         (asset["target_soc"] - reading.value)
                         * asset["capacity_kwh"] / 100 / asset["charge_efficiency"],
                     )
+                    if asset.get("minimum_soc_pct") is not None:
+                        minimum_priority = min(
+                            amount,
+                            max(0.0, (asset["minimum_soc_pct"] - reading.value)
+                                * asset["capacity_kwh"] / 100
+                                / asset["charge_efficiency"]),
+                        )
+                    if asset.get("low_soc_trigger_pct") is not None:
+                        low_soc_priority = min(
+                            amount,
+                            max(0.0, (asset["low_soc_trigger_pct"] - reading.value)
+                                * asset["capacity_kwh"] / 100
+                                / asset["charge_efficiency"]),
+                        )
             ready = asset.get("ready_by")
             deadline = datetime.fromisoformat(ready) if ready else None
             repeat = asset.get("ready_by_repeat", "none")
@@ -330,18 +355,32 @@ class MultiChargeRuntime:
                 datetime.fromisoformat(asset["expected_connection_at"])
                 if disconnected and asset.get("expected_connection_at") else None
             )
+            earliest = (
+                datetime.fromisoformat(asset["earliest_start_at"])
+                if asset.get("earliest_start_at") else None
+            )
+            eligible_after = max(
+                (instant for instant in (earliest, assumed_arrival)
+                 if instant is not None), default=None,
+            )
             request = ChargeDemand(
                 asset_uid=asset["id"], charger_uid=uid,
                 remaining_grid_kwh=amount, ready_by=deadline,
                 priority=asset.get("priority", 0),
                 continuous_charging=asset.get("continuous_charging", False),
+                minimum_priority_kwh=minimum_priority,
+                low_soc_priority_kwh=low_soc_priority,
+                maximum_price_per_kwh=asset.get("maximum_price_per_kwh"),
+                low_price_trigger_per_kwh=asset.get("low_price_trigger_per_kwh"),
+                price_currency=asset.get("price_currency"),
+                opportunistic_kind=asset.get("opportunistic_kind", "off"),
+                opportunistic_level_pct=asset.get("opportunistic_level_pct"),
                 remaining_duration_minutes=minutes,
                 remaining_budget_amount=budget,
                 budget_currency=(asset.get("requested_budget_currency")
                                  if budget is not None else None),
                 max_power_kw=asset.get("max_charge_kw"),
-                not_before=max(at, assumed_arrival)
-                if disconnected and assumed_arrival else None,
+                not_before=eligible_after,
             )
             if disconnected:
                 self.executor.connection_confirmation(raw, at)
