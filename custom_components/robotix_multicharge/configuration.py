@@ -660,6 +660,15 @@ def effective_configuration(entry):
     ))
 
 
+def configuration_json(config):
+    """Lossless human-editable JSON projection of the one validated Config Entry.
+
+    This is transport and presentation only: no extra file, store, defaults,
+    independent owner, or permission to bypass guarded physical commissioning.
+    """
+    return dumps(validate_configuration(config), indent=2, ensure_ascii=False)
+
+
 def configuration_revision(config):
     """Stable optimistic lock for native settings; not a planner revision."""
     return sha256(dumps(config, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:20]
