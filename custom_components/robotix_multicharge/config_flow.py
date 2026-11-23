@@ -790,6 +790,12 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional("binding_entity"): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
                 ),
+                vol.Optional("site_power_entity"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional("mode", default=cfg["controller"].get("mode", "Off")):
+                    vol.In(["Automatic", "Solar", "Economy", "Ready By",
+                            "Force Charge", "Off"]),
             }),
             errors={"base": "invalid_config"} if user_input else {},
         )
