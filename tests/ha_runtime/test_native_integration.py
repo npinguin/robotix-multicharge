@@ -203,6 +203,78 @@ async def test_clean_ha_minimal_unassigned_charger_has_finite_manual_hold(
 
 
 @pytest.mark.asyncio
+async def test_native_recorder_history_pricing_reuses_one_ha_query_without_billing(
+    hass: HomeAssistant, monkeypatch,
+):
+    """UC15: actual HA Recorder API seam, complete effective interval coverage.
+
+    Source samples are isolated; this does not claim site/utility billing proof.
+    """
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+    from homeassistant.components import recorder
+    from custom_components.robotix_multicharge.contracts import PriceSlot
+    from custom_components.robotix_multicharge.history import read_actual_history
+
+    at = datetime.now(timezone.utc)
+    start = at - timedelta(minutes=30)
+    mid = start + timedelta(minutes=15)
+    end = at - timedelta(seconds=5)
+    samples = [
+        SimpleNamespace(state="2000", attributes={"unit_of_measurement": "W"},
+                        last_updated=start),
+        SimpleNamespace(state="4000", attributes={"unit_of_measurement": "W"},
+                        last_updated=mid),
+    ]
+    recorder_calls = []
+    class NativeRecorder:
+        async def async_add_executor_job(self, fn, *args):
+            recorder_calls.append((fn, args))
+            return {"sensor.native_power": samples}
+    monkeypatch.setattr(recorder, "get_instance", lambda _hass: NativeRecorder())
+    hass.config.components.add("recorder")
+    receipt = {
+        "charger_id": "charger", "asset_id": "car",
+        "started_at": start.isoformat(), "ended_at": end.isoformat(),
+        "actual_energy_kwh": 1.5, "energy_quality": "measured",
+        "physical_stop_confirmed": True,
+        "cost": None, "currency": None, "cost_quality": "unknown",
+    }
+    configuration = {
+        "chargers": [{"id": "charger", "power_entity": "sensor.native_power"}]
+    }
+    slots = [
+        PriceSlot(start, mid, 0.2, "EUR"),
+        PriceSlot(mid, end, 0.32, "EUR"),
+    ]
+    rows, quality, values = await read_actual_history(
+        hass, configuration, start, end,
+        session_receipts=[receipt], price_slots=slots,
+        include_valuations=True,
+    )
+    key = ("charger", receipt["started_at"], receipt["ended_at"])
+    assert key in values
+    assert values[key]["estimated_variable_cost_currency"] == "EUR"
+    assert values[key]["estimated_variable_cost_quality"] == (
+        "observed_power_integral_effective_tariff"
+    )
+    assert len(recorder_calls) == 1, (
+        "One native HA Recorder query, not a parallel meter/history database"
+    )
+    assert receipt["cost"] is None, "Billed financial receipt stays immutable"
+    spot = [PriceSlot(start, end, -0.2, "EUR", basis="spot")]
+    _, _, rejected = await read_actual_history(
+        hass, configuration, start, end,
+        session_receipts=[receipt], price_slots=spot,
+        include_valuations=True,
+    )
+    assert rejected == {}, "A negative spot price must never be billed"
+    assert rows is not None
+    assert quality in ("MEASURED_POWER_HISTORY", "INCOMPLETE_POWER_HISTORY",
+                       "NO_RECORDED_QUARTERS")
+
+
+@pytest.mark.asyncio
 async def test_native_setup_registry_diagnostics_and_unload(hass: HomeAssistant):
     # Real copied custom integration under a standard HA config path.
     source = (Path(__file__).resolve().parents[2] / "custom_components" /
