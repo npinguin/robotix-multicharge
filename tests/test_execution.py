@@ -111,6 +111,86 @@ def rig(*, owner="multicharge", commissioned=True, group_kw=4.0,
 
 
 class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_native_energy_dashboard_power_sources_monitor_and_bound_solar(self):
+        """HA W/kW native PV, home, grid and prices need no Robotix templates."""
+        rt, sources, calls = rig(mode="Solar")
+        ctl = rt.configuration["controller"]
+        ctl.update(
+            solar_source_kind="grid_export",
+            grid_power_direction="import_positive",
+            solar_power_entity="sensor.pv_live",
+            home_power_entity="sensor.house_live",
+            grid_power_entity="sensor.meter_live",
+            current_price_entity="sensor.price_now",
+        )
+        sources.update({
+            "sensor.pv_live": state("3000", "W"),
+            "sensor.house_live": state("1200", "W"),
+            "sensor.meter_live": state("-1600", "W"),
+            "sensor.price_now": state("-0.08", "EUR/kWh"),
+        })
+        now = datetime.now(timezone.utc)
+        available, quality = rt.native_surplus_power(now)
+        self.assertEqual(quality, "OK")
+        self.assertAlmostEqual(available, 1.6)
+        rt.refresh(now)
+        metrics = rt.observations["sources"]
+        self.assertEqual(metrics["solar_power"]["value"], 3)
+        self.assertEqual(metrics["home_power"]["value"], 1.2)
+        self.assertEqual(metrics["grid_power"]["value"], -1.6)
+        self.assertEqual(metrics["current_price"]["basis"], "current_only")
+        self.assertEqual(metrics["current_price"]["currency"], "EUR")
+        self.assertNotEqual(metrics["tariff_quality"], "OK")
+        self.assertEqual(rt.executor._physical_budget(
+            rt.configuration["chargers"][0], now, 2.0, None,
+        ), "NATIVE_SOLAR_SURPLUS_INSUFFICIENT")
+        sources["sensor.meter_live"].state = "-2500"
+        sources["sensor.meter_live"].last_updated = datetime.now(timezone.utc)
+        self.assertEqual(rt.executor._physical_budget(
+            rt.configuration["chargers"][0],
+            datetime.now(timezone.utc), 2.0, None,
+        ), None)
+        ctl["grid_power_direction"] = "export_positive"
+        sources["sensor.meter_live"].state = "2500"
+        self.assertEqual(rt.native_surplus_power(
+            datetime.now(timezone.utc))[0], 2.5)
+        sources["sensor.meter_live"].state = "unavailable"
+        self.assertIsNone(rt.native_surplus_power(
+            datetime.now(timezone.utc))[0])
+        self.assertEqual(rt.executor._physical_budget(
+            rt.configuration["chargers"][0],
+            datetime.now(timezone.utc), 2.0, None,
+        ), "NATIVE_SOLAR_SOURCE_UNQUALIFIED")
+        self.assertEqual(calls.calls, [])
+
+    async def test_owned_sessions_added_back_only_once_to_live_grid_surplus(self):
+        rt, sources, services = rig()
+        ctl = rt.configuration["controller"]
+        ctl["solar_source_kind"] = "grid_export"
+        ctl["grid_power_direction"] = "import_positive"
+        ctl["grid_power_entity"] = "sensor.grid_meter"
+        sources["sensor.grid_meter"] = state("-500", "W")
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"],
+                         "confirmed")
+        # The charger is delivering 1.6kW and grid currently exports 0.5kW.
+        # Solar budget for this ONE already-owned session is 2.1kW, not 0.5.
+        source = rt.configuration["chargers"][0]
+        self.assertEqual(source["control_owner"], "multicharge")
+        value, quality = rt.native_surplus_power(datetime.now(timezone.utc))
+        self.assertEqual(quality, "OK")
+        self.assertAlmostEqual(value, 2.1)
+        sources["sensor.grid_meter"].state = "0"
+        sources["sensor.grid_meter"].last_updated = datetime.now(timezone.utc)
+        self.assertAlmostEqual(rt.native_surplus_power(
+            datetime.now(timezone.utc))[0], 1.6)
+        # A stale owned meter cannot be added back or treated as free kW.
+        sources["sensor.actual_power"].last_updated = (
+            datetime.now(timezone.utc) - timedelta(minutes=5)
+        )
+        result, reason = rt.native_surplus_power(datetime.now(timezone.utc))
+        self.assertIsNone(result)
+        self.assertEqual(reason, "OWNED_CHARGER_POWER_UNKNOWN")
+
     async def test_native_spot_price_cannot_be_billed_as_effective_session_cost(self):
         """Source-neutral Economy quotes are NOT all-in monetary evidence."""
         from multicharge_physical_execution_test.contracts import PriceSlot
