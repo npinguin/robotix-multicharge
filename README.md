@@ -10,6 +10,12 @@ Robotix MultiCharge is an open-source Home Assistant integration being built to 
 
 > **HACS TEST candidate v0.1.6 — independent Community integration, not STABLE or field-qualified.** This increment adds device-owned native Home Assistant inputs/actions automatically on the logical ChargeController, Charger and ChargeableAsset, with everyday charging controls in the integrated dashboard instead of the Options Flow. Newly added car profiles default to an editable 80% target; recurring Ready By schedules and variable-current Charger min/max/set kW are supported where the hardware qualifies. Guided setup can select Automatic mode, but **real Charger ownership remains external until explicit qualified commissioning**. Never run two physical writers on the same charger. Actual charger operation, source quality, responsive UX and every field use-case still require acceptance. No other Robotix/RHI integration is required.
 
+## Functional product authority
+
+**Start with the [Functional Specification and Use-Case Contract](docs/FUNCTIONAL_SPECIFICATION.md).** It is the **single canonical functional document** for MultiCharge: UC01–UC29, FLEX-01–21, FORECAST-01–12, UI-OWNER-01–10, desired resident/admin behavior, positive/negative test journeys, source-neutral installation, electrical safety, native owners and evidence requirements. The [RHI Platform Vision](https://github.com/npinguin/robotix-home-intelligence/blob/main/docs/ENGINEERING_PLATFORM_VISION.md) remains authoritative for platform boundaries. [Architecture](docs/ARCHITECTURE.md) and [Interfaces](docs/INTERFACES.md) describe implementation, not duplicate use-case authority.
+
+**Issues/PRs are execution evidence, not functional specifications.** [Issue #1](https://github.com/npinguin/robotix-multicharge/issues/1) tracks actual remaining gaps and blockers; [Draft PR #9](https://github.com/npinguin/robotix-multicharge/pull/9) tracks changed UC IDs, code, exact-head CI and qualification. No UC text or UX acceptance may exist only in a PR body. Live hardware ownership, installed browser qualification, site handoff and a published HACS artifact have distinct statuses; a source-green branch is not Feature Complete.
+
 ## What we're building
 
 - **Multi-asset charging** — coordinate different charging needs under one power budget.
