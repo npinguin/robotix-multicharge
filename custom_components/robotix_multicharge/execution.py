@@ -592,7 +592,6 @@ class NativeSwitchExecutor:
             if not charging_window_allows(
                 asset["charging_windows"], at, timedelta(seconds=1),
                 self.runtime.hass.config.time_zone,
-                asset.get("ready_by_weekdays"),
             ):
                 return "CHARGING_WINDOW_CLOSED"
         if manual_request is None and (amount is not None or duration is not None):
@@ -929,7 +928,6 @@ class NativeSwitchExecutor:
             if asset.get("charging_windows") and not charging_window_allows(
                 asset["charging_windows"], now, timedelta(seconds=1),
                 self.runtime.hass.config.time_zone,
-                asset.get("ready_by_weekdays"),
             ):
                 return "CHARGING_WINDOW_CLOSED"
         if now >= session["hard_stop_at"]:
