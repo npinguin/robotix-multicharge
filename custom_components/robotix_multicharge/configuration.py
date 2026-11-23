@@ -243,7 +243,8 @@ def validate_configuration(value):
                           "phase_count", "control_owner", "physical_commissioned",
                           "phase_ids", "voltage_v", "current_step_a", "fixed_current_a",
                           "circuit_id", "circuit_limit_a", "current_control_entity",
-                          "current_readback_entity", "plan_color"), "charger")
+                          "current_readback_entity", "min_charging_power_kw",
+                          "max_charging_power_kw", "plan_color"), "charger")
         uid = _text(source.get("id"), "charger.id")
         if uid in charger_ids:
             raise ValueError("charger.id: duplicate")
@@ -280,7 +281,8 @@ def validate_configuration(value):
                 raise ValueError("charger.phase_count: expected 1, 2 or 3")
             charger["phase_count"] = p
         for key in ("min_current_a", "max_current_a", "voltage_v",
-                    "current_step_a", "fixed_current_a", "circuit_limit_a"):
+                    "current_step_a", "fixed_current_a", "circuit_limit_a",
+                    "min_charging_power_kw", "max_charging_power_kw"):
             if source.get(key) is not None:
                 charger[key] = _number(source[key], "charger." + key)
         if source.get("phase_ids") is not None:
