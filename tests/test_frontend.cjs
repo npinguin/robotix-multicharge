@@ -66,8 +66,8 @@ global.document={
   createTextNode:(text)=>{const n=new Element("#text");n.textContent=text;return n;}
 };
 require("../custom_components/robotix_multicharge/frontend/robotix-multicharge.js");
-assert.ok(uiSource.includes('mcButton("Edit JSON",()=>this.openYamlEditor())'),
-  "Every owner group must offer the one canonical reviewed JSON editor");
+assert.ok(uiSource.includes('mcTr("Edit YAML"),()=>this.openYamlEditor('),
+  "Every owner group must offer the one canonical dashboard YAML editor");
 assert.ok(uiSource.includes('this.openNative(scope,record.id,field)'),
   "Existing native entity preferences remain directly editable by owner");
 const Card=customElements.get("robotix-multicharge-card");
@@ -903,101 +903,84 @@ async function main(){
   assert.ok(!find(resident.shadowRoot,"button","Edit JSON"),
     "Non-admin must never access native configuration transaction");
 
-  // A real admin begins exactly one official HA Options Flow. The frontend
-  // holds a draft only, and sends all validation/review/save to HA.
-  const yamlApis=[];
+  // One in-dashboard YAML editor, not a HA Options Flow, package or
+  // competing configuration store. Save must follow backend review.
+  const yamlCalls=[];
   let yamlApplied=false;
-  const initialYaml="controller:\n  id: site\n  name: Sample\n  mode: Off\n  max_parallel: 2\nassets: []\nchargers: []\n";
+  const initialYaml="controller:\n  id: site\n  name: Sample\n  mode: Off\nassets: []\nchargers: []\n";
+  const editorFixture=JSON.parse(JSON.stringify(fixture));
+  editorFixture.configuration_revision="12345678901234567890";
   const editorCard=new Card();
   editorCard.setConfig({});
   editorCard.hass={user:{is_admin:true},states:{},
-    callWS:async()=>fixture,
-    callApi:async(method,path,body)=>{
-      yamlApis.push({method,path,body});
-      if(method==="GET"&&path==="config/config_entries/entry")
-        return [{domain:"robotix_multicharge",entry_id:"entry-1"}];
-      if(method==="POST"&&path==="config/config_entries/options/flow")
-        return {type:"menu",flow_id:"flow-1",step_id:"init"};
-      if(method==="DELETE")
-        return {};
-      assert.equal(path,"config/config_entries/options/flow/flow-1");
-      if(body.next_step_id==="yaml")return {type:"form",flow_id:"flow-1",
-        step_id:"yaml",data_schema:[
-          {name:"yaml_text",default:initialYaml},
-          {name:"mode",default:"replace"}
-        ]};
-      if(body.edit_again)return {type:"form",flow_id:"flow-1",
-        step_id:"yaml",data_schema:[]};
-      if(body.yaml_text){
-        if(body.yaml_text.includes("INVALID"))
-          return {type:"form",flow_id:"flow-1",step_id:"yaml",
-            errors:{base:"invalid_config"},
-            description_placeholders:{note:"Validation: duplicate YAML key"}};
-        return {type:"form",flow_id:"flow-1",step_id:"yaml_review",
-          description_placeholders:{summary:"Chargers: Add outside\nWriter unchanged"},
-          data_schema:[]};
+    callWS:async request=>{
+      yamlCalls.push(request);
+      if(request.type==="robotix_multicharge/get_plan")
+        return editorFixture;
+      assert.equal(request.type,"robotix_multicharge/yaml_configuration");
+      if(request.action==="read")return {status:"ready",yaml_text:initialYaml,
+        configuration_revision:"12345678901234567890"};
+      if(request.action==="preview"){
+        if(request.yaml_text.includes("INVALID"))
+          throw Error("duplicate YAML key");
+        assert.equal(request.expected_revision,"12345678901234567890");
+        return {status:"preview",baseline_revision:"12345678901234567890",
+          reviewed_revision:"previewRevision12345",summary:"Chargers: Add outside\nWriter unchanged",
+          changes_present:true,groups:{}};
       }
-      if(body.confirm){
+      if(request.action==="apply"){
+        assert.equal(request.reviewed_revision,"previewRevision12345");
         yamlApplied=true;
-        return {type:"create_entry",title:"",data:{}};
+        editorFixture.configuration_revision="previewRevision12345";
+        return {status:"accepted_unconfirmed",
+          expected_revision:"previewRevision12345"};
       }
-      throw Error("Unsupported Options Flow action");
+      throw Error("Unexpected YAML editor operation");
     }};
   await new Promise(resolve=>setImmediate(resolve));
   editorCard._tab="Chargeable Assets";editorCard.render();
   find(editorCard.shadowRoot,"button","Details").click();
-  assert.ok(find(editorCard.shadowRoot,"button","Edit JSON"),
-    "Every owning Asset must reach the same first-class JSON Options Flow");
-  find(editorCard.shadowRoot,"button","Edit JSON").click();
+  assert.ok(find(editorCard.shadowRoot,"button","Edit YAML"),
+    "Object owner can open YAML configuration within MultiCharge");
+  find(editorCard.shadowRoot,"button","Edit YAML").click();
   await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(editorCard._tab,"Settings",
-    "Object-scoped Edit JSON must navigate to the actual reviewed editor");
-  assert.equal(editorCard._yamlFlow?.step_id,"yaml");
+  assert.equal(editorCard._tab,"Settings");
+  assert.equal(editorCard._yamlEditor.text,initialYaml);
+  assert.ok(find(editorCard.shadowRoot,"textarea"),
+    "YAML editor is embedded, not an external HA Options Flow");
   const textarea=find(editorCard.shadowRoot,"textarea");
-  assert.ok(textarea&&textarea.value===initialYaml,
-    "Editor uses backend-returned native Config Entry, not a local template");
   textarea.value=initialYaml+"# preview only\n";
   textarea.events.input();
-  assert.ok(!yamlApplied,"Changing YAML text cannot save by itself");
-  find(editorCard.shadowRoot,"button","Continue / review").click();
+  assert.ok(!yamlApplied,"Typing in YAML never saves on its own");
+  find(editorCard.shadowRoot,"button","Validate / Review YAML").click();
   await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(editorCard._yamlFlow.step_id,"yaml_review");
-  assert.ok(content(editorCard.shadowRoot).includes("Writer unchanged"),
-    "Actual backend review diff is shown verbatim before Save");
-  assert.ok(!yamlApplied,"Review must not save or send any physical command");
-  find(editorCard.shadowRoot,"button","Back to JSON").click();
-  await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(editorCard._yamlFlow.step_id,"yaml");
-  editorCard._yamlText="INVALID";
+  assert.ok(editorCard._yamlEditor.review,
+    "Backend dry-run preview must precede every Save");
+  assert.ok(content(editorCard.shadowRoot).includes("Writer unchanged"));
+  assert.ok(!yamlApplied,"Preview never mutates the Config Entry");
+  editorCard._yamlEditor.text="INVALID";editorCard._yamlEditor.review=null;
   editorCard.render();
-  find(editorCard.shadowRoot,"button","Continue / review").click();
+  find(editorCard.shadowRoot,"button","Validate / Review YAML").click();
   await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(editorCard._yamlFlow.step_id,"yaml");
-  assert.ok(content(editorCard.shadowRoot).includes("YAML rejected"),
-    "Backend YAML validation failure must remain visible without saving");
-  assert.ok(content(editorCard.shadowRoot).includes("duplicate YAML key"),
-    "Show actionable server validation, not only a generic failure");
-  editorCard._yamlText=initialYaml;
-  editorCard.render();
-  find(editorCard.shadowRoot,"button","Continue / review").click();
+  assert.ok(content(editorCard.shadowRoot).includes("duplicate YAML key"));
+  assert.ok(!yamlApplied);
+  editorCard._yamlEditor.text=initialYaml+"# final";editorCard.render();
+  find(editorCard.shadowRoot,"button","Validate / Review YAML").click();
   await new Promise(resolve=>setImmediate(resolve));
-  find(editorCard.shadowRoot,"button","Apply reviewed changes").click();
+  const box=find(editorCard.shadowRoot,"input");
+  assert.ok(box,"Final Save requires explicit review checkbox");
+  box.checked=true;box.events.change();
+  find(editorCard.shadowRoot,"button","Apply reviewed YAML").click();
   await new Promise(resolve=>setImmediate(resolve));
-  assert.ok(yamlApplied);
-  assert.equal(editorCard._yamlFlow,null);
-  assert.ok(yamlApis.some(call=>call.body?.next_step_id==="yaml"));
-  assert.ok(yamlApis.some(call=>call.body?.confirm===true));
-  assert.ok(!yamlApis.some(call=>call.method==="POST"&&
-    call.path==="config/config_entries/options/flow/flow-1"&&
-    call.body?.action==="start"),
-    "Config review/save never sends physical actuation");
-  find(editorCard.shadowRoot,"button","Edit JSON").click();
-  await new Promise(resolve=>setImmediate(resolve));
-  find(editorCard.shadowRoot,"button","Cancel JSON").click();
-  await new Promise(resolve=>setImmediate(resolve));
-  assert.ok(yamlApis.some(call=>call.method==="DELETE"),
-    "Cancel deletes the server-side draft flow");
-  assert.equal(editorCard._yamlFlow,null);
+  assert.ok(yamlApplied,"Reviewed YAML applied to the existing runtime Config Entry");
+  assert.equal(editorCard._yamlEditor,null);
+  assert.ok(yamlCalls.some(x=>x.action==="read"));
+  assert.ok(yamlCalls.some(x=>x.action==="preview"));
+  assert.ok(yamlCalls.some(x=>x.action==="apply"));
+  assert.ok(!yamlCalls.some(x=>x.type==="robotix_multicharge/command"),
+    "YAML configuration must never start or stop physical charging");
+  assert.ok(!yamlCalls.some(x=>String(x.type).includes("options/flow")),
+    "Dashboard editor never opens HA Options Flow");
 
   // The native sidebar forwards HA's authenticated hass object to the
   // same canonical card and exposes all five tabs to a non-admin resident.
@@ -1223,15 +1206,15 @@ async function main(){
   find(card.shadowRoot,"button","Settings").click();
   card._settingsOpen="";card.render();
   for(const name of ["Charging site","Sources & bindings","Charging strategy",
-                     "Safety & limits","Integrations","Advanced & JSON"]){
+                     "Safety & limits","Integrations","YAML configuration"]){
     assert.ok(content(card.shadowRoot).includes(name),name);
   }
-  assert.ok(find(card.shadowRoot,"a"),"Settings open real HA integration configuration");
-  assert.ok(content(card.shadowRoot).includes("Expert YAML / JSON configuration"),
-    "Settings summary exposes real expert configuration instead of a fake editor");
+  assert.ok(find(card.shadowRoot,"button","Edit YAML"),"Settings expose native embedded YAML editor");
+  assert.ok(content(card.shadowRoot).includes("YAML configuration"),
+    "Settings expose actual YAML runtime configuration");
   card._settingsOpen="Advanced & JSON";card.render();
-  assert.ok(content(card.shadowRoot).includes("Home Assistant Energy Dashboard sources may be reused"),
-    "GUI config reuses HA Energy and standalone sources");
+  assert.ok(content(card.shadowRoot).includes("YAML configuration"),
+    "Advanced editor remains inside MultiCharge");
   assert.ok(!content(card.shadowRoot).includes("/config/packages/multicharge.yaml"),
     "No YAML package is required to configure standalone MultiCharge");
   card._settingsOpen="Sources & bindings";card.render();
