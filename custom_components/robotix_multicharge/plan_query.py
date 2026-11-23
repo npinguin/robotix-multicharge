@@ -129,7 +129,8 @@ async def websocket_get_plan(
                     **{
                         field: native_entity("number", "asset", row["id"], field)
                         for field in ("target_soc", "requested_kwh",
-                                      "requested_duration_minutes", "priority",
+                                      "requested_duration_minutes", "requested_budget_amount",
+                                      "priority",
                                       "max_charge_kw", "capacity_kwh",
                                       "charge_efficiency")
                     },
