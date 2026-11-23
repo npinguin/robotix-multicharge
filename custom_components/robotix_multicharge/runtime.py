@@ -167,6 +167,9 @@ class MultiChargeRuntime:
                 connected_states=raw.get("connected_states"),
                 disconnected_states=raw.get("disconnected_states"),
             )
+            # Observe disconnect/unknown even when this Charger is excluded
+            # from planning; a later fresh connected state needs a new identity.
+            self.executor.observe_connection(raw, cable)
             power = number(self.hass, raw.get("power_entity"), "power", at)
             session = session_status(self.hass, raw.get("session_entity"), at)
             self.observations["chargers"][uid] = {
