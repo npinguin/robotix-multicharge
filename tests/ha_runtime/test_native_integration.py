@@ -143,6 +143,66 @@ async def test_native_pause_resume_never_bypass_admin_authorization():
 
 
 @pytest.mark.asyncio
+async def test_clean_ha_minimal_unassigned_charger_has_finite_manual_hold(
+    hass: HomeAssistant,
+):
+    """UC05/11/17: a clean site can configure a suitable on/off role safely."""
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    hass.states.async_set("switch.suitable_plug", "off")
+    config = validate_configuration({
+        "controller": {
+            "id": "home", "name": "Minimal house",
+            "mode": "Force Charge", "max_parallel": 1,
+            "max_power_kw": 2.0,
+        },
+        "assets": [],
+        "chargers": [{
+            "id": "plug", "name": "Unqualified suitable plug",
+            "kind": "on_off", "rated_power_kw": 1.0,
+            "phase_count": 1,
+            "control_entity": "switch.suitable_plug",
+            "control_owner": "external",
+            "physical_commissioned": False,
+        }],
+    })
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Minimal independent site",
+        data={"source": "ui", "configuration": config},
+        unique_id=DOMAIN,
+    )
+    entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    assert len(runtime.configuration["assets"]) == 0
+    assert runtime.configuration["controller"]["mode"] == "Force Charge"
+    assert runtime.executor.capabilities()["plug"]["manual_one_off_reason"] == (
+        "EXTERNAL_WRITER_OWNS_CHARGER"
+    )
+    assert runtime.executor.capabilities()["plug"]["manual_one_off_allowed"] is False
+    devices = dr.async_get(hass)
+    assert devices.async_get_device_by_identifier(
+        (DOMAIN, "controller/home"), entry.entry_id
+    )
+    assert devices.async_get_device_by_identifier(
+        (DOMAIN, "charger/plug"), entry.entry_id
+    )
+    issued = []
+    async def unsafe_vendor_start(call):
+        issued.append(call)
+    hass.services.async_register("switch", "turn_on", unsafe_vendor_start)
+    outcome = await runtime.executor.execute(
+        "plug", "start", manual_request={"duration_minutes": 10},
+    )
+    assert outcome["status"] == "rejected"
+    assert not issued, "A native switch state is not cable or permission proof"
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
 async def test_native_setup_registry_diagnostics_and_unload(hass: HomeAssistant):
     # Real copied custom integration under a standard HA config path.
     source = (Path(__file__).resolve().parents[2] / "custom_components" /
