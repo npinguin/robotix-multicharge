@@ -146,6 +146,7 @@ async def test_native_pause_resume_never_bypass_admin_authorization():
 async def test_all_native_owner_settings_deny_resident_service_bypass():
     """Backend enforces HA admin regardless of a browser's hidden controls."""
     from types import SimpleNamespace
+    from datetime import datetime, timezone
     from unittest.mock import AsyncMock
     from custom_components.robotix_multicharge.command_query import (
         require_native_admin,
