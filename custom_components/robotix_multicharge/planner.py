@@ -459,6 +459,50 @@ def compile_plan(
                 key, chosen_strategy = (0, 0.0), mode
             possible.append((key, slot, chosen_strategy, power, current, rate))
         possible.sort(key=lambda item: (item[0], item[1]))
+        if demand.continuous_charging:
+            # The existing one-Controller allocator must select a physically
+            # feasible *single run*, not merely relabel disjoint cheapest
+            # quarters. Every candidate already passed group/circuit/phase,
+            # source, calendar and binding checks. The run still reserves
+            # capacity globally only once at the end.
+            if demand.remaining_budget_amount is not None:
+                reasons[uid] = "CONTINUOUS_BUDGET_REQUIRES_FINITE_TIME"
+                shortfall[uid] = None
+                coverage[uid] = "UNAVAILABLE"
+                continue
+            chronological = sorted(possible, key=lambda item: item[1])
+            best = None
+            for index in range(len(chronological)):
+                segment = []
+                energy, minutes, price_total, preference_total = 0.0, 0, 0.0, 0
+                for item in chronological[index:]:
+                    _, stamp, _, power, _, rate = item
+                    if segment and stamp != segment[-1][1] + QUARTER:
+                        break
+                    segment.append(item)
+                    energy += power / 4.0
+                    minutes += 15
+                    price_total += (rate if rate is not None else 0.0) * power / 4
+                    preference_total += item[0][0]
+                    reached = (
+                        minutes >= demand.remaining_duration_minutes
+                        if demand.remaining_duration_minutes is not None
+                        else energy + 1e-9 >= demand.remaining_grid_kwh
+                    )
+                    if reached:
+                        candidate = (
+                            preference_total, round(price_total, 8),
+                            segment[0][1], tuple(segment),
+                        )
+                        if best is None or candidate[:3] < best[:3]:
+                            best = candidate
+                        break
+            if best is None:
+                reasons[uid] = "CONTIGUOUS_WINDOW_UNAVAILABLE"
+                shortfall[uid] = demand.remaining_grid_kwh
+                coverage[uid] = "INCOMPLETE"
+                continue
+            possible = list(best[3])
         chosen = []
         delivered = 0.0
         budget_consumed = 0.0
