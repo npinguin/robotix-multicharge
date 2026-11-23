@@ -330,7 +330,7 @@ class PlannerTests(unittest.TestCase):
         ]
         request = ChargeDemand(
             "guest", "c0", None, NOW + timedelta(hours=1),
-            remaining_budget_amount=2.5, budget_currency="EUR",
+            remaining_budget_amount=1.5, budget_currency="EUR",
         )
         plan = compile_plan(ctl, chargers, [request], NOW,
                             mode="Economy", tariffs={"c0": tariff})
