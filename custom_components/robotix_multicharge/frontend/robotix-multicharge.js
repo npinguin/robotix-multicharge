@@ -2435,6 +2435,62 @@ class RobotixMultiChargeCard extends HTMLElement {
       this._assetEditor=this._assetEditor==="new"?"":"new";this.render();
     }));
   }
+  dashboardChargerCreate(container){
+    if(!this.canEditSettings())return;
+    const box=mcEl("section","card dashboard-create");
+    box.append(mcEl("h3","",mcTr("Add charger")+" · "+
+      mcTr("configured entirely in MultiCharge")));
+    box.append(mcEl("p","muted small",
+      mcTr("New chargers start in external monitor-only mode; no physical command")));
+    const id=this.field(box,mcTr("Stable charger ID"),"","text");
+    const name=this.field(box,mcTr("Charger name"),"","text");
+    const kind=this.field(box,mcTr("Control type"),"on_off",null,[
+      ["on_off",mcTr("On/off")],["variable_current",mcTr("Variable current")]
+    ]);
+    const power=this.field(box,mcTr("Rated power (kW)"),"","number");
+    power.setAttribute("step","any");
+    const tech=mcEl("details","owner-group");
+    tech.append(mcEl("summary","",mcTr("Native connection, power and current sources")));
+    const panel=mcEl("div","owner-fields");
+    const draft={id:"new_charger"};
+    const readers={};
+    for(const field of [
+      "control_entity","connected_entity","connected_states","disconnected_states",
+      "power_entity","energy_entity","session_entity",
+      "current_control_entity","current_readback_entity",
+      "phase_count","phase_ids","voltage_v",
+      "min_current_a","max_current_a","current_step_a","fixed_current_a",
+      "circuit_id","circuit_limit_a"
+    ])readers[field]=this.dashboardFieldControl(panel,"charger",draft,field);
+    tech.append(panel);box.append(tech);
+    const actions=mcEl("div","dashboard-edit-actions");
+    const save=mcButton(mcTr("Add charger"),async()=>{
+      const uid=id.value.trim()||name.value.trim().toLowerCase()
+        .replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"");
+      const rated=Number(power.value);
+      if(!uid||!name.value.trim()||!Number.isFinite(rated)||rated<=0){
+        this._settingsFeedback={status:"rejected",
+          message:"Charger needs stable ID, name and positive rated kW"};
+        this.render();return;
+      }
+      const changes={name:name.value.trim(),kind:kind.value,rated_power_kw:rated};
+      try{
+        for(const [key,read] of Object.entries(readers)){
+          const value=read();if(value!==null)changes[key]=value;
+        }
+      }catch(error){
+        this._settingsFeedback={status:"rejected",message:String(error.message)};
+        this.render();return;
+      }
+      const ok=await this.saveSettings("charger",uid,changes,"create",true);
+      if(ok){this._createCharger=false;this._open=uid;this.render();}
+    });
+    save.disabled=this._settingsBusy;
+    actions.append(save,mcButton(mcTr("Cancel"),()=>{
+      this._createCharger=false;this.render();
+    }));
+    box.append(actions);container.append(box);
+  }
   chargers(container){
     const d=this._data,chargers=d.configuration.chargers||[],observations=(d.observations||{}).chargers||{};
     this.title(container,mcTr("Chargers")+" ("+chargers.length+")");
@@ -2635,10 +2691,11 @@ class RobotixMultiChargeCard extends HTMLElement {
       container.append(card);
     }
     if(this.canEditSettings()){
-      const add=mcEl("a","action",mcTr("Add charger"));
-      add.href="/config/integrations/integration/robotix_multicharge";
-      add.setAttribute("aria-label",mcTr("Add charger"));
-      container.append(add);
+      container.append(mcButton(this._createCharger?
+        mcTr("Cancel adding charger"):mcTr("Add charger"),()=>{
+        this._createCharger=!this._createCharger;this.render();
+      }));
+      if(this._createCharger)this.dashboardChargerCreate(container);
     }
   }
   settings(container){
