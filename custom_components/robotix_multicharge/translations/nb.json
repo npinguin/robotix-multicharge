@@ -66,7 +66,9 @@
           "connected_entity": "Tilkobling (valgfritt)",
           "power_entity": "Effekt (valgfritt)",
           "energy_entity": "Energimåler (valgfritt)",
-          "configure_electrical": "Konfigurer elektriske detaljer (valgfritt)"
+          "configure_electrical": "Konfigurer elektriske detaljer (valgfritt)",
+          "connected_states": "Native statuser for tilkoblet (kommaer)",
+          "disconnected_states": "Native statuser for frakoblet (kommaer)"
         }
       },
       "charger_electrical": {
@@ -185,7 +187,9 @@
           "circuit_limit_a": "Strøm",
           "current_control_entity": "Strøm",
           "current_readback_entity": "Strøm",
-          "session_entity": "Ladesesjonssensor (valgfri)"
+          "session_entity": "Ladesesjonssensor (valgfri)",
+          "connected_states": "Native statuser for tilkoblet (kommaer)",
+          "disconnected_states": "Native statuser for frakoblet (kommaer)"
         }
       },
       "display": {
