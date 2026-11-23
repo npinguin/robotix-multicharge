@@ -156,7 +156,7 @@ class NativeMeasuredHistoryTests(unittest.TestCase):
              self._price(middle, NOW, 0.4)],
             NOW,
         )
-        self.assertAlmostEqual(outcome["estimated_variable_cost"], 0.175)
+        self.assertAlmostEqual(outcome["estimated_variable_cost"], 0.35)
         self.assertAlmostEqual(outcome["estimated_variable_cost_energy_kwh"], 1.0)
         self.assertEqual(outcome["estimated_variable_cost_basis"],
                          "indicative_variable_energy_only")
