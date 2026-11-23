@@ -87,6 +87,10 @@ for(const [locale,terms] of Object.entries({"nl":["Indicatieve variabele energie
   MC_TEXT[locale]["Indicative variable energy cost"]=terms[0];
   MC_TEXT[locale]["Power-derived estimate, not a bill"]=terms[1];
 }
+for(const [locale,labels] of Object.entries({"nl":["Variabel referentietarief","Spotprijs"],"fr":["Prix de référence variable","Prix spot"],"de":["Variabler Referenzpreis","Spotpreis"],"es":["Precio variable de referencia","Precio spot"],"da":["Variabel referencepris","Spotpris"],"nb":["Variabel referansepris","Spotpris"],"sv":["Rörligt referenspris","Spotpris"]})){
+  MC_TEXT[locale]["Variable reference price"]=labels[0];
+  MC_TEXT[locale]["Spot price"]=labels[1];
+}
 const MC_MODES = ["Automatic", "Solar", "Economy", "Ready By", "Force Charge", "Off"];
 const MC_STYLE = [
   ":host{display:block;color:var(--primary-text-color,#20252b);font:inherit}",
@@ -702,6 +706,9 @@ class RobotixMultiChargeCard extends HTMLElement {
     const priceLabel=priced.quality==="ok"&&typeof priced.value==="number"&&priced.currency
       ?new Intl.NumberFormat(undefined,{style:"currency",currency:priced.currency,maximumFractionDigits:4}).format(priced.value)+"/kWh"
       :"Unavailable";
+    const priceKind=priced.basis==="variable_reference"?
+      "Variable reference price":priced.basis==="spot"?
+        "Spot price":"Current price";
     const powers=chargers.map(x=>(observations[x.id]||{}).power_kw);
     const complete=powers.length>0&&powers.every(x=>x&&x.quality==="ok"&&typeof x.value==="number");
     const active=powers.filter(x=>x&&x.quality==="ok"&&x.value>0).length;
@@ -709,8 +716,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     for(const [key,value] of [
       ["Active chargers",!chargers.length?"0":complete?String(active):"Unknown"],
       ["Actual power",complete?(powers.reduce((sum,x)=>sum+x.value,0).toFixed(2)+" kW"):"Unknown"],
-      ["Current price",priceLabel]
-    ]){const el=mcEl("div","metric");el.append(mcEl("p","muted small",key),mcEl("div","value",value));metrics.append(el);}
+      [priceKind,priceLabel]
+    ]){const el=mcEl("div","metric");el.append(mcEl("p","muted small",mcTr(key)),mcEl("div","value",value));metrics.append(el);}
     container.append(metrics);
     const mode=(c.controller||{}).mode||"Off";
     const chips=mcEl("div","chips");chips.append(mcEl("p","muted",mcTr("Charging mode")+" · "+mode));
