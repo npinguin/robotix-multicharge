@@ -25,6 +25,14 @@ Robotix MultiCharge is an open-source Home Assistant integration being built to 
 - **Real status** — physical charger readback, clear quality/availability and trustworthy plans.
 - **Works on its own** — choose optional data sources from native Home Assistant integrations.
 
+### Development progress — differentiated scheduling and flexible charging
+
+On the active `dev` branch (separate from the published HACS v0.1.6 TEST candidate), the existing one-controller architecture now includes source-tested **Specific days** vehicle Ready By schedules (any selected weekdays, separate local times), optional allowed weekday/hour charging windows, and finite goals of **measured kWh, charging duration or EUR budget**, plus the existing independently adjustable kW hardware cap where safe. A Guest can be created with a normal relative expiry, while unassigned Charger-only sessions retain an optional finite goal with no invented vehicle. Native HA owner entities, the bundled five-tab card and the same guarded physical executor are the only SET/command surfaces. Readback, historical attribution and restart safety remain separate from requested intent.
+
+**Financial semantics:** a euro goal uses verified `effective` €/kWh intervals and genuine native cumulative-energy meter deltas; spot-only and an ordinary price reference cannot authorize a billed-money promise. If one meter increment spans multiple fully qualified effective tariffs, the remaining budget is conservatively reduced at the highest applicable nonnegative rate, explicitly shown as an **upper bound**, not an invoice. Missing source, unqualified EVSE, stale identity or incomplete STOP/readback holds physical execution. Physical source and real browser qualification remain open; do not treat a source-green CI run as HACS STABLE, production or Wessels physical handoff.
+
+For full positive/negative and original upstream EV Smart Charging v2.6.1 parity requirements, see the [one canonical Functional Specification](docs/FUNCTIONAL_SPECIFICATION.md); implementation and remaining gates are recorded only in [Issue #1](https://github.com/npinguin/robotix-multicharge/issues/1) and the existing [Draft PR #9](https://github.com/npinguin/robotix-multicharge/pull/9).
+
 ## Simple in Home Assistant
 
 ### One product, two different workflows
