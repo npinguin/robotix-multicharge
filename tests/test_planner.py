@@ -316,6 +316,49 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(reason, "RECURRING")
         self.assertEqual(deadline.astimezone(zone).date().isoformat(), "2026-11-30")
 
+    def test_money_budget_only_effective_tariffs_and_full_quarter_caps(self):
+        ctl, chargers = build()
+        tariff = [
+            PriceSlot(NOW, NOW + timedelta(minutes=15), 2.0, "EUR",
+                      basis="effective"),
+            PriceSlot(NOW + timedelta(minutes=15),
+                      NOW + timedelta(minutes=30), 0.5, "EUR",
+                      basis="effective"),
+            PriceSlot(NOW + timedelta(minutes=30),
+                      NOW + timedelta(minutes=45), 3.0, "EUR",
+                      basis="effective"),
+        ]
+        request = ChargeDemand(
+            "guest", "c0", None, NOW + timedelta(hours=1),
+            remaining_budget_amount=2.5, budget_currency="EUR",
+        )
+        plan = compile_plan(ctl, chargers, [request], NOW,
+                            mode="Economy", tariffs={"c0": tariff})
+        self.assertEqual([s.start for s in plan.plan.slots],
+                         [NOW + timedelta(minutes=15)])
+        self.assertLessEqual(plan.proposed_kwh["c0"], 1.0)
+        # Wholesale spot or unqualified variable reference cannot authorize
+        # physically executable EUR-budget demand.
+        for basis in ("spot", "variable_reference"):
+            actual = [PriceSlot(p.start, p.end,
+                                p.effective_price_per_kwh, "EUR", basis=basis)
+                      for p in tariff]
+            refused = compile_plan(ctl, chargers, [request], NOW,
+                                   mode="Economy", tariffs={"c0": actual})
+            self.assertFalse(refused.plan.slots)
+            self.assertEqual(refused.reasons["c0"],
+                             "BUDGET_EFFECTIVE_TARIFF_UNAVAILABLE")
+        wrong = compile_plan(ctl, chargers, [request], NOW, mode="Economy",
+                             tariffs={"c0": [
+                                 PriceSlot(p.start, p.end,
+                                           p.effective_price_per_kwh, "USD")
+                                 for p in tariff]})
+        self.assertFalse(wrong.plan.slots)
+        with self.assertRaises(ValueError):
+            ChargeDemand("guest", "c0", 2.0, None,
+                         remaining_budget_amount=10.0,
+                         budget_currency="EUR")
+
     def test_specific_weekdays_replace_single_weekly(self):
         zone = ZoneInfo("Europe/Brussels")
         monday = datetime(2026, 11, 23, 7, tzinfo=zone)
