@@ -8,7 +8,7 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .command_query import apply_native_preference
+from .command_query import apply_native_preference, require_native_admin
 from .const import DOMAIN
 from .configuration import WEEKDAYS
 
@@ -100,6 +100,7 @@ class _OwnerName(TextEntity):
         await super().async_will_remove_from_hass()
 
     async def async_set_value(self, value: str) -> None:
+        await require_native_admin(self.hass, self.context)
         if not isinstance(value, str) or not value.strip():
             raise ValueError("name_required")
         await apply_native_preference(
@@ -157,10 +158,7 @@ class _SourceBindingText(TextEntity):
         await super().async_will_remove_from_hass()
 
     async def async_set_value(self, value: str):
-        actor = getattr(self.context, "user_id", None)
-        user = await self.hass.auth.async_get_user(actor) if actor else None
-        if user is None or not user.is_admin:
-            raise RuntimeError("Source binding edits require an HA administrator")
+        await require_native_admin(self.hass, self.context)
         value = value.strip() if isinstance(value, str) else ""
         await apply_native_preference(
             self.hass, self.entry, self.runtime,
@@ -218,6 +216,7 @@ class _AssetWindowText(TextEntity):
         await super().async_will_remove_from_hass()
 
     async def async_set_value(self, value: str):
+        await require_native_admin(self.hass, self.context)
         if not isinstance(value, str) or len(value) > 11:
             raise ValueError("window_format_invalid")
         asset = next((a for a in self.runtime.configuration["assets"]
