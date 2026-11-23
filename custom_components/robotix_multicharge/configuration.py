@@ -745,12 +745,11 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
             return validate_configuration(cfg)
         elif target is None:
             raise ValueError("unknown logical object")
-    # Inspect the original destination, BEFORE applying the edit; otherwise
-    # target["asset"] already equals the requested value and an occupied
-    # Charger could silently evict its former Vehicle.
-    if (scope == "charger" and changes.get("asset")
-            and target.get("asset") not in (None, changes["asset"])):
-        raise ValueError("charger_occupied")
+    # Switching the selected vehicle on ONE Charger is an atomic change:
+    # its previous vehicle is unassigned by replacement, not an active
+    # physical identity transfer. The native settings writer separately
+    # verifies charger idle, no open session and independent zero power
+    # BEFORE committing. No intermediate "None" user step is required.
     if scope == "asset" and action in ("save", "create"):
         # Three finite intents share ONE Config Entry and cannot silently
         # coexist; target SoC remains a separate long-term vehicle preference.
