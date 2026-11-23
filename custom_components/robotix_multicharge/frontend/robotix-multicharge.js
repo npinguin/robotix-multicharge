@@ -2186,6 +2186,43 @@ class RobotixMultiChargeCard extends HTMLElement {
           detail.append(options);
           if(!this.canEditSettings())mcPair(detail,"Charging mode",ctl.mode||"Unknown");
         }else if(title==="Sources & bindings"){
+          detail.append(mcEl("h4","",mcTr("Site energy configuration")));
+          const solarMode=ctl.solar_source_kind||
+            (ctl.solar_entity?"intervals":"none");
+          mcPair(detail,mcTr("Solar source type"),mcTr(solarMode));
+          mcPair(detail,mcTr("Grid meter direction"),
+            mcTr(ctl.grid_power_direction||"import_positive"));
+          if(this.canEditSettings()){
+            for(const [field,caption,choices] of [
+              ["solar_source_kind","Solar source type (native)",[
+                ["none",mcTr("Not configured")],
+                ["intervals",mcTr("Qualified Solar intervals")],
+                ["grid_export",mcTr("Measured grid export")],
+                ["direct_surplus",mcTr("Measured solar surplus")]
+              ]],
+              ["grid_power_direction","Grid meter direction (native)",[
+                ["import_positive",mcTr("Import is positive")],
+                ["export_positive",mcTr("Export is positive")]
+              ]]
+            ]){
+              if(!this.ownerEntity("controller",ctl.id,field))continue;
+              const value=field==="solar_source_kind"?solarMode:
+                ctl.grid_power_direction||"import_positive";
+              const select=this.field(detail,mcTr(caption),value,null,choices);
+              select.disabled=this._settingsBusy;
+              select.addEventListener("change",()=>{
+                if(field==="solar_source_kind"&&
+                  (select.value==="intervals"&&!ctl.solar_entity||
+                   select.value==="grid_export"&&!ctl.grid_power_entity||
+                   select.value==="direct_surplus"&&!ctl.solar_surplus_entity)){
+                  this._settingsFeedback={status:"rejected",
+                    message:mcTr("Select the required native meter before enabling this Solar mode")};
+                  this.render();return;
+                }
+                void this.nativeSelect("controller",ctl.id,field,select.value);
+              });
+            }
+          }
           for(const [field,label] of [
             ["solar_power_entity","Solar production"],
             ["home_power_entity","Home consumption"],
@@ -2232,6 +2269,9 @@ class RobotixMultiChargeCard extends HTMLElement {
           const phases=Object.entries(ctl.phase_limits_a||{});
           mcPair(detail,"Electrical limits",
             phases.length?phases.map(([id,amps])=>id+": "+amps+" A").join(" · "):mcTr("Not set"));
+          detail.append(mcEl("p","muted small",
+            mcTr("Phase and wiring settings are changed through the native Controller options after physical verification")));
+          if(this.canEditSettings())this.configure(detail);
         }else{
           mcPair(detail,"Configuration",d.configuration_managed_by_yaml?
             (d.configuration_managed_by_json?"JSON source":"YAML source"):"Home Assistant settings");
