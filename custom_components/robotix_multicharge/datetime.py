@@ -12,7 +12,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .command_query import apply_native_preference
 from .const import DOMAIN
 
-FIELDS = ("ready_by", "expected_connection_at", "expires_at")
+FIELDS = ("ready_by", "expected_connection_at", "expires_at", "earliest_start_at")
 
 
 async def async_setup_entry(
