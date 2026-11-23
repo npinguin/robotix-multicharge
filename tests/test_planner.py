@@ -384,8 +384,14 @@ class PlannerTests(unittest.TestCase):
         ]
         for kind, level, expected in (
             ("type1", 50, NOW + timedelta(minutes=30)),
-            ("type2", 90, NOW + timedelta(minutes=30)),
+            ("type2", 90, NOW),
         ):
+            qualified = tariffs if kind == "type1" else [
+                PriceSlot(row.start, row.end,
+                          (0.015 if index == 0 else row.effective_price_per_kwh),
+                          row.currency, row.basis)
+                for index, row in enumerate(tariffs)
+            ]
             result = compile_plan(
                 ctl, chargers,
                 [ChargeDemand("car", "c0", 1.0, NOW + timedelta(hours=1),
@@ -393,7 +399,7 @@ class PlannerTests(unittest.TestCase):
                               price_currency="EUR",
                               opportunistic_kind=kind,
                               opportunistic_level_pct=level)],
-                NOW, mode="Economy", tariffs={"c0": tariffs})
+                NOW, mode="Economy", tariffs={"c0": qualified})
             self.assertEqual([s.start for s in result.plan.slots], [expected])
         with self.assertRaises(ValueError):
             ChargeDemand("car", "c0", 1.0, None,
