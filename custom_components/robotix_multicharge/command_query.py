@@ -526,6 +526,8 @@ async def websocket_dashboard_yaml_configuration(
                     "baseline_revision": baseline,
                     "reviewed_revision": fingerprint,
                     "summary": _yaml_review_summary(before, updated),
+                    "groups": _dashboard_review(before, updated, msg.get("mode", "replace"))["groups"],
+                    "changes_present": before != updated,
                 })
                 return
             if msg["reviewed_revision"] != fingerprint:
