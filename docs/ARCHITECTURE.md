@@ -134,6 +134,14 @@ qualification remain separate.
 
 The installed equipment and built-in charger protections remain authoritative. Any physical execution must remain disabled until real hardware and fail-safe behavior are qualified.
 
+## Current dev charging-calendar and finite-budget integration
+
+The existing `ChargeableAsset` owns its **Ready By recurrence** and optional **allowed charging windows**; they are different constraints. `Specific days` with independent weekday clock values supersedes the resident-facing single-anchored Weekly option, preserving old settings via time-zone-aware migration. The Controller resolves next deadlines in site-local time, filters real UTC quarter slots against allowed windows and evaluates budget demand with source-qualified tariffs. All native daily preferences remain on the same logical HA Device and same validated Config Entry.
+
+One `NativeSwitchExecutor` continues to handle every physical START/STOP. An asset or Charger-only finite request may be specified as measured grid kWh, duration or indicative variable EUR budget, but not several at once; adjustable Charger kW remains a separate hardware-capped control. Monetary execution needs an independent energy meter and non-spot *effective* tariff coverage; no billing ledger or external provider dependency is added. If meter timestamps cross distinct effective prices without a boundary energy reading, charge progress uses a conservative maximum-rate upper bound and labels it separately, stopping earlier if necessary. Source gaps hold/STOP instead of inventing financial evidence.
+
+A protective cross-Charger STOP can dispatch while another Charger's unconfirmed START holds a long readback lock; the same-Charger command safety and subsequent independent STOP readback remain mandatory. This adds no scheduler, writer, new product layer or persistent financial ledger. **Source implementation/CI is distinct from feature-complete real browser/physical qualification**; authoritative acceptance belongs only to [UC05-BUDGET, UC06-SCHEDULE and UC22-STOP-LATENCY](FUNCTIONAL_SPECIFICATION.md).
+
 ## Acceptance and tracking
 
 The [canonical functional use cases and acceptance criteria](FUNCTIONAL_SPECIFICATION.md) are maintained in one product specification; [Issue #1](https://github.com/npinguin/robotix-multicharge/issues/1) records implementation gaps and qualification evidence. Include 1/2/4/10 charger scenarios; no-SoC, missing price and meter sources; time zones/DST; deadline feasibility; unsafe or rejected commands; real readback; configuration persistence; and HA restart/unload/rollback.
