@@ -1012,7 +1012,73 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         if self.config_entry.data.get("source") in ("yaml", "json"):
             return self.async_abort(reason="yaml_managed")
         return self.async_show_menu(
-            step_id="init", menu_options=["controller", "asset", "charger", "commission", "display", "yaml"]
+            step_id="init", menu_options=["controller", "energy", "asset", "charger", "commission", "display", "yaml"]
+        )
+
+    async def async_step_energy(self, user_input=None):
+        """Optional HA-standard source choices; Energy Dashboard is read-only.
+
+        Import associations once into the same UI-owned Config Entry, without
+        depending on the Energy integration during charging or copying its
+        statistics as a second system of record.
+        """
+        cfg = self._current()
+        discovered = await _energy_dashboard_defaults(self.hass)
+        errors = {}
+        if user_input is not None:
+            trial = deepcopy(cfg)
+            ctl = trial["controller"]
+            preset = discovered if user_input.get("use_energy_dashboard") else {}
+            for field in ENERGY_ENTITY_FIELDS:
+                value = user_input.get(field) or preset.get(field)
+                if value:
+                    ctl[field] = value
+                else:
+                    ctl.pop(field, None)
+            for field in ("solar_source_kind", "grid_power_direction"):
+                if field in user_input:
+                    ctl[field] = user_input[field]
+            result = await self._safe_structural_save(trial)
+            if result is not None:
+                return result
+            errors["base"] = "invalid_config"
+        chosen = {**discovered, **{
+            key: cfg["controller"][key] for key in ENERGY_ENTITY_FIELDS
+            if cfg["controller"].get(key)
+        }}
+        return self.async_show_form(
+            step_id="energy", errors=errors,
+            data_schema=vol.Schema({
+                vol.Optional("use_energy_dashboard", default=False): bool,
+                vol.Required("solar_source_kind", default=cfg["controller"].get(
+                    "solar_source_kind", "none")): vol.In({
+                        "none": "Monitoring only / not configured",
+                        "intervals": "Qualified 15-minute Solar intervals",
+                        "grid_export": "Live grid export power (W/kW)",
+                        "direct_surplus": "Live available solar surplus power (W/kW)",
+                    }),
+                vol.Required("grid_power_direction", default=cfg["controller"].get(
+                    "grid_power_direction", "import_positive")): vol.In({
+                        "import_positive": "Import positive (HA Energy standard)",
+                        "export_positive": "Export positive",
+                    }),
+                **{
+                    _optional_native_entity(key, chosen):
+                        selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
+                    for key in ENERGY_ENTITY_FIELDS
+                },
+            }),
+            description_placeholders={
+                "note": (
+                    "Choose existing native Home Assistant sensors. "
+                    "Use Energy Dashboard reads its configured grid/solar live "
+                    "power and price entity IDs as suggestions; verify selections "
+                    "before saving. Home consumption is selected manually, not "
+                    "calculated by adding appliance counters. Power W/kW is "
+                    "different from Energy Wh/kWh. Live prices are indicative "
+                    "and cannot replace future tariff intervals."
+                ),
+            },
         )
 
     async def async_step_controller(self, user_input=None):
@@ -1021,11 +1087,8 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             cfg["controller"]["name"] = user_input["name"]
             if user_input.get("phase_limits_a"):
                 cfg["controller"]["phase_limits_a"] = _phase_limits(user_input["phase_limits_a"])
-            for key in ("price_entity", "solar_entity", "site_power_entity", "binding_entity"):
-                if user_input.get(key):
-                    cfg["controller"][key] = user_input[key]
-                else:
-                    cfg["controller"].pop(key, None)
+            # Other source bindings are owned by the dedicated Energy step.
+            # Editing a site name or phase limits must not silently erase them.
             result = self._saved(cfg)
             if result is not None:
                 return result
