@@ -8,7 +8,7 @@ The HA adapter supplies qualified source readings; the command owner is separate
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 from hashlib import sha256
 from math import ceil, floor, isfinite
@@ -20,18 +20,89 @@ from .contracts import (
 )
 from .domain import ChargeController, Charger
 
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+def _valid_wall_utc(local_day: date, clock: str, zone: ZoneInfo) -> datetime:
+    """Reuse EVSC V2's real local-minute/DST semantics without its runtime.
+
+    A spring gap moves to the first actual minute; a repeated autumn minute
+    picks the later occurrence. Never compare naive local time as UTC.
+    """
+    wall = datetime.combine(local_day, time.fromisoformat(clock))
+    for minute in range(181):
+        candidate = wall + timedelta(minutes=minute)
+        possible = []
+        for fold in (0, 1):
+            aware = candidate.replace(tzinfo=zone, fold=fold)
+            utc = aware.astimezone(timezone.utc)
+            if utc.astimezone(zone).replace(tzinfo=None) == candidate:
+                possible.append(utc)
+        if possible:
+            return max(possible)
+    raise ValueError("DST local time cannot be resolved")
+
+
+def _next_specific_day(now: datetime, weekdays: Mapping[str, str],
+                       site_time_zone: str) -> tuple[datetime | None, str]:
+    if not weekdays or set(weekdays) - set(WEEKDAYS):
+        return None, "DEADLINE_UNAVAILABLE"
+    zone = ZoneInfo(site_time_zone)
+    today = now.astimezone(zone).date()
+    for offset in range(8):
+        day = today + timedelta(days=offset)
+        clock = weekdays.get(WEEKDAYS[day.weekday()])
+        if clock is None:
+            continue
+        candidate = _valid_wall_utc(day, clock, zone)
+        if candidate > now.astimezone(timezone.utc):
+            return candidate, "RECURRING"
+    return None, "DEADLINE_UNAVAILABLE"
+
+
+def charging_window_allows(windows: Mapping[str, Mapping[str, str]],
+                           when: datetime, duration: timedelta,
+                           site_time_zone: str) -> bool:
+    """Only complete intervals inside a selected local weekday window count.
+
+    Cross-midnight windows belong to their chosen start weekday. A missing
+    window policy means no additional calendar restriction.
+    """
+    if not windows:
+        return True
+    if when.tzinfo is None or when.utcoffset() is None:
+        raise ValueError("charging window requires aware instant")
+    zone = ZoneInfo(site_time_zone)
+    local_day = when.astimezone(zone).date()
+    first = when.astimezone(timezone.utc)
+    last = first + duration
+    for day in (local_day - timedelta(days=1), local_day):
+        window = windows.get(WEEKDAYS[day.weekday()])
+        if window is None:
+            continue
+        start = _valid_wall_utc(day, window["start"], zone)
+        end_day = day + timedelta(days=(window["end"] <= window["start"]))
+        end = _valid_wall_utc(end_day, window["end"], zone)
+        if start <= first and last <= end:
+            return True
+    return False
+
+
 def resolve_recurring_ready_by(
-    anchor: datetime, now: datetime, repeat: str, site_time_zone: str
+    anchor: datetime | None, now: datetime, repeat: str, site_time_zone: str,
+    weekday_times: Mapping[str, str] | None = None,
 ) -> tuple[datetime | None, str]:
     """Resolve the next real wall-clock deadline without inventing DST instants.
 
     Recurrence is local to the HA site time zone; ambiguous or nonexistent
     upcoming wall times fail closed rather than silently shifting deadlines.
     """
-    if anchor.tzinfo is None or anchor.utcoffset() is None:
-        raise ValueError("Ready By anchor must be timezone-aware")
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("now must be timezone-aware")
+    if repeat == "specific_days":
+        return _next_specific_day(now, weekday_times or {}, site_time_zone)
+    if anchor is None or anchor.tzinfo is None or anchor.utcoffset() is None:
+        raise ValueError("Ready By anchor must be timezone-aware")
     if repeat == "none":
         return anchor, "ONE_OFF"
     if repeat not in ("daily", "weekly"):
@@ -108,6 +179,8 @@ def compile_plan(
     binding: PowerEnvelope | None = None,
     horizon_hours: int = 48,
     reserved_slots: Sequence[PlannedChargeSlot] = (),
+    charging_windows: Mapping[str, Mapping[str, Mapping[str, str]]] | None = None,
+    site_time_zone: str | None = None,
 ) -> PlanAssessment:
     """Calculate one deterministic, bounded, non-actuating Controller proposal.
 
@@ -270,8 +343,16 @@ def compile_plan(
         missing_price = False
         missing_solar = False
         missing_binding = False
+        outside_window = False
         for slot in intervals:
             finish = slot + QUARTER
+            window = (charging_windows or {}).get(uid)
+            if window:
+                if not site_time_zone:
+                    raise ValueError("charging window requires site time zone")
+                if not charging_window_allows(window, slot, QUARTER, site_time_zone):
+                    outside_window = True
+                    continue
             if (finish > deadline or
                     demand.not_before is not None and slot < _utc(demand.not_before)):
 
@@ -418,6 +499,7 @@ def compile_plan(
                 "BINDING_CAPACITY_UNAVAILABLE" if missing_binding
                 else "SOLAR_UNAVAILABLE" if mode == "Solar" and missing_solar
                 else "PRICE_UNAVAILABLE" if mode == "Economy" and missing_price
+                else "CHARGING_WINDOW_LIMITED" if outside_window
                 else "INSUFFICIENT_CAPACITY_OR_TIME"
             )
             coverage[uid] = "INCOMPLETE"
