@@ -67,7 +67,25 @@ is a read-only source observation and is **not** authorization,
 cable identity, power or energy evidence.
 
 
-### Native HA contracts for independently installed consumers
+### Current dev owner fields — weekday calendars, bounded money and protected STOP
+
+The [canonical functional specification](FUNCTIONAL_SPECIFICATION.md) owns the user-facing requirements. The implementation extends the **existing** `ChargeableAsset`, `Charger`, `ChargeController`, one Config Entry, one UTC 15-minute Planner, one guarded `NativeSwitchExecutor`, native Recorder and already-registered five-tab panel. These are development contracts, not a frozen public release.
+
+| Native owner | Persisted fields / observed surface | Contract |
+| --- | --- | --- |
+| ChargeableAsset | `ready_by_repeat=none|daily|specific_days`, `ready_by_weekdays={mon:"06:45",wed:"08:30"}` | Specific days are separate local HH:MM deadlines; old `weekly` stays readable and is losslessly projected as a specific-day option on user edit |
+| ChargeableAsset | `charging_windows={mon:{start:"22:00",end:"06:00"}}` | Optional permitted actual charging windows; cross-midnight uses selected start weekday, real UTC intervals and fail-closed DST; independent of Ready By |
+| ChargeableAsset | `requested_kwh` XOR `requested_duration_minutes` XOR `requested_budget_amount` + `requested_budget_currency` | Exactly one finite intent, while `max_charge_kw` remains separate physical setpoint/cap; native Number and owner `Charging intention` readback |
+| Charger-only | Admin-only `robotix_multicharge/command` with `action=start` and one of `energy_kwh`, `duration_minutes`, or `cost_amount` + `currency` | The same immutable command request and one writer; no fabricated vehicle or new command gateway |
+| Charger | Active source-qualified receipt `budget_cost`, `budget_quality`, `budget_last_meter_value`, `budget_last_meter_at` | Only real cumulative meter increments and non-overlapping covered effective quote slots count; a meter delta spanning multiple effective prices is conservatively bounded at the largest applicable nonnegative price, never called exact settlement |
+| Charger | `budget_accrued_cost`, `budget_cost_quality`, `budget_currency` on durable closed session receipt | Independent physical STOP/readback is required; `qualified_effective_meter_increments`, `conservative_effective_upper_bound`, or unknown, with original asset/Charger ID at time; no duplicate Finance ledger |
+| ChargeController | One plan/revision, source quality, effective tariff coverage, proposed/accepted/measured slots | Weekday windows and money constraints use the *existing* executor/admission, not an HA automation or parallel price engine |
+
+**Failure/permission:** invalid/non-effective budget tariff, source gap/stale meter, missing native connected/readback, inadequate wiring or exclusive owner, expiry, unavailable price, unrelated EVSE STOP blocked behind another START, single-EVSE competing commands and corrupted persisted evidence all retain explicit outcomes. The physically qualified STOP fast-path for a different already-active Charger still uses the one executor, no physical success until verified independent readback.
+
+Developer and isolated-HA source tests do not establish real browser/provider/field acceptance. See [Issue #1](https://github.com/npinguin/robotix-multicharge/issues/1) and [Draft PR #9](https://github.com/npinguin/robotix-multicharge/pull/9) for exact head and remaining gates.
+
+## Native HA contracts for independently installed consumers
 
 - Source-neutral native HA entities for new logical properties and qualifying control actions. Stable unique IDs keyed on logical IDs and semantic property, never mutable names. No copied historical controls.
 - **One bounded, read-only future-plan query**, proposed HA WebSocket message type `robotix_multicharge/get_plan`, with `schema_major:1`, exact `controller_id`, optional `charger_id` or `asset_id`, aware `start` and `end`, maximum 48h. Return `schema_major`, `revision`, `generated_at`, `valid_until`, `timezone`, `status`, `coverage`, `quality`, a bounded array of UTC time slots containing separate planned and measured values and optional source-qualified price/available capacity, deadline/shortfall and explanatory reason. Explicit authorization and scope checks. This is an interface *proposal* until target-HA testing freezes the name and schema; do not ship an incompatible second query.
