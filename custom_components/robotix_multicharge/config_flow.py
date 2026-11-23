@@ -824,6 +824,8 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                               "expected_connection_at"):
                     if user_input.get(field) is not None and user_input.get(field) != "":
                         asset[field] = user_input[field]
+                if not any(a["id"] == uid for a in cfg["assets"]):
+                    apply_new_asset_defaults(asset)
                 cfg["assets"] = [a for a in cfg["assets"] if a["id"] != uid] + [asset]
                 result = self._saved(cfg)
             if result is not None:
@@ -842,6 +844,24 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 ),
                 vol.Optional("capacity_kwh"): selector.NumberSelector(selector.NumberSelectorConfig(
                     min=0.01, max=1000, step=0.1, mode=selector.NumberSelectorMode.BOX
+                )),
+                vol.Optional("target_soc"): selector.NumberSelector(selector.NumberSelectorConfig(
+                    min=0, max=100, step=1, mode=selector.NumberSelectorMode.BOX
+                )),
+                vol.Optional("max_charge_kw"): selector.NumberSelector(selector.NumberSelectorConfig(
+                    min=0.01, max=100, step=0.1, mode=selector.NumberSelectorMode.BOX
+                )),
+                vol.Optional("requested_kwh"): selector.NumberSelector(selector.NumberSelectorConfig(
+                    min=0, max=200, step=0.1, mode=selector.NumberSelectorMode.BOX
+                )),
+                vol.Optional("requested_duration_minutes"): selector.NumberSelector(selector.NumberSelectorConfig(
+                    min=1, max=1440, step=1, mode=selector.NumberSelectorMode.BOX
+                )),
+                vol.Optional("ready_by"): selector.DateTimeSelector(),
+                vol.Optional("ready_by_repeat"): vol.In(["none", "daily", "weekly"]),
+                vol.Optional("expected_connection_at"): selector.DateTimeSelector(),
+                vol.Optional("priority"): selector.NumberSelector(selector.NumberSelectorConfig(
+                    min=0, max=100, step=1, mode=selector.NumberSelectorMode.BOX
                 )),
                 vol.Optional("temporary"): bool,
                 vol.Optional("expires_at"): str,
