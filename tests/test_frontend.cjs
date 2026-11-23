@@ -172,6 +172,82 @@ async function main(){
   assert.equal(find(readonlyAssign.shadowRoot,"button","Change charger"),undefined,
     "Resident may view assignment but may not edit Charger-owned relation");
 
+  // UC05/11/17: the empty/uncommissioned Charger remains usable for
+  // finite request preparation. Physical START is disabled until independently
+  // qualified native sources exist; no fake smart-plug cable evidence.
+  const minimalData=JSON.parse(JSON.stringify(fixture));
+  minimalData.configuration_revision="minimal-rev-a";
+  minimalData.configuration.assets=[];
+  minimalData.configuration.chargers=[{
+    id:"plug",name:"Simple charger",kind:"on_off",rated_power_kw:1.8,
+    control_entity:"switch.suitable_smart_plug"
+  }];
+  minimalData.command_capabilities={plug:{
+    manual_one_off_allowed:false,
+    manual_one_off_reason:"PHYSICAL_CONNECTION_UNVERIFIED",
+    start_allowed:false,stop_allowed:false
+  }};
+  const manualWS=[];
+  const minimalCard=new Card();
+  minimalCard.setConfig({});
+  minimalCard.hass={
+    user:{is_admin:true},states:{},
+    callWS:async request=>{
+      manualWS.push(request);
+      return request.type==="robotix_multicharge/command"?
+        {status:"confirmed",action:"start"}:minimalData;
+    }
+  };
+  await new Promise(resolve=>setImmediate(resolve));
+  find(minimalCard.shadowRoot,"button","Chargers").click();
+  assert.ok(content(minimalCard.shadowRoot).includes("Manual one-off charge"),
+    "An unassigned Charger must show bounded manual preparation even before commissioning");
+  assert.ok(content(minimalCard.shadowRoot).includes("Connection not verified"),
+    "Missing native cable evidence must produce a specific HOLD, not invented Connected");
+  assert.equal(find(minimalCard.shadowRoot,"button","Start bounded session").disabled,true);
+  function finiteInput(card,label){
+    let input;
+    visit(card.shadowRoot,node=>{
+      if(node.className==="field" && node.children[0]?.textContent===label)
+        input=node.children[1];
+    });
+    return input;
+  }
+  const minutesInput=finiteInput(minimalCard,"Time limit (minutes)");
+  assert.ok(minutesInput);
+  minutesInput.value="15";
+  minutesInput.events.input();
+  minimalCard.render();
+  assert.equal(finiteInput(minimalCard,"Time limit (minutes)").value,"15",
+    "Non-executed user draft survives a normal source repaint");
+  assert.equal(manualWS.filter(r=>r.type==="robotix_multicharge/command").length,0,
+    "No physical command may originate from a disabled manual setup");
+
+  minimalData.command_capabilities.plug.manual_one_off_allowed=true;
+  minimalData.command_capabilities.plug.manual_one_off_reason="READY";
+  minimalCard.render();
+  const enabledStart=find(minimalCard.shadowRoot,"button","Start bounded session");
+  assert.equal(enabledStart.disabled,false,
+    "Existing safe executor remains reachable once qualification succeeds");
+  enabledStart.click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(manualWS.some(r=>r.type==="robotix_multicharge/command"&&
+    r.charger_id==="plug"&&r.action==="start"&&r.duration_minutes===15),
+    "Only a bounded real executor request can start an eligible manual session");
+
+  // A structural/config revision ends a pending local draft. It is never a
+  // second persisted charge-request store or a physical session.
+  minimalData.configuration_revision="minimal-rev-b";
+  await minimalCard.load();
+  assert.equal(finiteInput(minimalCard,"Time limit (minutes)").value,"");
+  const residentMinimal=new Card();
+  residentMinimal.setConfig({});
+  residentMinimal.hass={user:{is_admin:false},states:{},callWS:async()=>minimalData};
+  await new Promise(resolve=>setImmediate(resolve));
+  find(residentMinimal.shadowRoot,"button","Chargers").click();
+  assert.equal(find(residentMinimal.shadowRoot,"button","Start bounded session"),undefined,
+    "Resident read access never exposes admin-only manual command");
+
   const adjustableFixture=JSON.parse(JSON.stringify(fixture));
   adjustableFixture.configuration.chargers[0].kind="variable_current";
   Object.assign(adjustableFixture.configuration.chargers[0],{
