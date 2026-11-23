@@ -97,7 +97,8 @@ async def websocket_get_plan(
             "controller": {
                 field: native_select("controller", cfg["controller"]["id"], field)
                 for field in ("plan_label_mode", "plan_color_by",
-                              "show_indicative_forecast", "mode")
+                              "show_indicative_forecast", "mode",
+                              "solar_source_kind", "grid_power_direction")
             } | {
                 "name": native_entity("text", "controller",
                                       cfg["controller"]["id"], "name"),
@@ -105,7 +106,10 @@ async def websocket_get_plan(
                     field: native_entity("text", "controller",
                                          cfg["controller"]["id"], field)
                     for field in ("price_entity", "solar_entity",
-                                  "site_power_entity", "binding_entity")
+                                  "site_power_entity", "binding_entity",
+                                  "solar_power_entity", "home_power_entity",
+                                  "grid_power_entity", "solar_surplus_entity",
+                                  "current_price_entity", "export_price_entity")
                 },
             } | {
                 field: native_entity("number", "controller",
