@@ -10,6 +10,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .command_query import apply_native_preference
 from .const import DOMAIN
+from .configuration import WEEKDAYS
 
 
 async def async_setup_entry(
@@ -34,6 +35,10 @@ async def async_setup_entry(
     entities.extend(
         _SourceBindingText(entry, runtime, "asset", asset, "soc_entity")
         for asset in config["assets"]
+    )
+    entities.extend(
+        _AssetWindowText(entry, runtime, asset, day)
+        for asset in config["assets"] for day in WEEKDAYS
     )
     async_add_entities(entities)
 
@@ -156,4 +161,74 @@ class _SourceBindingText(TextEntity):
         await apply_native_preference(
             self.hass, self.entry, self.runtime,
             self.kind, self.uid, {self.field: value or None},
+        )
+
+
+class _AssetWindowText(TextEntity):
+    """One native source-of-truth HA Text per weekday on the owning Asset.
+
+    The card offers human-friendly start/end controls and calls this entity.
+    Empty value means no window for this day; no second timetable or writer.
+    """
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_entity_category = None
+    _attr_native_min = 0
+    _attr_native_max = 11
+
+    def __init__(self, entry, runtime, asset, day):
+        self.entry, self.runtime, self.uid, self.day = (
+            entry, runtime, asset["id"], day
+        )
+        self._attr_unique_id = f"{DOMAIN}:asset:{self.uid}:charging_window_{day}"
+        self._attr_name = f"{day.capitalize()} charging window"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, f"asset/{self.uid}")},
+            "name": asset["name"], "manufacturer": "Robotix",
+            "model": "ChargeableAsset",
+        }
+        self._unsubscribe = None
+        self._refresh_value()
+
+    def _refresh_value(self):
+        asset = next((a for a in self.runtime.configuration["assets"]
+                      if a["id"] == self.uid), None)
+        window = (asset or {}).get("charging_windows", {}).get(self.day)
+        self._attr_native_value = (
+            f"{window['start']}-{window['end']}" if window else ""
+        )
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        self._unsubscribe = self.runtime.subscribe(self._refresh)
+
+    @callback
+    def _refresh(self):
+        self._refresh_value()
+        self.async_write_ha_state()
+
+    async def async_will_remove_from_hass(self):
+        if self._unsubscribe is not None:
+            self._unsubscribe()
+            self._unsubscribe = None
+        await super().async_will_remove_from_hass()
+
+    async def async_set_value(self, value: str):
+        if not isinstance(value, str) or len(value) > 11:
+            raise ValueError("window_format_invalid")
+        asset = next((a for a in self.runtime.configuration["assets"]
+                      if a["id"] == self.uid), None)
+        if asset is None:
+            raise ValueError("asset_not_found")
+        windows = dict(asset.get("charging_windows") or {})
+        if value.strip():
+            parts = value.strip().split("-")
+            if len(parts) != 2:
+                raise ValueError("window_format_invalid")
+            windows[self.day] = {"start": parts[0], "end": parts[1]}
+        else:
+            windows.pop(self.day, None)
+        await apply_native_preference(
+            self.hass, self.entry, self.runtime, "asset", self.uid,
+            {"charging_windows": windows or None},
         )
