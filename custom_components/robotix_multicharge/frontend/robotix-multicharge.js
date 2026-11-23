@@ -1041,6 +1041,7 @@ class RobotixMultiChargeCard extends HTMLElement {
   chargers(container){
     const d=this._data,chargers=d.configuration.chargers||[],observations=(d.observations||{}).chargers||{};
     this.title(container,mcTr("Chargers")+" ("+chargers.length+")");
+    this.feedback(container);
     if(!chargers.length)this.notice(container,"No charging points",false);
     for(const c of chargers){
       const obs=observations[c.id]||{};
@@ -1235,13 +1236,10 @@ class RobotixMultiChargeCard extends HTMLElement {
               mcButton("Edit",()=>this.openNative("controller",ctl.id,"name")));
             detail.append(rename);
           }
-          for(const field of ["max_parallel","max_power_kw"]){
-            if(!this.canEditSettings()||!this.ownerEntity("controller",ctl.id,field))continue;
-            const item=mcEl("div","row");
-            item.append(mcEl("span","",field==="max_parallel"?"Parallel chargers":"Maximum group kW"),
-              mcButton("Edit",()=>this.openNative("controller",ctl.id,field)));
-            detail.append(item);
-          }
+          this.nativeNumberEditor(detail,"controller",ctl.id,"max_parallel",
+            "Parallel chargers",ctl.max_parallel);
+          this.nativeNumberEditor(detail,"controller",ctl.id,"max_power_kw",
+            "Maximum group power",ctl.max_power_kw,"kW");
         }else if(title==="Charging strategy"){
           const options=mcEl("div","chips");
           for(const mode of this.canEditSettings()?MC_MODES:[]){
@@ -1273,16 +1271,10 @@ class RobotixMultiChargeCard extends HTMLElement {
         }else if(title==="Safety & limits"){
           mcPair(detail,"Maximum group kW",ctl.max_power_kw===undefined?
             "Unknown":ctl.max_power_kw+" kW");
-          for(const [field,label] of [
-            ["max_power_kw","Maximum group kW"],
-            ["max_parallel","Parallel chargers"]
-          ]){
-            if(!this.canEditSettings()||!this.ownerEntity("controller",ctl.id,field))continue;
-            const setting=mcEl("div","row");
-            setting.append(mcEl("span","",mcTr(label)),
-              mcButton("Edit",()=>this.openNative("controller",ctl.id,field)));
-            detail.append(setting);
-          }
+          this.nativeNumberEditor(detail,"controller",ctl.id,"max_power_kw",
+            "Maximum group power",ctl.max_power_kw,"kW");
+          this.nativeNumberEditor(detail,"controller",ctl.id,"max_parallel",
+            "Parallel chargers",ctl.max_parallel);
           const phases=Object.entries(ctl.phase_limits_a||{});
           mcPair(detail,"Electrical limits",
             phases.length?phases.map(([id,amps])=>id+": "+amps+" A").join(" · "):mcTr("Not set"));
