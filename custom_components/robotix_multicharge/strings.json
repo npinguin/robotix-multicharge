@@ -8,7 +8,8 @@
           "name": "Charging site name (optional)",
           "max_parallel": "Maximum simultaneous charging points (optional)",
           "max_power_kw": "Configured group power ceiling (kW; hardware verification required) (optional)",
-          "phase_limits_a": "Verified phase current ceilings, e.g. L1:16,L2:16,L3:16 (A) (optional)"
+          "phase_limits_a": "Verified phase current ceilings, e.g. L1:16,L2:16,L3:16 (A) (optional)",
+          "mode": "Initial charging mode"
         }
       },
       "charger": {
@@ -109,23 +110,19 @@
           "asset": "Chargeable assets",
           "charger": "Chargers",
           "display": "Dashboard card",
-          "yaml": "Edit YAML (review before save)"
+          "yaml": "Edit YAML (review before save)",
+          "commission": "Commission Charger"
         }
       },
       "controller": {
         "title": "Charging site",
         "data": {
           "name": "Name",
-          "max_parallel": "Simultaneous chargers",
-          "max_power_kw": "Maximum charging power (kW) (optional)",
-          "mode": "Charging mode (physical actuation requires approved commissioning)",
           "price_entity": "Effective price interval source (optional)",
           "solar_entity": "Qualified solar available-power interval source (optional)",
           "binding_entity": "Optional binding power envelope (fail closed if unavailable) (optional)",
           "phase_limits_a": "Verified phase limits, e.g. L1:16,L2:16,L3:16 (A) (optional)",
-          "plan_label_mode": "Charging plan labels: vehicle, charger or both",
-          "plan_color_by": "Charging plan colors by vehicle or charger",
-          "show_indicative_forecast": "Show disconnected vehicle indicative forecasts"
+          "site_power_entity": "Optional binding power envelope (fail closed if unavailable) (optional)"
         }
       },
       "asset": {
@@ -138,29 +135,19 @@
           "kind": "Type",
           "soc_entity": "Battery level entity",
           "capacity_kwh": "Battery capacity (kWh)",
-          "target_soc": "Target battery level (%)",
-          "max_charge_kw": "Maximum charging power (kW)",
-          "requested_kwh": "Explicit requested grid energy (kWh)",
-          "requested_duration_minutes": "Explicit requested charging duration (minutes)",
-          "ready_by": "Ready By (date/time including timezone)",
-          "charge_efficiency": "Known charging efficiency (0–1)",
-          "priority": "Priority (0–100)",
-          "ready_by_repeat": "Repeat Ready By (none/daily/weekly, site time zone)",
-          "temporary": "Temporary guest",
-          "expires_at": "Guest expiry date/time with timezone",
-          "expected_connection_at": "Optional expected connection time (with timezone) — forecast only"
+          "vehicle_control_entity": "Vehicle native control switch (source binding)",
+          "vehicle_current_entity": "Vehicle native current number (source binding)"
         }
       },
       "charger": {
         "title": "Charger",
-        "description": "Select MultiCharge only after approved exclusive owner cutover. A claimed owner does not automatically disable EV Smart Charging or another writer. Verify physical power readback and electrical limits before commissioning.",
+        "description": "Configure native hardware, sensors and wiring. Physical ownership is enabled separately under Commission.",
         "data": {
           "action": "Action",
           "id": "Stable ID (optional for new charger)",
           "name": "Name",
           "kind": "Control capability",
           "rated_power_kw": "Rated power (kW)",
-          "asset": "Assigned asset",
           "control_entity": "Native switch for actual on/off control",
           "connected_entity": "Connected state",
           "power_entity": "Measured power",
@@ -168,8 +155,6 @@
           "phase_count": "Number of phases",
           "min_current_a": "Minimum current (A)",
           "max_current_a": "Maximum current (A)",
-          "control_owner": "Selected command owner (external or multicharge)",
-          "physical_commissioned": "Physical safety validated and all previous writers disabled (commissioning declaration)",
           "phase_ids": "Wired phases (L1,L2,L3)",
           "voltage_v": "Verified line-neutral voltage (V)",
           "current_step_a": "Current adjustment step (A)",
@@ -177,7 +162,8 @@
           "circuit_id": "Circuit identifier",
           "circuit_limit_a": "Circuit protection ceiling (A)",
           "current_control_entity": "Native current setpoint (number)",
-          "current_readback_entity": "Independent actual current sensor (A)"
+          "current_readback_entity": "Independent actual current sensor (A)",
+          "session_entity": "Native charging session sensor (optional)"
         }
       },
       "display": {
@@ -201,6 +187,16 @@
         "data": {
           "confirm": "Apply these reviewed configuration changes",
           "edit_again": "Return to YAML editing"
+        }
+      },
+      "commission": {
+        "title": "Physical Charger commissioning",
+        "description": "Verify exclusive native command ownership and safe idle readback before enabling physical control. This never sends a charging command.",
+        "data": {
+          "charger_id": "Charger",
+          "commission": "Enable MultiCharge control for this Charger",
+          "exclusive_writer_confirmed": "Other controllers and automations have relinquished physical command ownership",
+          "electrical_limits_confirmed": "Electrical limits, physical power and independent sensor readback have been verified"
         }
       }
     },
