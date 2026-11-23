@@ -1241,6 +1241,83 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
                 asset, rt.configuration["chargers"][0], None)["budget_amount"],
             0.4)
 
+    async def test_price_ceiling_physically_blocks_start_and_stops_active_after_rate_change(self):
+        rt, states, services = rig()
+        asset = rt.configuration["assets"][0]
+        asset.update(maximum_price_per_kwh=0.20, price_currency="EUR")
+        now = datetime.now(timezone.utc)
+        price = state("ready")
+        price.attributes = {
+            "kind": "effective_price_kwh", "currency": "EUR",
+            "valid_until": (now + timedelta(hours=3)).isoformat(),
+            "intervals": [{
+                "start": (now - timedelta(hours=1)).isoformat(),
+                "end": (now + timedelta(hours=3)).isoformat(),
+                "value": 0.30,
+            }],
+        }
+        states["sensor.price"] = price
+        rt.configuration["controller"]["price_entity"] = "sensor.price"
+        rt.refresh()
+        blocked = await rt.executor.execute("evse", "start")
+        self.assertEqual(blocked["reason"], "PRICE_LIMIT_BLOCKED")
+        self.assertEqual(services.calls, [])
+        price.attributes["intervals"][0]["value"] = 0.10
+        price.last_updated = datetime.now(timezone.utc)
+        rt.refresh()
+        running = await rt.executor.execute("evse", "start")
+        self.assertEqual(running["status"], "confirmed")
+        price.attributes["intervals"][0]["value"] = 0.30
+        price.last_updated = datetime.now(timezone.utc)
+        rt.refresh()
+        self.assertEqual(rt.executor._session_stop_reason(
+            rt.configuration["chargers"][0], datetime.now(timezone.utc)),
+            "PRICE_LIMIT_BLOCKED")
+        await rt.executor.supervise()
+        self.assertEqual(services.calls[-1][1], "turn_off")
+        self.assertFalse(rt.executor.session_snapshot())
+
+    async def test_earliest_start_and_low_soc_price_override_are_source_bound(self):
+        rt, states, services = rig()
+        asset = rt.configuration["assets"][0]
+        asset["earliest_start_at"] = (
+            datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        result = await rt.executor.execute("evse", "start")
+        self.assertEqual(result["reason"], "EARLIEST_START_NOT_REACHED")
+        self.assertEqual(services.calls, [])
+        asset.pop("earliest_start_at")
+        asset.pop("requested_kwh")
+        asset.update(target_soc=80, capacity_kwh=50,
+                     charge_efficiency=0.9, soc_entity="sensor.car_soc",
+                     minimum_soc_pct=30,
+                     maximum_price_per_kwh=0.20, price_currency="EUR")
+        states["sensor.car_soc"] = state("25", "%")
+        now = datetime.now(timezone.utc)
+        price = state("ready")
+        price.attributes = {
+            "kind": "effective_price_kwh", "currency": "EUR",
+            "valid_until": (now + timedelta(hours=3)).isoformat(),
+            "intervals": [{
+                "start": (now - timedelta(hours=1)).isoformat(),
+                "end": (now + timedelta(hours=3)).isoformat(),
+                "value": 0.30,
+            }],
+        }
+        states["sensor.price"] = price
+        rt.configuration["controller"]["price_entity"] = "sensor.price"
+        rt.refresh()
+        active = await rt.executor.execute("evse", "start")
+        self.assertEqual(active["status"], "confirmed")
+        states["sensor.car_soc"].state = "40"
+        states["sensor.car_soc"].last_updated = datetime.now(timezone.utc)
+        rt.refresh()
+        self.assertEqual(rt.executor._session_stop_reason(
+            rt.configuration["chargers"][0], datetime.now(timezone.utc)),
+            "PRICE_LIMIT_BLOCKED",
+            "Minimum SoC may bypass economic cap only while actually below minimum")
+        await rt.executor.supervise()
+        self.assertEqual(services.calls[-1][1], "turn_off")
+
     async def test_money_negative_tariff_does_not_make_unlimited_24h_intent(self):
         rt, states, service = rig()
         asset = rt.configuration["assets"][0]
