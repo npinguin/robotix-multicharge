@@ -274,6 +274,7 @@ class MultiChargeRuntime:
             reading = self.observations["assets"][asset["id"]]["soc"]
             minimum_priority = 0.0
             low_soc_priority = 0.0
+            budget_minutes = 24 * 60 if budget is not None else None
             if soc_based and (
                     asset.get("minimum_soc_pct") is not None
                     or asset.get("low_soc_trigger_pct") is not None):
@@ -332,6 +333,9 @@ class MultiChargeRuntime:
                         self.excluded[uid] = "BUDGET_MEASURED_PROGRESS_UNAVAILABLE"
                         continue
                     budget = max(0, budget - progress["budget_amount"])
+                    budget_minutes = max(
+                        0.0, 24 * 60 - progress["duration_minutes"],
+                    )
                     if progress["duration_minutes"] >= 24 * 60:
                         # A zero-cost or negative-price period cannot become
                         # an unbounded recurring budget intent.
@@ -351,6 +355,12 @@ class MultiChargeRuntime:
                         budget = 0.0
                     else:
                         amount, minutes = 0.0, None
+            # Target SoC can itself have changed since the last meter
+            # receipt. A priority guarantee must NEVER exceed the actually
+            # remaining verified battery demand of this controller cycle.
+            if amount is not None:
+                minimum_priority = min(minimum_priority, amount)
+                low_soc_priority = min(low_soc_priority, amount)
             assumed_arrival = (
                 datetime.fromisoformat(asset["expected_connection_at"])
                 if disconnected and asset.get("expected_connection_at") else None
@@ -377,6 +387,7 @@ class MultiChargeRuntime:
                 opportunistic_level_pct=asset.get("opportunistic_level_pct"),
                 remaining_duration_minutes=minutes,
                 remaining_budget_amount=budget,
+                budget_remaining_minutes=budget_minutes,
                 budget_currency=(asset.get("requested_budget_currency")
                                  if budget is not None else None),
                 max_power_kw=asset.get("max_charge_kw"),
