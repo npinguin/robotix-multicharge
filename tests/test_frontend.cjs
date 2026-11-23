@@ -79,6 +79,176 @@ function content(node){
   let text="";visit(node,x=>{if(x.textContent)text+=x.textContent+"\n";});return text;
 }
 async function main(){
+  // UX-OWNER-01 one canonical object, complete settings and no second store.
+  const owners=JSON.parse(JSON.stringify(fixture));
+  Object.assign(owners.configuration.controller,{
+    solar_source_kind:"grid_export",
+    grid_power_direction:"import_positive",
+    grid_power_entity:"sensor.site_grid",
+    current_price_entity:"sensor.import_eur",
+    export_price_entity:"sensor.export_eur",
+    solar_power_entity:"sensor.roof_pv",
+    home_power_entity:"sensor.house",
+    solar_surplus_entity:"sensor.surplus",
+    phase_limits_a:{L1:25,L2:32,L3:32},
+    plan_label_mode:"both",
+    plan_color_by:"vehicle",
+    show_indicative_forecast:true,
+  });
+  Object.assign(owners.configuration.assets[0],{
+    soc_stale_entity:"binary_sensor.car_soc_stale",
+    vehicle_control_entity:"switch.vehicle_charge",
+    vehicle_current_entity:"number.vehicle_current",
+    capacity_kwh:72,
+    charge_efficiency:0.92,
+    max_charge_kw:11,
+    minimum_soc_pct:30,
+    price_currency:"EUR",
+    maximum_price_per_kwh:0.20,
+    ready_by_repeat:"specific_days",
+    ready_by_weekdays:{mon:"07:00",fri:"18:00"},
+    charging_windows:{sun:{start:"22:00",end:"06:00"}},
+    expected_connection_at:"2026-11-24T19:00:00+01:00",
+    opportunistic_kind:"type1",
+  });
+  Object.assign(owners.configuration.chargers[0],{
+    control_owner:"external",physical_commissioned:false,
+    control_entity:"switch.charger",
+    connected_entity:"binary_sensor.plug",
+    power_entity:"sensor.charge_power",
+    energy_entity:"sensor.charge_energy",
+    session_entity:"sensor.session",
+    min_current_a:6,max_current_a:32,current_step_a:1,
+    fixed_current_a:16,phase_ids:["L1"],phase_count:1,
+    voltage_v:230,circuit_id:"garage",circuit_limit_a:32,
+  });
+  owners.completed_sessions=[{
+    charger_id:"drive",asset_id:"historical_guest",
+    started_at:"2026-11-21T20:00:00+01:00",
+    ended_at:"2026-11-21T21:00:00+01:00",
+    actual_energy_kwh:3.5,cost:null,
+    stop_reason:"USER_STOP",physical_stop_confirmed:true,
+  }];
+  owners.preference_entities.controller.solar_source_kind="select.site_solar_kind";
+  owners.preference_entities.controller.grid_power_direction="select.site_meter_sign";
+  owners.preference_entities.controller.grid_power_entity="text.site_grid";
+  owners.preference_entities.controller.current_price_entity="text.site_import";
+  const siteCommands=[];
+  const site=new Card();site.setConfig({});
+  site.hass={user:{is_admin:true},language:"en",states:{},
+    callWS:async()=>owners,
+    callService:async(domain,action,args)=>{
+      siteCommands.push({domain,action,args});
+    }};
+  await new Promise(resolve=>setImmediate(resolve));
+  site._tab="Settings";site._settingsOpen="Charging site";site.render();
+  const siteText=content(site.shadowRoot);
+  for(const label of ["Complete object settings & sources",
+                      "Maximum per-phase current","Solar production sensor",
+                      "Current import price source","Grid sensor sign",
+                      "Show unreserved forecast"]){
+    assert.ok(siteText.includes(label),"Site owner must expose "+label);
+  }
+  assert.ok(siteText.includes("L1: 25"),"Verified source phase limits visible");
+  site._settingsOpen="Sources & bindings";site.render();
+  const sourceText=content(site.shadowRoot);
+  assert.ok(sourceText.includes("Solar source type"));
+  assert.ok(sourceText.includes("sensor.site_grid"));
+  assert.ok(sourceText.includes("Grid meter direction"));
+  function ownerField(root,label){
+    let x=null;visit(root,node=>{
+      if(node.className==="field"&&node.children[0]?.textContent===label)
+        x=node.children[1];
+    });return x;
+  }
+  const sourceType=ownerField(site.shadowRoot,"Solar source type (native)");
+  assert.ok(sourceType,"native solar source model editable on Site");
+  sourceType.value="direct_surplus";sourceType.events.change();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(siteCommands.some(x=>x.domain==="select"&&
+    x.args.entity_id==="select.site_solar_kind"&&
+    x.args.option==="direct_surplus"),
+    "Controller-native source mode uses owning HA service");
+  const meterSign=ownerField(site.shadowRoot,"Grid meter direction (native)");
+  assert.ok(meterSign);
+  meterSign.value="export_positive";meterSign.events.change();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(siteCommands.some(x=>x.domain==="select"&&
+    x.args.entity_id==="select.site_meter_sign"&&
+    x.args.option==="export_positive"));
+
+  const vehicle=new Card();vehicle.setConfig({});
+  vehicle.hass={user:{is_admin:true},language:"en",states:{},
+    callWS:async()=>owners};
+  await new Promise(resolve=>setImmediate(resolve));
+  vehicle._tab="Chargeable Assets";vehicle.render();
+  find(vehicle.shadowRoot,"button","Details").click();
+  const vehicleText=content(vehicle.shadowRoot);
+  for(const label of ["Vehicle identity & lifetime","Goal & timing",
+                      "Price & charging decisions","Battery & source references",
+                      "Battery freshness sensor","Vehicle-native current setting",
+                      "Allowed charging time windows","Opportunistic strategy"]){
+    assert.ok(vehicleText.includes(label),"Vehicle object must expose "+label);
+  }
+  assert.ok(vehicleText.includes("binary_sensor.car_soc_stale"));
+  assert.ok(vehicleText.includes("FRI: 18:00"),
+    "Per-day Ready By remains under owning Vehicle");
+
+  const evse=new Card();evse.setConfig({});
+  evse.hass={user:{is_admin:true},language:"en",states:{},
+    callWS:async()=>owners};
+  await new Promise(resolve=>setImmediate(resolve));
+  evse._tab="Chargers";evse.render();
+  find(evse.shadowRoot,"button","Details").click();
+  const evseText=content(evse.shadowRoot);
+  for(const label of ["Physical Charger & verified sources",
+                      "Identity & ownership","Connection & meter sources",
+                      "Electrical hardware & circuit",
+                      "Native Charger control switch","Circuit breaker limit",
+                      "Cumulative Charger energy meter",
+                      "Original vehicle at session time",
+                      "historical_guest","External control (monitor only)"]){
+    assert.ok(evseText.includes(label),"Charger owner must expose "+label);
+  }
+  assert.ok(evseText.includes("sensor.charge_energy"));
+  assert.ok(evseText.includes("garage"));
+  assert.ok(evseText.includes("USER_STOP")||evseText.includes("User stop"),
+    "Receipt must show physical STOP reason");
+  const ro=new Card();ro.setConfig({});
+  ro.hass={user:{is_admin:false},states:{},callWS:async()=>owners};
+  await new Promise(resolve=>setImmediate(resolve));
+  ro._tab="Chargers";ro.render();
+  find(ro.shadowRoot,"button","Details").click();
+  assert.ok(content(ro.shadowRoot).includes("Native Charger control switch"),
+    "Read-only user can observe owning technical configuration");
+  assert.equal(find(ro.shadowRoot,"a","Configure in Home Assistant"),undefined,
+    "Resident cannot acquire a configuration action from technical inventory");
+
+  // UX-OWNER-03 quick-action from Overview must target the *chosen* Vehicle.
+  const focused=JSON.parse(JSON.stringify(owners));
+  focused.configuration.assets.push({
+    id:"visitor",name:"Visitor",kind:"car",temporary:true,
+    expires_at:"2026-11-24T22:00:00+01:00",requested_kwh:8.0,
+  });
+  const focus=new Card();focus.setConfig({});
+  focus.hass={user:{is_admin:true},states:{},callWS:async()=>focused};
+  await new Promise(resolve=>setImmediate(resolve));
+  focus._tab="Overview";focus.render();
+  const scheduleButtons=[];
+  visit(focus.shadowRoot,node=>{
+    if(node.tag==="button"&&node.textContent==="Schedule charging")
+      scheduleButtons.push(node);
+  });
+  assert.equal(scheduleButtons.length,2);
+  scheduleButtons[1].click();
+  const focusedText=content(focus.shadowRoot);
+  assert.equal(focus._focusAsset,"visitor");
+  assert.equal(focus._scheduleEditor,"visitor");
+  assert.ok(focusedText.includes("Selected vehicle · Visitor"));
+  assert.ok(focusedText.includes("8 kWh"));
+  assert.ok(!focusedText.includes("Vehicle + Charger ID inferred"),
+    "Overview never rewrites historical identity from current assignment");
+
   // UX-ROW-01 novice goals: four goal types are visible on a normal Asset
   // without opening a hidden Settings or Details view. Exactly one atomic
   // Config Entry revision; no physical command or frontend goal database.
