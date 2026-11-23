@@ -789,6 +789,80 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
     return validate_configuration(cfg)
 
 
+
+def apply_dashboard_structure(configuration, scope, target_id, changes, action="save"):
+    """Compose one object-scoped dashboard edit, then validate entire Config Entry.
+
+    The UI sends individual typed fields, never a JSON document. This is an
+    ephemeral prospective copy, not an alternate owner or settings database.
+    Physical authorization belongs to the shared serialized HA writer.
+    """
+    if scope not in ("controller", "asset", "charger") or action not in (
+            "save", "create", "delete"):
+        raise ValueError("unsupported dashboard change")
+    if not isinstance(changes, dict) or len(changes) > 32:
+        raise ValueError("dashboard changes must contain bounded fields")
+    if (not isinstance(target_id, str) or not target_id
+            or len(target_id) > 100):
+        raise ValueError("stable dashboard object ID required")
+    forbidden = {"id", "control_owner", "physical_commissioned"}
+    if forbidden & changes.keys():
+        raise ValueError("ownership and identity cannot change in dashboard editor")
+    cfg = deepcopy(configuration)
+    if scope == "controller":
+        if action != "save" or target_id != cfg["controller"]["id"]:
+            raise ValueError("controller identity is immutable")
+        target = cfg["controller"]
+    else:
+        items = cfg["assets" if scope == "asset" else "chargers"]
+        target = next((x for x in items if x["id"] == target_id), None)
+        if action == "create":
+            if target is not None:
+                raise ValueError("dashboard identity already exists")
+            target = {"id": target_id}
+            if scope == "charger":
+                target.update({"control_owner": "external",
+                               "physical_commissioned": False})
+            items.append(target)
+        elif target is None:
+            raise ValueError("dashboard object does not exist")
+        elif action == "delete":
+            if changes:
+                raise ValueError("delete does not accept field updates")
+            if scope == "asset" and any(
+                    c.get("asset") == target_id for c in cfg["chargers"]):
+                raise ValueError("unassign the vehicle before deletion")
+            items.remove(target)
+            return validate_configuration(cfg)
+    if action != "delete":
+        for key, value in changes.items():
+            if not isinstance(key, str) or key.startswith("_"):
+                raise ValueError("invalid dashboard field")
+            if value is None or value == "":
+                if key in ("name", "kind", "rated_power_kw"):
+                    raise ValueError("required dashboard field cannot be cleared")
+                target.pop(key, None)
+            else:
+                target[key] = value
+        # The existing native row-level editor already implements atomic
+        # reassign and single-target goal semantics; preserve those rules.
+        if scope == "charger" and "asset" in changes:
+            selected = changes["asset"]
+            if selected:
+                for old in cfg["chargers"]:
+                    if old["id"] != target_id and old.get("asset") == selected:
+                        old.pop("asset", None)
+        if scope == "asset" and changes.get("requested_budget_amount") is not None:
+            target.pop("requested_kwh", None)
+            target.pop("requested_duration_minutes", None)
+        elif scope == "asset" and (
+                changes.get("requested_kwh") is not None
+                or changes.get("requested_duration_minutes") is not None):
+            target.pop("requested_budget_amount", None)
+            target.pop("requested_budget_currency", None)
+    return validate_configuration(cfg)
+
+
 def is_plan_presentation_only_change(before, after):
     """Allow card display settings without unloading any active physical writer."""
     if before == after:
