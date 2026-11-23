@@ -8,7 +8,8 @@
           "name": "Navn (valgfritt)",
           "max_parallel": "Antall (valgfritt)",
           "max_power_kw": "Effekt (valgfritt)",
-          "phase_limits_a": "Faser (valgfritt)"
+          "phase_limits_a": "Faser (valgfritt)",
+          "mode": "Innledende lademodus"
         }
       },
       "charger": {
@@ -109,7 +110,8 @@
           "asset": "Chargeable assets",
           "charger": "Chargers",
           "display": "Dashboard card",
-          "yaml": "Edit YAML (review before save)"
+          "yaml": "Edit YAML (review before save)",
+          "commission": "Sett lader i drift"
         },
         "title": "Innstillinger"
       },
@@ -117,16 +119,11 @@
         "title": "Ladested",
         "data": {
           "name": "Navn",
-          "max_parallel": "Antall",
-          "max_power_kw": "Effekt (valgfritt)",
-          "mode": "Lademodus",
           "price_entity": "Pris (valgfritt)",
           "solar_entity": "Solenergi (valgfritt)",
           "binding_entity": "Effekt (valgfritt)",
           "phase_limits_a": "Faser (valgfritt)",
-          "plan_label_mode": "Planvisning",
-          "plan_color_by": "Farge etter",
-          "show_indicative_forecast": "Prognose"
+          "site_power_entity": "Effekt (valgfritt)"
         }
       },
       "asset": {
@@ -139,29 +136,19 @@
           "kind": "Type",
           "soc_entity": "Batteri",
           "capacity_kwh": "Batteri",
-          "target_soc": "Mål",
-          "max_charge_kw": "Effekt",
-          "requested_kwh": "Effekt",
-          "requested_duration_minutes": "Varighet",
-          "ready_by": "Klar innen",
-          "charge_efficiency": "Effekt",
-          "priority": "Prioritet",
-          "ready_by_repeat": "Gjenta",
-          "temporary": "Gjest",
-          "expires_at": "Utløp",
-          "expected_connection_at": "Forventet tilkobling"
+          "vehicle_control_entity": "Kjøretøyets styrebryter (kilde)",
+          "vehicle_current_entity": "Kjøretøyets strøminnstilling (kilde)"
         }
       },
       "charger": {
         "title": "Lader",
-        "description": "Lader",
+        "description": "Konfigurer maskinvare, sensorer og kabling. Fysisk kontroll aktiveres separat i Idriftsetting.",
         "data": {
           "action": "Handling",
           "id": "Navn",
           "name": "Navn",
           "kind": "Type",
           "rated_power_kw": "Effekt",
-          "asset": "Kjøretøy",
           "control_entity": "Strøm",
           "connected_entity": "Tilkobling",
           "power_entity": "Effekt",
@@ -169,8 +156,6 @@
           "phase_count": "Faser",
           "min_current_a": "Strøm",
           "max_current_a": "Strøm",
-          "control_owner": "Strøm",
-          "physical_commissioned": "Kontroll",
           "phase_ids": "Faser",
           "voltage_v": "Effekt",
           "current_step_a": "Strøm",
@@ -178,7 +163,8 @@
           "circuit_id": "Antall",
           "circuit_limit_a": "Strøm",
           "current_control_entity": "Strøm",
-          "current_readback_entity": "Strøm"
+          "current_readback_entity": "Strøm",
+          "session_entity": "Ladesesjonssensor (valgfri)"
         }
       },
       "display": {
@@ -202,6 +188,16 @@
         "data": {
           "confirm": "Apply these reviewed configuration changes",
           "edit_again": "Return to YAML editing"
+        }
+      },
+      "commission": {
+        "title": "Fysisk idriftsetting",
+        "description": "Bekreft eksklusiv kontroll og målt inaktiv tilstand. Ingen ladekommando sendes.",
+        "data": {
+          "charger_id": "Lader",
+          "commission": "Aktiver MultiCharge-kontroll",
+          "exclusive_writer_confirmed": "Andre styringer har gitt fra seg kontroll over laderen",
+          "electrical_limits_confirmed": "Strømgrenser, effekt og uavhengige målinger er bekreftet"
         }
       }
     },
