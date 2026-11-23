@@ -1003,12 +1003,12 @@ async def test_initial_bulk_yaml_rejects_templates_duplicate_keys_and_commission
         start["flow_id"], {"next_step_id": "expert"}
     )
     documents = (
-        "controller:\\n  id: home\\n  id: another\\n",
-        "template:\\n- sensor: []\\ncontroller:\\n  id: home\\n",
-        "controller:\\n  id: home\\n  name: Site\\n"
-        "chargers:\\n- id: x\\n  name: X\\n  kind: on_off\\n"
-        "  rated_power_kw: 3.6\\n  control_entity: switch.x\\n"
-        "  control_owner: multicharge\\n  physical_commissioned: true\\n",
+        "controller:\n  id: home\n  id: another\n",
+        "template:\n- sensor: []\ncontroller:\n  id: home\n",
+        "controller:\n  id: home\n  name: Site\n"
+        "chargers:\n- id: x\n  name: X\n  kind: on_off\n"
+        "  rated_power_kw: 3.6\n  control_entity: switch.x\n"
+        "  control_owner: multicharge\n  physical_commissioned: true\n",
     )
     for doc in documents:
         editor = await hass.config_entries.flow.async_configure(
@@ -1018,8 +1018,8 @@ async def test_initial_bulk_yaml_rejects_templates_duplicate_keys_and_commission
         assert editor["errors"]["base"] == "invalid_config"
         assert not hass.config_entries.async_entries(DOMAIN)
     # Full empty-site source is valid and cannot accidentally start charging.
-    good = ("controller:\\n  id: home\\n  name: Empty site\\n"
-            "  mode: Off\\n  max_parallel: 1\\n")
+    good = ("controller:\n  id: home\n  name: Empty site\n"
+            "  mode: Off\n  max_parallel: 1\n")
     preview = await hass.config_entries.flow.async_configure(
         editor["flow_id"], {"yaml_text": good}
     )
