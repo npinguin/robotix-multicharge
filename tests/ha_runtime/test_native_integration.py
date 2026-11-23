@@ -612,7 +612,8 @@ async def test_options_flow_is_device_setup_not_daily_charge_operations(
     assert rejected["type"] == FlowResultType.FORM
     assert rejected["errors"]["base"] == "invalid_config"
     assert entry.data["configuration"] == cfg
-    assert entry.options.get("configuration") is None
+    assert entry.options["configuration"]["controller"] == live
+    assert entry.options["configuration"]["chargers"][0]["physical_commissioned"] is False
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 
