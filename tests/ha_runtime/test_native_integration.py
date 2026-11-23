@@ -303,7 +303,8 @@ async def test_every_logical_device_auto_creates_own_native_inputs(hass: HomeAss
             {"id": "socket", "name": "Fixed outlet",
              "kind": "on_off", "rated_power_kw": 2.0},
             {"id": "smart", "name": "Adjustable EVSE",
-             "kind": "variable_current", "rated_power_kw": 3.6},
+             "kind": "variable_current", "rated_power_kw": 3.6,
+             "min_current_a": 6, "max_current_a": 16},
         ],
     })
     entry = MockConfigEntry(
@@ -464,6 +465,7 @@ async def test_options_created_charger_auto_registers_device_owned_controls(
             "action": "save", "id": "wallbox",
             "name": "Standalone EVSE",
             "kind": "variable_current", "rated_power_kw": 3.6,
+            "min_current_a": 6, "max_current_a": 16,
         }
     )
     assert saved["type"] == FlowResultType.CREATE_ENTRY, saved
