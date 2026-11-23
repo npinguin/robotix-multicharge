@@ -91,6 +91,8 @@ class ChargeDemand:
     remaining_duration_minutes: float | None = None
     max_power_kw: float | None = None
     not_before: datetime | None = None
+    remaining_budget_amount: float | None = None
+    budget_currency: str | None = None
 
     def __post_init__(self) -> None:
         if not self.asset_uid.strip():
@@ -109,6 +111,21 @@ class ChargeDemand:
             not isfinite(self.max_power_kw) or self.max_power_kw <= 0
         ):
             raise ValueError("asset charging power cap must be positive and finite")
+        if self.remaining_budget_amount is not None:
+            if (type(self.remaining_budget_amount) not in (int, float)
+                    or not isfinite(self.remaining_budget_amount)
+                    or self.remaining_budget_amount < 0):
+                raise ValueError("budget must be a finite nonnegative amount")
+            if (not isinstance(self.budget_currency, str)
+                    or len(self.budget_currency) != 3
+                    or not self.budget_currency.isascii()
+                    or not self.budget_currency.isalpha()
+                    or not self.budget_currency.isupper()):
+                raise ValueError("budget currency required")
+            if self.remaining_grid_kwh is not None or self.remaining_duration_minutes is not None:
+                raise ValueError("choose energy, duration or currency budget")
+        elif self.budget_currency is not None:
+            raise ValueError("budget currency without amount")
         if self.remaining_duration_minutes is not None:
             if (type(self.remaining_duration_minutes) not in (int, float)
                     or not isfinite(self.remaining_duration_minutes)
