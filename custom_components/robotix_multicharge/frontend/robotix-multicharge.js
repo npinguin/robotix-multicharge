@@ -238,7 +238,10 @@ const MC_STYLE = [
   ".owner-group>summary{cursor:pointer;padding:11px 12px;font-size:13px;font-weight:600;display:list-item;list-style-position:inside;user-select:none}.owner-group>summary:hover{background:var(--secondary-background-color,#f6f8fa)}.owner-group[open]>summary{border-bottom:1px solid var(--divider-color,#e1e4e8)}.owner-summary-count{font-size:11px;font-weight:400;color:var(--secondary-text-color,#65717e);margin-left:7px}",
   ".owner-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,285px),1fr));gap:0 16px;padding:3px 12px 8px}.owner-field{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;min-width:0;padding:7px 0;border-bottom:1px solid var(--divider-color,#e1e4e8)}.owner-field:last-child{border-bottom:0}.owner-field-info{flex:1;min-width:0;overflow-wrap:anywhere}.owner-field-label{font-size:11px;color:var(--secondary-text-color,#65717e);line-height:1.35}.owner-field-value{font-size:12px;font-weight:550;line-height:1.35;margin-top:3px;overflow-wrap:anywhere}.owner-field button{min-height:27px;padding:3px 8px;font-size:11px;border-radius:6px;white-space:nowrap;background:transparent}",
   ".owner-inventory>.owner-configure{margin-top:10px;display:flex;flex-wrap:wrap;align-items:center;gap:8px}.owner-inventory>.owner-configure p{flex-basis:100%}.owner-inventory>button{margin:8px 0;min-height:34px}",
-  "@media(max-width:600px){.object-card{padding:11px}.owner-fields{grid-template-columns:1fr}.owner-group>summary{padding:12px 9px}.pair{grid-template-columns:minmax(0,42%) minmax(0,58%);gap:9px}}"
+  "@media(max-width:600px){.object-card{padding:11px}.owner-fields{grid-template-columns:1fr}.owner-group>summary{padding:12px 9px}.pair{grid-template-columns:minmax(0,42%) minmax(0,58%);gap:9px}}",
+  ".quick-assignment{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:9px 0}.quick-assignment label{font-weight:600;font-size:13px}.quick-vehicle-select{flex:1;min-width:155px;max-width:360px;min-height:38px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#1f2937);border:1px solid var(--divider-color,#d6dce4);border-radius:8px;padding:6px 12px;cursor:pointer}.quick-vehicle-select:disabled{opacity:.65;cursor:default}",
+  ".quick-owner-panel{margin:12px 0}.quick-owner-line{display:grid;grid-template-columns:minmax(140px,1fr) minmax(210px,2fr) minmax(110px,1fr);align-items:center;gap:16px;padding:7px 0;border-bottom:1px solid var(--divider-color,#e7e9ed)}.quick-owner-line:last-child{border-bottom:0}.quick-owner-line .quick-assignment{margin:0;padding:3px 0}.quick-owner-line .quick-assignment label{display:none}.mc-apex{min-height:165px;max-width:100%;overflow:hidden}.combined-plan .mc-apex{min-height:290px}",
+  "@media(max-width:650px){.quick-owner-line{grid-template-columns:1fr;gap:3px}.quick-owner-line .quick-vehicle-select{max-width:none}.quick-assignment{align-items:flex-start}.quick-assignment label{flex:0 0 100%}}"
 ].join("");
 
 function mcEl(tag, css, text) {
@@ -1207,7 +1210,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         this._settingsFeedback={status:"accepted_unconfirmed",message:"Updating"};
       }
     }catch(error){
-      this._settingsFeedback={status:"rejected",message:"Unavailable"};
+      this._settingsFeedback={status:"rejected",message:String(error?.message||"Selection rejected").slice(0,210)};
     }finally{this._settingsBusy=false;this.render();}
   }
   async nativeText(scope,uid,field,value){
@@ -1582,6 +1585,22 @@ class RobotixMultiChargeCard extends HTMLElement {
       card.append(controls);
       container.append(card);
     }
+    if(chargers.length){
+      const quick=mcEl("section","card quick-owner-panel");
+      quick.append(mcEl("h3","",mcTr("Quick charger assignment")));
+      quick.append(mcEl("p","muted small",mcTr("Select the vehicle at each charger · no Details needed")));
+      for(const charger of chargers){
+        const line=mcEl("div","quick-owner-line");
+        line.append(mcEl("strong","",charger.name));
+        this.chargerQuickSelection(line,charger);
+        const evidence=observations[charger.id]?.connected;
+        line.append(mcEl("span","muted small",
+          evidence?.quality==="ok"?(evidence.value?
+            mcTr("Connected"):mcTr("Disconnected")):mcTr("Connection unknown")));
+        quick.append(line);
+      }
+      container.append(quick);
+    }
     if(!assets.length&&chargers.length)this.notice(container,"No vehicles",false);
     if(this.canEditSettings()){
       const add=mcButton(mcTr("Add guest or vehicle"),()=>{
@@ -1784,6 +1803,47 @@ class RobotixMultiChargeCard extends HTMLElement {
   }
   // One visible resident-readable goal control, one authorized atomic
   // settings transaction. Unsubmitted drafts are local form state only.
+  chargerQuickSelection(container,charger){
+    // Native Charger Device owns the *only* relationship. The card always
+    // shows the chooser without opening Details; HA persists it once.
+    const entity=this.ownerEntity("charger",charger.id,"asset");
+    const select=mcEl("select","quick-vehicle-select");
+    select.setAttribute("data-quick-assignment",charger.id);
+    select.setAttribute("aria-label",mcTr("Selected vehicle")+" · "+charger.name);
+    const assets=this._data?.configuration?.assets||[];
+    const names=new Map();
+    assets.forEach(a=>names.set(a.name,(names.get(a.name)||0)+1));
+    const display=a=>names.get(a.name)>1?
+      a.name+" ("+a.id+")":a.name;
+    // HA Entity supplies the canonical choices. Source-derived names are
+    // only a cold-start display fallback, never a second assignment writer.
+    const state=entity?this._hass?.states?.[entity]:null;
+    const nativeOptions=state?.attributes?.options;
+    const options=Array.isArray(nativeOptions)&&nativeOptions.length?
+      nativeOptions:["none",...assets.map(display)];
+    const selected=assets.find(a=>a.id===charger.asset);
+    const expected=selected?display(selected):"none";
+    const current=options.includes(state?.state)?state.state:expected;
+    for(const option of options){
+      const item=mcEl("option","",option==="none"?
+        mcTr("No vehicle"):option);
+      item.value=option;select.append(item);
+    }
+    select.value=options.includes(current)?current:"none";
+    select.disabled=!this.canEditSettings()||!entity||this._settingsBusy;
+    select.addEventListener("change",()=>{
+      const next=select.value;
+      if(next!==current)void this.nativeSelect("charger",charger.id,"asset",next);
+    });
+    const wrap=mcEl("div","quick-assignment");
+    const label=mcEl("label","",mcTr("Selected vehicle"));
+    const id="mc-vehicle-"+charger.id.replace(/[^a-z0-9_-]/gi,"-");
+    select.setAttribute("id",id);label.setAttribute("for",id);
+    wrap.append(label,select);
+    if(!entity)wrap.append(mcEl("span","muted small",
+      mcTr("Native vehicle selection unavailable")));
+    container.append(wrap);
+  }
   disclosure(container,key,title,content,hint=""){
     // Native <details>/<summary> provides browser keyboard semantics and
     // independent compact disclosure, without an alternate page or state store.
@@ -2280,10 +2340,11 @@ class RobotixMultiChargeCard extends HTMLElement {
             mcReason(session.budget_quality||"unknown"));
         }
       }
-      mcPair(card,"Assigned asset",c.asset||"Not assigned");
+      const selectedAsset=(d.configuration.assets||[]).find(a=>a.id===c.asset);
+      this.chargerQuickSelection(card,c);
+      mcPair(card,"Assigned asset",selectedAsset?selectedAsset.name:mcTr("Not assigned"));
       const identity=(d.connection_identity||{})[c.id]||null;
       const confirmed=(identity&&identity.asset_id===c.asset);
-      const selectedAsset=(d.configuration.assets||[]).find(a=>a.id===c.asset);
       mcPair(card,mcTr("Connected vehicle"),confirmed?
         (selectedAsset?selectedAsset.name:c.asset):mcTr("Not confirmed"));
       if(this.canManage()&&obs.connected?.quality==="ok"&&obs.connected.value===true&&
@@ -2348,12 +2409,6 @@ class RobotixMultiChargeCard extends HTMLElement {
         if(actual.reason)mcPair(detail,"Reason",mcReason(actual.reason));
         if(actual.readback_at)mcPair(detail,"Measured confirmation",mcTime(actual.readback_at,d.timezone));
         if(this.canEditSettings())this.ownerColorControl(detail,"charger",c);
-        if(this.canEditSettings()&&this.ownerEntity("charger",c.id,"asset")){
-          const setting=mcEl("div","row");
-          setting.append(mcEl("span","muted small","Selected vehicle"),
-            mcButton("Edit",()=>this.openNative("charger",c.id,"asset")));
-          detail.append(setting);
-        }
         this.ownerFacts(detail,"charger",c);
         card.append(detail);
       }
