@@ -49,6 +49,8 @@ class Charger:
     phase_ids: tuple[str, ...] = ()
     voltage_v: float | None = None
     current_step_a: float | None = None
+    min_charging_power_kw: float | None = None
+    max_charging_power_kw: float | None = None
     fixed_current_a: float | None = None
     circuit_id: str | None = None
     circuit_limit_a: float | None = None
@@ -82,6 +84,16 @@ class Charger:
             _positive(getattr(self, field), field)
         if self.circuit_limit_a is not None and not self.circuit_id:
             raise ValueError("circuit limit requires an identified circuit")
+        for field in ("min_charging_power_kw", "max_charging_power_kw"):
+            _positive(getattr(self, field), field)
+        if (self.min_charging_power_kw is not None
+                or self.max_charging_power_kw is not None):
+            if self.control_kind != "variable_current":
+                raise ValueError("fixed on/off charger cannot modulate kW")
+            if (self.min_charging_power_kw is not None
+                    and self.max_charging_power_kw is not None
+                    and self.min_charging_power_kw > self.max_charging_power_kw):
+                raise ValueError("charger user minimum exceeds maximum")
         if self.fixed_current_a is not None and self.control_kind != "on_off":
             raise ValueError("fixed current only valid for on/off")
         if self.current_step_a is not None and self.control_kind != "variable_current":
