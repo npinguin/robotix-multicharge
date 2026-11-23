@@ -149,7 +149,7 @@ async def test_native_pause_resume_never_bypass_admin_authorization():
     )
 
     fake = SimpleNamespace(
-        context=SimpleNamespace(user_id="resident"),
+        _context=SimpleNamespace(user_id="resident"),
         hass=SimpleNamespace(auth=SimpleNamespace(
             async_get_user=AsyncMock(
                 return_value=SimpleNamespace(is_admin=False)
@@ -158,10 +158,10 @@ async def test_native_pause_resume_never_bypass_admin_authorization():
     )
     with pytest.raises(RuntimeError, match="administrator"):
         await _AdminChargeActionButton._require_admin_context(fake)
-    fake.context.user_id = None
+    fake._context.user_id = None
     with pytest.raises(RuntimeError, match="administrator"):
         await _AdminChargeActionButton._require_admin_context(fake)
-    fake.context.user_id = "admin"
+    fake._context.user_id = "admin"
     fake.hass.auth.async_get_user.return_value = SimpleNamespace(is_admin=True)
     await _AdminChargeActionButton._require_admin_context(fake)
 
@@ -183,7 +183,7 @@ async def test_all_native_owner_settings_deny_resident_service_bypass():
     )
 
     fake = SimpleNamespace(
-        context=SimpleNamespace(user_id="resident"),
+        _context=SimpleNamespace(user_id="resident"),
         hass=SimpleNamespace(auth=SimpleNamespace(
             async_get_user=AsyncMock(
                 return_value=SimpleNamespace(is_admin=False)
@@ -200,14 +200,14 @@ async def test_all_native_owner_settings_deny_resident_service_bypass():
     ):
         with pytest.raises(RuntimeError, match="administrator"):
             await action()
-    fake.context.user_id = None
+    fake._context.user_id = None
     with pytest.raises(RuntimeError, match="administrator"):
-        await require_native_admin(fake.hass, fake.context)
-    fake.context.user_id = "admin"
+        await require_native_admin(fake.hass, fake._context)
+    fake._context.user_id = "admin"
     fake.hass.auth.async_get_user.return_value = SimpleNamespace(
         is_admin=True
     )
-    await require_native_admin(fake.hass, fake.context)
+    await require_native_admin(fake.hass, fake._context)
 
 
 @pytest.mark.asyncio
