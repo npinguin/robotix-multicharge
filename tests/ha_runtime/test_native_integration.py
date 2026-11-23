@@ -1588,8 +1588,8 @@ async def test_dashboard_yaml_runtime_review_and_readback(hass: HomeAssistant):
     assert len(revision) == 20
 
     for bad in (
-        "controller:\\n  id: home\\n  id: other\\n",
-        "template:\\n- sensor: []\\ncontroller:\\n  id: home\\n",
+        "controller:\n  id: home\n  id: other\n",
+        "template:\n- sensor: []\ncontroller:\n  id: home\n",
     ):
         assert await send("preview", mode="replace", yaml_text=bad,
                           expected_revision=revision) is None
