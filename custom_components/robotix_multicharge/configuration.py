@@ -72,6 +72,44 @@ def _allowed(row, fields, name):
         raise ValueError(f"{name}: unknown keys {', '.join(sorted(extra))}")
 
 
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+def _local_clock(value, field):
+    """A local wall-clock minute, never an implicit UTC instant."""
+    if not isinstance(value, str) or fullmatch(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]", value) is None:
+        raise ValueError(f"{field}: expected HH:MM local time")
+    return value
+
+
+def _ready_day_times(source, field="asset.ready_by_weekdays"):
+    if not isinstance(source, dict) or not source:
+        raise ValueError(f"{field}: select at least one weekday")
+    if set(source) - set(WEEKDAYS):
+        raise ValueError(f"{field}: invalid weekday")
+    return {day: _local_clock(source[day], field + "." + day)
+            for day in WEEKDAYS if day in source}
+
+
+def _charging_windows(source, field="asset.charging_windows"):
+    if not isinstance(source, dict) or not source:
+        raise ValueError(f"{field}: select at least one weekday")
+    if set(source) - set(WEEKDAYS):
+        raise ValueError(f"{field}: invalid weekday")
+    normalized = {}
+    for day in WEEKDAYS:
+        if day not in source:
+            continue
+        window = source[day]
+        _allowed(window, ("start", "end"), field + "." + day)
+        start = _local_clock(window.get("start"), field + "." + day + ".start")
+        end = _local_clock(window.get("end"), field + "." + day + ".end")
+        if start == end:
+            raise ValueError(f"{field}: start/end cannot be the same")
+        normalized[day] = {"start": start, "end": end}
+    return normalized
+
+
 def apply_new_asset_defaults(row):
     """80% is an editable starting *target*, never an OEM hardware limit.
 
@@ -179,7 +217,8 @@ def validate_configuration(value):
                           "soc_stale_entity", "vehicle_control_entity", "vehicle_current_entity",
                           "capacity_kwh", "target_soc", "max_charge_kw",
                           "requested_kwh", "requested_duration_minutes", "ready_by",
-                          "ready_by_repeat", "charge_efficiency", "priority",
+                          "ready_by_repeat", "ready_by_weekdays", "charging_windows",
+            "charge_efficiency", "priority",
                           "temporary", "expires_at", "expected_connection_at",
                           "plan_color"), "asset")
         uid = _text(source.get("id"), "asset.id")
@@ -270,11 +309,20 @@ def validate_configuration(value):
             if parsed.tzinfo is None or parsed.utcoffset() is None:
                 raise ValueError("asset.ready_by: explicit timezone required")
             asset["ready_by"] = parsed.isoformat()
+        # Legacy weekly is readable for exact time-zone migration on user edit.
         repeat = source.get("ready_by_repeat", "none")
-        if repeat not in ("none", "daily", "weekly"):
-            raise ValueError("asset.ready_by_repeat: expected none/daily/weekly")
-        if repeat != "none" and "ready_by" not in asset:
+        if repeat not in ("none", "daily", "specific_days", "weekly"):
+            raise ValueError("asset.ready_by_repeat: unsupported recurrence")
+        if repeat in ("daily", "weekly") and "ready_by" not in asset:
             raise ValueError("asset.ready_by_repeat: Ready By anchor required")
+        if source.get("ready_by_weekdays") is not None:
+            asset["ready_by_weekdays"] = _ready_day_times(
+                source["ready_by_weekdays"])
+        if repeat == "specific_days" and not asset.get("ready_by_weekdays"):
+            raise ValueError("asset.ready_by_weekdays: specific days required")
+        if source.get("charging_windows") is not None:
+            asset["charging_windows"] = _charging_windows(
+                source["charging_windows"])
         if source.get("ready_by_repeat") is not None:
             asset["ready_by_repeat"] = repeat
         ChargeableAsset(uid=uid, name=asset["name"], kind=asset["kind"],
@@ -568,7 +616,8 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
         "asset": {
             "name", "kind", "soc_entity", "soc_stale_entity", "capacity_kwh", "target_soc",
             "max_charge_kw", "requested_kwh", "requested_duration_minutes",
-            "ready_by", "ready_by_repeat", "charge_efficiency", "priority",
+            "ready_by", "ready_by_repeat", "ready_by_weekdays", "charging_windows",
+            "charge_efficiency", "priority",
             "temporary", "expires_at", "expected_connection_at",
             "plan_color",
         },
@@ -667,7 +716,8 @@ def is_in_place_runtime_preference_change(before, after):
             for field in ("name", "kind", "plan_color", "capacity_kwh",
                           "target_soc", "max_charge_kw", "requested_kwh",
                           "requested_duration_minutes", "ready_by",
-                          "ready_by_repeat", "charge_efficiency", "priority",
+                          "ready_by_repeat", "ready_by_weekdays", "charging_windows",
+            "charge_efficiency", "priority",
                           "temporary", "expires_at", "expected_connection_at"):
                 asset.pop(field, None)
         for charger in result["chargers"]:
@@ -831,7 +881,8 @@ def normalize_expert_json(value):
             "Vehicle-Charging-amp-entity", "Vehicle-soc-sensor",
             "Vehicle-soc-stale-binary-sensor", "Usable-capacity-kWh", "Target-SoC-percent", "Max-charge-kW",
             "Requested-kWh", "Requested-duration-minutes", "Ready-by",
-            "Ready-by-repeat", "Charging-efficiency", "Priority",
+            "Ready-by-repeat", "Ready-by-weekdays", "Charging-windows",
+            "Charging-efficiency", "Priority",
             "Temporary", "Expires-at", "Expected-connection-at", "Plan-color",
         ), "ChargingAsset")
         name = _text(source.get("Name"), "ChargingAsset.Name")
@@ -859,6 +910,8 @@ def normalize_expert_json(value):
             ("Requested-kWh", "requested_kwh"),
             ("Requested-duration-minutes", "requested_duration_minutes"),
             ("Ready-by", "ready_by"), ("Ready-by-repeat", "ready_by_repeat"),
+            ("Ready-by-weekdays", "ready_by_weekdays"),
+            ("Charging-windows", "charging_windows"),
             ("Charging-efficiency", "charge_efficiency"),
             ("Priority", "priority"), ("Temporary", "temporary"),
             ("Expires-at", "expires_at"),
