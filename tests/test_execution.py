@@ -246,8 +246,46 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rejected["reason"], "PHYSICAL_CONNECTION_UNVERIFIED")
         self.assertEqual(len(services.calls), before)
 
-    async def test_current_plug_confirmation_survives_connected_substate_not_replug(self):
-        """Preparing -> Charging is the same observed plug; unplug is not."""
+    async def test_current_plug_confirmation_survives_witnessed_substate_not_replug(self):
+        """Only an ordered HA positive->positive event can retain the same plug."""
+        runtime, sources, services = rig()
+        charger = runtime.configuration["chargers"][0]
+        charger["connected_entity"] = "sensor.native_charger_state"
+        charger["connected_states"] = ["preparing", "charging"]
+        charger["disconnected_states"] = ["available"]
+        original = state("Preparing")
+        sources["sensor.native_charger_state"] = original
+        runtime.refresh()
+        record = runtime.executor.confirm_current_connection("evse")
+        self.assertEqual(record["status"], "confirmed")
+        first_epoch = record["connected_at"]
+
+        charging = state("Charging")
+        sources["sensor.native_charger_state"] = charging
+        # Same plug: genuine HA event carries both the previous and new
+        # qualified physical states, even when scheduled refresh is delayed.
+        runtime.executor.observe_connection_event(charger, original, charging)
+        runtime.refresh()
+        kept = runtime.executor.connection_confirmation(
+            charger, datetime.now(timezone.utc)
+        )
+        self.assertIsNotNone(kept)
+        self.assertEqual(kept["connected_at"], first_epoch)
+
+        # Two physical transitions can happen before the next refresh.
+        available = state("Available")
+        preparing_again = state("Preparing")
+        sources["sensor.native_charger_state"] = preparing_again
+        runtime.executor.observe_connection_event(charger, charging, available)
+        runtime.executor.observe_connection_event(charger, available, preparing_again)
+        runtime.refresh()
+        self.assertIsNone(runtime.executor.connection_confirmation(
+            charger, datetime.now(timezone.utc)
+        ), "Brief disconnected state invalidates previous vehicle identity")
+        self.assertEqual(services.calls, [])
+
+    async def test_unwitnessed_native_substate_jump_never_retains_vehicle_identity(self):
+        """A raw snapshot change alone cannot prove no unplug occurred."""
         runtime, sources, services = rig()
         charger = runtime.configuration["chargers"][0]
         charger["connected_entity"] = "sensor.native_charger_state"
@@ -255,34 +293,17 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         charger["disconnected_states"] = ["available"]
         sources["sensor.native_charger_state"] = state("Preparing")
         runtime.refresh()
-        record = runtime.executor.confirm_current_connection("evse")
-        self.assertEqual(record["status"], "confirmed")
-        first_epoch = record["connected_at"]
-        sources["sensor.native_charger_state"].state = "Charging"
-        sources["sensor.native_charger_state"].last_updated = datetime.now(timezone.utc)
-        sources["sensor.native_charger_state"].last_changed = datetime.now(timezone.utc)
-        runtime.refresh()
-        kept = runtime.executor.connection_confirmation(
-            charger, datetime.now(timezone.utc)
+        self.assertEqual(
+            runtime.executor.confirm_current_connection("evse")["status"],
+            "confirmed",
         )
-        self.assertIsNotNone(kept)
-        self.assertEqual(kept["connected_at"], first_epoch)
-        self.assertEqual(services.calls, [])
-
-        sources["sensor.native_charger_state"].state = "Available"
-        sources["sensor.native_charger_state"].last_changed = datetime.now(timezone.utc)
-        sources["sensor.native_charger_state"].last_updated = datetime.now(timezone.utc)
+        sources["sensor.native_charger_state"] = state("Charging")
+        # No on_source_change event was witnessed: fail closed.
         runtime.refresh()
         self.assertIsNone(runtime.executor.connection_confirmation(
             charger, datetime.now(timezone.utc)
         ))
-        sources["sensor.native_charger_state"].state = "Preparing"
-        sources["sensor.native_charger_state"].last_changed = datetime.now(timezone.utc)
-        sources["sensor.native_charger_state"].last_updated = datetime.now(timezone.utc)
-        runtime.refresh()
-        self.assertIsNone(runtime.executor.connection_confirmation(
-            charger, datetime.now(timezone.utc)
-        ), "A replug cannot inherit the previous vehicle identity")
+        self.assertFalse(runtime.assessment.plan.slots)
         self.assertEqual(services.calls, [])
 
     async def test_manual_force_start_is_durably_held_across_restart(self):
