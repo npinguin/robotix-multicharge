@@ -458,7 +458,7 @@ async function main(){
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(nativeCalls.some(c=>c.args.entity_id==="select.site_mode"&&
     c.args.option==="economy"),"native select owner receives strategy");
-  card._tab="Chargeable Assets";card.render();
+  card._tab="Chargeable Assets";card._open="";card.render();
   find(card.shadowRoot,"button","Details").click();
   assert.ok(find(card.shadowRoot,"select"),"vehicle offers a native color choice");
   assert.ok(find(card.shadowRoot,"button","Edit"),"native vehicle settings open standard HA entity");
