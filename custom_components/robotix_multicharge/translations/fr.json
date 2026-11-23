@@ -38,7 +38,8 @@
           "ready_by_repeat": "Répéter (facultatif)",
           "temporary": "Invité (facultatif)",
           "expires_at": "Expiration (facultatif)",
-          "expected_connection_at": "Connexion prévue (facultatif)"
+          "expected_connection_at": "Connexion prévue (facultatif)",
+          "soc_stale_entity": "Capteur binaire données OEM périmées (on = périmé)"
         }
       },
       "sources": {
@@ -172,7 +173,8 @@
           "soc_entity": "Batterie",
           "capacity_kwh": "Batterie",
           "vehicle_control_entity": "Interrupteur de commande du véhicule (source)",
-          "vehicle_current_entity": "Consigne de courant du véhicule (source)"
+          "vehicle_current_entity": "Consigne de courant du véhicule (source)",
+          "soc_stale_entity": "Capteur binaire données OEM périmées (on = périmé)"
         }
       },
       "charger": {
