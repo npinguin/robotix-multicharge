@@ -66,7 +66,9 @@
           "connected_entity": "Connexion (facultatif)",
           "power_entity": "Puissance (facultatif)",
           "energy_entity": "Compteur d’énergie (facultatif)",
-          "configure_electrical": "Configurer les détails électriques (facultatif)"
+          "configure_electrical": "Configurer les détails électriques (facultatif)",
+          "connected_states": "États natifs signifiant connecté (virgules)",
+          "disconnected_states": "États natifs signifiant déconnecté (virgules)"
         }
       },
       "charger_electrical": {
@@ -185,7 +187,9 @@
           "circuit_limit_a": "Courant",
           "current_control_entity": "Courant",
           "current_readback_entity": "Courant",
-          "session_entity": "Capteur de session de charge (facultatif)"
+          "session_entity": "Capteur de session de charge (facultatif)",
+          "connected_states": "États natifs signifiant connecté (virgules)",
+          "disconnected_states": "États natifs signifiant déconnecté (virgules)"
         }
       },
       "display": {
