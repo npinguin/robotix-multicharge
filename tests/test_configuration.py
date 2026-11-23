@@ -803,6 +803,29 @@ class ConfigurationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_configuration(cfg)
 
+    def test_continuity_is_optional_one_asset_preference(self):
+        from multicharge_configuration_tests.configuration import (
+            apply_settings_change, is_in_place_runtime_preference_change,
+        )
+        base = default_configuration()
+        base["assets"] = [{"id": "car", "name": "Car",
+                           "requested_kwh": 3.0}]
+        verified = validate_configuration(base)
+        self.assertNotIn("continuous_charging", verified["assets"][0],
+                         "Existing users default to unchanged flexible plan")
+        selected = apply_settings_change(verified, "asset", "car",
+                                         {"continuous_charging": True})
+        self.assertEqual(selected["assets"][0]["continuous_charging"], True)
+        self.assertTrue(is_in_place_runtime_preference_change(verified, selected))
+        cleared = apply_settings_change(selected, "asset", "car",
+                                        {"continuous_charging": None})
+        self.assertNotIn("continuous_charging", cleared["assets"][0])
+        broken = default_configuration()
+        broken["assets"] = [{"id": "car", "name": "Car",
+                             "continuous_charging": "yes"}]
+        with self.assertRaisesRegex(ValueError, "continuous"):
+            validate_configuration(broken)
+
     def test_guest_create_with_free_charger_is_atomic_and_fail_closed(self):
         from multicharge_configuration_tests.configuration import apply_settings_change
         cfg = default_configuration()
