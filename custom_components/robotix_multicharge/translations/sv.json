@@ -8,7 +8,8 @@
           "name": "Namn (valfritt)",
           "max_parallel": "Antal (valfritt)",
           "max_power_kw": "Effekt (valfritt)",
-          "phase_limits_a": "Faser (valfritt)"
+          "phase_limits_a": "Faser (valfritt)",
+          "mode": "Inledande laddningsläge"
         }
       },
       "charger": {
@@ -109,7 +110,8 @@
           "asset": "Chargeable assets",
           "charger": "Chargers",
           "display": "Dashboard card",
-          "yaml": "Edit YAML (review before save)"
+          "yaml": "Edit YAML (review before save)",
+          "commission": "Driftsätt laddare"
         },
         "title": "Inställningar"
       },
@@ -117,16 +119,11 @@
         "title": "Laddplats",
         "data": {
           "name": "Namn",
-          "max_parallel": "Antal",
-          "max_power_kw": "Effekt (valfritt)",
-          "mode": "Laddläge",
           "price_entity": "Pris (valfritt)",
           "solar_entity": "Solenergi (valfritt)",
           "binding_entity": "Effekt (valfritt)",
           "phase_limits_a": "Faser (valfritt)",
-          "plan_label_mode": "Planvisning",
-          "plan_color_by": "Färg efter",
-          "show_indicative_forecast": "Prognos"
+          "site_power_entity": "Effekt (valfritt)"
         }
       },
       "asset": {
@@ -139,29 +136,19 @@
           "kind": "Typ",
           "soc_entity": "Batteri",
           "capacity_kwh": "Batteri",
-          "target_soc": "Mål",
-          "max_charge_kw": "Effekt",
-          "requested_kwh": "Effekt",
-          "requested_duration_minutes": "Varaktighet",
-          "ready_by": "Klar senast",
-          "charge_efficiency": "Effekt",
-          "priority": "Prioritet",
-          "ready_by_repeat": "Upprepa",
-          "temporary": "Gäst",
-          "expires_at": "Upphör",
-          "expected_connection_at": "Förväntad anslutning"
+          "vehicle_control_entity": "Fordonsstyrningsbrytare (källa)",
+          "vehicle_current_entity": "Fordonets ströminställning (källa)"
         }
       },
       "charger": {
         "title": "Laddare",
-        "description": "Laddare",
+        "description": "Konfigurera hårdvara, sensorer och kablage. Fysisk styrning aktiveras separat under Driftsättning.",
         "data": {
           "action": "Åtgärd",
           "id": "Namn",
           "name": "Namn",
           "kind": "Typ",
           "rated_power_kw": "Effekt",
-          "asset": "Fordon",
           "control_entity": "Ström",
           "connected_entity": "Anslutning",
           "power_entity": "Effekt",
@@ -169,8 +156,6 @@
           "phase_count": "Faser",
           "min_current_a": "Ström",
           "max_current_a": "Ström",
-          "control_owner": "Ström",
-          "physical_commissioned": "Kontroll",
           "phase_ids": "Faser",
           "voltage_v": "Effekt",
           "current_step_a": "Ström",
@@ -178,7 +163,8 @@
           "circuit_id": "Antal",
           "circuit_limit_a": "Ström",
           "current_control_entity": "Ström",
-          "current_readback_entity": "Ström"
+          "current_readback_entity": "Ström",
+          "session_entity": "Laddsessionssensor (valfri)"
         }
       },
       "display": {
@@ -202,6 +188,16 @@
         "data": {
           "confirm": "Apply these reviewed configuration changes",
           "edit_again": "Return to YAML editing"
+        }
+      },
+      "commission": {
+        "title": "Fysisk driftsättning",
+        "description": "Kontrollera exklusiv styrning och verifierat stillastående läge. Inget laddkommando skickas.",
+        "data": {
+          "charger_id": "Laddare",
+          "commission": "Aktivera MultiCharge-styrning",
+          "exclusive_writer_confirmed": "Andra styrsystem har släppt kontrollen över laddaren",
+          "electrical_limits_confirmed": "Elgränser, effekt och oberoende sensorer verifierade"
         }
       }
     },
