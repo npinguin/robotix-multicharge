@@ -9,13 +9,11 @@ from __future__ import annotations
 import voluptuous as vol
 from copy import deepcopy
 from datetime import datetime, timezone
-from hashlib import sha256
-import json
 
 from .configuration import (
     apply_settings_change, apply_dashboard_structure, configuration_revision,
     is_plan_presentation_only_change, is_in_place_runtime_preference_change,
-    prepare_expert_yaml_revision, validate_configuration,
+    validate_configuration,
 )
 from .source_evidence import number
 from .execution import stop_power_limit
@@ -242,88 +240,13 @@ async def websocket_update_settings(
 
 
 
-def _strict_dashboard_json(document: str) -> dict:
-    """Parse bounded JSON-only input with duplicate and NaN refusal."""
-    if (not isinstance(document, str) or not document.strip()
-            or len(document.encode("utf-8")) > 131072):
-        raise ValueError("JSON_REQUIRED_128K_LIMIT")
-
-    def unique(pairs):
-        mapping = {}
-        for key, value in pairs:
-            if key in mapping:
-                raise ValueError("DUPLICATE_JSON_KEY")
-            mapping[key] = value
-        return mapping
-
-    def invalid_constant(_value):
-        raise ValueError("NON_FINITE_JSON_VALUE")
-
-    try:
-        parsed = json.loads(
-            document, object_pairs_hook=unique, parse_constant=invalid_constant,
-        )
-    except json.JSONDecodeError as exc:
-        raise ValueError("INVALID_JSON_SYNTAX") from exc
-    if not isinstance(parsed, dict):
-        raise ValueError("JSON_OBJECT_REQUIRED")
-    return parsed
-
-
-def _dashboard_candidate(current: dict, document: str, mode: str) -> dict:
-    if mode not in ("replace", "merge"):
-        raise ValueError("INVALID_JSON_MODE")
-    return prepare_expert_yaml_revision(
-        current, _strict_dashboard_json(document), mode,
-    )
-
-
-def _dashboard_review(current: dict, candidate: dict, mode: str) -> dict:
-    """One deterministic preview fingerprint; no duplicate draft store."""
-    from .config_flow import _yaml_review_summary
-    fields = sorted(
-        k for k in set(current["controller"]) | set(candidate["controller"])
-        if current["controller"].get(k) != candidate["controller"].get(k)
-    )
-    groups = {}
-    for group in ("assets", "chargers"):
-        old = {item["id"]: item for item in current[group]}
-        new = {item["id"]: item for item in candidate[group]}
-        groups[group] = {
-            "add": sorted(new.keys() - old.keys()),
-            "remove": sorted(old.keys() - new.keys()),
-            "modify": sorted(
-                uid for uid in new.keys() & old.keys() if new[uid] != old[uid]
-            ),
-            "total": len(new),
-        }
-    baseline = configuration_revision(current)
-    updated = configuration_revision(candidate)
-    fingerprint = sha256(f"{baseline}|{mode}|{updated}".encode()).hexdigest()
-    return {
-        "baseline_revision": baseline,
-        "expected_revision": updated,
-        "review_fingerprint": fingerprint,
-        "summary": _yaml_review_summary(current, candidate),
-        "controller_changed": fields,
-        "groups": groups,
-        "changes_present": current != candidate,
-        "mode": mode,
-    }
-
-
-
 @websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "robotix_multicharge/dashboard_config",
-    vol.Required("operation"): vol.In(("preview", "apply", "commission")),
+    vol.Required("operation"): vol.In(("commission",)),
     vol.Required("expected_revision"): str,
-    vol.Optional("document", default=""): str,
-    vol.Optional("mode", default="replace"): vol.In(("replace", "merge")),
-    vol.Optional("review_fingerprint"): str,
-    vol.Optional("confirm", default=False): bool,
-    vol.Optional("charger_id"): str,
-    vol.Optional("commission"): bool,
+    vol.Required("charger_id"): str,
+    vol.Required("commission"): bool,
     vol.Optional("exclusive_writer_confirmed", default=False): bool,
     vol.Optional("electrical_limits_confirmed", default=False): bool,
 })
@@ -331,7 +254,12 @@ def _dashboard_review(current: dict, candidate: dict, mode: str) -> dict:
 async def websocket_dashboard_config(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict,
 ) -> None:
-    """Dash-only reviewed JSON Config Entry editor and physical ownership path."""
+    """Dashboard-only guarded physical commissioning, never free-text config.
+
+    All ordinary/structural object settings use update_settings above.
+    This narrowly allowed command changes ownership without issuing a physical
+    switch command and cannot run without independently observed idle proof.
+    """
     rows = tuple(hass.data.get(DOMAIN, {}).items())
     if len(rows) != 1:
         connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND,
@@ -342,94 +270,56 @@ async def websocket_dashboard_config(
     if (entry is None or entry.source == "import"
             or entry.data.get("source") in ("yaml", "json")):
         connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT,
-                              "FILE_OWNED_CONFIG_REQUIRES_GUI_MIGRATION")
+                              "FILE_OWNED_CONFIG_READONLY")
         return
-    operation = msg["operation"]
     try:
         baseline = configuration_revision(runtime.configuration)
         if baseline != msg["expected_revision"]:
             raise ValueError("STALE_SETTINGS_REFRESH")
-        if operation in ("preview", "apply"):
-            candidate = _dashboard_candidate(
-                runtime.configuration, msg["document"], msg["mode"],
-            )
-            review = _dashboard_review(
-                runtime.configuration, candidate, msg["mode"],
-            )
-            if operation == "preview":
-                connection.send_result(msg["id"], {
-                    "status": "preview_only", **review,
-                })
-                return
-            if (msg.get("confirm") is not True or not review["changes_present"]
-                    or review["review_fingerprint"] != msg.get("review_fingerprint")):
-                raise ValueError("REVIEW_AND_CONFIRM_REQUIRED")
-        else:
-            charger_id = msg.get("charger_id")
-            if (not charger_id or type(msg.get("commission")) is not bool
-                    or msg.get("exclusive_writer_confirmed") is not True
-                    or msg.get("electrical_limits_confirmed") is not True):
-                raise ValueError("COMMISSION_CHECKLIST_REQUIRED")
+        desired = msg["commission"]
+        if desired and (msg.get("exclusive_writer_confirmed") is not True
+                        or msg.get("electrical_limits_confirmed") is not True):
+            raise ValueError("COMMISSION_CHECKLIST_REQUIRED")
         async with runtime.executor._lock:
             if configuration_revision(runtime.configuration) != baseline:
                 raise ValueError("STALE_SETTINGS_REFRESH")
-            if operation in ("preview", "apply"):
-                # One immutable fingerprint joins preview and actual commit.
-                updated = _dashboard_candidate(
-                    runtime.configuration, msg["document"], msg["mode"],
-                )
-                proof = _dashboard_review(
-                    runtime.configuration, updated, msg["mode"],
-                )
-                if proof["review_fingerprint"] != msg["review_fingerprint"]:
-                    raise ValueError("REVIEW_CHANGED_REFRESH")
-                from .config_flow import _assert_safe_yaml_ui_commit
-                _assert_safe_yaml_ui_commit(runtime, updated)
-                audit_changes = {
-                    "mode": msg["mode"], "review_fingerprint": proof["review_fingerprint"],
-                }
-                audit_action = "dashboard_json"
-                audit_id = runtime.configuration["controller"]["id"]
-            else:
-                updated = deepcopy(runtime.configuration)
-                charger = next(
-                    (c for c in updated["chargers"]
-                     if c["id"] == msg["charger_id"]), None,
-                )
-                if charger is None:
-                    raise ValueError("UNKNOWN_CHARGER")
-                desired = msg["commission"]
-                charger["control_owner"] = "multicharge" if desired else "external"
-                charger["physical_commissioned"] = desired
-                updated = validate_configuration(updated)
-                from .config_flow import _assert_safe_expert_import
-                _assert_safe_expert_import(runtime, updated, source_changed=True)
-                if (charger_id in runtime.executor._sessions or
-                        charger_id in runtime.executor._start_pending):
-                    raise ValueError("CHARGER_BUSY_STOP_FIRST")
-                current = next(c for c in runtime.configuration["chargers"]
-                               if c["id"] == charger_id)
-                observed = runtime.executor._switch(
-                    hass, current.get("control_entity"),
-                )
-                measured = number(
-                    hass, current.get("power_entity"), "power",
-                    datetime.now(timezone.utc),
-                )
-                if (observed is None or observed.state != "off"
-                        or measured.quality != "ok"
-                        or measured.value > stop_power_limit(current)):
-                    raise ValueError("COMMISSION_REQUIRES_VERIFIED_IDLE")
-                audit_changes = {
-                    "commission": desired, "exclusive_writer_confirmed": True,
-                    "electrical_limits_confirmed": True,
-                }
-                audit_action = "dashboard_commission"
-                audit_id = charger_id
-            next_revision = configuration_revision(updated)
+            updated = deepcopy(runtime.configuration)
+            charger = next(
+                (c for c in updated["chargers"] if c["id"] == msg["charger_id"]),
+                None,
+            )
+            if charger is None:
+                raise ValueError("UNKNOWN_CHARGER")
+            charger["control_owner"] = "multicharge" if desired else "external"
+            charger["physical_commissioned"] = desired
+            updated = validate_configuration(updated)
+            from .config_flow import _assert_safe_expert_import
+            _assert_safe_expert_import(runtime, updated, source_changed=True)
+            if (charger["id"] in runtime.executor._sessions
+                    or charger["id"] in runtime.executor._start_pending):
+                raise ValueError("CHARGER_BUSY_STOP_FIRST")
+            current = next(c for c in runtime.configuration["chargers"]
+                           if c["id"] == charger["id"])
+            observed = runtime.executor._switch(
+                hass, current.get("control_entity"),
+            )
+            measured = number(
+                hass, current.get("power_entity"), "power",
+                datetime.now(timezone.utc),
+            )
+            if (observed is None or observed.state != "off"
+                    or measured.quality != "ok"
+                    or measured.value > stop_power_limit(current)):
+                raise ValueError("COMMISSION_REQUIRES_VERIFIED_IDLE")
+            revision = configuration_revision(updated)
             runtime.record_settings_action(
-                "charger" if operation == "commission" else "controller",
-                audit_id, audit_action, audit_changes, next_revision,
+                "charger", charger["id"], "dashboard_commission",
+                {"commission": desired,
+                 "exclusive_writer_confirmed": bool(
+                     msg.get("exclusive_writer_confirmed")),
+                 "electrical_limits_confirmed": bool(
+                     msg.get("electrical_limits_confirmed"))},
+                revision,
             )
             if not await runtime.persist_control_state():
                 raise ValueError("SETTINGS_AUDIT_PERSISTENCE_UNAVAILABLE")
@@ -438,7 +328,7 @@ async def websocket_dashboard_config(
             )
         connection.send_result(msg["id"], {
             "status": "accepted_unconfirmed",
-            "expected_revision": next_revision,
+            "expected_revision": revision,
             "reason": "Read back the authoritative Config Entry after reload",
         })
     except (ValueError, KeyError, TypeError) as exc:
@@ -447,114 +337,6 @@ async def websocket_dashboard_config(
         )
 
 
-@websocket_api.require_admin
-@websocket_api.websocket_command({
-    vol.Required("type"): "robotix_multicharge/yaml_configuration",
-    vol.Required("action"): vol.In(("read", "preview", "apply")),
-    vol.Optional("mode", default="replace"): vol.In(("replace", "merge")),
-    vol.Optional("yaml_text"): str,
-    vol.Optional("expected_revision"): str,
-    vol.Optional("reviewed_revision"): str,
-})
-@websocket_api.async_response
-async def websocket_dashboard_yaml_configuration(
-    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
-) -> None:
-    """One dashboard YAML editor, one guarded HA Config Entry, no Options flow.
-
-    Preview never commits; applying requires the exact baseline and a reviewed
-    fingerprint of the same parsed YAML, rechecked under the physical lock.
-    """
-    import yaml
-    from .config_flow import (
-        _parse_editor_yaml, _yaml_review_summary, _assert_safe_yaml_ui_commit,
-    )
-    from .configuration import prepare_expert_yaml_revision
-
-    rows = tuple(hass.data.get(DOMAIN, {}).items())
-    if len(rows) != 1:
-        connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND,
-                              "Exactly one configured Controller required")
-        return
-    entry_id, runtime = rows[0]
-    entry = hass.config_entries.async_get_entry(entry_id)
-    if entry is None:
-        connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND,
-                              "Config Entry unavailable")
-        return
-    readonly = (entry.source == "import"
-                or entry.data.get("source") in ("yaml", "json"))
-    action = msg["action"]
-    if action == "read":
-        connection.send_result(msg["id"], {
-            "status": "read_only" if readonly else "ready",
-            "yaml_text": yaml.safe_dump(
-                runtime.configuration, sort_keys=False,
-                allow_unicode=True, default_flow_style=False,
-            ),
-            "configuration_revision": configuration_revision(runtime.configuration),
-        })
-        return
-    if readonly:
-        connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT,
-                              "SOURCE_OWNED_READONLY")
-        return
-    try:
-        text = msg.get("yaml_text")
-        if not isinstance(text, str):
-            raise ValueError("YAML_DOCUMENT_REQUIRED")
-        baseline = msg.get("expected_revision")
-        if not baseline or len(baseline) != 20:
-            raise ValueError("BASELINE_REVISION_REQUIRED")
-        if action == "apply" and not msg.get("reviewed_revision"):
-            raise ValueError("REVIEW_REQUIRED")
-        async with runtime.executor._lock:
-            before = runtime.configuration
-            if configuration_revision(before) != baseline:
-                raise ValueError("STALE_SETTINGS_REFRESH")
-            parsed = _parse_editor_yaml(text)
-            updated = prepare_expert_yaml_revision(
-                before, parsed, msg.get("mode", "replace"),
-            )
-            # Every structural source/wiring edit is guarded regardless of
-            # commissioning. No physical START/STOP is performed here.
-            _assert_safe_yaml_ui_commit(runtime, updated)
-            fingerprint = configuration_revision(updated)
-            if action == "preview":
-                connection.send_result(msg["id"], {
-                    "status": "preview",
-                    "baseline_revision": baseline,
-                    "reviewed_revision": fingerprint,
-                    "summary": _yaml_review_summary(before, updated),
-                    "groups": _dashboard_review(before, updated, msg.get("mode", "replace"))["groups"],
-                    "changes_present": before != updated,
-                })
-                return
-            if msg["reviewed_revision"] != fingerprint:
-                raise ValueError("REVIEW_CHANGED_REVALIDATE")
-            runtime.record_settings_action(
-                "controller", before["controller"]["id"], "yaml_apply",
-                {"mode": msg.get("mode", "replace"),
-                 "reviewed_revision": fingerprint}, fingerprint,
-            )
-            if not await runtime.persist_control_state():
-                raise ValueError("SETTINGS_AUDIT_PERSISTENCE_UNAVAILABLE")
-            hass.config_entries.async_update_entry(
-                entry, options={**entry.options, "configuration": updated},
-            )
-            connection.send_result(msg["id"], {
-                "status": "accepted_unconfirmed",
-                "expected_revision": fingerprint,
-                "reason": "Config Entry reload and readback pending",
-            })
-    except (ValueError, TypeError, KeyError) as exc:
-        # A rejected draft is never saved or passed to any physical service.
-        connection.send_error(
-            msg["id"], websocket_api.ERR_INVALID_FORMAT, str(exc)[:260],
-        )
-
-
 def register_settings_query(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_update_settings)
-    websocket_api.async_register_command(hass, websocket_dashboard_yaml_configuration)
     websocket_api.async_register_command(hass, websocket_dashboard_config)
