@@ -316,6 +316,98 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(reason, "RECURRING")
         self.assertEqual(deadline.astimezone(zone).date().isoformat(), "2026-11-30")
 
+    def test_upstream_price_cap_minimum_soc_and_low_price_immediate(self):
+        ctl, chargers = build()
+        quotes = [0.30, 0.05, 0.10, 0.25, 0.03]
+        tariffs = [
+            PriceSlot(NOW + i * timedelta(minutes=15),
+                      NOW + (i + 1) * timedelta(minutes=15), p, "EUR",
+                      "spot")
+            for i, p in enumerate(quotes)
+        ]
+        minimum = compile_plan(
+            ctl, chargers,
+            [ChargeDemand("car", "c0", 3.0, NOW + timedelta(hours=2),
+                          minimum_priority_kwh=1.0,
+                          maximum_price_per_kwh=0.20,
+                          price_currency="EUR")],
+            NOW, mode="Economy", tariffs={"c0": tariffs})
+        self.assertEqual(
+            [x.start for x in minimum.plan.slots],
+            [NOW, NOW + timedelta(minutes=15),
+             NOW + timedelta(hours=1)],
+            "One earliest expensive SoC-minimum quarter followed by lowest "
+            "available price-limited slots",
+        )
+        without_minimum = compile_plan(
+            ctl, chargers,
+            [ChargeDemand("car", "c0", 3.0, NOW + timedelta(hours=2),
+                          maximum_price_per_kwh=0.20, price_currency="EUR")],
+            NOW, mode="Economy", tariffs={"c0": tariffs})
+        self.assertFalse(any(s.start == NOW for s in without_minimum.plan.slots))
+        urgent_low_soc = compile_plan(
+            ctl, chargers,
+            [ChargeDemand("car", "c0", 1.0, NOW + timedelta(hours=2),
+                          low_soc_priority_kwh=1.0)],
+            NOW, mode="Economy", tariffs={"c0": tariffs})
+        self.assertEqual(urgent_low_soc.plan.slots[0].start, NOW)
+        low_price = compile_plan(
+            ctl, chargers,
+            [ChargeDemand("car", "c0", 1.0, NOW + timedelta(hours=2),
+                          low_price_trigger_per_kwh=0.31,
+                          price_currency="EUR")],
+            NOW, mode="Economy", tariffs={"c0": tariffs})
+        self.assertEqual(low_price.plan.slots[0].start, NOW,
+                         "User explicitly allows immediate rate at/below threshold")
+        no_source = compile_plan(
+            ctl, chargers,
+            [ChargeDemand("car", "c0", 1.0, NOW + timedelta(hours=2),
+                          maximum_price_per_kwh=0.20, price_currency="EUR")],
+            NOW, mode="Ready By")
+        self.assertFalse(no_source.plan.slots)
+        self.assertEqual(no_source.reasons["c0"], "PRICE_SOURCE_UNAVAILABLE")
+        wrong_currency = compile_plan(
+            ctl, chargers,
+            [ChargeDemand("car", "c0", 1.0, NOW + timedelta(hours=2),
+                          maximum_price_per_kwh=0.20, price_currency="USD")],
+            NOW, mode="Economy", tariffs={"c0": tariffs})
+        self.assertFalse(wrong_currency.plan.slots)
+
+    def test_upstream_opportunistic_type1_and_type2_qualified(self):
+        ctl, chargers = build()
+        source = [0.15, 0.08, 0.02]
+        tariffs = [
+            PriceSlot(NOW + i * timedelta(minutes=15),
+                      NOW + (i + 1) * timedelta(minutes=15), p, "EUR",
+                      "spot")
+            for i, p in enumerate(source)
+        ]
+        for kind, level, expected in (
+            ("type1", 50, NOW + timedelta(minutes=30)),
+            ("type2", 90, NOW + timedelta(minutes=30)),
+        ):
+            result = compile_plan(
+                ctl, chargers,
+                [ChargeDemand("car", "c0", 1.0, NOW + timedelta(hours=1),
+                              maximum_price_per_kwh=0.20,
+                              price_currency="EUR",
+                              opportunistic_kind=kind,
+                              opportunistic_level_pct=level)],
+                NOW, mode="Economy", tariffs={"c0": tariffs})
+            self.assertEqual([s.start for s in result.plan.slots], [expected])
+        with self.assertRaises(ValueError):
+            ChargeDemand("car", "c0", 1.0, None,
+                         opportunistic_kind="type2")
+        unavailable = compile_plan(
+            ctl, chargers,
+            [ChargeDemand("car", "c0", 1.0, NOW + timedelta(hours=1),
+                          maximum_price_per_kwh=0.20,
+                          price_currency="EUR",
+                          opportunistic_kind="type2")],
+            NOW, mode="Economy")
+        self.assertEqual(unavailable.reasons["c0"], "PRICE_SOURCE_UNAVAILABLE")
+        self.assertFalse(unavailable.plan.slots)
+
     def test_upstream_continuous_and_non_contiguous_cheapest_quarters(self):
         ctl, chargers = build()
         prices = [0.05, 0.90, 0.05, 0.90, 0.05, 0.05]
