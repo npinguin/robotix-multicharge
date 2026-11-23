@@ -613,6 +613,12 @@ class NativeSwitchExecutor:
                 or not phases or not isinstance(voltage, (float, int))):
             return "ELECTRICAL_WIRING_UNVERIFIED", None
         kw = float(current) * voltage * len(phases) / 1000
+        if (charger.get("min_charging_power_kw") is not None
+                and kw + 1e-9 < charger["min_charging_power_kw"]):
+            return "BELOW_USER_CHARGING_POWER_MINIMUM", None
+        if (charger.get("max_charging_power_kw") is not None
+                and kw > charger["max_charging_power_kw"] + 1e-9):
+            return "ABOVE_USER_CHARGING_POWER_MAXIMUM", None
         if kw > charger["rated_power_kw"] + 1e-9:
             return "RATED_CHARGER_POWER_EXCEEDED", None
         return None, round(kw, 6)

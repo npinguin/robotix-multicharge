@@ -90,6 +90,12 @@ async def websocket_get_plan(
             } | {
                 "name": native_entity("text", "controller",
                                       cfg["controller"]["id"], "name"),
+                **{
+                    field: native_entity("text", "controller",
+                                         cfg["controller"]["id"], field)
+                    for field in ("price_entity", "solar_entity",
+                                  "site_power_entity", "binding_entity")
+                },
             } | {
                 field: native_entity("number", "controller",
                                      cfg["controller"]["id"], field)
@@ -98,6 +104,7 @@ async def websocket_get_plan(
             "assets": {
                 row["id"]: {
                     "name": native_entity("text", "asset", row["id"], "name"),
+                    "soc_entity": native_entity("text", "asset", row["id"], "soc_entity"),
                     **{
                         field: native_select("asset", row["id"], field)
                         for field in ("plan_color", "ready_by_repeat", "kind")
@@ -123,6 +130,12 @@ async def websocket_get_plan(
                     **{
                         field: native_select("charger", row["id"], field)
                         for field in ("plan_color", "asset")
+                    },
+                    **{
+                        field: native_entity("number", "charger", row["id"], field)
+                        for field in ("min_charging_power_kw",
+                                      "max_charging_power_kw",
+                                      "set_charging_power_kw")
                     },
                     "confirm_connection": native_entity(
                         "button", "charger", row["id"], "confirm_connection"

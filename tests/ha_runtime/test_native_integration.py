@@ -188,6 +188,23 @@ async def test_native_setup_registry_diagnostics_and_unload(hass: HomeAssistant)
         assert devices.async_get_device_by_identifier(
             (DOMAIN, f"{kind}/{uid}"), entry.entry_id
         ) is not None
+    from homeassistant.helpers import entity_registry as er
+    registry = er.async_get(hass)
+    for kind, uid, field in (
+        ("controller", "site", "price_entity"),
+        ("controller", "site", "solar_entity"),
+        ("controller", "site", "site_power_entity"),
+        ("controller", "site", "binding_entity"),
+        ("asset", "asset", "soc_entity"),
+    ):
+        entity_id = registry.async_get_entity_id(
+            "text", DOMAIN, f"{DOMAIN}:{kind}:{uid}:{field}"
+        )
+        assert entity_id is not None, (kind, uid, field)
+        owning = devices.async_get_device_by_identifier(
+            (DOMAIN, f"{kind}/{uid}"), entry.entry_id
+        )
+        assert registry.async_get(entity_id).device_id == owning.id
     diagnostic = await async_get_config_entry_diagnostics(hass, entry)
     assert diagnostic["schema_major"] == 1
     assert len(diagnostic["chargers"]) == 1
@@ -208,6 +225,355 @@ async def test_native_setup_registry_diagnostics_and_unload(hass: HomeAssistant)
     await hass.async_block_till_done()
     assert entry.entry_id not in hass.data.get(DOMAIN, {})
     assert not frontend.async_panel_exists(hass, "robotix-multicharge")
+
+
+@pytest.mark.asyncio
+async def test_variable_charger_native_power_controls_share_owning_device(hass: HomeAssistant):
+    """Real HA registration, without an unqualified physical service call."""
+    from homeassistant.helpers import entity_registry as er
+
+    source = (Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN)
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    cfg = validate_configuration({
+        "controller": {
+            "id": "site", "name": "Site", "mode": "Off",
+            "max_parallel": 1, "max_power_kw": 3.68,
+        },
+        "assets": [],
+        "chargers": [{
+            "id": "drive", "name": "Adjustable charger", "kind": "variable_current",
+            "rated_power_kw": 3.68, "phase_count": 1,
+            "phase_ids": ["L1"], "voltage_v": 230,
+            "min_current_a": 6, "max_current_a": 16,
+            "current_step_a": 1,
+            "min_charging_power_kw": 1.84,
+            "max_charging_power_kw": 3.0,
+            "current_control_entity": "number.hardware_limit",
+            "current_readback_entity": "sensor.hardware_current",
+            "control_owner": "external",
+        }],
+    })
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="MultiCharge native Charger power",
+        data={"source": "ui", "configuration": cfg},
+        unique_id=DOMAIN,
+    )
+    entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+    device = dr.async_get(hass).async_get_device_by_identifier(
+        (DOMAIN, "charger/drive"), entry.entry_id
+    )
+    assert device is not None
+    registry = er.async_get(hass)
+    for field in ("min_charging_power_kw", "max_charging_power_kw",
+                  "set_charging_power_kw"):
+        entity_id = registry.async_get_entity_id(
+            "number", DOMAIN, f"{DOMAIN}:charger:drive:{field}"
+        )
+        assert entity_id is not None, field
+        assert registry.async_get(entity_id).device_id == device.id
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
+async def test_every_logical_device_auto_creates_own_native_inputs(hass: HomeAssistant):
+    """No user-created input_number/input_select/helpers; one owned Config Entry.
+
+    An adjustable Charger gets native inputs from creation even before its
+    physical Amp and phase facts are known. Those entities are unavailable,
+    not represented as a working physical setpoint.
+    """
+    from homeassistant.helpers import entity_registry as er
+
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    cfg = validate_configuration({
+        "controller": {
+            "id": "site", "name": "Community",
+            "mode": "Automatic", "max_parallel": 1, "max_power_kw": 3.6,
+        },
+        "assets": [{"id": "car", "name": "Car", "kind": "car",
+                    "target_soc": 80}],
+        "chargers": [
+            {"id": "socket", "name": "Fixed outlet",
+             "kind": "on_off", "rated_power_kw": 2.0},
+            {"id": "smart", "name": "Adjustable EVSE",
+             "kind": "variable_current", "rated_power_kw": 3.6,
+             "min_current_a": 6, "max_current_a": 16},
+        ],
+    })
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Independent Community",
+        data={"source": "ui", "configuration": cfg},
+        unique_id=DOMAIN,
+    )
+    entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+    registry = er.async_get(hass)
+    devreg = dr.async_get(hass)
+
+    expected = {
+        ("controller", "site"): {
+            "select": ("mode", "plan_color_by", "plan_label_mode",
+                       "show_indicative_forecast"),
+            "number": ("max_parallel", "max_power_kw"),
+            "text": ("name", "price_entity", "solar_entity",
+                     "site_power_entity", "binding_entity"),
+        },
+        ("asset", "car"): {
+            "number": ("target_soc", "requested_kwh",
+                       "requested_duration_minutes", "priority",
+                       "max_charge_kw", "capacity_kwh",
+                       "charge_efficiency"),
+            "select": ("plan_color", "ready_by_repeat", "kind"),
+            "datetime": ("ready_by", "expected_connection_at", "expires_at"),
+            "text": ("name", "soc_entity"),
+        },
+        ("charger", "socket"): {
+            "select": ("plan_color", "asset"),
+            "text": ("name",),
+            "button": ("confirm_connection", "stop", "pause", "resume"),
+        },
+        ("charger", "smart"): {
+            "number": ("min_charging_power_kw", "max_charging_power_kw",
+                       "set_charging_power_kw"),
+            "select": ("plan_color", "asset"),
+            "text": ("name",),
+            "button": ("confirm_connection", "stop", "pause", "resume"),
+        },
+    }
+    for (kind, uid), platforms in expected.items():
+        device = devreg.async_get_device_by_identifier(
+            (DOMAIN, f"{kind}/{uid}"), entry.entry_id
+        )
+        assert device is not None, (kind, uid)
+        for platform, fields in platforms.items():
+            for field in fields:
+                entity_id = registry.async_get_entity_id(
+                    platform, DOMAIN, f"{DOMAIN}:{kind}:{uid}:{field}"
+                )
+                assert entity_id is not None, (kind, uid, field)
+                assert registry.async_get(entity_id).device_id == device.id
+                assert not entity_id.startswith("input_")
+    for field in ("min_charging_power_kw", "max_charging_power_kw",
+                  "set_charging_power_kw"):
+        uid = f"{DOMAIN}:charger:smart:{field}"
+        entity_id = registry.async_get_entity_id("number", DOMAIN, uid)
+        assert hass.states.get(entity_id).state == "unavailable", field
+        # Fixed on/off equipment cannot advertise fake current modulation.
+        assert registry.async_get_entity_id(
+            "number", DOMAIN, f"{DOMAIN}:charger:socket:{field}"
+        ) is None
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
+async def test_new_asset_from_dashboard_gets_its_own_native_inputs(
+    hass: HomeAssistant,
+):
+    """Creating a car in the Community dashboard provisions its HA entities.
+
+    Only the MultiCharge Config Entry is updated. The user never creates
+    input_number, input_datetime or input_select helpers.
+    """
+    from homeassistant.helpers import entity_registry as er
+    from custom_components.robotix_multicharge.command_query import (
+        apply_native_preference,
+    )
+
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    cfg = validate_configuration({
+        "controller": {"id": "home", "name": "Home",
+                       "mode": "Automatic", "max_parallel": 1},
+        "assets": [], "chargers": [],
+    })
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="MultiCharge Community",
+        data={"source": "ui", "configuration": cfg},
+        unique_id=DOMAIN,
+    )
+    entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    await apply_native_preference(
+        hass, entry, runtime, "asset", "fresh_car",
+        {"name": "Fresh car", "kind": "car"}, action="create",
+    )
+    await hass.async_block_till_done()
+    current = entry.options["configuration"]
+    assert current["assets"][0]["target_soc"] == 80
+    registry = er.async_get(hass)
+    for platform, field in (
+        ("number", "target_soc"),
+        ("number", "requested_duration_minutes"),
+        ("select", "ready_by_repeat"),
+        ("datetime", "ready_by"),
+        ("text", "name"),
+    ):
+        entity_id = registry.async_get_entity_id(
+            platform, DOMAIN, f"{DOMAIN}:asset:fresh_car:{field}"
+        )
+        assert entity_id is not None, (platform, field)
+        device = dr.async_get(hass).async_get_device_by_identifier(
+            (DOMAIN, "asset/fresh_car"), entry.entry_id,
+        )
+        assert device is not None
+        assert registry.async_get(entity_id).device_id == device.id
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
+async def test_options_created_charger_auto_registers_device_owned_controls(
+    hass: HomeAssistant,
+):
+    """One Options setup adds a Charger; native controls appear automatically."""
+    from homeassistant.helpers import entity_registry as er
+
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    cfg = validate_configuration({
+        "controller": {"id": "home", "name": "Home",
+                       "mode": "Automatic", "max_parallel": 1},
+        "assets": [], "chargers": [],
+    })
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="MultiCharge Community",
+        data={"source": "ui", "configuration": cfg}, unique_id=DOMAIN,
+    )
+    entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+
+    menu = await hass.config_entries.options.async_init(entry.entry_id)
+    form = await hass.config_entries.options.async_configure(
+        menu["flow_id"], {"next_step_id": "charger"}
+    )
+    saved = await hass.config_entries.options.async_configure(
+        form["flow_id"], {
+            "action": "save", "id": "wallbox",
+            "name": "Standalone EVSE",
+            "kind": "variable_current", "rated_power_kw": 3.6,
+            "min_current_a": 6, "max_current_a": 16,
+        }
+    )
+    assert saved["type"] == FlowResultType.CREATE_ENTRY, saved
+    await hass.async_block_till_done()
+    registry = er.async_get(hass)
+    device = dr.async_get(hass).async_get_device_by_identifier(
+        (DOMAIN, "charger/wallbox"), entry.entry_id
+    )
+    assert device is not None
+    for platform, field in (
+        ("number", "min_charging_power_kw"),
+        ("number", "max_charging_power_kw"),
+        ("number", "set_charging_power_kw"),
+        ("select", "asset"),
+        ("button", "stop"),
+    ):
+        entity_id = registry.async_get_entity_id(
+            platform, DOMAIN, f"{DOMAIN}:charger:wallbox:{field}"
+        )
+        assert entity_id is not None, (platform, field)
+        assert registry.async_get(entity_id).device_id == device.id
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
+async def test_options_flow_is_device_setup_not_daily_charge_operations(
+    hass: HomeAssistant,
+):
+    """HA Options may bind and commission devices; everyday controls are native."""
+    source = (Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN)
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    cfg = validate_configuration({
+        "controller": {
+            "id": "site", "name": "Independent home",
+            "mode": "Automatic", "max_parallel": 1, "max_power_kw": 3.6,
+        },
+        "assets": [{"id": "car", "name": "Car", "kind": "car",
+                    "target_soc": 80}],
+        "chargers": [{
+            "id": "drive", "name": "Drive", "kind": "on_off",
+            "rated_power_kw": 3.6, "control_entity": "switch.drive",
+        }],
+    })
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Standalone MultiCharge",
+        data={"source": "ui", "configuration": cfg},
+        unique_id=DOMAIN,
+    )
+    entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+
+    scope = {
+        "controller": (
+            {"name", "phase_limits_a", "price_entity"},
+            {"mode", "max_parallel", "max_power_kw"},
+        ),
+        "asset": (
+            {"name", "kind", "soc_entity", "capacity_kwh"},
+            {"target_soc", "ready_by", "ready_by_repeat", "priority",
+             "requested_kwh", "requested_duration_minutes"},
+        ),
+        "charger": (
+            {"kind", "control_entity", "connected_entity", "power_entity"},
+            {"asset", "control_owner", "physical_commissioned",
+             "min_charging_power_kw", "max_charging_power_kw"},
+        ),
+        "commission": (
+            {"charger_id", "commission", "exclusive_writer_confirmed",
+             "electrical_limits_confirmed"},
+            {"mode", "max_parallel", "ready_by"},
+        ),
+    }
+    for step, (required, prohibited) in scope.items():
+        menu = await hass.config_entries.options.async_init(entry.entry_id)
+        assert menu["type"] == FlowResultType.MENU
+        assert step in menu["menu_options"]
+        form = await hass.config_entries.options.async_configure(
+            menu["flow_id"], {"next_step_id": step}
+        )
+        assert form["type"] == FlowResultType.FORM
+        available = {
+            key.schema if hasattr(key, "schema") else key
+            for key in form["data_schema"].schema
+        }
+        assert required <= available, (step, required - available)
+        assert not (prohibited & available), (step, prohibited & available)
+
+    # User confirmation alone does not prove physical command readiness.
+    # An unqualified generic charger remains external, with no HA write.
+    menu = await hass.config_entries.options.async_init(entry.entry_id)
+    form = await hass.config_entries.options.async_configure(
+        menu["flow_id"], {"next_step_id": "commission"}
+    )
+    rejected = await hass.config_entries.options.async_configure(
+        form["flow_id"], {
+            "charger_id": "drive", "commission": True,
+            "exclusive_writer_confirmed": False,
+            "electrical_limits_confirmed": False,
+        }
+    )
+    assert rejected["type"] == FlowResultType.FORM
+    assert rejected["errors"]["base"] == "invalid_config"
+    assert entry.data["configuration"] == cfg
+    assert entry.options.get("configuration") is None
+    assert await hass.config_entries.async_unload(entry.entry_id)
 
 
 @pytest.mark.asyncio

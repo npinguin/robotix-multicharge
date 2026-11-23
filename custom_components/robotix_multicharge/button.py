@@ -13,17 +13,15 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     runtime = hass.data[DOMAIN][entry.entry_id]
-    # Structural commissioning controls the presence of the button. Provider
-    # switches stay with their own native HA integration.
+    # Every logical Charger owns its native actions at registration.
+    # Unsupported/uncommissioned actions are unavailable, never missing,
+    # and the physical executor remains the only possible command writer.
     async_add_entities([
         _ConfirmCurrentAssetButton(charger, runtime)
         for charger in runtime.configuration["chargers"]
-        if charger.get("connected_entity")
     ] + [
         action(charger, runtime)
         for charger in runtime.configuration["chargers"]
-        if charger.get("control_owner") == "multicharge"
-        and charger.get("physical_commissioned") is True
         for action in (_SafeStopButton, _PauseButton, _ResumeButton)
     ])
 
@@ -43,7 +41,20 @@ class _SafeStopButton(ButtonEntity):
             "model": "Charger",
         }
 
+    @property
+    def available(self) -> bool:
+        charger = next(
+            (c for c in self.runtime.configuration["chargers"]
+             if c["id"] == self._charger_id), None
+        )
+        return bool(
+            charger and charger.get("control_owner") == "multicharge"
+            and charger.get("physical_commissioned") is True
+        )
+
     async def async_press(self) -> None:
+        if not self.available:
+            raise RuntimeError("CHARGER_NOT_COMMISSIONED")
         outcome = await self.runtime.executor.execute(
             self._charger_id, "stop", context=self.context
         )
@@ -74,6 +85,8 @@ class _PauseButton(_AdminChargeActionButton):
 
     async def async_press(self) -> None:
         await self._require_admin_context()
+        if not self.available:
+            raise RuntimeError("CHARGER_NOT_COMMISSIONED")
         outcome = await self.runtime.executor.execute(
             self._charger_id, "pause", context=self.context
         )
@@ -94,6 +107,8 @@ class _ResumeButton(_AdminChargeActionButton):
 
     async def async_press(self) -> None:
         await self._require_admin_context()
+        if not self.available:
+            raise RuntimeError("CHARGER_NOT_COMMISSIONED")
         outcome = await self.runtime.executor.execute(
             self._charger_id, "resume", context=self.context
         )
@@ -121,7 +136,17 @@ class _ConfirmCurrentAssetButton(ButtonEntity):
             "model": "Charger",
         }
 
+    @property
+    def available(self) -> bool:
+        charger = next(
+            (c for c in self.runtime.configuration["chargers"]
+             if c["id"] == self._charger_id), None
+        )
+        return bool(charger and charger.get("connected_entity"))
+
     async def async_press(self) -> None:
+        if not self.available:
+            raise RuntimeError("CHARGER_CONNECTION_SOURCE_NOT_CONFIGURED")
         async with self.runtime.executor._lock:
             result = self.runtime.executor.confirm_current_connection(
                 self._charger_id

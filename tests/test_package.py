@@ -40,11 +40,14 @@ class PackageTest(unittest.TestCase):
             self.assertIn(title, source)
         self.assertIn("robotix-multicharge-card", source)
         self.assertIn('type:"robotix_multicharge/get_plan"', source)
-        # Only registered MultiCharge preference selects are invoked via HA.
-        # Physical switch/number services must remain behind the executor.
+        # Dashboard operates *only* the MultiCharge-owned native HA entities.
+        # The Charger Number delegates to the sole guarded physical executor;
+        # no frontend ever calls a manufacturer's switch or Amp-setpoint.
         self.assertIn('this._hass.callService("select","select_option"', source)
+        self.assertIn('this._hass.callService("number","set_value"', source)
+        self.assertIn('const entity=this.ownerEntity(scope,uid,field);', source)
         self.assertNotIn('this._hass.callService("switch"', source)
-        self.assertNotIn('this._hass.callService("number"', source)
+        self.assertNotIn('c.current_control_entity', source)
         # The owner-scoped vehicle-confirmation button carries no actuation.
         self.assertIn('this._hass.callService("button","press"', source)
         self.assertIn('this.ownerEntity(scope,uid,field)', source)

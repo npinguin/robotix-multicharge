@@ -14,6 +14,7 @@ from homeassistant.helpers import selector
 from .configuration import (
     default_configuration, is_plan_presentation_only_change,
     configuration_revision, prepare_expert_yaml_revision, validate_configuration,
+    apply_new_asset_defaults,
 )
 from .source_evidence import number
 from .execution import stop_power_limit
@@ -182,7 +183,7 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._draft["controller"]["max_parallel"] = int(user_input.get("max_parallel", 1))
                 if user_input.get("max_power_kw") is not None:
                     self._draft["controller"]["max_power_kw"] = user_input["max_power_kw"]
-                self._draft["controller"]["mode"] = "Off"
+                self._draft["controller"]["mode"] = user_input.get("mode", "Automatic")
                 if user_input.get("phase_limits_a"):
                     self._draft["controller"]["phase_limits_a"] = _phase_limits(
                         user_input["phase_limits_a"])
@@ -201,6 +202,9 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # The unverified electrical ceiling is genuinely optional.
         return vol.Schema({
             vol.Optional("name", default="Home charging"): str,
+            vol.Optional("mode", default="Automatic"): vol.In(
+                ["Automatic", "Solar", "Economy", "Ready By", "Force Charge", "Off"]
+            ),
             vol.Optional("max_parallel", default=1): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=1, max=16, step=1, mode=selector.NumberSelectorMode.BOX
@@ -423,6 +427,7 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                 "priority"):
                         if user_input.get(key) is not None:
                             asset[key] = user_input[key]
+                    apply_new_asset_defaults(asset)
                     trial = deepcopy(self._draft)
                     trial["assets"].append(asset)
                     validate_configuration(trial)
@@ -536,8 +541,9 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                  if ceiling is not None else "Group power ceiling not yet configured")
         return {"summary": (
             f"{len(cfg['chargers'])} charging points, {len(cfg['assets'])} assets. "
-            f"{limit}. Charging remains physically disabled until "
-            "separately commissioned."
+            f"{limit}. Physical controls can be commissioned from "
+            "Home Assistant Options > Commission, using independent native "
+            "sensor and safe-idle readback. No RHI modules are required."
         )}
 
     async def async_step_import(self, user_input):
@@ -612,6 +618,91 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             return None
         return self.async_create_entry(
             title="", data={**self.config_entry.options, "configuration": result}
+        )
+
+    async def _safe_structural_save(self, configuration):
+        """Never change a commissioned physical writer without real idle proof.
+
+        The native Options flow uses the same executor lock / guards as expert
+        YAML. A fresh uncommissioned setup may still be edited while offline.
+        """
+        try:
+            updated = validate_configuration(configuration)
+        except ValueError:
+            return None
+        runtime = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
+        if runtime is None:
+            old = self._current()
+            if any(
+                row.get("control_owner") == "multicharge"
+                and row.get("physical_commissioned") is True
+                for row in [*old["chargers"], *updated["chargers"]]
+            ):
+                return None
+            return self._saved(updated)
+        try:
+            async with runtime.executor._lock:
+                _assert_safe_yaml_ui_commit(runtime, updated)
+                return self._saved(updated)
+        except ValueError:
+            return None
+
+    async def async_step_commission(self, user_input=None):
+        """Opt-in standalone physical ownership with source-qualified idle gate.
+
+        A deliberate operator assertion is required because Home Assistant
+        cannot inspect hidden provider automations for competing EVSE writes.
+        No device command is issued by this flow.
+        """
+        current = self._current()
+        if not current["chargers"]:
+            return self.async_abort(reason="no_chargers")
+        errors = {}
+        if user_input is not None:
+            charger_id = user_input.get("charger_id")
+            desired = bool(user_input.get("commission"))
+            if (not charger_id
+                    or (desired and not user_input.get("exclusive_writer_confirmed"))
+                    or (desired and not user_input.get("electrical_limits_confirmed"))):
+                errors["base"] = "invalid_config"
+            else:
+                trial = deepcopy(current)
+                selected = next(
+                    (row for row in trial["chargers"] if row["id"] == charger_id),
+                    None,
+                )
+                if selected is None:
+                    errors["base"] = "invalid_config"
+                else:
+                    selected["control_owner"] = (
+                        "multicharge" if desired else "external"
+                    )
+                    selected["physical_commissioned"] = desired
+                    result = await self._safe_structural_save(trial)
+                    if result is not None:
+                        return result
+                    errors["base"] = "invalid_config"
+        choices = {row["id"]: row["name"] for row in current["chargers"]}
+        return self.async_show_form(
+            step_id="commission", errors=errors,
+            data_schema=vol.Schema({
+                vol.Required("charger_id"): vol.In(choices),
+                vol.Required("commission", default=True): bool,
+                vol.Required("exclusive_writer_confirmed", default=False): bool,
+                vol.Required("electrical_limits_confirmed", default=False): bool,
+            }),
+            description_placeholders={
+                "note": (
+                    "Stand-alone Home Assistant ownership. Before enabling, "
+                    "stop or disable every other controller/automation for "
+                    "this exact physical Charger, verify its circuit and "
+                    "hardware limits, and configure independent live "
+                    "connection, switch and power readback. The Charger must "
+                    "be observed OFF with near-zero power; active/unknown "
+                    "control states, unavailable sources and unresolved "
+                    "commands are rejected. No RHI integration is required."
+                ),
+            },
         )
 
     async def async_step_yaml(self, user_input=None):
@@ -735,23 +826,16 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         if self.config_entry.data.get("source") in ("yaml", "json"):
             return self.async_abort(reason="yaml_managed")
         return self.async_show_menu(
-            step_id="init", menu_options=["controller", "asset", "charger", "display", "yaml"]
+            step_id="init", menu_options=["controller", "asset", "charger", "commission", "display", "yaml"]
         )
 
     async def async_step_controller(self, user_input=None):
         cfg = self._current()
         if user_input is not None:
             cfg["controller"]["name"] = user_input["name"]
-            cfg["controller"]["max_parallel"] = int(user_input["max_parallel"])
-            if user_input.get("max_power_kw"):
-                cfg["controller"]["max_power_kw"] = user_input["max_power_kw"]
-            else:
-                cfg["controller"].pop("max_power_kw", None)
-            if user_input.get("mode"):
-                cfg["controller"]["mode"] = user_input["mode"]
             if user_input.get("phase_limits_a"):
                 cfg["controller"]["phase_limits_a"] = _phase_limits(user_input["phase_limits_a"])
-            for key in ("price_entity", "solar_entity", "binding_entity"):
+            for key in ("price_entity", "solar_entity", "site_power_entity", "binding_entity"):
                 if user_input.get(key):
                     cfg["controller"][key] = user_input[key]
                 else:
@@ -763,15 +847,6 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             step_id="controller",
             data_schema=vol.Schema({
                 vol.Required("name", default=cfg["controller"]["name"]): str,
-                vol.Required("max_parallel", default=cfg["controller"]["max_parallel"]):
-                    selector.NumberSelector(selector.NumberSelectorConfig(
-                        min=1, max=16, step=1, mode=selector.NumberSelectorMode.BOX
-                    )),
-                vol.Optional("max_power_kw"): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0.01, max=1000, step=0.1,
-                        mode=selector.NumberSelectorMode.BOX
-                    )),
                 vol.Optional("phase_limits_a",
                              default=",".join(f"{p}:{x}" for p,x in
                                     cfg["controller"].get("phase_limits_a", {}).items())): str,
@@ -782,6 +857,9 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                     selector.EntitySelectorConfig(domain="sensor")
                 ),
                 vol.Optional("binding_entity"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional("site_power_entity"): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
                 ),
             }),
@@ -805,13 +883,12 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                     "name": user_input.get("name") or asset.get("name"),
                     "kind": user_input.get("kind") or asset.get("kind", "car"),
                 })
-                for field in ("soc_entity", "capacity_kwh", "target_soc", "max_charge_kw",
-                              "requested_kwh", "requested_duration_minutes",
-                              "ready_by", "ready_by_repeat", "charge_efficiency", "priority",
-                              "temporary", "expires_at",
-                              "expected_connection_at"):
+                for field in ("soc_entity", "capacity_kwh",
+                              "vehicle_control_entity", "vehicle_current_entity"):
                     if user_input.get(field) is not None and user_input.get(field) != "":
                         asset[field] = user_input[field]
+                if not any(a["id"] == uid for a in cfg["assets"]):
+                    apply_new_asset_defaults(asset)
                 cfg["assets"] = [a for a in cfg["assets"] if a["id"] != uid] + [asset]
                 result = self._saved(cfg)
             if result is not None:
@@ -831,13 +908,11 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional("capacity_kwh"): selector.NumberSelector(selector.NumberSelectorConfig(
                     min=0.01, max=1000, step=0.1, mode=selector.NumberSelectorMode.BOX
                 )),
-                vol.Optional("temporary"): bool,
-                vol.Optional("expires_at"): str,
-                vol.Optional("charge_efficiency"): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0.01, max=1, step=0.01,
-                        mode=selector.NumberSelectorMode.BOX
-                    )
+                vol.Optional("vehicle_control_entity"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="switch")
+                ),
+                vol.Optional("vehicle_current_entity"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="number")
                 ),
             }),
             errors={"base": "invalid_config"} if user_input else {},
@@ -852,7 +927,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 result = None
             elif action == "delete":
                 cfg["chargers"] = [c for c in cfg["chargers"] if c["id"] != uid]
-                result = self._saved(cfg)
+                result = await self._safe_structural_save(cfg)
             else:
                 charger = next((dict(c) for c in cfg["chargers"] if c["id"] == uid), {})
                 charger["id"] = uid
@@ -864,19 +939,18 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                     charger["kind"] = "on_off"
                 if user_input.get("rated_power_kw") is not None:
                     charger["rated_power_kw"] = user_input["rated_power_kw"]
-                for field in ("asset", "control_entity", "connected_entity", "power_entity",
+                for field in ("control_entity", "connected_entity", "power_entity",
                               "energy_entity", "phase_count", "min_current_a", "max_current_a",
                               "voltage_v", "current_step_a", "fixed_current_a",
                               "circuit_id", "circuit_limit_a", "current_control_entity",
-                              "current_readback_entity",
-                              "control_owner", "physical_commissioned"):
+                              "current_readback_entity", "session_entity"):
 
                     if user_input.get(field) is not None and user_input.get(field) != "":
                         charger[field] = user_input[field]
                 if user_input.get("phase_ids"):
                     charger["phase_ids"] = _phases(user_input["phase_ids"])
                 cfg["chargers"] = [c for c in cfg["chargers"] if c["id"] != uid] + [charger]
-                result = self._saved(cfg)
+                result = await self._safe_structural_save(cfg)
             if result is not None:
                 return result
         return self.async_show_form(
@@ -891,7 +965,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 )),
 
                 vol.Optional("control_entity"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain=["switch", "input_boolean", "number"])
+                    selector.EntitySelectorConfig(domain="switch")
                 ),
                 vol.Optional("connected_entity"): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain=["binary_sensor", "sensor"])
@@ -902,8 +976,6 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional("energy_entity"): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
                 ),
-                vol.Optional("control_owner"): vol.In(["external", "multicharge"]),
-                vol.Optional("physical_commissioned"): bool,
                 vol.Optional("phase_count"): vol.In([1, 2, 3]),
                 vol.Optional("min_current_a"): selector.NumberSelector(selector.NumberSelectorConfig(
                     min=0.01, max=1000, step=0.1, mode=selector.NumberSelectorMode.BOX
@@ -933,6 +1005,9 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 ),
                 vol.Optional("current_readback_entity"): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional("session_entity"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain=["sensor", "binary_sensor"])
                 ),
             }),
             errors={"base": "invalid_config"} if user_input else {},

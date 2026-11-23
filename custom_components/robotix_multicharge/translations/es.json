@@ -8,7 +8,8 @@
           "name": "Nombre (opcional)",
           "max_parallel": "Puntos de carga simultáneos (opcional)",
           "max_power_kw": "Potencia máxima (kW) (opcional)",
-          "phase_limits_a": "Límites de fase (A) (opcional)"
+          "phase_limits_a": "Límites de fase (A) (opcional)",
+          "mode": "Modo de carga inicial"
         }
       },
       "charger": {
@@ -109,23 +110,19 @@
           "asset": "Activo de carga",
           "charger": "Punto de carga",
           "display": "Tarjeta del panel",
-          "yaml": "Edit YAML (review before save)"
+          "yaml": "Edit YAML (review before save)",
+          "commission": "Puesta en servicio del cargador"
         }
       },
       "controller": {
         "title": "Instalación de carga",
         "data": {
           "name": "Nombre",
-          "max_parallel": "Puntos de carga simultáneos",
-          "max_power_kw": "Potencia máxima (kW) (opcional)",
-          "mode": "Modo de carga",
           "price_entity": "Fuente de precios (opcional)",
           "solar_entity": "Fuente solar (opcional)",
           "binding_entity": "Fuente de límite de potencia (opcional)",
           "phase_limits_a": "Límites de fase (A) (opcional)",
-          "plan_label_mode": "Etiquetas del plan",
-          "plan_color_by": "Color por",
-          "show_indicative_forecast": "Mostrar previsión"
+          "site_power_entity": "Fuente de límite de potencia (opcional)"
         }
       },
       "asset": {
@@ -138,29 +135,19 @@
           "kind": "Tipo",
           "soc_entity": "Sensor de batería",
           "capacity_kwh": "Capacidad de batería (kWh)",
-          "target_soc": "Batería objetivo (%)",
-          "max_charge_kw": "Potencia máxima del activo (kW)",
-          "requested_kwh": "Energía solicitada (kWh)",
-          "requested_duration_minutes": "Duración (minutos)",
-          "ready_by": "Listo para",
-          "charge_efficiency": "Eficiencia de carga",
-          "priority": "Prioridad",
-          "ready_by_repeat": "Repetición",
-          "temporary": "Invitado temporal",
-          "expires_at": "Caducidad del invitado",
-          "expected_connection_at": "Conexión prevista"
+          "vehicle_control_entity": "Interruptor del vehículo (origen)",
+          "vehicle_current_entity": "Corriente del vehículo (origen)"
         }
       },
       "charger": {
         "title": "Punto de carga",
-        "description": "Seleccionar MultiCharge solo tras confirmar el control exclusivo. Verificar las medidas y los límites eléctricos antes de activar.",
+        "description": "Configure hardware, sensores y cableado. La autoridad física se activa en Puesta en servicio.",
         "data": {
           "action": "Acción",
           "id": "ID estable",
           "name": "Nombre",
           "kind": "Tipo",
           "rated_power_kw": "Potencia nominal (kW)",
-          "asset": "Activo de carga",
           "control_entity": "Entidad de control",
           "connected_entity": "Sensor de conexión",
           "power_entity": "Sensor de potencia",
@@ -168,8 +155,6 @@
           "phase_count": "Número de fases",
           "min_current_a": "Corriente mínima (A)",
           "max_current_a": "Corriente máxima (A)",
-          "control_owner": "Propietario del control",
-          "physical_commissioned": "Puesta en servicio confirmada",
           "phase_ids": "Fases cableadas",
           "voltage_v": "Tensión (V)",
           "current_step_a": "Paso de corriente (A)",
@@ -177,7 +162,8 @@
           "circuit_id": "ID de circuito",
           "circuit_limit_a": "Límite del circuito (A)",
           "current_control_entity": "Consigna de corriente (number)",
-          "current_readback_entity": "Corriente medida (A)"
+          "current_readback_entity": "Corriente medida (A)",
+          "session_entity": "Sensor de sesión (opcional)"
         }
       },
       "display": {
@@ -201,6 +187,16 @@
         "data": {
           "confirm": "Apply these reviewed configuration changes",
           "edit_again": "Return to YAML editing"
+        }
+      },
+      "commission": {
+        "title": "Puesta en servicio física",
+        "description": "Verifique el control exclusivo y la parada física confirmada. Este paso no envía órdenes de carga.",
+        "data": {
+          "charger_id": "Cargador",
+          "commission": "Activar control MultiCharge",
+          "exclusive_writer_confirmed": "Otros controladores y automatizaciones ya no controlan este cargador",
+          "electrical_limits_confirmed": "Límites eléctricos, potencia y sensores independientes verificados"
         }
       }
     },
@@ -329,6 +325,15 @@
       },
       "charge_efficiency": {
         "name": "Eficiencia"
+      },
+      "min_charging_power_kw": {
+        "name": "Potencia mínima de carga"
+      },
+      "max_charging_power_kw": {
+        "name": "Potencia máxima de carga"
+      },
+      "set_charging_power_kw": {
+        "name": "Ajustar potencia de carga"
       }
     },
     "datetime": {
@@ -452,6 +457,21 @@
     "text": {
       "name": {
         "name": "Nombre"
+      },
+      "price_entity": {
+        "name": "Fuente de tarifa"
+      },
+      "solar_entity": {
+        "name": "Fuente solar"
+      },
+      "site_power_entity": {
+        "name": "Fuente de potencia del sitio"
+      },
+      "binding_entity": {
+        "name": "Fuente de límite de potencia"
+      },
+      "soc_entity": {
+        "name": "Fuente de batería"
       }
     },
     "binary_sensor": {

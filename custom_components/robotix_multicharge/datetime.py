@@ -6,7 +6,6 @@ from datetime import datetime
 
 from homeassistant.components.datetime import DateTimeEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -23,14 +22,13 @@ async def async_setup_entry(
     async_add_entities(
         _AssetDateTime(entry, runtime, asset, field)
         for asset in runtime.configuration["assets"] for field in FIELDS
-        if field != "expires_at" or asset.get("temporary")
     )
 
 
 class _AssetDateTime(DateTimeEntity):
     _attr_has_entity_name = True
     _attr_should_poll = False
-    _attr_entity_category = EntityCategory.CONFIG
+    _attr_entity_category = None
 
     def __init__(self, entry, runtime, asset, field):
         self.entry, self.runtime, self.uid, self.field = (
@@ -51,6 +49,12 @@ class _AssetDateTime(DateTimeEntity):
                       if a["id"] == self.uid), None)
         raw = asset.get(self.field) if asset else None
         self._attr_native_value = datetime.fromisoformat(raw) if raw else None
+        # A guest expiry is an owned input for every Asset; it only becomes
+        # writable when this Asset is actually configured as temporary.
+        self._attr_available = bool(
+            asset is not None
+            and (self.field != "expires_at" or asset.get("temporary"))
+        )
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
@@ -68,6 +72,8 @@ class _AssetDateTime(DateTimeEntity):
         await super().async_will_remove_from_hass()
 
     async def async_set_value(self, value: datetime):
+        if not self.available:
+            raise ValueError("ASSET_GUEST_EXPIRY_ONLY_FOR_TEMPORARY_ASSET")
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("timezone_required")
         await apply_native_preference(

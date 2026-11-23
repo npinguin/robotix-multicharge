@@ -54,7 +54,7 @@ class _OwnedSelect(SelectEntity):
         self._attr_translation_key = (
             "selected_vehicle" if field == "asset" else field
         )
-        if field == "mode":
+        if field in ("mode", "ready_by_repeat", "asset", "plan_color"):
             self._attr_entity_category = None
         self._attr_device_info = {
             "identifiers": {(DOMAIN, f"{kind}/{self.uid}")},

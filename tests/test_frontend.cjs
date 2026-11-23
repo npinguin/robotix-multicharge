@@ -49,7 +49,8 @@ const fixture={
                 plan_color_by:"select.site_colors",
                 show_indicative_forecast:"select.site_forecast"},
     assets:{car:{plan_color:"select.car_color",target_soc:"number.car_target",
-                 ready_by:"datetime.car_ready_by",priority:"number.car_priority"}},
+                 ready_by:"datetime.car_ready_by",ready_by_repeat:"select.car_repeat",
+                 priority:"number.car_priority"}},
     chargers:{drive:{plan_color:"select.drive_color",asset:"select.drive_vehicle"}}
   },
   observations:{
@@ -78,6 +79,60 @@ function content(node){
   let text="";visit(node,x=>{if(x.textContent)text+=x.textContent+"\n";});return text;
 }
 async function main(){
+  const adjustableFixture=JSON.parse(JSON.stringify(fixture));
+  adjustableFixture.configuration.chargers[0].kind="variable_current";
+  Object.assign(adjustableFixture.configuration.chargers[0],{
+    min_current_a:6,max_current_a:16,voltage_v:230,phase_ids:["L1"],
+    min_charging_power_kw:1.84,max_charging_power_kw:3.22
+  });
+  Object.assign(adjustableFixture.preference_entities.chargers.drive,{
+    min_charging_power_kw:"number.drive_min_kw",
+    max_charging_power_kw:"number.drive_max_kw",
+    set_charging_power_kw:"number.drive_set_kw"
+  });
+  const adjustableCard=new Card();
+  adjustableCard.setConfig({});
+  adjustableCard.hass={user:{is_admin:true},states:{},
+    callWS:async()=>adjustableFixture};
+  await new Promise(resolve=>setImmediate(resolve));
+  find(adjustableCard.shadowRoot,"button","Chargers").click();
+  find(adjustableCard.shadowRoot,"button","Details").click();
+  const adjustableText=content(adjustableCard.shadowRoot);
+  assert.ok(adjustableText.includes("Minimum charging power"));
+  assert.ok(adjustableText.includes("Maximum charging power"));
+  assert.ok(adjustableText.includes("Set charging power"));
+  const fixedCard=new Card();
+  fixedCard.setConfig({});
+  fixedCard.hass={user:{is_admin:true},states:{},callWS:async()=>fixture};
+  await new Promise(resolve=>setImmediate(resolve));
+  find(fixedCard.shadowRoot,"button","Chargers").click();
+  find(fixedCard.shadowRoot,"button","Details").click();
+  assert.ok(content(fixedCard.shadowRoot).includes("On/off only"));
+  // Power controls live directly in the Charger view and write ONLY the
+  // MultiCharge-owned HA Number entity (never a provider Amp endpoint).
+  const chargeNative=[];
+  adjustableCard._hass.callService=async(domain,service,payload)=>{
+    chargeNative.push({domain,service,payload});
+  };
+  let powerInput, powerApply;
+  visit(adjustableCard.shadowRoot,node=>{
+    if(node.tag==="div"&&node.children?.some(child=>
+      child.tag==="input"&&child.attributes["aria-label"]==="Set charging power")){
+      powerInput=node.children.find(child=>child.tag==="input");
+      powerApply=node.children.find(child=>child.tag==="button");
+    }
+  });
+  assert.ok(powerInput&&powerApply,"Set power is directly editable in Charger dashboard");
+  powerInput.value="2.30";
+  powerApply.click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(chargeNative[0],{
+    domain:"number",service:"set_value",
+    payload:{entity_id:"number.drive_set_kw",value:2.3}
+  });
+  assert.equal(adjustableCard._settingsFeedback.status,"accepted_unconfirmed",
+    "An HA service call cannot invent physical power readback");
+
   const commands=[];
   const card=new Card();
   card.setConfig({});
@@ -309,6 +364,13 @@ async function main(){
   find(card.shadowRoot,"button","Chargeable Assets").click();
   assert.ok(content(card.shadowRoot).includes("Family car"));
   assert.ok(content(card.shadowRoot).includes("20%"));
+  find(card.shadowRoot,"button","Details").click();
+  assert.ok(content(card.shadowRoot).includes("Charging limit"),
+    "Asset dashboard directly presents user 80% target");
+  assert.ok(content(card.shadowRoot).includes("Charging schedule"),
+    "Daily/weekly recurrence is on the Asset dashboard, not Options Flow");
+  assert.ok(find(card.shadowRoot,"button","Set charging deadline"),
+    "HA device-owned Ready By datetime is reachable directly from dashboard");
   find(card.shadowRoot,"button","Chargers").click();
   assert.ok(content(card.shadowRoot).includes("Driveway"));
   assert.ok(content(card.shadowRoot).includes("2.3 kW"));
@@ -368,8 +430,8 @@ async function main(){
   card._settingsOpen="Safety & limits";card.render();
   assert.ok(content(card.shadowRoot).includes("Electrical limits"),
     "Safety Settings show the configured electrical limits");
-  assert.ok(find(card.shadowRoot,"button","Edit"),
-    "Site power limits are editable through native Number entities");
+  assert.ok(find(card.shadowRoot,"button","Apply"),
+    "Site power limits are directly editable through Controller native Numbers");
   card._settingsOpen="Sources & bindings";card.render();
   assert.ok(content(card.shadowRoot).includes("Tariff"),
     "Source bindings disclose real configured source presence");
@@ -396,10 +458,13 @@ async function main(){
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(nativeCalls.some(c=>c.args.entity_id==="select.site_mode"&&
     c.args.option==="economy"),"native select owner receives strategy");
-  card._tab="Chargeable Assets";card.render();
+  card._tab="Chargeable Assets";card._open="";card.render();
   find(card.shadowRoot,"button","Details").click();
   assert.ok(find(card.shadowRoot,"select"),"vehicle offers a native color choice");
-  assert.ok(find(card.shadowRoot,"button","Edit"),"native vehicle settings open standard HA entity");
+  assert.ok(find(card.shadowRoot,"button","Apply"),
+    "Vehicle target and energy settings are controlled inline by native HA Numbers");
+  assert.ok(find(card.shadowRoot,"button","Set charging deadline"),
+    "Vehicle Ready By opens its native HA DateTime entity from the dashboard");
   let colorSelect;
   visit(card.shadowRoot,x=>{
     if(x.tag==="select"&&x.attributes.id==="multicharge-plan-color")colorSelect=x;

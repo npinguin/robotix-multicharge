@@ -72,6 +72,40 @@ class EvidenceTests(unittest.TestCase):
         cable.last_reported = NOW - timedelta(hours=1)
         self.assertEqual(connection(source, "binary_sensor.cable", NOW).quality, "stale")
 
+    def test_fresh_native_source_can_confirm_unchanged_semantic_cable(self):
+        stale = NOW - timedelta(hours=2)
+        native = state("Available", observed=stale)
+        native.last_reported = NOW
+        semantic = state(
+            "disconnected", observed=stale,
+            source_type="native_charger_status",
+            source_entity_id="sensor.native_connector",
+            raw_status="Available",
+        )
+        src = hass({
+            "sensor.native_connector": native,
+            "sensor.semantic_cable": semantic,
+        })
+        observed = connection(src, "sensor.semantic_cable", NOW)
+        self.assertEqual(observed.quality, "ok")
+        self.assertIs(observed.value, False)
+        self.assertEqual(observed.observed_at, NOW)
+        # The semantic data must still match the real native report.
+        native.state = "Charging"
+        mismatch = connection(src, "sensor.semantic_cable", NOW)
+        self.assertEqual(mismatch.reason, "BRIDGE_SOURCE_STATUS_DIVERGED")
+        self.assertIsNone(mismatch.value)
+        # A stopped native heartbeat never makes the cable fresh by proxy.
+        native.state = "Available"
+        native.last_reported = NOW - timedelta(hours=1)
+        self.assertEqual(connection(src, "sensor.semantic_cable", NOW).quality,
+                         "stale")
+        # No manual utility presence/helper may masquerade as native evidence.
+        semantic.attributes["source_type"] = "manual_confirmation"
+        native.last_reported = NOW
+        self.assertEqual(connection(src, "sensor.semantic_cable", NOW).quality,
+                         "stale")
+
     def test_switch_on_is_not_physical_connection(self):
         obj = hass({
             "switch.plug": state("on"),

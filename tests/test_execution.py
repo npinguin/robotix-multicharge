@@ -516,6 +516,34 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 8)
         self.assertEqual((await rt.executor.execute("evse", "stop"))["status"], "confirmed")
 
+    async def test_user_charger_power_limit_bounds_real_amp_commands(self):
+        rt, states, services = rig(group_kw=7.5)
+        rt.configuration["controller"]["phase_limits_a"] = {"L1": 16}
+        rt.configuration["chargers"][0].update(
+            kind="variable_current", rated_power_kw=3.68,
+            phase_ids=["L1"], voltage_v=230,
+            min_current_a=6, max_current_a=16, current_step_a=1,
+            min_charging_power_kw=1.84, max_charging_power_kw=2.76,
+            circuit_id="drive", circuit_limit_a=16,
+            current_control_entity="number.charge_limit",
+            current_readback_entity="sensor.actual_current",
+        )
+        limit = state(6, "A")
+        limit.attributes.update(min=6, max=16, step=1)
+        states["number.charge_limit"] = limit
+        states["sensor.actual_current"] = state(0, "A")
+        result = await rt.executor.execute("evse", "start")
+        self.assertEqual(result["status"], "confirmed")
+        self.assertEqual(services.calls[0][2]["value"], 12)
+        too_high = await rt.executor.execute("evse", "set_current", current_a=13)
+        too_low = await rt.executor.execute("evse", "set_current", current_a=7)
+        self.assertEqual(too_high["reason"], "ABOVE_USER_CHARGING_POWER_MAXIMUM")
+        self.assertEqual(too_low["reason"], "BELOW_USER_CHARGING_POWER_MINIMUM")
+        self.assertEqual(len(services.calls), 2)
+        valid = await rt.executor.execute("evse", "set_current", current_a=10)
+        self.assertEqual(valid["status"], "confirmed")
+        self.assertEqual(services.calls[-1][2]["value"], 10)
+
     async def test_force_charge_selects_highest_safe_verified_current(self):
         rt, states, services = rig(group_kw=3)
         rt.configuration["controller"]["phase_limits_a"] = {"L1": 12}

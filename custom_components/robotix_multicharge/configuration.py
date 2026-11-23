@@ -9,7 +9,7 @@ from copy import deepcopy
 from hashlib import sha256
 from json import dumps
 from datetime import datetime
-from math import isfinite
+from math import ceil, floor, isfinite
 from re import fullmatch
 
 from .domain import ChargeableAsset, Charger, ChargeController
@@ -70,6 +70,21 @@ def _allowed(row, fields, name):
     extra = set(row) - set(fields)
     if extra:
         raise ValueError(f"{name}: unknown keys {', '.join(sorted(extra))}")
+
+
+def apply_new_asset_defaults(row):
+    """80% is an editable starting *target*, never an OEM hardware limit.
+
+    Only newly created normal car profiles receive this default; expert
+    imports and existing persisted vehicle targets are never rewritten.
+    A percentage without a qualified SoC does not authorize charging.
+    """
+    if (row.get("kind", "car") == "car"
+            and row.get("target_soc") is None
+            and row.get("requested_kwh") is None
+            and row.get("requested_duration_minutes") is None):
+        row["target_soc"] = 80
+    return row
 
 
 def default_configuration(name="Home charging"):
@@ -243,7 +258,8 @@ def validate_configuration(value):
                           "phase_count", "control_owner", "physical_commissioned",
                           "phase_ids", "voltage_v", "current_step_a", "fixed_current_a",
                           "circuit_id", "circuit_limit_a", "current_control_entity",
-                          "current_readback_entity", "plan_color"), "charger")
+                          "current_readback_entity", "min_charging_power_kw",
+                          "max_charging_power_kw", "plan_color"), "charger")
         uid = _text(source.get("id"), "charger.id")
         if uid in charger_ids:
             raise ValueError("charger.id: duplicate")
@@ -280,9 +296,41 @@ def validate_configuration(value):
                 raise ValueError("charger.phase_count: expected 1, 2 or 3")
             charger["phase_count"] = p
         for key in ("min_current_a", "max_current_a", "voltage_v",
-                    "current_step_a", "fixed_current_a", "circuit_limit_a"):
+                    "current_step_a", "fixed_current_a", "circuit_limit_a",
+                    "min_charging_power_kw", "max_charging_power_kw"):
             if source.get(key) is not None:
                 charger[key] = _number(source[key], "charger." + key)
+        if ("min_charging_power_kw" in charger
+                or "max_charging_power_kw" in charger):
+            if charger["kind"] != "variable_current":
+                raise ValueError("charger power preferences require adjustable current")
+            phases = source.get("phase_ids") or []
+            if not phases or not all(key in charger for key in (
+                    "voltage_v", "min_current_a", "max_current_a",
+                    "current_step_a")):
+                raise ValueError("charger power preferences require verified physical limits")
+            factor = charger["voltage_v"] * len(phases) / 1000
+            physical_min = charger["min_current_a"] * factor
+            physical_max = min(charger["rated_power_kw"],
+                               charger["max_current_a"] * factor)
+            chosen_min = charger.get("min_charging_power_kw", physical_min)
+            chosen_max = charger.get("max_charging_power_kw", physical_max)
+            if (chosen_min < physical_min - 1e-6
+                    or chosen_max > physical_max + 1e-6
+                    or chosen_min > chosen_max + 1e-6):
+                raise ValueError("charger charging power limits exceed hardware envelope")
+            # A legal Amp step must exist within the user envelope: never
+            # accept a setting that leaves the Charger with no possible
+            # physical current for its next verified session.
+            minimum, maximum = charger["min_current_a"], charger["max_current_a"]
+            step = charger["current_step_a"]
+            first = max(0, ceil((chosen_min / factor - minimum) / step - 1e-9))
+            last = min(
+                floor((maximum - minimum) / step + 1e-9),
+                floor((chosen_max / factor - minimum) / step + 1e-9),
+            )
+            if first > last:
+                raise ValueError("charger power envelope has no supported current step")
         if source.get("phase_ids") is not None:
             phases = source["phase_ids"]
             if not isinstance(phases, list) or not phases or (
@@ -337,6 +385,8 @@ def validate_configuration(value):
                 phase_ids=tuple(charger.get("phase_ids", ())),
                 voltage_v=charger.get("voltage_v"),
                 current_step_a=charger.get("current_step_a"),
+                min_charging_power_kw=charger.get("min_charging_power_kw"),
+                max_charging_power_kw=charger.get("max_charging_power_kw"),
                 fixed_current_a=charger.get("fixed_current_a"),
                 circuit_id=charger.get("circuit_id"),
                 circuit_limit_a=charger.get("circuit_limit_a"))
@@ -416,7 +466,8 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
     allowed = {
         "controller": {
             "name", "max_parallel", "max_power_kw", "phase_limits_a",
-            "price_entity", "solar_entity", "binding_entity", "mode",
+            "price_entity", "solar_entity", "site_power_entity",
+            "binding_entity", "mode",
             "plan_label_mode", "plan_color_by", "show_indicative_forecast",
         },
         "asset": {
@@ -426,7 +477,8 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
             "temporary", "expires_at", "expected_connection_at",
             "plan_color",
         },
-        "charger": {"name", "asset", "plan_color"},
+        "charger": {"name", "asset", "plan_color",
+                    "min_charging_power_kw", "max_charging_power_kw"},
     }
     if scope not in allowed or set(changes) - allowed[scope]:
         raise ValueError("settings field not editable in this scope")
@@ -461,6 +513,8 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
             target.pop(name, None)
         else:
             target[name] = value
+    if scope == "asset" and action == "create":
+        apply_new_asset_defaults(target)
     if scope == "charger" and changes.get("asset"):
         # One selected Charger per vehicle. Reassignment is one atomic
         # configuration edit, not delete/recreate or a second ownership store.
@@ -516,7 +570,8 @@ def is_in_place_runtime_preference_change(before, after):
                           "temporary", "expires_at", "expected_connection_at"):
                 asset.pop(field, None)
         for charger in result["chargers"]:
-            for field in ("name", "plan_color", "asset"):
+            for field in ("name", "plan_color", "asset",
+                          "min_charging_power_kw", "max_charging_power_kw"):
                 charger.pop(field, None)
         return result
 

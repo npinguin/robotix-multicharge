@@ -458,6 +458,90 @@ class RobotixMultiChargeCard extends HTMLElement {
       this._settingsFeedback={status:"rejected",message:"Unavailable"};
     }finally{this._settingsBusy=false;this.render();}
   }
+  async nativeNumber(scope,uid,field,value){
+    const entity=this.ownerEntity(scope,uid,field);
+    if(!this.canEditSettings()||this._settingsBusy||!entity||
+       typeof this._hass?.callService!=="function"||!Number.isFinite(value)){
+      this._settingsFeedback={status:"rejected",message:"Unsupported number value"};
+      this.render();return;
+    }
+    this._settingsBusy=true;
+    this._settingsFeedback={status:"requested",message:"Applying"};
+    this.render();
+    try{
+      await this._hass.callService("number","set_value",{
+        entity_id:entity,value
+      });
+      this._last=0;
+      await this.load();
+      const state=this._hass?.states?.[entity]?.state;
+      const confirmed=state!==undefined&&state!=="unknown"&&
+        state!=="unavailable"&&Math.abs(Number(state)-value)<0.00001;
+      // An EVSE may quantize a requested kW into real physical Amp steps:
+      // never claim a requested setpoint equals physically measured power.
+      this._settingsFeedback={
+        status:confirmed?"confirmed":"accepted_unconfirmed",
+        message:confirmed?"Saved":"Awaiting native HA/EVSE readback"
+      };
+      if(!confirmed&&field!=="set_charging_power_kw")
+        this._pendingNative={entity,expected:String(value)};
+    }catch(error){
+      this._settingsFeedback={status:"rejected",message:String(
+        error?.message||"Number rejected by Home Assistant"
+      )};
+    }finally{
+      this._settingsBusy=false;this.render();
+    }
+  }
+  nativeNumberEditor(container,scope,uid,field,label,fallback,unit=""){
+    const entity=this.ownerEntity(scope,uid,field);
+    if(!this.canEditSettings()||!entity)return;
+    const native=this._hass?.states?.[entity];
+    const state=native?.state;
+    const observed=state!==undefined&&state!=="unavailable"&&
+      state!=="unknown"&&state!==""&&Number.isFinite(Number(state))?
+      Number(state):fallback;
+    const row=mcEl("div","field native-number");
+    const labelNode=mcEl("label","",mcTr(label)+(unit?" ("+unit+")":""));
+    const control=mcEl("div","row");
+    const input=mcEl("input");
+    input.setAttribute("type","number");
+    input.setAttribute("aria-label",mcTr(label));
+    input.value=observed===undefined||observed===null?"":String(observed);
+    const attr=native?.attributes||{};
+    if(Number.isFinite(Number(attr.min))&&attr.min!==undefined)
+      input.setAttribute("min",String(attr.min));
+    if(Number.isFinite(Number(attr.max))&&attr.max!==undefined)
+      input.setAttribute("max",String(attr.max));
+    input.setAttribute("step",String(attr.step||0.01));
+    const apply=mcButton(mcTr("Apply"),()=>{
+      const value=Number(input.value);
+      if(!input.value.trim()||!Number.isFinite(value)){
+        this._settingsFeedback={status:"rejected",message:"Number required"};
+        this.render();return;
+      }
+      void this.nativeNumber(scope,uid,field,value);
+    });
+    apply.disabled=this._settingsBusy||native?.state==="unavailable";
+    control.append(input,apply);row.append(labelNode,control);
+    container.append(row);
+  }
+  nativeRepeatEditor(container,asset){
+    const field="ready_by_repeat",entity=this.ownerEntity("asset",asset.id,field);
+    if(!this.canEditSettings()||!entity)return;
+    const input=this.field(container,mcTr("Charging schedule"),asset.ready_by_repeat||"none",null,[
+      ["none",mcTr("One time / none")],
+      ["daily",mcTr("Every day")],
+      ["weekly",mcTr("Every week")]
+    ]);
+    input.disabled=this._settingsBusy||!asset.ready_by;
+    input.setAttribute("aria-label",mcTr("Charging schedule"));
+    input.addEventListener("change",()=>
+      this.nativeSelect("asset",asset.id,field,input.value)
+    );
+    if(!asset.ready_by)container.append(mcEl("p","muted small",
+      mcTr("Set Ready By first to enable recurring charging")));
+  }
   openNative(scope,uid,field){
     const entity=this.ownerEntity(scope,uid,field);
     if(!this.canEditSettings()||!entity){this._settingsFeedback={status:"rejected",message:"Unavailable"};this.render();return;}
@@ -884,14 +968,35 @@ class RobotixMultiChargeCard extends HTMLElement {
         const detail=mcEl("div","details");
         mcPair(detail,"Charging priority",a.priority===undefined?"Not set":a.priority);
         mcPair(detail,"Battery data",obs.soc?(obs.soc.quality+" · "+(a.soc_entity||"manual")):"Unknown");
+        if(this.canEditSettings()&&this.ownerEntity("asset",a.id,"soc_entity")){
+          const sourceEdit=mcEl("div","row");
+          sourceEdit.append(mcEl("span","muted small",mcTr("Battery source")),
+            mcButton(mcTr("Edit"),()=>this.openNative("asset",a.id,"soc_entity")));
+          detail.append(sourceEdit);
+        }
         mcPair(detail,"Requested energy",a.requested_kwh===undefined?"Not set":a.requested_kwh+" kWh");
         mcPair(detail,"Duration",a.requested_duration_minutes===undefined?"Not set":a.requested_duration_minutes+" min");
+        detail.append(mcEl("h4","",mcTr("Charging preferences")));
+        for(const [field,label,unit] of [
+          ["target_soc","Charging limit","%"],
+          ["requested_kwh","Requested energy","kWh"],
+          ["requested_duration_minutes","Requested charging duration","minutes"],
+          ["max_charge_kw","Maximum vehicle charging power","kW"],
+          ["priority","Priority",""],
+          ["capacity_kwh","Battery capacity","kWh"],
+          ["charge_efficiency","Charging efficiency",""]
+        ])this.nativeNumberEditor(detail,"asset",a.id,field,label,a[field],unit);
+        const deadline=mcEl("div","row");
+        deadline.append(mcEl("span","",mcTr("Ready By")+" · "+mcTime(a.ready_by,d.timezone)));
+        if(this.canEditSettings()&&this.ownerEntity("asset",a.id,"ready_by"))
+          deadline.append(mcButton(mcTr("Set charging deadline"),()=>
+            this.openNative("asset",a.id,"ready_by")));
+        detail.append(deadline);
+        this.nativeRepeatEditor(detail,a);
         if(this.canEditSettings())this.ownerColorControl(detail,"asset",a);
         for(const [field,label] of [
-          ["kind","Asset type"],["target_soc","Target"],["requested_kwh","Requested energy"],
-          ["requested_duration_minutes","Duration"],["priority","Priority"],
-          ["ready_by","Ready By"],["expected_connection_at","Expected"],
-          ["ready_by_repeat","Repeat"]
+          ["kind","Asset type"],["expected_connection_at","Expected"],
+          ["expires_at","Guest expiry"],["name","Asset name"]
         ]){
           if(!this.canEditSettings()||!this.ownerEntity("asset",a.id,field))continue;
           const row=mcEl("div","row");
@@ -936,6 +1041,7 @@ class RobotixMultiChargeCard extends HTMLElement {
   chargers(container){
     const d=this._data,chargers=d.configuration.chargers||[],observations=(d.observations||{}).chargers||{};
     this.title(container,mcTr("Chargers")+" ("+chargers.length+")");
+    this.feedback(container);
     if(!chargers.length)this.notice(container,"No charging points",false);
     for(const c of chargers){
       const obs=observations[c.id]||{};
@@ -980,6 +1086,24 @@ class RobotixMultiChargeCard extends HTMLElement {
         mcPair(detail,"Rated power",c.rated_power_kw+" kW");
         mcPair(detail,"Phases",c.phase_count||"Unverified");
         mcPair(detail,"Current range",c.min_current_a&&c.max_current_a?c.min_current_a+"–"+c.max_current_a+" A":"Unknown");
+        if(c.kind==="variable_current"){
+          for(const [field,label] of [
+            ["min_charging_power_kw","Minimum charging power"],
+            ["max_charging_power_kw","Maximum charging power"],
+            ["set_charging_power_kw","Set charging power"]
+          ]){
+            const session=(d.active_sessions||{})[c.id];
+            const kw=field==="set_charging_power_kw"?
+              (session?.target_current_a!=null&&c.voltage_v&&c.phase_ids?.length?
+                session.target_current_a*c.voltage_v*c.phase_ids.length/1000:null):
+              c[field];
+            mcPair(detail,mcTr(label),kw==null?mcTr("Not set"):Number(kw).toFixed(2)+" kW");
+            this.nativeNumberEditor(detail,"charger",c.id,field,label,
+              kw,"kW");
+          }
+        }else{
+          mcPair(detail,mcTr("Charging power control"),mcTr("On/off only"));
+        }
         mcPair(detail,"Source state",obs.power_kw?mcTr(obs.power_kw.quality==="ok"?"Ready":"Unavailable"):"Unknown");
         const actual=(d.command_outcomes||{})[c.id]||{};
         mcPair(detail,"Status",mcTr(actual.status==="confirmed"?"Confirmed":actual.status==="rejected"?"Rejected":actual.status==="execution_unknown"?"Unavailable":"No action"));
@@ -1112,13 +1236,10 @@ class RobotixMultiChargeCard extends HTMLElement {
               mcButton("Edit",()=>this.openNative("controller",ctl.id,"name")));
             detail.append(rename);
           }
-          for(const field of ["max_parallel","max_power_kw"]){
-            if(!this.canEditSettings()||!this.ownerEntity("controller",ctl.id,field))continue;
-            const item=mcEl("div","row");
-            item.append(mcEl("span","",field==="max_parallel"?"Parallel chargers":"Maximum group kW"),
-              mcButton("Edit",()=>this.openNative("controller",ctl.id,field)));
-            detail.append(item);
-          }
+          this.nativeNumberEditor(detail,"controller",ctl.id,"max_parallel",
+            "Parallel chargers",ctl.max_parallel);
+          this.nativeNumberEditor(detail,"controller",ctl.id,"max_power_kw",
+            "Maximum group power",ctl.max_power_kw,"kW");
         }else if(title==="Charging strategy"){
           const options=mcEl("div","chips");
           for(const mode of this.canEditSettings()?MC_MODES:[]){
@@ -1133,9 +1254,15 @@ class RobotixMultiChargeCard extends HTMLElement {
         }else if(title==="Sources & bindings"){
           for(const [field,label] of [
             ["price_entity","Tariff"],["solar_entity","Solar"],
-            ["binding_entity","Capacity"]
+            ["site_power_entity","Site power"],["binding_entity","Capacity"]
           ]){
             mcPair(detail,label,ctl[field]||mcTr("Not set"));
+            if(this.canEditSettings()&&this.ownerEntity("controller",ctl.id,field)){
+              const sourceEdit=mcEl("div","row");
+              sourceEdit.append(mcEl("span","muted small",mcTr(label)+" "+mcTr("source")),
+                mcButton(mcTr("Edit"),()=>this.openNative("controller",ctl.id,field)));
+              detail.append(sourceEdit);
+            }
           }
         }else if(title==="Integrations"){
           mcPair(detail,"Tariff",mcReason((d.observations||{}).sources?.tariff_quality));
@@ -1144,16 +1271,10 @@ class RobotixMultiChargeCard extends HTMLElement {
         }else if(title==="Safety & limits"){
           mcPair(detail,"Maximum group kW",ctl.max_power_kw===undefined?
             "Unknown":ctl.max_power_kw+" kW");
-          for(const [field,label] of [
-            ["max_power_kw","Maximum group kW"],
-            ["max_parallel","Parallel chargers"]
-          ]){
-            if(!this.canEditSettings()||!this.ownerEntity("controller",ctl.id,field))continue;
-            const setting=mcEl("div","row");
-            setting.append(mcEl("span","",mcTr(label)),
-              mcButton("Edit",()=>this.openNative("controller",ctl.id,field)));
-            detail.append(setting);
-          }
+          this.nativeNumberEditor(detail,"controller",ctl.id,"max_power_kw",
+            "Maximum group power",ctl.max_power_kw,"kW");
+          this.nativeNumberEditor(detail,"controller",ctl.id,"max_parallel",
+            "Parallel chargers",ctl.max_parallel);
           const phases=Object.entries(ctl.phase_limits_a||{});
           mcPair(detail,"Electrical limits",
             phases.length?phases.map(([id,amps])=>id+": "+amps+" A").join(" · "):mcTr("Not set"));

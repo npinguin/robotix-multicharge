@@ -304,6 +304,12 @@ def compile_plan(
                 remaining_kw = min(remaining_kw, charger.rated_power_kw)
                 current_cap = min(charger.max_current_a,
                                   remaining_kw * 1000 / (voltage * len(phases)))
+                if charger.max_charging_power_kw is not None:
+                    current_cap = min(
+                        current_cap,
+                        charger.max_charging_power_kw * 1000
+                        / (voltage * len(phases))
+                    )
                 if controller.phase_limits_a is not None:
                     current_cap = min(current_cap, *(
                         controller.phase_limits_a[p] - used_phase_a.get(slot, {}).get(p, 0)
@@ -320,6 +326,9 @@ def compile_plan(
                 if current_cap + 1e-9 < charger.min_current_a:
                     continue
                 power = round(current * voltage * len(phases) / 1000, 6)
+                if (charger.min_charging_power_kw is not None
+                        and power + 1e-9 < charger.min_charging_power_kw):
+                    continue
             else:
                 power = charger.rated_power_kw
                 current = charger.fixed_current_a

@@ -8,7 +8,8 @@
           "name": "Naam (optioneel)",
           "max_parallel": "Aantal (optioneel)",
           "max_power_kw": "Vermogen (optioneel)",
-          "phase_limits_a": "Fasen (optioneel)"
+          "phase_limits_a": "Fasen (optioneel)",
+          "mode": "Initiële laadmodus"
         }
       },
       "charger": {
@@ -109,7 +110,8 @@
           "asset": "Chargeable assets",
           "charger": "Chargers",
           "display": "Dashboard card",
-          "yaml": "YAML bewerken (eerst controleren)"
+          "yaml": "YAML bewerken (eerst controleren)",
+          "commission": "Laadpaal in bedrijf stellen"
         },
         "title": "Instellingen"
       },
@@ -117,16 +119,11 @@
         "title": "Laadlocatie",
         "data": {
           "name": "Naam",
-          "max_parallel": "Aantal",
-          "max_power_kw": "Vermogen (optioneel)",
-          "mode": "Laadmodus",
           "price_entity": "Tarief (optioneel)",
           "solar_entity": "Zonne-energie (optioneel)",
           "binding_entity": "Vermogen (optioneel)",
           "phase_limits_a": "Fasen (optioneel)",
-          "plan_label_mode": "Planweergave",
-          "plan_color_by": "Kleur per",
-          "show_indicative_forecast": "Prognose"
+          "site_power_entity": "Vermogen (optioneel)"
         }
       },
       "asset": {
@@ -139,29 +136,19 @@
           "kind": "Type",
           "soc_entity": "Batterij",
           "capacity_kwh": "Batterij",
-          "target_soc": "Doel",
-          "max_charge_kw": "Vermogen",
-          "requested_kwh": "Vermogen",
-          "requested_duration_minutes": "Duur",
-          "ready_by": "Klaar om",
-          "charge_efficiency": "Vermogen",
-          "priority": "Prioriteit",
-          "ready_by_repeat": "Herhalen",
-          "temporary": "Gast",
-          "expires_at": "Vervalt",
-          "expected_connection_at": "Verwachte aansluiting"
+          "vehicle_control_entity": "Schakelaar voertuigsturing (bron)",
+          "vehicle_current_entity": "Voertuigstroominstelling (bron)"
         }
       },
       "charger": {
         "title": "Laadpaal",
-        "description": "Laadpaal",
+        "description": "Configureer hardware, sensoren en bedrading. Fysieke aansturing schakel je afzonderlijk in bij Inbedrijfstelling.",
         "data": {
           "action": "Actie",
           "id": "Naam",
           "name": "Naam",
           "kind": "Type",
           "rated_power_kw": "Vermogen",
-          "asset": "Voertuig",
           "control_entity": "Stroom",
           "connected_entity": "Aansluiting",
           "power_entity": "Vermogen",
@@ -169,8 +156,6 @@
           "phase_count": "Fasen",
           "min_current_a": "Stroom",
           "max_current_a": "Stroom",
-          "control_owner": "Stroom",
-          "physical_commissioned": "Controleren",
           "phase_ids": "Fasen",
           "voltage_v": "Vermogen",
           "current_step_a": "Stroom",
@@ -178,7 +163,8 @@
           "circuit_id": "Aantal",
           "circuit_limit_a": "Stroom",
           "current_control_entity": "Stroom",
-          "current_readback_entity": "Stroom"
+          "current_readback_entity": "Stroom",
+          "session_entity": "Laadsessiesensor (optioneel)"
         }
       },
       "display": {
@@ -202,6 +188,16 @@
         "data": {
           "confirm": "Deze gecontroleerde wijzigingen toepassen",
           "edit_again": "Terug naar YAML"
+        }
+      },
+      "commission": {
+        "title": "Fysieke inbedrijfstelling laadpaal",
+        "description": "Controleer exclusieve aansturing en de veilige, werkelijk gemeten rusttoestand voordat fysieke bediening wordt ingeschakeld. Deze stap verstuurt geen laadcommando.",
+        "data": {
+          "charger_id": "Laadpaal",
+          "commission": "Fysieke MultiCharge-aansturing inschakelen",
+          "exclusive_writer_confirmed": "Andere controllers en automatiseringen sturen deze laadpaal niet meer aan",
+          "electrical_limits_confirmed": "Elektrische limieten, werkelijk vermogen en onafhankelijke sensoren zijn gecontroleerd"
         }
       }
     },
@@ -330,6 +326,15 @@
       },
       "charge_efficiency": {
         "name": "Laadrendement"
+      },
+      "min_charging_power_kw": {
+        "name": "Minimaal laadvermogen"
+      },
+      "max_charging_power_kw": {
+        "name": "Maximaal laadvermogen"
+      },
+      "set_charging_power_kw": {
+        "name": "Laadvermogen instellen"
       }
     },
     "datetime": {
@@ -453,6 +458,21 @@
     "text": {
       "name": {
         "name": "Naam"
+      },
+      "price_entity": {
+        "name": "Tariefbron"
+      },
+      "solar_entity": {
+        "name": "Zonne-energiebron"
+      },
+      "site_power_entity": {
+        "name": "Bron sitevermogen"
+      },
+      "binding_entity": {
+        "name": "Bron vermogenslimiet"
+      },
+      "soc_entity": {
+        "name": "Bron batterijniveau"
       }
     },
     "binary_sensor": {
