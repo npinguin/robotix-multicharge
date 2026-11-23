@@ -1520,145 +1520,29 @@ async def test_native_ha_service_injects_context_for_real_vehicle_quick_action(
 
 
 @pytest.mark.asyncio
-async def test_dashboard_yaml_runtime_review_and_readback(hass: HomeAssistant):
-    """HA Config Entry: dashboard YAML read, preview, guarded apply, real readback.
-
-    Uses HA's scheduled websocket handler wrapper, not a pretend synchronous
-    coroutine; no HA Options flow or package is opened.
-    """
-    import yaml
-    from types import SimpleNamespace
-    from custom_components.robotix_multicharge.command_query import (
-        websocket_dashboard_yaml_configuration,
-    )
+async def test_gui_managed_setup_does_not_register_rejected_yaml_editor(hass: HomeAssistant):
+    """A real HA setup retains native typed settings, without a raw YAML writer."""
+    from custom_components.robotix_multicharge import command_query
+    assert not hasattr(command_query, "websocket_dashboard_yaml_configuration")
 
     source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
     installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
     if not installed.exists():
         shutil.copytree(source, installed)
-    initial = validate_configuration({
-        "controller": {"id": "home", "name": "Original home",
+    cfg = validate_configuration({
+        "controller": {"id": "home", "name": "Home charging",
                        "mode": "Off", "max_parallel": 1},
         "assets": [], "chargers": [],
     })
     entry = MockConfigEntry(
         domain=DOMAIN, title="Robotix MultiCharge",
-        data={"source": "ui", "configuration": initial}, unique_id=DOMAIN,
+        data={"source": "ui", "configuration": cfg}, unique_id=DOMAIN,
     )
     entry.add_to_hass(hass)
     assert await async_setup_component(hass, DOMAIN, {})
     await hass.async_block_till_done()
-    devices = dr.async_get(hass)
-    original = devices.async_get_device_by_identifier(
-        (DOMAIN, "controller/home"), entry.entry_id,
-    )
-    assert original is not None
-    options = await hass.config_entries.options.async_init(entry.entry_id)
-    assert options["type"] == FlowResultType.ABORT
-    assert options["reason"] == "dashboard_only"
-
-    class AdminConnection:
-        user = SimpleNamespace(is_admin=True)
-        result = None
-        failure = None
-
-        def send_result(self, _id, value):
-            self.result, self.failure = value, None
-
-        def send_error(self, _id, code, message):
-            self.result, self.failure = None, (code, message)
-
-    conn = AdminConnection()
-
-    async def send(action, **values):
-        conn.result = conn.failure = None
-        # @websocket_api.async_response schedules a real HA task and returns
-        # None. Awaiting the decorated method itself is incorrect.
-        websocket_dashboard_yaml_configuration(hass, conn, {
-            "id": 9, "type": "robotix_multicharge/yaml_configuration",
-            "action": action, **values,
-        })
-        await hass.async_block_till_done()
-        return conn.result
-
-    initial_read = await send("read")
-    assert initial_read["status"] == "ready"
-    assert yaml.safe_load(initial_read["yaml_text"]) == initial
-    revision = initial_read["configuration_revision"]
-    assert len(revision) == 20
-
-    for bad in (
-        "controller:\n  id: home\n  id: other\n",
-        "template:\n- sensor: []\ncontroller:\n  id: home\n",
-    ):
-        assert await send("preview", mode="replace", yaml_text=bad,
-                          expected_revision=revision) is None
-        assert conn.failure is not None
-        assert not entry.options.get("configuration")
-
-    chargers = [
-        {"id": id, "name": name, "kind": "on_off",
-         "rated_power_kw": 3.6, "control_entity": "switch." + id,
-         "control_owner": "external", "physical_commissioned": False}
-        for id, name in (
-            ("garage_white", "Garage White"),
-            ("garage_black", "Garage Black"),
-            ("peblar_outside", "Peblar Outside"),
-            ("utility_plug", "Utility Plug"),
-        )
-    ]
-    assets = [
-        {"id": id, "name": name, "kind": "car", "target_soc": 80}
-        for id, name in (
-            ("audi_q8", "Audi Q8"),
-            ("vw_id4", "VW ID.4"),
-            ("guest_1", "Guest 1"),
-            ("guest_2", "Guest 2"),
-        )
-    ]
-    candidate = validate_configuration({
-        "controller": {**initial["controller"], "name": "Wessels site"},
-        "chargers": chargers, "assets": assets,
-    })
-    yaml_text = yaml.safe_dump(candidate, sort_keys=False)
-    preview = await send("preview", mode="replace", yaml_text=yaml_text,
-                         expected_revision=revision)
-    assert preview["status"] == "preview", conn.failure
-    assert preview["changes_present"] is True
-    assert len(preview["groups"]["chargers"]["add"]) == 4
-    assert len(preview["groups"]["assets"]["add"]) == 4
-    assert not entry.options.get("configuration"), (
-        "Review must not mutate the only HA Config Entry"
-    )
-    assert await send("apply", mode="replace", yaml_text=yaml_text,
-                      expected_revision=revision) is None
-    assert "REVIEW_REQUIRED" in conn.failure[1]
-    assert await send("apply", mode="replace", yaml_text=yaml_text,
-                      expected_revision=revision,
-                      reviewed_revision="wrong-review") is None
-    assert "REVIEW_CHANGED_REVALIDATE" in conn.failure[1]
-    assert not entry.options.get("configuration")
-
-    applied = await send("apply", mode="replace", yaml_text=yaml_text,
-                         expected_revision=revision,
-                         reviewed_revision=preview["reviewed_revision"])
-    assert applied["status"] == "accepted_unconfirmed", conn.failure
-    await hass.async_block_till_done()
-    assert entry.options["configuration"] == candidate
     assert len(hass.config_entries.async_entries(DOMAIN)) == 1
-    assert devices.async_get_device_by_identifier(
+    assert dr.async_get(hass).async_get_device_by_identifier(
         (DOMAIN, "controller/home"), entry.entry_id,
-    ).id == original.id
-    for charger in chargers:
-        assert devices.async_get_device_by_identifier(
-            (DOMAIN, "charger/" + charger["id"]), entry.entry_id,
-        ) is not None
-    for asset in assets:
-        assert devices.async_get_device_by_identifier(
-            (DOMAIN, "asset/" + asset["id"]), entry.entry_id,
-        ) is not None
-    assert await send("apply", mode="replace", yaml_text=yaml_text,
-                      expected_revision=revision,
-                      reviewed_revision=preview["reviewed_revision"]) is None
-    assert "STALE_SETTINGS_REFRESH" in conn.failure[1]
+    ) is not None
     assert await hass.config_entries.async_unload(entry.entry_id)
