@@ -803,6 +803,44 @@ class ConfigurationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_configuration(cfg)
 
+    def test_money_budget_goal_is_one_native_finite_intent(self):
+        from copy import deepcopy
+        from multicharge_configuration_tests.configuration import (
+            apply_settings_change, is_in_place_runtime_preference_change,
+        )
+        site = default_configuration()
+        site["assets"] = [{"id": "guest", "name": "Guest", "kind": "car",
+                           "requested_budget_amount": 10.0}]
+        configured = validate_configuration(site)
+        a = configured["assets"][0]
+        self.assertEqual(a["requested_budget_amount"], 10.0)
+        self.assertEqual(a["requested_budget_currency"], "EUR")
+        self.assertNotIn("target_soc", a)
+        # Switching goals is one transaction, not simultaneous finite targets.
+        energy = apply_settings_change(configured, "asset", "guest",
+                                       {"requested_kwh": 12.0})
+        self.assertNotIn("requested_budget_amount", energy["assets"][0])
+        self.assertTrue(is_in_place_runtime_preference_change(configured, energy))
+        budget = apply_settings_change(energy, "asset", "guest",
+                                       {"requested_budget_amount": 5.0})
+        self.assertNotIn("requested_kwh", budget["assets"][0])
+        self.assertEqual(budget["assets"][0]["requested_budget_currency"], "EUR")
+        for invalid in (
+            {"requested_budget_amount": -1.0},
+            {"requested_budget_amount": 0.0},
+            {"requested_budget_amount": "10"},
+            {"requested_budget_amount": 5.0, "requested_kwh": 4.0},
+            {"requested_budget_amount": 5.0,
+             "requested_duration_minutes": 15},
+            {"requested_budget_amount": 5.0,
+             "requested_budget_currency": "EUR/kWh"},
+            {"requested_budget_currency": "EUR"},
+        ):
+            sample = deepcopy(site)
+            sample["assets"] = [{"id": "car", "name": "Car", **invalid}]
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                validate_configuration(sample)
+
     def test_native_specific_day_calendar_and_charging_window_validation(self):
         from copy import deepcopy
         from multicharge_configuration_tests.configuration import (
