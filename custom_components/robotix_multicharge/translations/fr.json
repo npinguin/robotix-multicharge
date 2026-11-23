@@ -380,6 +380,12 @@
       },
       "opportunistic_kind": {
         "name": "Mode opportuniste"
+      },
+      "solar_source_kind": {
+        "name": "Type de source solaire"
+      },
+      "grid_power_direction": {
+        "name": "Sens du compteur réseau"
       }
     },
     "number": {
@@ -602,6 +608,24 @@
       },
       "price_currency": {
         "name": "Devise tarifaire"
+      },
+      "solar_power_entity": {
+        "name": "Production solaire"
+      },
+      "home_power_entity": {
+        "name": "Consommation du foyer"
+      },
+      "grid_power_entity": {
+        "name": "Puissance réseau"
+      },
+      "solar_surplus_entity": {
+        "name": "Excédent solaire"
+      },
+      "current_price_entity": {
+        "name": "Prix actuel à l'import"
+      },
+      "export_price_entity": {
+        "name": "Prix actuel à l'export"
       }
     },
     "binary_sensor": {
