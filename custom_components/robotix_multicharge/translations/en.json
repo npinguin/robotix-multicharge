@@ -66,7 +66,9 @@
           "connected_entity": "Physical connection sensor (optional)",
           "power_entity": "Actual power sensor (optional)",
           "energy_entity": "Energy meter (optional)",
-          "configure_electrical": "Configure electrical details (optional)"
+          "configure_electrical": "Configure electrical details (optional)",
+          "connected_states": "Native values meaning connected (comma separated)",
+          "disconnected_states": "Native values meaning disconnected (comma separated)"
         }
       },
       "charger_electrical": {
@@ -184,7 +186,9 @@
           "circuit_limit_a": "Circuit protection ceiling (A)",
           "current_control_entity": "Native current setpoint (number)",
           "current_readback_entity": "Independent actual current sensor (A)",
-          "session_entity": "Native charging session sensor (optional)"
+          "session_entity": "Native charging session sensor (optional)",
+          "connected_states": "Native values meaning connected (comma separated)",
+          "disconnected_states": "Native values meaning disconnected (comma separated)"
         }
       },
       "display": {
