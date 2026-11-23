@@ -14,11 +14,41 @@ from homeassistant.helpers import selector
 from .configuration import (
     default_configuration, is_plan_presentation_only_change,
     configuration_revision, prepare_expert_yaml_revision, validate_configuration,
-    apply_new_asset_defaults,
+    apply_new_asset_defaults, energy_dashboard_suggestions,
 )
 from .source_evidence import number
 from .execution import stop_power_limit
 from .const import DOMAIN, NAME
+
+
+ENERGY_ENTITY_FIELDS = (
+    "solar_power_entity", "home_power_entity", "grid_power_entity",
+    "solar_surplus_entity", "solar_entity", "price_entity",
+    "current_price_entity", "export_price_entity",
+)
+
+
+async def _energy_dashboard_defaults(hass):
+    """Read HA's own Energy Dashboard preferences without editing them.
+
+    The optional first-party Energy integration is not required for manual
+    setup or to run the standalone MultiCharge controller.
+    """
+    try:
+        from homeassistant.components.energy.data import async_get_manager
+
+        manager = await async_get_manager(hass)
+        return energy_dashboard_suggestions(manager.data)
+    except (ImportError, ValueError, RuntimeError, KeyError, TypeError):
+        return {}
+
+
+def _optional_native_entity(key, defaults):
+    """Use real Home Assistant EntitySelectors with validated suggestion IDs."""
+    current = defaults.get(key)
+    if current:
+        return vol.Optional(key, default=current)
+    return vol.Optional(key)
 
 
 def _id(value: str) -> str:
@@ -207,6 +237,19 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 if user_input.get("phase_limits_a"):
                     self._draft["controller"]["phase_limits_a"] = _phase_limits(
                         user_input["phase_limits_a"])
+                preset = await _energy_dashboard_defaults(self.hass) if (
+                    user_input.get("use_energy_dashboard")) else {}
+                ctl = self._draft["controller"]
+                for field in ENERGY_ENTITY_FIELDS:
+                    value = user_input.get(field) or preset.get(field)
+                    if value:
+                        ctl[field] = value
+                if user_input.get("binding_entity"):
+                    ctl["binding_entity"] = user_input["binding_entity"]
+                ctl["solar_source_kind"] = user_input.get(
+                    "solar_source_kind", "none")
+                ctl["grid_power_direction"] = user_input.get(
+                    "grid_power_direction", "import_positive")
                 validate_configuration(self._draft)
             except (KeyError, ValueError):
                 return self.async_show_form(
@@ -214,7 +257,10 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     errors={"base": "invalid_config"},
                 )
             return await self.async_step_charger()
-        return self.async_show_form(step_id="guided", data_schema=self._site_schema())
+        suggestions = await _energy_dashboard_defaults(self.hass)
+        return self.async_show_form(
+            step_id="guided", data_schema=self._site_schema(suggestions)
+        )
 
     async def async_step_expert(self, user_input=None):
         """Configure a complete standalone site on first install via GUI YAML.
@@ -312,7 +358,8 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     @staticmethod
-    def _site_schema():
+    def _site_schema(suggestions=None):
+        suggestions = suggestions or {}
         # Explicit box widgets, never implicit range sliders in HA forms.
         # The unverified electrical ceiling is genuinely optional.
         return vol.Schema({
@@ -332,6 +379,25 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
             ),
             vol.Optional("phase_limits_a"): str,
+            vol.Optional("use_energy_dashboard", default=False): bool,
+            vol.Optional("solar_source_kind", default="none"): vol.In({
+                "none": "Not selected / monitoring only",
+                "intervals": "Qualified 15-minute Solar forecast intervals",
+                "grid_export": "Live measured grid export",
+                "direct_surplus": "Live measured available solar surplus",
+            }),
+            vol.Optional("grid_power_direction", default="import_positive"): vol.In({
+                "import_positive": "Positive = import, negative = export (HA default)",
+                "export_positive": "Positive = export, negative = import",
+            }),
+            **{
+                _optional_native_entity(key, suggestions):
+                    selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
+                for key in ENERGY_ENTITY_FIELDS
+            },
+            vol.Optional("binding_entity"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
         })
 
     async def async_step_charger(self, user_input=None):
