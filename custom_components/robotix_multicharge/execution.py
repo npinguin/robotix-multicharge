@@ -490,6 +490,12 @@ class NativeSwitchExecutor:
                 return "TEMPORARY_ASSET_EXPIRED"
             amount = asset.get("requested_kwh")
             duration = asset.get("requested_duration_minutes")
+        # Check the actual source before accounting or intent reconciliation:
+        # a confirmed disconnect must report the physical blocker, not an
+        # unrelated missing energy-meter progress from a completed session.
+        cable = self._connection(charger, at)
+        if cable.quality != "ok" or cable.value is not True:
+            return "PHYSICAL_CONNECTION_UNVERIFIED"
         if manual_request is None and (amount is not None or duration is not None):
             raw_due = asset.get("ready_by")
             due = datetime.fromisoformat(raw_due) if raw_due else None
@@ -555,9 +561,6 @@ class NativeSwitchExecutor:
                     return "READY_BY_EXPIRED"
             except ValueError:
                 return "READY_BY_INVALID"
-        cable = self._connection(charger, at)
-        if cable.quality != "ok" or cable.value is not True:
-            return "PHYSICAL_CONNECTION_UNVERIFIED"
         if manual_request is None and self.connection_confirmation(charger, at) is None:
             return "CURRENT_PLUG_ASSET_UNCONFIRMED"
         this_power = number(self.runtime.hass, charger.get("power_entity"), "power", at)
