@@ -2988,6 +2988,28 @@ class RobotixMultiChargeCard extends HTMLElement {
               detail.append(sourceEdit);
             }
           }
+        }else if(title==="Safety & limits"){
+          mcPair(detail,"Maximum group kW",
+            ctl.max_power_kw===undefined?"Unknown":ctl.max_power_kw+" kW");
+          this.nativeNumberEditor(detail,"controller",ctl.id,"max_power_kw",
+            "Maximum group power",ctl.max_power_kw,"kW");
+          this.nativeNumberEditor(detail,"controller",ctl.id,"max_parallel",
+            "Parallel chargers",ctl.max_parallel);
+          const phaseValues=Object.entries(ctl.phase_limits_a||{});
+          mcPair(detail,"Electrical limits",phaseValues.length?
+            phaseValues.map(([id,amps])=>id+": "+amps+" A").join(" · "):
+            mcTr("Not set"));
+          if(this.canEditSettings()){
+            const key="controller:"+ctl.id+":phase_limits_a";
+            const row=mcEl("div","row");
+            row.append(mcEl("span","muted small","Phase and circuit limits"),
+              mcButton(mcTr("Edit"),()=>{
+                this._editingField=key;this.render();
+              }));
+            detail.append(row);
+            if(this._editingField===key)
+              this.dashboardEditField(detail,"controller",ctl,"phase_limits_a");
+          }
         }else if(title==="Integrations"){
           mcPair(detail,"Tariff",mcReason((d.observations||{}).sources?.tariff_quality));
           mcPair(detail,"Solar",mcReason((d.observations||{}).sources?.solar_quality));
