@@ -23,7 +23,19 @@ const MC_REASONS={
   SOLAR_UNAVAILABLE:"No solar",DEADLINE_UNKNOWN:"No deadline",
   DEMAND_UNKNOWN:"No charging goal",INSUFFICIENT_CAPACITY_OR_TIME:"Limited power",
   SOURCE_NOT_SELECTED:"No source",BINDING_CAPACITY_UNAVAILABLE:"No capacity",
-  PHASE_WIRING_UNVERIFIED:"Wiring unknown",NO_ASSIGNED_ASSET:"No vehicle"
+  PHASE_WIRING_UNVERIFIED:"Wiring unknown",NO_ASSIGNED_ASSET:"No vehicle",
+  EXTERNAL_WRITER_OWNS_CHARGER:"External charging controller",
+  PHYSICAL_COMMISSIONING_REQUIRED:"Verify charger safety",
+  PHYSICAL_CONNECTION_UNVERIFIED:"Connection not verified",
+  INDEPENDENT_POWER_UNAVAILABLE:"Power measurement missing",
+  NATIVE_SWITCH_REQUIRED:"Charger control missing",
+  MANUAL_START_REQUIRES_FORCE_CHARGE:"Select Force Charge",
+  CONTROL_STATE_UNVERIFIED:"Control state unverified",
+  PREVIOUS_COMMAND_UNCONFIRMED:"Previous command unresolved",
+  PHYSICAL_PHASES_UNVERIFIED:"Wiring unknown",
+  NATIVE_SWITCH_UNAVAILABLE:"Charger unavailable",
+  MANUAL_ONE_OFF_NOT_AVAILABLE:"Unavailable"
+
 };
 function mcReason(value){return mcTr(MC_REASONS[value]||"Unavailable");}
 const MC_TABS = ["Overview", "Charging Plan", "Chargeable Assets", "Chargers", "Settings"];
@@ -68,6 +80,9 @@ for(const [locale,terms] of Object.entries({
 }))Object.assign(MC_TEXT[locale],terms);
 for(const [locale,translation] of Object.entries({"nl":"Wijs eerst het andere voertuig af","fr":"Désattribuez d'abord l'autre véhicule","da":"Fjern først det andet køretøjs tilknytning","nb":"Fjern tilordningen for det andre kjøretøyet først","sv":"Ta först bort det andra fordonets tilldelning","de":"Zuerst die Zuweisung des anderen Fahrzeugs aufheben","es":"Quite primero la asignación del otro vehículo"}))
   MC_TEXT[locale]["Unassign the other vehicle first"]=translation;
+const keysForMinimalCharger=["Start unavailable","External charging controller","Verify charger safety","Connection not verified","Power measurement missing","Charger control missing","Select Force Charge","Control state unverified","Previous command unresolved","Charger unavailable"];
+for(const [locale,labels] of Object.entries({"nl":["Start niet beschikbaar","Externe laadsturing actief","Controleer eerst de veiligheid van de laadpaal","Aansluiting niet bevestigd","Vermogensmeting ontbreekt","Laadsturing ontbreekt","Selecteer Force Charge","Controlestatus onbekend","Vorige opdracht onbeslist","Laadpaal niet beschikbaar"],"fr":["Démarrage indisponible","Contrôleur de charge externe","Vérifier la sécurité de la borne","Connexion non vérifiée","Mesure de puissance absente","Commande de borne absente","Choisir Force Charge","État de commande non vérifié","Commande précédente non résolue","Borne indisponible"],"da":["Start ikke tilgængelig","Ekstern ladestyring","Kontroller laderens sikkerhed","Forbindelse ikke bekræftet","Effektmåling mangler","Ladestyring mangler","Vælg Force Charge","Styringstilstand ukendt","Tidligere kommando uafklaret","Lader utilgængelig"],"nb":["Start ikke tilgjengelig","Ekstern ladekontroll","Bekreft laderens sikkerhet","Tilkobling ikke bekreftet","Effektmåling mangler","Ladekontroll mangler","Velg Force Charge","Kontrollstatus ubekreftet","Forrige kommando uavklart","Lader utilgjengelig"],"sv":["Start ej tillgänglig","Extern laddstyrning","Verifiera laddarens säkerhet","Anslutning ej bekräftad","Effektmätning saknas","Laddstyrning saknas","Välj Force Charge","Styrstatus ej verifierad","Föregående kommando olöst","Laddare otillgänglig"],"de":["Start nicht verfügbar","Externe Ladesteuerung","Sicherheit des Ladepunkts prüfen","Verbindung nicht bestätigt","Leistungsmessung fehlt","Ladesteuerung fehlt","Force Charge auswählen","Steuerstatus ungeprüft","Vorheriger Befehl ungeklärt","Ladepunkt nicht verfügbar"],"es":["Inicio no disponible","Control de carga externo","Verifique la seguridad del cargador","Conexión no verificada","Falta medición de potencia","Falta control del cargador","Seleccione Force Charge","Estado de control no verificado","Comando anterior sin resolver","Cargador no disponible"]}))
+  keysForMinimalCharger.forEach((key,i)=>{MC_TEXT[locale][key]=labels[i];});
 const MC_MODES = ["Automatic", "Solar", "Economy", "Ready By", "Force Charge", "Off"];
 const MC_STYLE = [
   ":host{display:block;color:var(--primary-text-color,#20252b);font:inherit}",
@@ -160,6 +175,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._loading=false;
     this._commandBusy=false;
     this._commandFeedback={};
+    // Local, unsubmitted form values only; not an execution or settings store.
+    this._manualDrafts={};
     this._settingsBusy=false;
     this._settingsFeedback=null;
     this._pendingSettings=null;
@@ -227,7 +244,14 @@ class RobotixMultiChargeCard extends HTMLElement {
       const cmd={type:"robotix_multicharge/get_plan",day:this._day};
       if(this._filter.startsWith("charger:"))cmd.charger_id=this._filter.slice(8);
       if(this._filter.startsWith("asset:"))cmd.asset_id=this._filter.slice(6);
-      this._data=await this._hass.callWS(cmd);
+      const nextData=await this._hass.callWS(cmd);
+      if(this._data?.configuration_revision&&
+         this._data.configuration_revision!==nextData.configuration_revision)
+        this._manualDrafts={};
+      const chargerIds=new Set((nextData.configuration?.chargers||[]).map(c=>c.id));
+      for(const id of Object.keys(this._manualDrafts))
+        if(!chargerIds.has(id))delete this._manualDrafts[id];
+      this._data=nextData;
       if(this._pendingSettings&&
          this._data.configuration_revision===this._pendingSettings.expected_revision){
         this._settingsFeedback={status:"confirmed",message:"Saved"};
@@ -1221,13 +1245,20 @@ class RobotixMultiChargeCard extends HTMLElement {
         controls.append(resume);
       }
       if(controls.children.length)card.append(controls);
-      if(this.canManage()&&!c.asset&&capability.manual_one_off_allowed){
+      if(this.canManage()&&!c.asset){
+        // Always allow preparing a finite manual request. The backend is
+        // authoritative for native source/safety/physical permission.
         const oneOff=mcEl("section","card");
         oneOff.append(mcEl("h3","",mcTr("Manual one-off charge")));
-        const energy=this.field(oneOff,mcTr("Energy limit (kWh)"),"","number");
-        const minutes=this.field(oneOff,mcTr("Time limit (minutes)"),"","number");
+        const draft=this._manualDrafts[c.id]||{energy:"",minutes:""};
+        this._manualDrafts[c.id]=draft;
+        const energy=this.field(oneOff,mcTr("Energy limit (kWh)"),draft.energy,"number");
+        const minutes=this.field(oneOff,mcTr("Time limit (minutes)"),draft.minutes,"number");
+        energy.addEventListener("input",()=>{draft.energy=energy.value;});
+        minutes.addEventListener("input",()=>{draft.minutes=minutes.value;});
         const submit=mcButton(mcTr("Start bounded session"),()=>{
           const amount=energy.value.trim(),time=minutes.value.trim();
+          draft.energy=amount;draft.minutes=time;
           if((!!amount)===(!!time)){
             this._commandFeedback[c.id]={
               status:"rejected",reason:"ONE_FINITE_MANUAL_LIMIT_REQUIRED"
@@ -1237,8 +1268,13 @@ class RobotixMultiChargeCard extends HTMLElement {
           this.command(c.id,"start",amount?
             {energy_kwh:Number(amount)}:{duration_minutes:Number(time)});
         });
-        submit.disabled=this._commandBusy;
-        oneOff.append(submit);card.append(oneOff);
+        submit.disabled=this._commandBusy||!capability.manual_one_off_allowed;
+        oneOff.append(submit);
+        if(!capability.manual_one_off_allowed)
+          oneOff.append(mcEl("p","muted small",
+            mcTr("Start unavailable")+" · "+
+            mcReason(capability.manual_one_off_reason||"SOURCE_NOT_SELECTED")));
+        card.append(oneOff);
       }
       if(!capability.start_allowed && capability.reason && c.asset)
         card.append(mcEl("p","muted small",mcTr("Unavailable")+" · "+mcReason(capability.reason)));
