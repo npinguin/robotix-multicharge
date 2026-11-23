@@ -1164,6 +1164,8 @@ async def test_initial_bulk_yaml_rejects_templates_duplicate_keys_and_commission
 @pytest.mark.asyncio
 async def test_native_state_events_invalidate_identity_on_fast_replug(hass: HomeAssistant):
     """UC21/23/29: every HA event is processed before planner refresh coalescing."""
+    from datetime import datetime, timezone
+
     source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
     installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
     if not installed.exists():
