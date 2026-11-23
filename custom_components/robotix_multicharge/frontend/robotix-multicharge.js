@@ -2808,11 +2808,16 @@ class RobotixMultiChargeCard extends HTMLElement {
             ["site_power_entity","Site power"],["binding_entity","Capacity"]
           ]){
             mcPair(detail,label,ctl[field]||mcTr("Not set"));
-            if(this.canEditSettings()&&this.ownerEntity("controller",ctl.id,field)){
+            if(this.canEditSettings()){
               const sourceEdit=mcEl("div","row");
+              const key="controller:"+ctl.id+":"+field;
               sourceEdit.append(mcEl("span","muted small",mcTr(label)+" "+mcTr("source")),
-                mcButton(mcTr("Edit"),()=>this.openNative("controller",ctl.id,field)));
+                mcButton(mcTr("Edit"),()=>{
+                  this._editingField=this._editingField===key?"":key;this.render();
+                }));
               detail.append(sourceEdit);
+              if(this._editingField===key)
+                this.dashboardEditField(detail,"controller",ctl,field);
             }
           }
         }else if(title==="Safety & limits"){
