@@ -289,9 +289,6 @@ class NativeSwitchExecutor:
                     raise ValueError("invalid accepted outcome")
                 record = {**row, "start": start, "end": end}
                 history[(record["charger_id"], start)] = record
-            self._completed = dict(completed)
-            self._inflight = dict(inflight)
-            self._paused = set(paused)
             receipts = []
             for row in sessions:
                 if not isinstance(row, dict):
@@ -318,6 +315,12 @@ class NativeSwitchExecutor:
                 ):
                     raise ValueError("invalid session valuation")
                 receipts.append(dict(row))
+            # Adopt ALL persisted decision evidence only after the *last*
+            # field has passed validation. A corrupt trailing receipt cannot
+            # partially alter pause, intent or attribution on this runtime.
+            self._completed = dict(completed)
+            self._inflight = dict(inflight)
+            self._paused = set(paused)
             self._accepted_history = history
             self._session_history = receipts
         except (ValueError, KeyError, TypeError, OverflowError):
