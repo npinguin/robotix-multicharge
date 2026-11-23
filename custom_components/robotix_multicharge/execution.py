@@ -64,10 +64,18 @@ class NativeSwitchExecutor:
         self._plug_confirmations = {}
 
 
+    def _connection(self, charger, at):
+        """Use the single canonical source reader and Charger-owned status map."""
+        return connection(
+            self.runtime.hass, charger.get("connected_entity"), at,
+            connected_states=charger.get("connected_states"),
+            disconnected_states=charger.get("disconnected_states"),
+        )
+
     def connection_confirmation(self, charger, at):
         """Return only an explicit confirmation for the current plug instance."""
         uid = charger["id"]
-        observed = connection(self.runtime.hass, charger.get("connected_entity"), at)
+        observed = self._connection(charger, at)
         if observed.quality != "ok" or observed.value is not True:
             self._plug_confirmations.pop(uid, None)
             return None
@@ -97,7 +105,7 @@ class NativeSwitchExecutor:
         if not asset or not any(a["id"] == asset
                                 for a in self.runtime.configuration["assets"]):
             return {"status": "rejected", "reason": "SELECT_VEHICLE_FIRST"}
-        observed = connection(self.runtime.hass, charger.get("connected_entity"), now)
+        observed = self._connection(charger, now)
         if observed.quality != "ok" or observed.value is not True:
             self._plug_confirmations.pop(charger_id, None)
             return {"status": "rejected", "reason": "CURRENT_PHYSICAL_CONNECTION_UNKNOWN"}
@@ -547,7 +555,7 @@ class NativeSwitchExecutor:
                     return "READY_BY_EXPIRED"
             except ValueError:
                 return "READY_BY_INVALID"
-        cable = connection(self.runtime.hass, charger.get("connected_entity"), at)
+        cable = self._connection(charger, at)
         if cable.quality != "ok" or cable.value is not True:
             return "PHYSICAL_CONNECTION_UNVERIFIED"
         if manual_request is None and self.connection_confirmation(charger, at) is None:
@@ -679,9 +687,7 @@ class NativeSwitchExecutor:
                 and other.get("control_owner") != "multicharge"
             )
             if unknown_external_state and power.value <= stop_power_limit(other):
-                cable = connection(
-                    self.runtime.hass, other.get("connected_entity"), at
-                )
+                cable = self._connection(other, at)
                 if cable.quality == "ok" and cable.value is False:
                     continue
             if state is None and not unknown_external_state:
@@ -1087,7 +1093,7 @@ class NativeSwitchExecutor:
                     active.append(c)
             for charger in active:
                 uid = charger["id"]
-                cable = connection(self.runtime.hass, charger.get("connected_entity"), at)
+                cable = self._connection(charger, at)
                 power = number(self.runtime.hass, charger.get("power_entity"), "power", at)
                 session_reason = self._session_stop_reason(charger, at)
                 accepted = self._accepted.get(uid)
@@ -1318,7 +1324,7 @@ class NativeSwitchExecutor:
                                 and (granted is None or granted.current_a is None
                                      or current_a > granted.current_a + 1e-6))):
                         return result("rejected", "CURRENT_INCREASE_REQUIRES_ACCEPTED_SLOT")
-                cable = connection(self.runtime.hass, charger.get("connected_entity"), at)
+                cable = self._connection(charger, at)
                 if cable.quality != "ok" or cable.value is not True:
                     return result("rejected", "PHYSICAL_CONNECTION_UNVERIFIED")
                 reason = self._physical_budget(charger, at, requested_kw, current_a)
