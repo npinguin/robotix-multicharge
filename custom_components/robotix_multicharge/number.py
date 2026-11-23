@@ -7,7 +7,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .command_query import apply_native_preference
+from .command_query import apply_native_preference, require_native_admin
 from .const import DOMAIN
 
 FIELDS = {
@@ -98,6 +98,7 @@ class _AssetNumber(NumberEntity):
         await super().async_will_remove_from_hass()
 
     async def async_set_native_value(self, value: float):
+        await require_native_admin(self.hass, self.context)
         if self.field in ("priority", "requested_duration_minutes"):
             if not float(value).is_integer():
                 raise ValueError("whole_number_required")
@@ -172,6 +173,7 @@ class _SiteNumber(NumberEntity):
         await super().async_will_remove_from_hass()
 
     async def async_set_native_value(self, value: float):
+        await require_native_admin(self.hass, self.context)
         if self.field == "max_parallel":
             if not float(value).is_integer():
                 raise ValueError("whole_number_required")
@@ -275,6 +277,7 @@ class _ChargerPowerNumber(NumberEntity):
         await super().async_will_remove_from_hass()
 
     async def async_set_native_value(self, value: float):
+        await require_native_admin(self.hass, self.context)
         actor = getattr(self.context, "user_id", None)
         user = await self.hass.auth.async_get_user(actor) if actor else None
         if user is None or not user.is_admin:
