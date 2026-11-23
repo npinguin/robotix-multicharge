@@ -944,11 +944,14 @@ async function main(){
       throw Error("Unsupported Options Flow action");
     }};
   await new Promise(resolve=>setImmediate(resolve));
-  editorCard._tab="Settings";editorCard.render();
+  editorCard._tab="Chargeable Assets";editorCard.render();
+  find(editorCard.shadowRoot,"button","Details").click();
   assert.ok(find(editorCard.shadowRoot,"button","Edit JSON"),
-    "GUI-managed site exposes first-class YAML mode in Settings");
+    "Every owning Asset must reach the same first-class JSON Options Flow");
   find(editorCard.shadowRoot,"button","Edit JSON").click();
   await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(editorCard._tab,"Settings",
+    "Object-scoped Edit JSON must navigate to the actual reviewed editor");
   assert.equal(editorCard._yamlFlow?.step_id,"yaml");
   const textarea=find(editorCard.shadowRoot,"textarea");
   assert.ok(textarea&&textarea.value===initialYaml,
