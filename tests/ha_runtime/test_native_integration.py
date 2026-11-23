@@ -275,6 +275,61 @@ async def test_native_recorder_history_pricing_reuses_one_ha_query_without_billi
 
 
 @pytest.mark.asyncio
+async def test_direct_native_ha_electricity_price_reference_without_robotix_bridge(
+    hass: HomeAssistant,
+):
+    """UC07/17/28: real HA State/Registry source shape, no Basic dependency."""
+    from datetime import datetime, timedelta, timezone
+    from zoneinfo import ZoneInfo
+    from custom_components.robotix_multicharge.source_evidence import intervals
+    from custom_components.robotix_multicharge.runtime import MultiChargeRuntime
+
+    at = datetime.now(timezone.utc)
+    zone = ZoneInfo("Europe/Brussels")
+    day = at.astimezone(zone).date()
+    midnight = datetime(day.year,day.month,day.day,tzinfo=zone)
+    first = midnight.astimezone(timezone.utc)
+    next_day = day + timedelta(days=1)
+    after_day = datetime(next_day.year,next_day.month,next_day.day,
+                         tzinfo=zone).astimezone(timezone.utc)
+    length = int((after_day-first).total_seconds()//3600)
+    observed = [
+        {"start":(first+timedelta(hours=i)).astimezone(zone).isoformat(),
+         "all_in": -0.02 if i == 0 else 0.24}
+        for i in range(length)
+    ]
+    hass.states.async_set("sensor.native_all_in","0.24",{
+        "unit_of_measurement":"€/kWh", "time_zone":"Europe/Brussels",
+        "today":observed, "tomorrow":[], "snapshot_stale":False,
+    })
+    slots, quality = intervals(hass, "sensor.native_all_in", "price", at)
+    assert quality == "OK"
+    assert len(slots) == length
+    assert slots[0].basis == "variable_reference"
+    assert slots[0].effective_price_per_kwh == -0.02
+    assert slots[-1].end == after_day
+    runtime = MultiChargeRuntime(hass, validate_configuration({
+        "controller":{
+            "id":"site","name":"Independent","mode":"Economy",
+            "max_parallel":1,"price_entity":"sensor.native_all_in"
+        },
+        "assets":[], "chargers":[],
+    }))
+    runtime.refresh()
+    assert len(runtime.price_slots) == length
+    assert runtime.observations["sources"]["tariff_quality"] == "OK"
+    assert runtime.price_slots[0].basis == "variable_reference"
+    hass.states.async_set("sensor.native_all_in","0.24",{
+        "unit_of_measurement":"€/kWh", "time_zone":"Europe/Brussels",
+        "today":observed[:-1], "snapshot_stale":False,
+    })
+    missing, reason = intervals(hass,"sensor.native_all_in","price",
+                                datetime.now(timezone.utc))
+    assert not missing
+    assert reason == "INTERVAL_COVERAGE_INCOMPLETE"
+
+
+@pytest.mark.asyncio
 async def test_native_setup_registry_diagnostics_and_unload(hass: HomeAssistant):
     # Real copied custom integration under a standard HA config path.
     source = (Path(__file__).resolve().parents[2] / "custom_components" /
