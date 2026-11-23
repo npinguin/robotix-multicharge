@@ -123,7 +123,7 @@ async def websocket_get_plan(
                     },
                     **{
                         field: native_select("asset", row["id"], field)
-                        for field in ("plan_color", "ready_by_repeat", "kind",
+                        for field in ("plan_color", "ready_by_repeat", "continuous_charging", "kind",
                                       *(f"ready_day_{day}" for day in WEEKDAYS))
                     },
                     **{
