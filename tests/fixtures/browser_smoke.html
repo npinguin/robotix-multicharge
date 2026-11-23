@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MultiCharge source-backed Chromium UX check</title>
+<style>
+:root { --card-background-color: #fff; --secondary-background-color: #f6f8fa; --divider-color: #d7dde3; --primary-text-color: #20252b; --secondary-text-color: #536171; --primary-color: #2779bb; color-scheme: light; }
+@media(prefers-color-scheme: dark) {
+ :root { --card-background-color: #20242b; --secondary-background-color: #292f38; --divider-color: #48505c; --primary-text-color: #f2f5f8; --secondary-text-color: #c0c7d0; --primary-color: #89baff; color-scheme: dark; }
+}
+html,body { margin:0; padding:0; width:100%; background:var(--secondary-background-color); color:var(--primary-text-color); font:14px/1.5 system-ui,sans-serif; }
+main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
+</style>
+<script src="../../custom_components/robotix_multicharge/frontend/robotix-multicharge.js"></script>
+</head>
+<body>
+<main><robotix-multicharge-card></robotix-multicharge-card></main>
+<pre id="smoke-result"></pre>
+<script>
+(async function(){
+  const args=new URLSearchParams(location.search);
+  const count=Math.max(0,Math.min(10,Number(args.get("count")||0)));
+  const role=args.get("role")==="resident"?"resident":"admin";
+  const view=args.get("view")||"overview";
+  const devices=Array.from({length:count},(_,i)=>({
+    id:"charger_"+i,name:"Charger "+(i+1),kind:"on_off",control_owner:"external",
+    physical_commissioned:false,rated_power_kw:3.6,asset:"vehicle_"+i
+  }));
+  const assets=Array.from({length:count},(_,i)=>({
+    id:"vehicle_"+i,name:"Vehicle "+(i+1),kind:"car",
+    target_soc:80,requested_kwh:8,ready_by:"2026-11-23T21:00:00+01:00"
+  }));
+  const observations={assets:{},chargers:{},sources:{tariff_quality:"SOURCE_NOT_SELECTED"}};
+  devices.forEach((c,i)=>{
+    observations.chargers[c.id]={
+      connected:{quality:"ok",value:i%2===0,reason:"OK"},
+      power_kw:{quality:"ok",value:0,reason:"OK"}
+    };
+    observations.assets[assets[i].id]={soc:{quality:"ok",value:45,reason:"OK"}};
+  });
+  const data={
+    controller_id:"home",timezone:"Europe/Brussels",status:"proposed",
+    start:"2026-11-23T00:00:00+01:00",end:"2026-11-24T00:00:00+01:00",
+    configuration_revision:"browser-smoke-1",
+    configuration:{
+      controller:{id:"home",name:"Home charging",mode:"Off",
+        max_parallel:Math.max(1,count),max_power_kw:3.6,plan_color_by:"charger"},
+      assets,chargers:devices
+    },
+    observations,slots:[],actual_slots:[],forecast_slots:[],price_slots:[],
+    reasons:{},shortfall_kwh:{},completed_sessions:[],active_sessions:{},
+    command_capabilities:{},command_outcomes:{},connection_identity:{},
+    preference_entities:{
+      controller:{mode:"select.site_mode",max_parallel:"number.site_parallel",
+        max_power_kw:"number.site_power"},
+      assets:Object.fromEntries(assets.map(a=>[a.id,{
+        target_soc:"number."+a.id+"_soc",ready_by:"datetime."+a.id+"_ready"
+      }])),
+      chargers:Object.fromEntries(devices.map(c=>[c.id,{}]))
+    },
+    plan_palette:{blue:"#3779B9"}
+  };
+  const card=document.querySelector("robotix-multicharge-card");
+  card.setConfig({});
+  card.hass={user:{is_admin:role==="admin"},language:"en",states:{},
+    callWS:async request=>data,callService:async()=>{}};
+  await new Promise(resolve=>setTimeout(resolve,400));
+  if(!card._data)throw Error("real browser failed to receive backend sample");
+  card._tab=view==="asset"?"Chargeable Assets":
+            view==="charger"?"Chargers":
+            view==="plan"?"Charging Plan":"Overview";
+  card.render();
+  if(view==="asset"||view==="charger"){
+    const details=[...card.shadowRoot.querySelectorAll("button")].find(
+      b=>b.textContent==="Details");
+    if(details)details.click();
+  }
+  const root=card.shadowRoot,frame=root.querySelector(".root");
+  const folds=[...root.querySelectorAll("details.owner-group")];
+  const cards=[...root.querySelectorAll(".object-card")];
+  const buttons=[...root.querySelectorAll("button")].map(b=>b.textContent);
+  const rect=frame?.getBoundingClientRect();
+  const report={
+    count,role,view,viewport:innerWidth,
+    render:!!frame,frameWidth:Math.round(rect?.width||0),
+    documentWidth:document.documentElement.scrollWidth,
+    tabs:[...root.querySelectorAll(".tabs button")].map(b=>b.textContent),
+    cards:cards.length,folds:folds.length,
+    firstFoldClosed:folds.length?folds[0].open===false:null,
+    keyboardSummary:folds.every(x=>x.firstElementChild?.tagName==="SUMMARY"),
+    goalEditable:buttons.includes("Save charging goal"),
+    technicalReadable:root.textContent.includes("Complete object settings & sources"),
+    commandButtons:buttons.filter(x=>x==="Start charging"||x==="Stop charging").length,
+    errors:root.querySelectorAll("[role=alert]").length
+  };
+  document.getElementById("smoke-result").textContent=JSON.stringify(report);
+})().catch(error=>{
+  document.getElementById("smoke-result").textContent=JSON.stringify({fatal:String(error)});
+});
+</script>
+</body>
+</html>
