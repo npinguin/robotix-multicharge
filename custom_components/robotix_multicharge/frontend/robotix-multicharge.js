@@ -884,6 +884,12 @@ class RobotixMultiChargeCard extends HTMLElement {
         const detail=mcEl("div","details");
         mcPair(detail,"Charging priority",a.priority===undefined?"Not set":a.priority);
         mcPair(detail,"Battery data",obs.soc?(obs.soc.quality+" · "+(a.soc_entity||"manual")):"Unknown");
+        if(this.canEditSettings()&&this.ownerEntity("asset",a.id,"soc_entity")){
+          const sourceEdit=mcEl("div","row");
+          sourceEdit.append(mcEl("span","muted small",mcTr("Battery source")),
+            mcButton(mcTr("Edit"),()=>this.openNative("asset",a.id,"soc_entity")));
+          detail.append(sourceEdit);
+        }
         mcPair(detail,"Requested energy",a.requested_kwh===undefined?"Not set":a.requested_kwh+" kWh");
         mcPair(detail,"Duration",a.requested_duration_minutes===undefined?"Not set":a.requested_duration_minutes+" min");
         if(this.canEditSettings())this.ownerColorControl(detail,"asset",a);
@@ -1155,9 +1161,15 @@ class RobotixMultiChargeCard extends HTMLElement {
         }else if(title==="Sources & bindings"){
           for(const [field,label] of [
             ["price_entity","Tariff"],["solar_entity","Solar"],
-            ["binding_entity","Capacity"]
+            ["site_power_entity","Site power"],["binding_entity","Capacity"]
           ]){
             mcPair(detail,label,ctl[field]||mcTr("Not set"));
+            if(this.canEditSettings()&&this.ownerEntity("controller",ctl.id,field)){
+              const sourceEdit=mcEl("div","row");
+              sourceEdit.append(mcEl("span","muted small",mcTr(label)+" "+mcTr("source")),
+                mcButton(mcTr("Edit"),()=>this.openNative("controller",ctl.id,field)));
+              detail.append(sourceEdit);
+            }
           }
         }else if(title==="Integrations"){
           mcPair(detail,"Tariff",mcReason((d.observations||{}).sources?.tariff_quality));
