@@ -847,6 +847,42 @@ const MC_OWNER_UNITS={
   circuit_limit_a:" A",voltage_v:" V",target_soc:"%",
   minimum_soc_pct:"%",low_soc_trigger_pct:"%",opportunistic_level_pct:"%"
 };
+
+const MC_EDIT_NUMBERS=new Set([
+  "max_parallel","max_power_kw","target_soc","requested_kwh",
+  "requested_duration_minutes","requested_budget_amount","minimum_soc_pct",
+  "maximum_price_per_kwh","low_price_trigger_per_kwh","low_soc_trigger_pct",
+  "opportunistic_level_pct","priority","capacity_kwh","max_charge_kw",
+  "charge_efficiency","rated_power_kw","phase_count","voltage_v",
+  "min_current_a","max_current_a","current_step_a","fixed_current_a",
+  "circuit_limit_a","min_charging_power_kw","max_charging_power_kw"
+]);
+const MC_EDIT_BOOLEAN=new Set(["temporary","continuous_charging","show_indicative_forecast"]);
+const MC_EDIT_DATES=new Set(["ready_by","expires_at","earliest_start_at","expected_connection_at"]);
+const MC_EDIT_ENUM={
+  mode:["Automatic","Solar","Economy","Ready By","Force Charge","Off"],
+  plan_label_mode:["vehicle","charger","both"],
+  plan_color_by:["vehicle","charger"],
+  solar_source_kind:["none","intervals","grid_export","direct_surplus"],
+  grid_power_direction:["import_positive","export_positive"],
+  ready_by_repeat:["none","daily","weekly","specific_days"],
+  opportunistic_kind:["off","type1","type2"],
+  phase_count:["1","2","3"]
+};
+const MC_EDIT_SOURCE_DOMAINS={
+  control_entity:["switch"],current_control_entity:["number"],
+  current_readback_entity:["sensor"],connected_entity:["sensor","binary_sensor"],
+  power_entity:["sensor"],energy_entity:["sensor"],session_entity:["sensor","binary_sensor"],
+  soc_entity:["sensor"],soc_stale_entity:["binary_sensor"],
+  vehicle_control_entity:["switch"],vehicle_current_entity:["number"]
+};
+for(const key of [
+ "price_entity","current_price_entity","export_price_entity",
+ "solar_entity","solar_power_entity","solar_surplus_entity",
+ "home_power_entity","grid_power_entity","site_power_entity","binding_entity"
+])MC_EDIT_SOURCE_DOMAINS[key]=["sensor"];
+const MC_DAYS=["mon","tue","wed","thu","fri","sat","sun"];
+
 function mcAssetGoalText(a){
   if(a.requested_budget_amount!==undefined)
     return a.requested_budget_amount+" "+(a.requested_budget_currency||"EUR")+
@@ -911,6 +947,9 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._refreshTimer=null;
     this._refreshPending=false;
     this._pendingNative=null;
+    this._editingField="";
+    this._confirmDelete="";
+    this._createCharger=false;
     this._inlineEditor=null; // ephemeral, never a second settings authority
     this._jsonEditor=null; // unsaved draft + returned server preview only
     this._commissionEditor=null;
@@ -1015,7 +1054,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       };
     }finally{this._commandBusy=false;this.render();}
   }
-  async saveSettings(scope,targetId,changes,action){
+  async saveSettings(scope,targetId,changes,action,structural=false){
     if(this._settingsBusy||!this._hass||!this._data||!this.canEditSettings())return;
     if(!this._data.configuration_revision){
       this._settingsFeedback={status:"rejected",message:"Unavailable"};
@@ -1028,6 +1067,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       const receipt=await this._hass.callWS({
         type:"robotix_multicharge/update_settings",
         scope,target_id:targetId,changes,action:action||"save",
+        structural,
         expected_revision:this._data.configuration_revision
       });
       if(receipt.status!=="accepted_unconfirmed"||!receipt.expected_revision)
@@ -1035,6 +1075,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       this._pendingSettings={expected_revision:receipt.expected_revision};
       this._settingsFeedback={status:"accepted_unconfirmed",message:"Pending"};
       this._last=0;
+      return true;
     }catch(error){
       const detail=String(error?.message||error?.code||"");
       const reason=detail.includes("CHARGER_BUSY_STOP_FIRST")?
@@ -1042,13 +1083,179 @@ class RobotixMultiChargeCard extends HTMLElement {
         detail.includes("CHARGER_HAS_OTHER_ASSET")?
           "Unassign the other vehicle first":
         detail.includes("STALE_SETTINGS_REFRESH")?
-          "Settings changed; refresh and retry":"Unavailable";
+          "Settings changed; refresh and retry":
+        detail.includes("SETTINGS_REJECTED")?
+          "Settings rejected; check source, value and physical idle status":
+          "Settings unavailable; check permissions, sources and connection";
       this._settingsFeedback={status:"rejected",message:reason};
+      return false;
     }finally{
       this._settingsBusy=false;
       if(this._pendingSettings)await this.load();
       this.render();
     }
+  }
+  dashboardFieldControl(container,scope,record,field){
+    // The UI is a typed projection of the established backend schema, never
+    // a JSON document, separate settings store or native HA Options detour.
+    const prior=record[field];
+    if(field==="phase_limits_a"||field==="ready_by_weekdays"||
+       field==="charging_windows"){
+      const inputs={};
+      const keys=field==="phase_limits_a"?["L1","L2","L3"]:MC_DAYS;
+      for(const key of keys){
+        const value=(prior||{})[key];
+        if(field==="charging_windows"){
+          const line=mcEl("div","dashboard-schedule-day");
+          const enabled=this.field(line,key,value?"yes":"no",null,[
+            ["no","Off"],["yes","On"]]);
+          const start=this.field(line,"Start",value?.start||"22:00","time");
+          const end=this.field(line,"End",value?.end||"06:00","time");
+          inputs[key]={enabled,start,end};
+          container.append(line);
+        }else{
+          const unit=field==="phase_limits_a"?" A":"";
+          inputs[key]=this.field(container,key+unit,value??"",
+            field==="phase_limits_a"?"number":"time");
+        }
+      }
+      return ()=>{
+        const result={};
+        for(const key of keys){
+          if(field==="charging_windows"){
+            if(inputs[key].enabled.value==="yes"){
+              const a=inputs[key].start.value,b=inputs[key].end.value;
+              if(!a||!b||a===b)throw Error("Charging window requires different times");
+              result[key]={start:a,end:b};
+            }
+          }else{
+            const value=inputs[key].value;
+            if(value!==""){
+              const num=Number(value);
+              if(field==="phase_limits_a"&&!Number.isFinite(num))
+                throw Error("Invalid phase current");
+              result[key]=field==="phase_limits_a"?num:value;
+            }
+          }
+        }
+        return Object.keys(result).length?result:null;
+      };
+    }
+    if(field==="phase_ids"){
+      const checked={};
+      for(const key of ["L1","L2","L3"]){
+        const input=mcEl("input");input.setAttribute("type","checkbox");
+        input.checked=(prior||[]).includes(key);
+        const label=mcEl("label","dashboard-check",key);
+        label.prepend(input);container.append(label);checked[key]=input;
+      }
+      return ()=>{
+        const values=Object.keys(checked).filter(key=>checked[key].checked);
+        return values.length?values:null;
+      };
+    }
+    if(field==="connected_states"||field==="disconnected_states"){
+      const inp=this.field(container,"Native status names (comma separated)",
+        Array.isArray(prior)?prior.join(", "):"","text");
+      return ()=>{
+        const values=inp.value.split(",").map(x=>x.trim()).filter(Boolean);
+        return values.length?values:null;
+      };
+    }
+    let options=null;
+    if(field==="kind")options=scope==="charger"?
+      ["on_off","variable_current"]:
+      ["car","bicycle","motorcycle","scooter","other"];
+    else if(field==="asset")options=["",...(this._data?.configuration?.assets||[]).map(x=>x.id)];
+    else if(field==="plan_color")options=Object.keys(this._data?.plan_palette||{});
+    else options=MC_EDIT_ENUM[field]||null;
+    if(MC_EDIT_BOOLEAN.has(field))options=["true","false"];
+    if(options){
+      const pairs=options.map(key=>[key,key||mcTr("No vehicle")]);
+      if(prior!==undefined&&!pairs.some(x=>x[0]===String(prior)))
+        pairs.unshift([String(prior),String(prior)]);
+      const choice=this.field(container,MC_OWNER_NAMES[field]||field,
+        prior===undefined?"":String(prior),null,pairs);
+      return ()=>MC_EDIT_BOOLEAN.has(field)?
+        choice.value==="true":MC_EDIT_NUMBERS.has(field)?
+        Number(choice.value):choice.value||null;
+    }
+    const type=MC_EDIT_NUMBERS.has(field)?"number":"text";
+    const fieldInput=this.field(container,MC_OWNER_NAMES[field]||field,
+      prior===undefined||prior===null?"":prior,type);
+    if(type==="number"){
+      fieldInput.setAttribute("step",Number.isInteger(prior)&&prior!==null?"1":"any");
+      fieldInput.setAttribute("inputmode","decimal");
+    }
+    if(MC_EDIT_SOURCE_DOMAINS[field]){
+      const list=mcEl("datalist");
+      const id="mc-source-"+scope+"-"+record.id+"-"+field;
+      list.setAttribute("id",id);fieldInput.setAttribute("list",id);
+      const domains=MC_EDIT_SOURCE_DOMAINS[field];
+      const sources=Object.keys(this._hass?.states||{}).filter(name=>
+        domains.includes(name.split(".")[0])).sort();
+      for(const name of sources.slice(0,1500)){
+        const option=mcEl("option");option.value=name;list.append(option);
+      }
+      container.append(list);
+      container.append(mcEl("p","muted small",
+        sources.length+" "+mcTr("registered Home Assistant sources")+" · "+
+        mcTr("only existing native entities")));
+    }
+    if(MC_EDIT_DATES.has(field)){
+      fieldInput.setAttribute("placeholder","YYYY-MM-DDTHH:mm:ss+01:00");
+      container.append(mcEl("p","muted small",
+        mcTr("Use an ISO timestamp with an explicit timezone")));
+    }
+    return ()=>{
+      const value=fieldInput.value.trim();
+      if(!value)return null;
+      if(MC_EDIT_NUMBERS.has(field)){
+        const numeric=Number(value);
+        if(!Number.isFinite(numeric))throw Error("Invalid number");
+        return numeric;
+      }
+      return /currency$/.test(field)?value.toUpperCase():value;
+    };
+  }
+  dashboardEditField(container,scope,record,field){
+    const body=mcEl("div","dashboard-field-edit");
+    let read=this.dashboardFieldControl(body,scope,record,field);
+    const actions=mcEl("div","dashboard-edit-actions");
+    const submit=mcButton(mcTr("Save"),async()=>{
+      let value;
+      try{value=read();}catch(e){
+        this._settingsFeedback={status:"rejected",message:String(e.message)};
+        this.render();return;
+      }
+      const ok=await this.saveSettings(scope,record.id,{[field]:value},"save",true);
+      if(ok){this._editingField="";this.render();}
+    });
+    submit.disabled=this._settingsBusy;
+    actions.append(submit,mcButton(mcTr("Cancel"),()=>{
+      this._editingField="";this.render();
+    }));
+    body.append(actions);container.append(body);
+  }
+  dashboardDelete(container,scope,record){
+    if(!this.canEditSettings()||scope==="controller")return;
+    const key=scope+":"+record.id;
+    const box=mcEl("div","dashboard-danger");
+    if(this._confirmDelete===key){
+      box.append(mcEl("span","muted small",
+        mcTr("Confirm removal")+" · "+record.name+
+        " · "+mcTr("Native history is retained")));
+      box.append(mcButton(mcTr("Confirm removal"),async()=>{
+        const ok=await this.saveSettings(scope,record.id,{},"delete",true);
+        if(ok){this._confirmDelete="";this._open="";this.render();}
+      }));
+      box.append(mcButton(mcTr("Cancel"),()=>{
+        this._confirmDelete="";this.render();
+      }));
+    }else box.append(mcButton(mcTr("Remove")+" "+record.name,()=>{
+      this._confirmDelete=key;this.render();
+    }));
+    container.append(box);
   }
   ownerEntity(scope,uid,field){
     const prefs=this._data?.preference_entities||{};
