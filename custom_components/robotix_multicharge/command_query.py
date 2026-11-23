@@ -169,16 +169,22 @@ async def websocket_update_settings(
             msg["changes"], expected_revision=msg["expected_revision"],
             action=msg.get("action", "save"),
         )
-    except (ValueError, TypeError, KeyError):
+    except (ValueError, TypeError, KeyError) as exc:
+        # Give the admin an actionable *bounded* reason, never raw source
+        # entity IDs or internal exceptions. Physical authority is unchanged.
+        code = {
+            "charger_busy": "CHARGER_BUSY_STOP_FIRST",
+            "stale_settings": "STALE_SETTINGS_REFRESH",
+        }.get(str(exc), "SETTINGS_REJECTED")
         runtime.record_settings_action(
             msg["scope"], msg["target_id"], msg.get("action", "save"),
             msg["changes"], configuration_revision(runtime.configuration),
-            status="rejected", reason="SETTINGS_VALIDATION_OR_SAFETY_HOLD",
+            status="rejected", reason=code,
         )
         if not await runtime.persist_control_state():
             runtime._settings_action["reason"] = "SETTINGS_AUDIT_PERSISTENCE_UNAVAILABLE"
         connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT,
-                              "Settings rejected; verify fields, permissions and charging state")
+                              code)
         return
     connection.send_result(msg["id"], {
         "status": "accepted_unconfirmed",
