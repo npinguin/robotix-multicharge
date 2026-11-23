@@ -657,8 +657,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     choice.disabled=this._settingsBusy;
     choice.addEventListener("change",()=>{
       this._calendarDrafts[asset.id]=choice.value;
-      if(choice.value==="specific_days" && !asset.ready_by_weekdays &&
-          asset.ready_by_repeat!=="weekly"){
+      if(choice.value==="specific_days" && !asset.ready_by_weekdays){
         this.render();return; // first explicit weekday selection commits both
       }
       if(choice.value==="daily" && !asset.ready_by){
@@ -1157,7 +1156,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       mcPair(card,"Battery",mcValue(obs.soc,"%"));
       mcPair(card,"Effective charging power",mcValue(obs.effective_power_kw," kW"));
       mcPair(card,"Target",a.target_soc===undefined?"Not set":a.target_soc+"%");
-      mcPair(card,"Ready By",mcTime(a.ready_by,d.timezone));
+      mcPair(card,"Ready By",mcTime(obs.next_ready_by!==undefined?obs.next_ready_by:a.ready_by,d.timezone));
       mcPair(card,"Charger",charger?charger.name:"Not assigned");
       if(this.canEditSettings()&&chargers.length){
         const change=mcButton(
