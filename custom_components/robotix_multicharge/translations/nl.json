@@ -462,6 +462,21 @@
     "text": {
       "name": {
         "name": "Naam"
+      },
+      "price_entity": {
+        "name": "Tariefbron"
+      },
+      "solar_entity": {
+        "name": "Zonne-energiebron"
+      },
+      "site_power_entity": {
+        "name": "Bron sitevermogen"
+      },
+      "binding_entity": {
+        "name": "Bron vermogenslimiet"
+      },
+      "soc_entity": {
+        "name": "Bron batterijniveau"
       }
     },
     "binary_sensor": {
