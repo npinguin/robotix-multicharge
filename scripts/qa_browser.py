@@ -7,6 +7,9 @@ read-only roles. It does NOT claim an installed HA or physical Charger test.
 from __future__ import annotations
 
 from html import unescape
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
 import json
 import re
 import shutil
@@ -43,9 +46,9 @@ def chrome_path():
     raise RuntimeError("Real Chromium not installed; browser acceptance cannot PASS")
 
 
-def run_case(chrome: str, size: int, count: int, role: str, view: str, dark: bool):
+def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view: str, dark: bool):
     query = urlencode({"width": size, "count": count, "role": role, "view": view})
-    url = PAGE.resolve().as_uri() + "?" + query
+    url = base_url + "/tests/fixtures/browser_shell.html?" + query
     label = f"{size}px_{count}chargers_{role}_{view}_{'dark' if dark else 'light'}"
     PROOF.mkdir(parents=True, exist_ok=True)
     screenshot = PROOF / (label + ".png")
@@ -94,10 +97,28 @@ def run_case(chrome: str, size: int, count: int, role: str, view: str, dark: boo
           f"{row['folds']} folds, {row['viewport']}px, {row['role']}")
 
 
+class QuietFiles(SimpleHTTPRequestHandler):
+    def log_message(self, format, *args):
+        pass
+
+
 def main():
     chrome = chrome_path()
-    for case in CASES:
-        run_case(chrome, *case)
+    # Serve the exact bundled source over a real local web origin. This also
+    # makes the iframe genuinely same-origin and avoids Chromium file://
+    # opaque-origin restrictions while testing its actual 390px viewport.
+    server = ThreadingHTTPServer(("127.0.0.1", 0),
+        partial(QuietFiles, directory=str(ROOT)))
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base = f"http://127.0.0.1:{server.server_port}"
+        for case in CASES:
+            run_case(chrome, base, *case)
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
     print(f"Real Chromium responsive source-UX PASS: {len(CASES)} cases "
           "(simulated HA input; installed target HA and real EVSE separately unqualified)")
 
