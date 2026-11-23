@@ -380,6 +380,12 @@
       },
       "opportunistic_kind": {
         "name": "Opportunistisk prisstrategi"
+      },
+      "solar_source_kind": {
+        "name": "Type solkilde"
+      },
+      "grid_power_direction": {
+        "name": "Netmålerretning"
       }
     },
     "number": {
@@ -602,6 +608,24 @@
       },
       "price_currency": {
         "name": "Prisvaluta"
+      },
+      "solar_power_entity": {
+        "name": "Solproduktion"
+      },
+      "home_power_entity": {
+        "name": "Hjemmeforbrug"
+      },
+      "grid_power_entity": {
+        "name": "Netværkseffekt"
+      },
+      "solar_surplus_entity": {
+        "name": "Soloverskud"
+      },
+      "current_price_entity": {
+        "name": "Aktuel importpris"
+      },
+      "export_price_entity": {
+        "name": "Aktuel eksportpris"
       }
     },
     "binary_sensor": {
