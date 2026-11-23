@@ -37,7 +37,16 @@ const MC_REASONS={
   MANUAL_ONE_OFF_NOT_AVAILABLE:"Unavailable"
 
 };
-function mcReason(value){return mcTr(MC_REASONS[value]||"Unavailable");}
+function mcReason(value){
+  if(MC_REASONS[value])return mcTr(MC_REASONS[value]);
+  // Unknown structured native reasons must not be disguised as a generic
+  // 'Unavailable': preserve recoverable meaning without guessing success.
+  if(typeof value==="string"&&/^[A-Z][A-Z0-9_]{2,100}$/.test(value)){
+    return value.toLowerCase().replace(/_/g," ")
+      .replace(/^./,first=>first.toUpperCase());
+  }
+  return mcTr("Unavailable");
+}
 const MC_TABS = ["Overview", "Charging Plan", "Chargeable Assets", "Chargers", "Settings"];
 const MC_SETTINGS = ["Charging site", "Sources & bindings", "Charging strategy", "Safety & limits", "Integrations", "Advanced & YAML"];
 // Pause is a persistent Charger admission hold, not a second strategy.
