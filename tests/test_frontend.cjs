@@ -791,6 +791,84 @@ async function main(){
   assert.ok(content(card.shadowRoot).includes("2.30 kW"));
   find(card.shadowRoot,"button","Charging Plan").click();
   assert.ok(find(card.shadowRoot,"svg"),"actual quarter timeline chart mounted");
+  // UX-ROW-03 aggregate power-price chart: one combined Basic-inspired
+  // timeline above every dynamic vehicle/EVSE row, no static Wessels IDs.
+  assert.ok(find(card.shadowRoot,"button","48h"),
+    "Today, Tomorrow and 48h period choice must be visible");
+  let combined=[];
+  visit(card.shadowRoot,node=>{
+    if(node.className==="combined-plan")combined.push(node);
+  });
+  assert.equal(combined.length,1,
+    "exactly one power/price overview, not separate duplicate graphs");
+  assert.ok(content(combined[0]).includes("All charging · Power & price"));
+  assert.ok(content(card.shadowRoot).includes("Charging per vehicle and charger"));
+  assert.ok(content(card.shadowRoot).includes("Family car · Driveway"));
+  find(card.shadowRoot,"button","48h").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(commands.at(-1).day,"both",
+    "48h uses one native read-only HA query, not a second price source");
+  const multiPlan=JSON.parse(JSON.stringify(fixture));
+  multiPlan.configuration.chargers=[
+    ...fixture.configuration.chargers,
+    ...Array.from({length:9},(_,i)=>({
+      id:"charger_"+(i+2),name:"Charger "+(i+2),
+      kind:"on_off",rated_power_kw:3.6,phase_count:1,
+      asset:i%2===0?"car":undefined
+    }))
+  ];
+  multiPlan.price_slots=[
+    {start:"2026-11-22T12:00:00+01:00",
+     end:"2026-11-22T12:15:00+01:00",
+     price_per_kwh:0.24,currency:"EUR",basis:"spot"},
+    {start:"2026-11-22T12:15:00+01:00",
+     end:"2026-11-22T12:30:00+01:00",
+     price_per_kwh:0.10,currency:"EUR",basis:"spot"}
+  ];
+  multiPlan.actual_slots=[{
+    charger_id:"drive",asset_id:null,
+    start:"2026-11-22T12:00:00+01:00",
+    end:"2026-11-22T12:15:00+01:00",
+    actual_power_kw:2.2,
+    asset_provenance:"unattributed_charger_actual",
+    quality:"measured_power_integral",
+  }];
+  const many=new Card();many.setConfig({});
+  many.hass={user:{is_admin:false},states:{},callWS:async()=>multiPlan};
+  await new Promise(resolve=>setImmediate(resolve));
+  many._tab="Charging Plan";many.render();
+  let lanes=[],plot;
+  visit(many.shadowRoot,node=>{
+    if(node.className==="plan-lane")lanes.push(node);
+    if(node.className==="combined-plan")plot=node;
+  });
+  assert.equal(lanes.length,10,
+    "All 10 real Charger objects get their own dynamic detail lane");
+  assert.ok(content(plot).includes("spot · EUR/kWh"),
+    "Price is explicitly marked as spot and never an invoice");
+  assert.ok(content(plot).includes("Measured"),
+    "Actual kW stays separate from proposed or accepted");
+  assert.ok(content(many.shadowRoot).includes("vehicle may be unknown"),
+    "Charger metering is shown without fabricating historical Vehicle identity");
+  const last=multiPlan.configuration.chargers[9];
+  assert.ok(content(many.shadowRoot).includes(last.name),
+    "Last Charger lane remains available; no four-fixed-charger limit");
+  multiPlan.price_slots=[];
+  many.render();
+  let without;
+  visit(many.shadowRoot,node=>{
+    if(node.className==="combined-plan")without=node;
+  });
+  assert.ok(content(without).includes("Price unavailable"),
+    "No missing price is silently rendered as zero");
+  assert.ok(!content(without).includes("spot · EUR/kWh"),
+    "Expired or removed price has no stale implicit displayed tariff");
+  multiPlan.price_slots=[];
+  multiPlan.configuration.chargers=[];
+  many.render();
+  assert.ok(content(many.shadowRoot).includes("No charging points"),
+    "0-Charger overview shows setup rather than inventing power lanes");
+
   assert.ok(content(card.shadowRoot).includes("Vehicle + Charger"),
     "Plan offers the user vehicle, charger or combined labels");
   assert.ok(content(card.shadowRoot).includes("Indicative forecasting"),
