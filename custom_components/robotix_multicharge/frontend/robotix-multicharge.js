@@ -950,7 +950,6 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._editingField="";
     this._confirmDelete="";
     this._createCharger=false;
-    this._inlineEditor=null; // ephemeral, never a second settings authority
     this._yamlEditor=null; // unsaved draft + returned server preview only
     this._commissionEditor=null;
   }
@@ -1490,13 +1489,12 @@ class RobotixMultiChargeCard extends HTMLElement {
     container.append(panel);
   }
   openNative(scope,uid,field){
-    const entity=this.ownerEntity(scope,uid,field);
-    if(!this.canEditSettings()||!entity){
-      this._settingsFeedback={status:"rejected",message:"Unavailable"};
-      this.render();return;
-    }
-    this._inlineEditor={scope,uid,field,entity};
-    this._yamlEditor=null;this._commissionEditor=null;
+    if(!this.canEditSettings())return;
+    this._editingField=scope+":"+uid+":"+field;
+    if(scope==="controller"){this._tab="Settings";this._settingsOpen="Charging site";}
+    else{this._tab=scope==="charger"?"Chargers":"Chargeable Assets";this._open=uid;}
+    const group=(MC_OWNER_GROUPS[scope]||[]).find(([,fields])=>fields.includes(field));
+    if(group)this._folds[scope+":"+uid+":"+group[0]]=true;
     this.render();
   }
   ownerColorControl(container,scope,row){
@@ -1528,88 +1526,6 @@ class RobotixMultiChargeCard extends HTMLElement {
     wrapper.append(label,input);container.append(wrapper);
     return input;
   }
-  inlineEditor(container){
-    const edit=this._inlineEditor;
-    if(!edit||!this.canEditSettings())return;
-    const cfg=this._data?.configuration||{};
-    const row=edit.scope==="controller"?cfg.controller:
-      edit.scope==="asset"?cfg.assets?.find(x=>x.id===edit.uid):
-      cfg.chargers?.find(x=>x.id===edit.uid);
-    if(!row)return;
-    const card=mcEl("section","card dashboard-editor");
-    card.setAttribute("data-inline-owner-editor",edit.field);
-    const title=MC_OWNER_NAMES[edit.field]||edit.field.replace(/_/g," ");
-    const head=mcEl("div","row");
-    head.append(mcEl("h3","",mcTr("Edit")+" · "+row.name+" · "+mcTr(title)),
-      mcButton(mcTr("Close"),()=>{
-        this._inlineEditor=null;this.render();
-      }));
-    card.append(head);
-    const observed=this._hass?.states?.[edit.entity];
-    const kind=edit.entity.split(".",1)[0];
-    let input;
-    if(kind==="select"&&Array.isArray(observed?.attributes?.options)&&
-       observed.attributes.options.length){
-      input=this.field(card,mcTr(title),observed.state,null,
-        observed.attributes.options.map(value=>[value,value]));
-    }else{
-      input=this.field(card,mcTr(title),
-        kind==="text"&&observed?.state!=="unavailable"&&
-        observed?.state!=="unknown"&&observed?.state!==undefined?
-          observed.state:row[edit.field],
-        kind==="number"?"number":"text");
-      if(kind==="number"){
-        const attrs=observed?.attributes||{};
-        if(Number.isFinite(Number(attrs.min))&&attrs.min!==undefined)
-          input.setAttribute("min",String(attrs.min));
-        if(Number.isFinite(Number(attrs.max))&&attrs.max!==undefined)
-          input.setAttribute("max",String(attrs.max));
-        input.setAttribute("step",String(attrs.step||0.01));
-      }
-    }
-    if(edit.field.endsWith("_entity")){
-      const candidates=Object.keys(this._hass?.states||{}).filter(id=>
-        id.startsWith("sensor.")||id.startsWith("binary_sensor.")||
-        id.startsWith("number.")||id.startsWith("switch."));
-      card.append(mcEl("p","muted small",
-        mcTr("Available HA sources")+" · "+candidates.length+
-        " · "+mcTr("Enter an existing entity ID; its type and source will be validated")));
-      const datalist=mcEl("datalist");
-      const id="mc-native-source-"+(++this._fieldSequence);
-      datalist.setAttribute("id",id);
-      input.setAttribute("list",id);
-      for(const entityId of candidates.slice(0,250)){
-        const option=mcEl("option");option.value=entityId;datalist.append(option);
-      }
-      card.append(datalist);
-    }
-    const action=mcButton(mcTr("Save in MultiCharge"),()=>{
-      if(!this.canEditSettings())return;
-      const value=input.value;
-      if(kind==="select")void this.nativeSelect(
-        edit.scope,edit.uid,edit.field,value
-      );
-      else if(kind==="number"){
-        if(value===""||!Number.isFinite(Number(value))){
-          this._settingsFeedback={status:"rejected",message:"Number required"};
-          this.render();return;
-        }
-        void this.nativeNumber(edit.scope,edit.uid,edit.field,Number(value));
-      }else if(kind==="text"){
-        void this.nativeText(edit.scope,edit.uid,edit.field,value);
-      }else{
-        void this.saveSettings(edit.scope,edit.uid,{
-          [edit.field]:value||null
-        },"save");
-      }
-    });
-    action.disabled=this._settingsBusy||observed?.state==="unavailable";
-    card.append(action);
-    card.append(mcEl("p","muted small",
-      "Edit stays inside the MultiCharge dashboard. "+
-      "Changes persist through the same native Home Assistant Config Entry."));
-    container.append(card);
-  }
   openCommissionEditor(charger){
     if(!this.canEditSettings())return;
     this._commissionEditor={
@@ -1617,7 +1533,6 @@ class RobotixMultiChargeCard extends HTMLElement {
       enable:charger.control_owner!=="multicharge",
       busy:false,error:""
     };
-    this._inlineEditor=null;this._yamlEditor=null;
     this.render();
   }
   async applyCommission(exclusive,electrical){
@@ -1689,7 +1604,6 @@ class RobotixMultiChargeCard extends HTMLElement {
     if(!this.canManage()||!this._data?.configuration)return;
     this._tab="Settings";
     this._settingsOpen="YAML configuration";
-    this._inlineEditor=null;this._commissionEditor=null;
     if(this._yamlEditor){this.render();return;}
     const draft={text:"",mode:"replace",base:"",review:null,
       error:"",busy:true,confirmed:false,readonly:false};
@@ -1899,7 +1813,6 @@ class RobotixMultiChargeCard extends HTMLElement {
       tabs.append(btn);
     }
     shell.append(tabs);
-    if(this.canEditSettings()&&this._inlineEditor)this.inlineEditor(shell);
     if(this.canEditSettings()&&this._commissionEditor)this.commissionEditor(shell);
     if(this._loading&&!this._data)this.notice(shell,"Loading",false);
     if(this._error){
@@ -2276,15 +2189,17 @@ class RobotixMultiChargeCard extends HTMLElement {
         mcEl("div","owner-field-value",
           mcOwnerReadValue(record[field],field,this._data?.timezone)));
       line.append(info);
-      const entity=this.ownerEntity(scope,record.id,field);
-      if(this.canEditSettings()&&entity&&field!=="id"&&
-         field!=="control_owner"&&field!=="physical_commissioned"){
-        const edit=mcButton(mcTr("Edit"),()=>
-          this.openNative(scope,record.id,field));
+      const key=scope+":"+record.id+":"+field;
+      if(this.canEditSettings()&&!["id","control_owner","physical_commissioned"].includes(field)){
+        const edit=mcButton(mcTr("Edit"),()=>{
+          this._editingField=this._editingField===key?"":key;this.render();
+        });
         edit.setAttribute("aria-label",mcTr("Edit")+" "+mcTr(label)+" · "+record.name);
         line.append(edit);
       }
       parent.append(line);
+      if(this.canEditSettings()&&this._editingField===key)
+        this.dashboardEditField(parent,scope,record,field);
     };
     const fold=(title,fields,key)=>{
       const section=mcEl("details","owner-group");
@@ -2315,15 +2230,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       mcTr("Read from Home Assistant configuration")+" · "+
       Object.keys(record).length+" "+mcTr("configured fields")+" · "+
       mcTr("Missing values are not assumed")));
-    if(scope==="charger"||scope==="controller"||scope==="asset"){
-      const next=mcEl("div","owner-configure");
-      next.append(mcEl("p","muted small",
-        mcTr("All configuration is edited in this dashboard and saved to one Home Assistant Config Entry")));
-      if(this.canEditSettings())next.append(mcButton(
-        mcTr("Edit YAML"),()=>this.openYamlEditor(scope,record.id)
-      ));
-      wrapper.append(next);
-    }
+    if(this.canEditSettings())this.dashboardDelete(wrapper,scope,record);
     container.append(wrapper);
   }
   assetGoalEditor(card,asset){
