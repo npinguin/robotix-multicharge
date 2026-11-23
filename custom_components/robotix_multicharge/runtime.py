@@ -17,7 +17,7 @@ from .domain import ChargeController, Charger
 from .planner import compile_plan, resolve_recurring_ready_by
 from .source_evidence import (
     Evidence, binding, connection, intervals, number, session_status,
-    live_power, live_price,
+    live_power, live_price, soc_with_health,
 )
 from .execution import NativeSwitchExecutor
 
@@ -197,7 +197,10 @@ class MultiChargeRuntime:
         # kWh/duration intents. Do not reconstruct a second OEM/vehicle truth.
         for asset in cfg["assets"]:
             self.observations["assets"][asset["id"]] = {
-                "soc": number(self.hass, asset.get("soc_entity"), "soc", at)
+                "soc": soc_with_health(
+                    self.hass, asset.get("soc_entity"),
+                    asset.get("soc_stale_entity"), at,
+                )
             }
         for raw in cfg["chargers"]:
             uid = raw["id"]
