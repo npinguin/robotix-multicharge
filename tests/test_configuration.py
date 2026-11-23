@@ -495,11 +495,14 @@ class ConfigurationTests(unittest.TestCase):
              "rated_power_kw": 3.5},
         ]
         before = validate_configuration(config)
-        after = apply_settings_change(before, "charger", "c2", {"asset": "a"})
+        # A destination occupied by B must never silently discard B.
+        with self.assertRaisesRegex(ValueError, "charger_occupied"):
+            apply_settings_change(before, "charger", "c2", {"asset": "a"})
+        after = apply_settings_change(before, "charger", "c3", {"asset": "a"})
         self.assertTrue(is_in_place_runtime_preference_change(before, after))
         self.assertNotIn("asset", after["chargers"][0])
-        self.assertEqual(after["chargers"][1]["asset"], "a")
-        self.assertEqual(before["chargers"][2], after["chargers"][2])
+        self.assertEqual(after["chargers"][1]["asset"], "b")
+        self.assertEqual(after["chargers"][2]["asset"], "a")
         self.assertFalse(is_in_place_runtime_preference_change(before, before))
         structural = validate_configuration({**before, "chargers": [
             {**before["chargers"][0], "power_entity": "sensor.another"},
