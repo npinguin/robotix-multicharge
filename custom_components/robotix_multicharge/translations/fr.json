@@ -8,7 +8,8 @@
           "name": "Nom (facultatif)",
           "max_parallel": "Nombre (facultatif)",
           "max_power_kw": "Puissance (facultatif)",
-          "phase_limits_a": "Phases (facultatif)"
+          "phase_limits_a": "Phases (facultatif)",
+          "mode": "Mode de charge initial"
         }
       },
       "charger": {
@@ -109,7 +110,8 @@
           "asset": "Chargeable assets",
           "charger": "Chargers",
           "display": "Dashboard card",
-          "yaml": "Modifier YAML (vérification avant enregistrement)"
+          "yaml": "Modifier YAML (vérification avant enregistrement)",
+          "commission": "Mise en service de la borne"
         },
         "title": "Réglages"
       },
@@ -117,16 +119,11 @@
         "title": "Site de recharge",
         "data": {
           "name": "Nom",
-          "max_parallel": "Nombre",
-          "max_power_kw": "Puissance (facultatif)",
-          "mode": "Mode de charge",
           "price_entity": "Tarif (facultatif)",
           "solar_entity": "Solaire (facultatif)",
           "binding_entity": "Puissance (facultatif)",
           "phase_limits_a": "Phases (facultatif)",
-          "plan_label_mode": "Affichage du plan",
-          "plan_color_by": "Couleur par",
-          "show_indicative_forecast": "Prévision"
+          "site_power_entity": "Puissance (facultatif)"
         }
       },
       "asset": {
@@ -139,29 +136,19 @@
           "kind": "Type",
           "soc_entity": "Batterie",
           "capacity_kwh": "Batterie",
-          "target_soc": "Cible",
-          "max_charge_kw": "Puissance",
-          "requested_kwh": "Puissance",
-          "requested_duration_minutes": "Durée",
-          "ready_by": "Prêt pour",
-          "charge_efficiency": "Puissance",
-          "priority": "Priorité",
-          "ready_by_repeat": "Répéter",
-          "temporary": "Invité",
-          "expires_at": "Expiration",
-          "expected_connection_at": "Connexion prévue"
+          "vehicle_control_entity": "Interrupteur de commande du véhicule (source)",
+          "vehicle_current_entity": "Consigne de courant du véhicule (source)"
         }
       },
       "charger": {
         "title": "Borne",
-        "description": "Borne",
+        "description": "Configurez le matériel, les capteurs et le câblage. L'autorité physique est activée séparément dans Mise en service.",
         "data": {
           "action": "Action",
           "id": "Nom",
           "name": "Nom",
           "kind": "Type",
           "rated_power_kw": "Puissance",
-          "asset": "Véhicule",
           "control_entity": "Courant",
           "connected_entity": "Connexion",
           "power_entity": "Puissance",
@@ -169,8 +156,6 @@
           "phase_count": "Phases",
           "min_current_a": "Courant",
           "max_current_a": "Courant",
-          "control_owner": "Courant",
-          "physical_commissioned": "Vérification",
           "phase_ids": "Phases",
           "voltage_v": "Puissance",
           "current_step_a": "Courant",
@@ -178,7 +163,8 @@
           "circuit_id": "Nombre",
           "circuit_limit_a": "Courant",
           "current_control_entity": "Courant",
-          "current_readback_entity": "Courant"
+          "current_readback_entity": "Courant",
+          "session_entity": "Capteur de session de charge (facultatif)"
         }
       },
       "display": {
@@ -202,6 +188,16 @@
         "data": {
           "confirm": "Appliquer les modifications vérifiées",
           "edit_again": "Retour au YAML"
+        }
+      },
+      "commission": {
+        "title": "Mise en service physique",
+        "description": "Vérifiez l'exclusivité des commandes et l'arrêt physique confirmé avant d'activer la commande. Cette étape n'envoie aucun ordre de charge.",
+        "data": {
+          "charger_id": "Borne",
+          "commission": "Activer la commande MultiCharge",
+          "exclusive_writer_confirmed": "Les autres contrôleurs et automatisations ne commandent plus cette borne",
+          "electrical_limits_confirmed": "Limites électriques, puissance et capteurs indépendants vérifiés"
         }
       }
     },
