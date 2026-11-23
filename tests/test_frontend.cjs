@@ -49,7 +49,8 @@ const fixture={
                 plan_color_by:"select.site_colors",
                 show_indicative_forecast:"select.site_forecast"},
     assets:{car:{plan_color:"select.car_color",target_soc:"number.car_target",
-                 ready_by:"datetime.car_ready_by",priority:"number.car_priority"}},
+                 ready_by:"datetime.car_ready_by",ready_by_repeat:"select.car_repeat",
+                 priority:"number.car_priority"}},
     chargers:{drive:{plan_color:"select.drive_color",asset:"select.drive_vehicle"}}
   },
   observations:{
