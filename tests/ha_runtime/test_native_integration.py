@@ -211,6 +211,57 @@ async def test_native_setup_registry_diagnostics_and_unload(hass: HomeAssistant)
 
 
 @pytest.mark.asyncio
+async def test_variable_charger_native_power_controls_share_owning_device(hass: HomeAssistant):
+    """Real HA registration, without an unqualified physical service call."""
+    from homeassistant.helpers import entity_registry as er
+
+    source = (Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN)
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    cfg = validate_configuration({
+        "controller": {
+            "id": "site", "name": "Site", "mode": "Off",
+            "max_parallel": 1, "max_power_kw": 3.68,
+        },
+        "assets": [],
+        "chargers": [{
+            "id": "drive", "name": "Adjustable charger", "kind": "variable_current",
+            "rated_power_kw": 3.68, "phase_count": 1,
+            "phase_ids": ["L1"], "voltage_v": 230,
+            "min_current_a": 6, "max_current_a": 16,
+            "current_step_a": 1,
+            "min_charging_power_kw": 1.84,
+            "max_charging_power_kw": 3.0,
+            "current_control_entity": "number.hardware_limit",
+            "current_readback_entity": "sensor.hardware_current",
+            "control_owner": "external",
+        }],
+    })
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="MultiCharge native Charger power",
+        data={"source": "ui", "configuration": cfg},
+        unique_id=DOMAIN,
+    )
+    entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+    device = dr.async_get(hass).async_get_device_by_identifier(
+        (DOMAIN, "charger/drive"), entry.entry_id
+    )
+    assert device is not None
+    registry = er.async_get(hass)
+    for field in ("min_charging_power_kw", "max_charging_power_kw",
+                  "set_charging_power_kw"):
+        entity_id = registry.async_get_entity_id(
+            "number", DOMAIN, f"{DOMAIN}:charger:drive:{field}"
+        )
+        assert entity_id is not None, field
+        assert registry.async_get(entity_id).device_id == device.id
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
 async def test_native_empty_configuration_still_installs(hass: HomeAssistant):
     source = (Path(__file__).resolve().parents[2] / "custom_components" /
               "robotix_multicharge")
