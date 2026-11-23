@@ -1154,27 +1154,16 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await rt.executor.execute("evse", "start"))["reason"],
                          "BUDGET_EFFECTIVE_TARIFF_UNAVAILABLE")
         now = datetime.now(timezone.utc)
-        for kind in ("spot", "variable_reference"):
-            provider = state("ready")
-            provider.attributes = {
-                "kind": "price_kwh" if kind == "spot" else "effective_price_kwh",
-                "currency": "EUR",
-                "valid_until": (now + timedelta(hours=3)).isoformat(),
-                "intervals": [{
-                    "start": (now - timedelta(hours=1)).isoformat(),
-                    "end": (now + timedelta(hours=3)).isoformat(),
-                    "value": 0.25,
-                }],
-            }
-            states["sensor.price"] = provider
-            rt.configuration["controller"]["price_entity"] = "sensor.price"
-            rt.refresh()
-            # The explicit internal price basis is the final authority:
-            # even a valid quote alone never grants an unqualified bill.
-            if kind == "spot":
-                self.assertNotEqual(
-                    rt.executor._qualified_budget_price(now, "EUR"), 0.25
-                )
+        from multicharge_physical_execution_test.contracts import PriceSlot
+        for basis in ("spot", "variable_reference"):
+            rt.price_slots = (PriceSlot(
+                now - timedelta(hours=1), now + timedelta(hours=3),
+                0.25, "EUR", basis=basis,
+            ),)
+            rt.observations["sources"]["tariff_quality"] = "OK"
+            self.assertIsNone(rt.executor._qualified_budget_price(now, "EUR"))
+            self.assertEqual((await rt.executor.execute("evse", "start"))["reason"],
+                             "BUDGET_EFFECTIVE_TARIFF_UNAVAILABLE")
         self.assertFalse(service.calls)
         rt.configuration["chargers"][0]["energy_entity"] = None
         blocked = await rt.executor.execute("evse", "start")
