@@ -176,7 +176,7 @@ def validate_configuration(value):
         raise ValueError("assets: expected list")
     for source in value.get("assets", []):
         _allowed(source, ("id", "name", "kind", "soc_entity",
-                          "vehicle_control_entity", "vehicle_current_entity",
+                          "soc_stale_entity", "vehicle_control_entity", "vehicle_current_entity",
                           "capacity_kwh", "target_soc", "max_charge_kw",
                           "requested_kwh", "requested_duration_minutes", "ready_by",
                           "ready_by_repeat", "charge_efficiency", "priority",
@@ -194,6 +194,13 @@ def validate_configuration(value):
             asset["plan_color"] = source["plan_color"]
         if source.get("soc_entity"):
             asset["soc_entity"] = _entity(source["soc_entity"], "asset.soc_entity")
+        if source.get("soc_stale_entity"):
+            entity_id = _entity(source["soc_stale_entity"], "asset.soc_stale_entity")
+            if not entity_id.startswith("binary_sensor."):
+                raise ValueError("asset.soc_stale_entity: native binary_sensor required")
+            if not source.get("soc_entity"):
+                raise ValueError("asset.soc_stale_entity: select a SoC sensor first")
+            asset["soc_stale_entity"] = entity_id
         for key, domain in (("vehicle_control_entity", "switch"),
                             ("vehicle_current_entity", "number")):
             if source.get(key):
@@ -559,7 +566,7 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
             "plan_label_mode", "plan_color_by", "show_indicative_forecast",
         },
         "asset": {
-            "name", "kind", "soc_entity", "capacity_kwh", "target_soc",
+            "name", "kind", "soc_entity", "soc_stale_entity", "capacity_kwh", "target_soc",
             "max_charge_kw", "requested_kwh", "requested_duration_minutes",
             "ready_by", "ready_by_repeat", "charge_efficiency", "priority",
             "temporary", "expires_at", "expected_connection_at",
@@ -816,7 +823,7 @@ def normalize_expert_json(value):
         _allowed(source, (
             "ID", "Name", "Asset type", "Vehicle-Charging-startstop-entity",
             "Vehicle-Charging-amp-entity", "Vehicle-soc-sensor",
-            "Usable-capacity-kWh", "Target-SoC-percent", "Max-charge-kW",
+            "Vehicle-soc-stale-binary-sensor", "Usable-capacity-kWh", "Target-SoC-percent", "Max-charge-kW",
             "Requested-kWh", "Requested-duration-minutes", "Ready-by",
             "Ready-by-repeat", "Charging-efficiency", "Priority",
             "Temporary", "Expires-at", "Expected-connection-at", "Plan-color",
@@ -834,6 +841,7 @@ def normalize_expert_json(value):
             ("Vehicle-Charging-startstop-entity", "vehicle_control_entity", ("switch",)),
             ("Vehicle-Charging-amp-entity", "vehicle_current_entity", ("number",)),
             ("Vehicle-soc-sensor", "soc_entity", ("sensor",)),
+            ("Vehicle-soc-stale-binary-sensor", "soc_stale_entity", ("binary_sensor",)),
         ):
             selected = entity(source, key, domains)
             if selected is not None:
