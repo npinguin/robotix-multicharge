@@ -275,6 +275,23 @@ async function main(){
   assert.equal(pricedData.completed_sessions[0].cost,null,
     "Read-only financial presentation cannot overwrite persisted cost");
 
+  // UC07: native variable all-in references and spot quotes are not bills.
+  const referenceData=JSON.parse(JSON.stringify(fixture));
+  referenceData.observations.sources.current_price={
+    quality:"ok",value:0.24,currency:"EUR",basis:"variable_reference"
+  };
+  const priceCard=new Card();
+  priceCard.setConfig({});
+  priceCard.hass={user:{is_admin:false},states:{},
+    callWS:async()=>referenceData};
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(content(priceCard.shadowRoot).includes("Variable reference price"),
+    "Overview must disclose native all-in prices as reference not invoices");
+  referenceData.observations.sources.current_price.basis="spot";
+  await priceCard.load();
+  assert.ok(content(priceCard.shadowRoot).includes("Spot price"),
+    "Wholesale/spot quote must not be labelled an all-in bill");
+
   const adjustableFixture=JSON.parse(JSON.stringify(fixture));
   adjustableFixture.configuration.chargers[0].kind="variable_current";
   Object.assign(adjustableFixture.configuration.chargers[0],{
