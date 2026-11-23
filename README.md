@@ -29,9 +29,9 @@ Robotix MultiCharge is an open-source Home Assistant integration being built to 
 
 The same five Home Assistant views now keep each setting and observation with its owning object. **Overview** presents actual state, the chosen vehicle's real SoC/kWh/minutes/EUR goal, planning/calendar actions and a safely eligible Charger STOP. **Charging Plan** combines the time-based site kW and currency-qualified price graph with Vehicle/Charger detail lanes. **Chargeable Assets** keeps Guest or Vehicle identity, scheduled weekday/local charging windows, battery/SoC source, preferences, price thresholds, history and Charger assignment on that Vehicle. **Chargers** keeps physical state, single-writer ownership, commissioning, native connection/power/energy sources, circuit/phase/current bounds, commands and original session attribution on the Charger. **Settings** owns the ChargeController: site limits, modes and all native solar/grid/tariff/meter references.
 
-One existing **Details** disclosure on each object also shows **every persisted Config Entry key** in named groups (including unconfigured keys and future additive keys). All source selection and structural hardware changes still go through the existing real Home Assistant Options Flow where appropriate, not a dummy edit control or second preference store. Frontend/native settings services require a genuine HA administrator; read-only users retain observation visibility and never inherit actuation rights. Developer checks statically enforce the configuration-field-to-owning-object correspondence and installed HA tests verify actual native Registry entities and administrator authorization.
+One existing **Details** disclosure on each object also shows **every persisted Config Entry key** in named groups (including unconfigured keys and future additive keys). Source selection and structural hardware changes use the guarded typed controls in MultiCharge's own dashboard and the same validated Config Entry; no Home Assistant Options detour or second preference store is required. Frontend/native settings services require a genuine HA administrator; read-only users retain observation visibility and never inherit actuation rights. Developer checks statically enforce the configuration-field-to-owning-object correspondence and installed HA tests verify actual native Registry entities and administrator authorization.
 
-**Release distinction:** these source and isolated-HA tests do not establish actual Home Assistant browser usability, real provider readings, owner handoff or physical STOP. The current published immutable v0.1.6 community TEST is not silently replaced by the dev branch; the next TEST must be fully qualified and cut only from exact approved main.
+**Release distinction:** these source and isolated-HA tests do not establish actual Home Assistant browser usability, real provider readings, owner handoff or physical STOP. The currently published immutable v0.1.7 TEST remains available for rollback; the next TEST is published only after exact-dev, merged-main and artifact checks.
 
 ### Beginner-first UX and combined charging graph (dev)
 
@@ -57,10 +57,9 @@ create its empty Config Entry. From then on, use only the bundled
 **MultiCharge dashboard** for all configuration and charging actions. No
 external YAML/JSON files, manual templates, `/config/packages`, Home Assistant
 Options screens, helper entities, or separate Lovelace chart card are required.
-Experts may optionally paste complete YAML in the folded **Settings → Advanced
-YAML** section *inside MultiCharge*, with strict preview/review and Save to the
-same Config Entry; this is not a second configuration authority or a prerequisite
-for ordinary operations.
+All supported configuration is edited through typed fields inside the same
+five-tab dashboard. A free-text YAML/JSON editor and HA Options configuration
+detour are deliberately not part of the supported runtime workflow.
 
 The automatic sidebar at `/robotix-multicharge` uses the same five
 tabs for novice and expert use:
