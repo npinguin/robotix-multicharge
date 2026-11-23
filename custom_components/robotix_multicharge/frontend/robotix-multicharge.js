@@ -209,6 +209,8 @@ const MC_STYLE = [
   ".plan-lane{margin:10px 0;border:1px solid var(--divider-color,#d8dde3);border-radius:11px;padding:11px}",
   ".plan-lane svg{display:block;min-width:680px;width:100%;height:auto}",
   ".plan-lane .chart{margin-top:5px}",
+  ".combined-plan{margin:12px 0 18px}.combined-plan svg{display:block;width:100%;height:auto;min-width:0}.combined-plan .chart{overflow:hidden}.lane-summary{overflow-wrap:anywhere}.quick-goal{margin:10px 0;padding:10px;border:1px solid var(--divider-color,#ddd);border-radius:9px;background:var(--secondary-background-color,#f6f8fa)}.quick-goal h4{font-size:14px;margin:0 0 6px}.goal-controls{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(90px,1fr);gap:10px}.quick-goal button{margin-top:6px}.schedule-editor{margin:8px 0}.overview-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}",
+  "@media(max-width:600px){.goal-controls{grid-template-columns:1fr}.quick-goal{padding:9px}.combined-plan svg text{font-size:10px}.plan-lane{padding:8px}}",
   ".plan-key{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:6px 0;font-size:12px}",
   ".plan-swatch{width:12px;height:12px;border-radius:3px;display:inline-block;margin-right:4px}",
   ".plan-caution{font-size:12px;color:var(--secondary-text-color,#65717e);line-height:1.5}",
@@ -1073,6 +1075,31 @@ class RobotixMultiChargeCard extends HTMLElement {
       card.append(mcEl("h3","",a.name),mcEl("p","muted",mcTr("Battery")+" "+mcValue(observed.soc,"%")+" · "+mcTr("Target")+" "+(a.target_soc===undefined?mcTr("Not set"):a.target_soc+"%")));
       card.append(mcEl("p","small",mcTr("Ready By")+" "+mcTime(a.ready_by,d.timezone)+" · "+(charger?charger.name:mcTr("No charger assigned"))));
       if(a.temporary)card.append(mcEl("p","small",mcTr("Guest")+" · "+mcTime(a.expires_at,d.timezone)));
+      const controls=mcEl("div","overview-actions");
+      controls.append(mcButton(mcTr("Charging plan"),()=>{
+        this._filter="asset:"+a.id;
+        this._tab="Charging Plan";this._last=0;this.load();
+      }));
+      if(this.canEditSettings()){
+        controls.append(mcButton(mcTr("Set charging goal"),()=>{
+          this._tab="Chargeable Assets";this._open="";
+          this.render();
+        }));
+        controls.append(mcButton(mcTr("Schedule charging"),()=>{
+          this._tab="Chargeable Assets";this._scheduleEditor=a.id;this.render();
+        }));
+      }
+      if(charger&&this.canManage()){
+        const physical=(observations[charger.id]||{}).power_kw;
+        if(physical?.quality==="ok"&&typeof physical.value==="number"&&
+            physical.value>0){
+          const stop=mcButton(mcTr("Stop charging"),()=>
+            this.command(charger.id,"stop"));
+          stop.disabled=this._commandBusy;
+          controls.append(stop);
+        }
+      }
+      card.append(controls);
       container.append(card);
     }
     if(!assets.length&&chargers.length)this.notice(container,"No vehicles",false);
