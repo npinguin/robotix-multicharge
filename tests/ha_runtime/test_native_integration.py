@@ -1620,3 +1620,124 @@ async def test_ha_idle_rebind_is_atomic_and_keeps_logical_device_ids(hass: HomeA
     assert hass.states.get("switch.c1").state == "off"
     assert hass.states.get("switch.c2").state == "off"
     assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
+async def test_native_ha_service_injects_context_for_real_vehicle_quick_action(
+    hass: HomeAssistant,
+):
+    """Regression: iPad/HA Select must not access nonexistent Entity.context.
+
+    Test the real HA select.select_option service dispatch (not direct mocks),
+    Config Entry persistence, admin/resident and physical busy refusal.
+    """
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, patch
+    from homeassistant.core import Context
+    from homeassistant.helpers import entity_registry as er
+
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    hass.states.async_set("switch.real_quick", "off")
+    hass.states.async_set(
+        "sensor.real_quick_power", "0",
+        {"unit_of_measurement": "W"},
+    )
+    cfg = validate_configuration({
+        "controller": {
+            "id": "site", "name": "Service context regression",
+            "mode": "Off", "max_parallel": 1, "max_power_kw": 3.6,
+        },
+        "assets": [
+            {"id": "a", "name": "Car A", "kind": "car", "target_soc": 80},
+            {"id": "b", "name": "Car B", "kind": "car", "target_soc": 90},
+        ],
+        "chargers": [{
+            "id": "c", "name": "Charger", "kind": "on_off",
+            "rated_power_kw": 3.6, "asset": "a",
+            "control_entity": "switch.real_quick",
+            "power_entity": "sensor.real_quick_power",
+            "control_owner": "external",
+            "physical_commissioned": False,
+        }],
+    })
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Quick Select HA service",
+        data={"source": "ui", "configuration": cfg},
+        unique_id=DOMAIN,
+    )
+    entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+    ids = er.async_get(hass)
+    vehicle = ids.async_get_entity_id(
+        "select", DOMAIN, f"{DOMAIN}:charger:c:asset",
+    )
+    mode = ids.async_get_entity_id(
+        "select", DOMAIN, f"{DOMAIN}:controller:site:mode",
+    )
+    target = ids.async_get_entity_id(
+        "number", DOMAIN, f"{DOMAIN}:asset:b:target_soc",
+    )
+    assert all((vehicle, mode, target))
+    assert hass.states.get(vehicle).state == "Car A"
+    assert hass.states.get(mode).state == "off"
+    assert hass.states.get(target).state == "90.0"
+
+    def user_for_context(user_id):
+        return SimpleNamespace(is_admin=user_id == "admin")
+
+    with patch.object(
+        hass.auth, "async_get_user",
+        new=AsyncMock(side_effect=user_for_context),
+    ):
+        # Service propagation into Entity._context is the regression,
+        # not simply access to mocked fake.context in a unit test.
+        await hass.services.async_call(
+            "select", "select_option",
+            {"entity_id": vehicle, "option": "Car B"},
+            blocking=True, context=Context(user_id="admin"),
+        )
+        await hass.async_block_till_done()
+        assert entry.options["configuration"]["chargers"][0]["asset"] == "b"
+        assert hass.states.get(vehicle).state == "Car B"
+        await hass.services.async_call(
+            "select", "select_option",
+            {"entity_id": mode, "option": "economy"},
+            blocking=True, context=Context(user_id="admin"),
+        )
+        await hass.async_block_till_done()
+        assert entry.options["configuration"]["controller"]["mode"] == "Economy"
+        await hass.services.async_call(
+            "number", "set_value",
+            {"entity_id": target, "value": 85},
+            blocking=True, context=Context(user_id="admin"),
+        )
+        await hass.async_block_till_done()
+        assert entry.options["configuration"]["assets"][1]["target_soc"] == 85
+
+        for user_id in ("resident", None):
+            with pytest.raises(RuntimeError, match="administrator"):
+                await hass.services.async_call(
+                    "select", "select_option",
+                    {"entity_id": vehicle, "option": "Car A"},
+                    blocking=True, context=Context(user_id=user_id),
+                )
+            assert entry.options["configuration"]["chargers"][0]["asset"] == "b"
+
+        hass.states.async_set(
+            "sensor.real_quick_power", "1500",
+            {"unit_of_measurement": "W"},
+        )
+        await hass.async_block_till_done()
+        with pytest.raises(ValueError, match="charger_busy"):
+            await hass.services.async_call(
+                "select", "select_option",
+                {"entity_id": vehicle, "option": "Car A"},
+                blocking=True, context=Context(user_id="admin"),
+            )
+        assert entry.options["configuration"]["chargers"][0]["asset"] == "b"
+        assert hass.states.get("switch.real_quick").state == "off"
+    assert await hass.config_entries.async_unload(entry.entry_id)
