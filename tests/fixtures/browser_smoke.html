@@ -95,7 +95,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
   }
   // The chart must be real Apex-generated SVG, not our previous static SVG
   // or a lightweight Apex-looking replacement.
-  await new Promise(resolve=>setTimeout(resolve,550));
+  await new Promise(resolve=>setTimeout(resolve,1250));
   const root=card.shadowRoot,frame=root.querySelector(".root");
   const folds=[...root.querySelectorAll("details.owner-group")];
   const cards=[...root.querySelectorAll(".object-card")];
@@ -111,6 +111,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     tabs:[...root.querySelectorAll(".tabs button")].map(b=>b.textContent),
     cards:cards.length,folds:folds.length,
     apexHosts:apexHosts.length,apexLive,
+    apexErrors:apexHosts.filter(x=>!x.querySelector(".apexcharts-svg")).map(x=>x.textContent.slice(0,220)),
     quickSelectors:quick.length,
     quickEditable:quick.filter(x=>!x.disabled).length,
     firstFoldClosed:folds.length?folds[0].open===false:null,
