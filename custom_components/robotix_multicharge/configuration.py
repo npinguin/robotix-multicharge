@@ -9,7 +9,7 @@ from copy import deepcopy
 from hashlib import sha256
 from json import dumps
 from datetime import datetime
-from math import isfinite
+from math import ceil, floor, isfinite
 from re import fullmatch
 
 from .domain import ChargeableAsset, Charger, ChargeController
@@ -291,7 +291,8 @@ def validate_configuration(value):
                 raise ValueError("charger power preferences require adjustable current")
             phases = source.get("phase_ids") or []
             if not phases or not all(key in charger for key in (
-                    "voltage_v", "min_current_a", "max_current_a")):
+                    "voltage_v", "min_current_a", "max_current_a",
+                    "current_step_a")):
                 raise ValueError("charger power preferences require verified physical limits")
             factor = charger["voltage_v"] * len(phases) / 1000
             physical_min = charger["min_current_a"] * factor
@@ -303,6 +304,18 @@ def validate_configuration(value):
                     or chosen_max > physical_max + 1e-6
                     or chosen_min > chosen_max + 1e-6):
                 raise ValueError("charger charging power limits exceed hardware envelope")
+            # A legal Amp step must exist within the user envelope: never
+            # accept a setting that leaves the Charger with no possible
+            # physical current for its next verified session.
+            minimum, maximum = charger["min_current_a"], charger["max_current_a"]
+            step = charger["current_step_a"]
+            first = max(0, ceil((chosen_min / factor - minimum) / step - 1e-9))
+            last = min(
+                floor((maximum - minimum) / step + 1e-9),
+                floor((chosen_max / factor - minimum) / step + 1e-9),
+            )
+            if first > last:
+                raise ValueError("charger power envelope has no supported current step")
         if source.get("phase_ids") is not None:
             phases = source["phase_ids"]
             if not isinstance(phases, list) or not phases or (
