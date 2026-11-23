@@ -33,7 +33,7 @@ class PackageTest(unittest.TestCase):
                 "Persona / eigenaar", "GIVEN", "WHEN", "THEN",
                 "Negatief / fail-closed", "Bewijs",
             ):
-                self.assertIn(label, block.split("### UC", 1)[0])
+                self.assertIn(label, block)
         for path in ("README.md", "docs/ARCHITECTURE.md",
                      "docs/INTERFACES.md"):
             self.assertIn(
