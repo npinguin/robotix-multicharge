@@ -149,7 +149,7 @@ async def test_native_pause_resume_never_bypass_admin_authorization():
     )
 
     fake = SimpleNamespace(
-        context=SimpleNamespace(user_id="resident"),
+        _context=SimpleNamespace(user_id="resident"),
         hass=SimpleNamespace(auth=SimpleNamespace(
             async_get_user=AsyncMock(
                 return_value=SimpleNamespace(is_admin=False)
@@ -158,10 +158,10 @@ async def test_native_pause_resume_never_bypass_admin_authorization():
     )
     with pytest.raises(RuntimeError, match="administrator"):
         await _AdminChargeActionButton._require_admin_context(fake)
-    fake.context.user_id = None
+    fake._context.user_id = None
     with pytest.raises(RuntimeError, match="administrator"):
         await _AdminChargeActionButton._require_admin_context(fake)
-    fake.context.user_id = "admin"
+    fake._context.user_id = "admin"
     fake.hass.auth.async_get_user.return_value = SimpleNamespace(is_admin=True)
     await _AdminChargeActionButton._require_admin_context(fake)
 
@@ -183,7 +183,7 @@ async def test_all_native_owner_settings_deny_resident_service_bypass():
     )
 
     fake = SimpleNamespace(
-        context=SimpleNamespace(user_id="resident"),
+        _context=SimpleNamespace(user_id="resident"),
         hass=SimpleNamespace(auth=SimpleNamespace(
             async_get_user=AsyncMock(
                 return_value=SimpleNamespace(is_admin=False)
@@ -200,14 +200,14 @@ async def test_all_native_owner_settings_deny_resident_service_bypass():
     ):
         with pytest.raises(RuntimeError, match="administrator"):
             await action()
-    fake.context.user_id = None
+    fake._context.user_id = None
     with pytest.raises(RuntimeError, match="administrator"):
-        await require_native_admin(fake.hass, fake.context)
-    fake.context.user_id = "admin"
+        await require_native_admin(fake.hass, fake._context)
+    fake._context.user_id = "admin"
     fake.hass.auth.async_get_user.return_value = SimpleNamespace(
         is_admin=True
     )
-    await require_native_admin(fake.hass, fake.context)
+    await require_native_admin(fake.hass, fake._context)
 
 
 @pytest.mark.asyncio
@@ -721,12 +721,19 @@ async def test_new_asset_from_dashboard_gets_its_own_native_inputs(
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 
+
 @pytest.mark.asyncio
-async def test_options_created_charger_auto_registers_device_owned_controls(
+async def test_dashboard_created_charger_auto_registers_device_owned_controls(
     hass: HomeAssistant,
 ):
-    """One Options setup adds a Charger; native controls appear automatically."""
+    """Real HA: dashboard typed create registers owning Charger and its Entities."""
     from homeassistant.helpers import entity_registry as er
+    from custom_components.robotix_multicharge.command_query import (
+        apply_native_preference,
+    )
+    from custom_components.robotix_multicharge.configuration import (
+        configuration_revision,
+    )
 
     source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
     installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
@@ -744,24 +751,20 @@ async def test_options_created_charger_auto_registers_device_owned_controls(
     entry.add_to_hass(hass)
     assert await async_setup_component(hass, DOMAIN, {})
     await hass.async_block_till_done()
-
-    menu = await hass.config_entries.options.async_init(entry.entry_id)
-    form = await hass.config_entries.options.async_configure(
-        menu["flow_id"], {"next_step_id": "charger"}
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    revision = await apply_native_preference(
+        hass, entry, runtime, "charger", "wallbox",
+        {"name": "Standalone EVSE", "kind": "variable_current",
+         "rated_power_kw": 3.6, "min_current_a": 6,
+         "max_current_a": 16},
+        action="create", structural=True,
+        expected_revision=configuration_revision(runtime.configuration),
     )
-    saved = await hass.config_entries.options.async_configure(
-        form["flow_id"], {
-            "action": "save", "id": "wallbox",
-            "name": "Standalone EVSE",
-            "kind": "variable_current", "rated_power_kw": 3.6,
-            "min_current_a": 6, "max_current_a": 16,
-        }
-    )
-    assert saved["type"] == FlowResultType.CREATE_ENTRY, saved
     await hass.async_block_till_done()
+    assert configuration_revision(entry.options["configuration"]) == revision
     registry = er.async_get(hass)
     device = dr.async_get(hass).async_get_device_by_identifier(
-        (DOMAIN, "charger/wallbox"), entry.entry_id
+        (DOMAIN, "charger/wallbox"), entry.entry_id,
     )
     assert device is not None
     for platform, field in (
@@ -778,131 +781,32 @@ async def test_options_created_charger_auto_registers_device_owned_controls(
         assert registry.async_get(entity_id).device_id == device.id
     assert await hass.config_entries.async_unload(entry.entry_id)
 
-
 @pytest.mark.asyncio
-async def test_options_flow_is_device_setup_not_daily_charge_operations(
-    hass: HomeAssistant,
-):
-    """HA Options may bind and commission devices; everyday controls are native."""
+async def test_options_flow_is_not_a_yaml_or_configuration_surface(hass: HomeAssistant):
+    """Owner requirement: HA Options is retired; dashboard owns runtime editing."""
     source = (Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN)
     installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
     if not installed.exists():
         shutil.copytree(source, installed)
     cfg = validate_configuration({
-        "controller": {
-            "id": "site", "name": "Independent home",
-            "mode": "Automatic", "max_parallel": 1, "max_power_kw": 3.6,
-        },
-        "assets": [{"id": "car", "name": "Car", "kind": "car",
-                    "target_soc": 80}],
-        "chargers": [{
-            "id": "drive", "name": "Drive", "kind": "on_off",
-            "rated_power_kw": 3.6, "control_entity": "switch.drive",
-        }],
+        "controller": {"id": "site", "name": "Independent home",
+                       "mode": "Automatic", "max_parallel": 1},
+        "assets": [{"id": "car", "name": "Car", "kind": "car"}],
+        "chargers": [],
     })
     entry = MockConfigEntry(
         domain=DOMAIN, title="Standalone MultiCharge",
-        data={"source": "ui", "configuration": cfg},
-        unique_id=DOMAIN,
+        data={"source": "ui", "configuration": cfg}, unique_id=DOMAIN,
     )
     entry.add_to_hass(hass)
     assert await async_setup_component(hass, DOMAIN, {})
     await hass.async_block_till_done()
-
-    scope = {
-        "controller": (
-            {"name", "phase_limits_a"},
-            {"mode", "max_parallel", "max_power_kw", "price_entity",
-             "solar_entity", "grid_power_entity"},
-        ),
-        "asset": (
-            {"name", "kind", "soc_entity", "capacity_kwh"},
-            {"target_soc", "ready_by", "ready_by_repeat", "priority",
-             "requested_kwh", "requested_duration_minutes"},
-        ),
-        "charger": (
-            {"kind", "control_entity", "connected_entity", "power_entity"},
-            {"asset", "control_owner", "physical_commissioned",
-             "min_charging_power_kw", "max_charging_power_kw"},
-        ),
-        "commission": (
-            {"charger_id", "commission", "exclusive_writer_confirmed",
-             "electrical_limits_confirmed"},
-            {"mode", "max_parallel", "ready_by"},
-        ),
-        "energy": (
-            {"use_energy_dashboard", "solar_source_kind", "grid_power_direction",
-             "solar_power_entity", "home_power_entity", "grid_power_entity",
-             "solar_surplus_entity", "current_price_entity", "export_price_entity",
-             "solar_entity", "price_entity"},
-            {"mode", "control_owner", "physical_commissioned"},
-        ),
-    }
-    for step, (required, prohibited) in scope.items():
-        menu = await hass.config_entries.options.async_init(entry.entry_id)
-        assert menu["type"] == FlowResultType.MENU
-        assert step in menu["menu_options"]
-        form = await hass.config_entries.options.async_configure(
-            menu["flow_id"], {"next_step_id": step}
-        )
-        assert form["type"] == FlowResultType.FORM
-        available = {
-            key.schema if hasattr(key, "schema") else key
-            for key in form["data_schema"].schema
-        }
-        assert required <= available, (step, required - available)
-        assert not (prohibited & available), (step, prohibited & available)
-
-    # One HA Energy source options transaction uses actual official Options
-    # Flow, never template helpers, files or another Config Entry.
-    menu = await hass.config_entries.options.async_init(entry.entry_id)
-    energy_form = await hass.config_entries.options.async_configure(
-        menu["flow_id"], {"next_step_id": "energy"}
-    )
-    assert energy_form["step_id"] == "energy"
-    configured = await hass.config_entries.options.async_configure(
-        energy_form["flow_id"], {
-            "use_energy_dashboard": False,
-            "solar_source_kind": "grid_export",
-            "grid_power_direction": "import_positive",
-            "solar_power_entity": "sensor.pv_power",
-            "home_power_entity": "sensor.whole_home_power",
-            "grid_power_entity": "sensor.grid_power",
-            "current_price_entity": "sensor.import_tariff",
-            "export_price_entity": "sensor.feed_in_tariff",
-        }
-    )
-    assert configured["type"] == FlowResultType.CREATE_ENTRY
-    await hass.async_block_till_done()
-    live = entry.options["configuration"]["controller"]
-    assert live["solar_source_kind"] == "grid_export"
-    assert live["solar_power_entity"] == "sensor.pv_power"
-    assert live["home_power_entity"] == "sensor.whole_home_power"
-    assert live["grid_power_entity"] == "sensor.grid_power"
-    assert live["current_price_entity"] == "sensor.import_tariff"
-    assert live["export_price_entity"] == "sensor.feed_in_tariff"
-    assert live["grid_power_direction"] == "import_positive"
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "dashboard_only"
+    assert not entry.options.get("configuration")
     assert entry.data["configuration"] == cfg
     assert len(hass.config_entries.async_entries(DOMAIN)) == 1
-
-    # User confirmation alone does not prove physical command readiness.
-    # An unqualified generic charger remains external, with no HA write.
-    menu = await hass.config_entries.options.async_init(entry.entry_id)
-    form = await hass.config_entries.options.async_configure(
-        menu["flow_id"], {"next_step_id": "commission"}
-    )
-    rejected = await hass.config_entries.options.async_configure(
-        form["flow_id"], {
-            "charger_id": "drive", "commission": True,
-            "exclusive_writer_confirmed": False,
-            "electrical_limits_confirmed": False,
-        }
-    )
-    assert rejected["type"] == FlowResultType.FORM
-    assert rejected["errors"]["base"] == "invalid_config"
-    assert entry.data["configuration"] == cfg
-    assert entry.options["configuration"]["controller"] == live
-    assert entry.options["configuration"]["chargers"][0]["physical_commissioned"] is False
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 
@@ -925,12 +829,18 @@ async def test_unconfigured_energy_dashboard_does_not_initialize_component(
         manager.assert_not_called()
 
 
+
 @pytest.mark.asyncio
-async def test_energy_dashboard_opt_in_reuses_native_sources_without_copying_energy_settings(
+async def test_dashboard_native_energy_source_mapping_no_shadow_settings(
     hass: HomeAssistant,
 ):
-    """Official HA Options: import Energy Dashboard refs only when opted in."""
-    from unittest.mock import patch
+    """One dashboard source selection, no templating or Options flow."""
+    from custom_components.robotix_multicharge.command_query import (
+        apply_native_preference,
+    )
+    from custom_components.robotix_multicharge.configuration import (
+        configuration_revision,
+    )
 
     source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
     installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
@@ -948,41 +858,32 @@ async def test_energy_dashboard_opt_in_reuses_native_sources_without_copying_ene
     entry.add_to_hass(hass)
     assert await async_setup_component(hass, DOMAIN, {})
     await hass.async_block_till_done()
-    proposals = {
-        "solar_power_entity": "sensor.ha_pv_live",
-        "grid_power_entity": "sensor.ha_grid_live",
-        "current_price_entity": "sensor.ha_import_price",
-    }
-    with patch(
-        "custom_components.robotix_multicharge.config_flow._energy_dashboard_defaults",
-        return_value=proposals,
-    ):
-        start = await hass.config_entries.options.async_init(entry.entry_id)
-        form = await hass.config_entries.options.async_configure(
-            start["flow_id"], {"next_step_id": "energy"}
-        )
-        assert form["step_id"] == "energy"
-        assert "sensor.ha_pv_live" in form["description_placeholders"]["note"]
-        assert entry.options.get("configuration") is None
-        saved = await hass.config_entries.options.async_configure(
-            form["flow_id"], {
-                "use_energy_dashboard": True,
-                "solar_source_kind": "grid_export",
-                "grid_power_direction": "import_positive",
-                "home_power_entity": "sensor.explicit_home_w",
-            },
-        )
-        assert saved["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options.get("configuration") is None
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    revision = await apply_native_preference(
+        hass, entry, runtime, "controller", "home", {
+            "solar_power_entity": "sensor.ha_pv_live",
+            "grid_power_entity": "sensor.ha_grid_live",
+            "current_price_entity": "sensor.ha_import_price",
+            "home_power_entity": "sensor.explicit_home_w",
+            "solar_source_kind": "grid_export",
+            "grid_power_direction": "import_positive",
+        }, structural=True,
+        expected_revision=configuration_revision(runtime.configuration),
+    )
     await hass.async_block_till_done()
     stored = entry.options["configuration"]["controller"]
+    assert configuration_revision(entry.options["configuration"]) == revision
     assert stored["solar_power_entity"] == "sensor.ha_pv_live"
     assert stored["grid_power_entity"] == "sensor.ha_grid_live"
     assert stored["current_price_entity"] == "sensor.ha_import_price"
     assert stored["home_power_entity"] == "sensor.explicit_home_w"
     assert stored["solar_source_kind"] == "grid_export"
     assert len(hass.config_entries.async_entries(DOMAIN)) == 1
+    menu = await hass.config_entries.options.async_init(entry.entry_id)
+    assert menu["type"] == FlowResultType.ABORT
+    assert menu["reason"] == "dashboard_only"
     assert await hass.config_entries.async_unload(entry.entry_id)
-
 
 @pytest.mark.asyncio
 async def test_native_empty_configuration_still_installs(hass: HomeAssistant):
@@ -1027,48 +928,15 @@ async def test_minimal_native_setup_then_yaml_takes_over_same_entry(hass: HomeAs
         shutil.copytree(source, installed)
     assert await async_setup_component(hass, DOMAIN, {})
 
-    wizard = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
-    )
-    assert wizard["type"] == FlowResultType.MENU
-    assert wizard["step_id"] == "user"
-    assert set(wizard["menu_options"]) == {"guided", "expert"}
-    wizard = await hass.config_entries.flow.async_configure(
-        wizard["flow_id"], {"next_step_id": "guided"}
-    )
-    assert wizard["type"] == FlowResultType.FORM
-    assert wizard["step_id"] == "guided"
-    # All site electrical limits may be absent.
-    wizard = await hass.config_entries.flow.async_configure(
-        wizard["flow_id"], {"name": "Home charging", "max_parallel": 1}
-    )
-    assert wizard["step_id"] == "charger"
-    # Exactly name + physical command entity are required to add a charger.
-    wizard = await hass.config_entries.flow.async_configure(
-        wizard["flow_id"], {
-            "action": "add", "name": "Garage White",
-            "control_entity": "switch.garage_white",
-        }
-    )
-    assert wizard["step_id"] == "asset"
-    wizard = await hass.config_entries.flow.async_configure(
-        wizard["flow_id"], {"action": "finish"}
-    )
-    assert wizard["step_id"] == "sources"
-    wizard = await hass.config_entries.flow.async_configure(
-        wizard["flow_id"], {}
-    )
-    assert wizard["step_id"] == "verify"
-    completed = await hass.config_entries.flow.async_configure(
-        wizard["flow_id"], {"confirm": True}
+    completed = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER},
     )
     assert completed["type"] == FlowResultType.CREATE_ENTRY
     entry = completed["result"]
     before_id = entry.entry_id
     assert entry.data["source"] == "ui"
-    assert entry.data["configuration"]["chargers"][0]["name"] == "Garage White"
-    assert entry.data["configuration"]["chargers"][0]["control_owner"] == "external"
-    assert entry.data["configuration"]["chargers"][0]["physical_commissioned"] is False
+    assert entry.data["configuration"]["chargers"] == []
+    assert entry.data["configuration"]["controller"]["id"] == "home"
     assert "max_power_kw" not in entry.data["configuration"]["controller"]
 
     # User adds YAML at a subsequent HA startup; there is no deletion,
@@ -1077,8 +945,14 @@ async def test_minimal_native_setup_then_yaml_takes_over_same_entry(hass: HomeAs
         **entry.data["configuration"],
         "controller": {
             **entry.data["configuration"]["controller"],
-            "name": "Wessels Expert",
+            "name": "Legacy Wessels source",
         },
+        "chargers": [{
+            "id": "garage_white", "name": "Garage White",
+            "kind": "on_off", "rated_power_kw": 3.6,
+            "control_entity": "switch.garage_white",
+            "control_owner": "external", "physical_commissioned": False,
+        }],
     })
     # Reproduce the next boot after Home Assistant has loaded the YAML
     # package: the imported source must be present before an entry can run.
@@ -1201,253 +1075,149 @@ async def test_expert_json_include_skips_wizard_and_reuses_entry(hass: HomeAssis
     assert entry.state.value == "loaded"
 
 
-@pytest.mark.asyncio
-async def test_native_yaml_options_review_save_and_recorder_identity(hass: HomeAssistant):
-    """Real pinned Home Assistant Options Flow: edit, validate, review and save."""
-    import yaml
 
-    source = (Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN)
+@pytest.mark.asyncio
+async def test_dashboard_typed_owner_edit_and_recorder_identity(hass: HomeAssistant):
+    """Real HA Config Entry, single Controller name edit, preserved Device ID."""
+    from custom_components.robotix_multicharge.command_query import (
+        apply_native_preference,
+    )
+    from custom_components.robotix_multicharge.configuration import (
+        configuration_revision,
+    )
+
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
     installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
     if not installed.exists():
         shutil.copytree(source, installed)
     initial = validate_configuration({
-        "controller": {
-            "id": "home", "name": "Original home", "mode": "Off",
-            "max_parallel": 1,
-        },
-        "assets": [],
-        "chargers": [],
+        "controller": {"id": "home", "name": "Original home", "mode": "Off",
+                       "max_parallel": 1},
+        "assets": [], "chargers": [],
     })
     entry = MockConfigEntry(
         domain=DOMAIN, title="Robotix MultiCharge",
-        data={"source": "ui", "configuration": initial},
-        unique_id=DOMAIN,
+        data={"source": "ui", "configuration": initial}, unique_id=DOMAIN,
     )
     entry.add_to_hass(hass)
     assert await async_setup_component(hass, DOMAIN, {})
     await hass.async_block_till_done()
     devices = dr.async_get(hass)
-    controller_before = devices.async_get_device_by_identifier(
-        (DOMAIN, "controller/home"), entry.entry_id
-    )
-    assert controller_before is not None
-
-    opts = await hass.config_entries.options.async_init(entry.entry_id)
-    assert opts["type"] == FlowResultType.MENU
-    assert "yaml" in opts["menu_options"]
-    opts = await hass.config_entries.options.async_configure(
-        opts["flow_id"], {"next_step_id": "yaml"}
-    )
-    assert opts["type"] == FlowResultType.FORM
-    assert opts["step_id"] == "yaml"
-
-    # Invalid/ambiguous YAML must not silently overwrite an existing key.
-    opts = await hass.config_entries.options.async_configure(
-        opts["flow_id"], {
-            "mode": "replace",
-            "yaml_text": "controller:\n  id: home\n  id: other\n",
-        },
-    )
-    assert opts["step_id"] == "yaml"
-    assert opts["errors"]["base"] == "invalid_config"
-    assert "duplicate YAML key" in opts["description_placeholders"]["note"]
-    assert entry.data["configuration"] == initial
-    assert not entry.options.get("configuration")
-
-    updated = validate_configuration({
-        "controller": {**initial["controller"], "name": "Reviewed home"},
-        "assets": [{"id": "guest", "name": "Guest", "kind": "car"}],
-        "chargers": [{
-            "id": "outside", "name": "Outside", "kind": "on_off",
-            "rated_power_kw": 3.6, "control_entity": "switch.outside",
-            "control_owner": "external", "physical_commissioned": False,
-        }],
-    })
-    opts = await hass.config_entries.options.async_configure(
-        opts["flow_id"], {"mode": "replace",
-                          "yaml_text": yaml.safe_dump(updated, sort_keys=False)}
-    )
-    assert opts["type"] == FlowResultType.FORM
-    assert opts["step_id"] == "yaml_review"
-    assert "Outside" not in str(opts.get("description_placeholders", {})) or (
-        "outside" in str(opts["description_placeholders"]))
-    assert entry.options.get("configuration") is None, (
-        "Preview and review must not persist any configuration"
-    )
-
-    # Continue editing is a real native server-backed step, not a UI rewind.
-    opts = await hass.config_entries.options.async_configure(
-        opts["flow_id"], {"edit_again": True}
-    )
-    assert opts["step_id"] == "yaml"
-    opts = await hass.config_entries.options.async_configure(
-        opts["flow_id"], {"mode": "replace",
-                          "yaml_text": yaml.safe_dump(updated, sort_keys=False)}
-    )
-    assert opts["step_id"] == "yaml_review"
-    saved = await hass.config_entries.options.async_configure(
-        opts["flow_id"], {"confirm": True}
-    )
-    assert saved["type"] == FlowResultType.CREATE_ENTRY
-    await hass.async_block_till_done()
-    assert entry.entry_id in [x.entry_id for x in hass.config_entries.async_entries(DOMAIN)]
-    assert entry.data["source"] == "ui"
-    assert entry.options["configuration"]["controller"]["name"] == "Reviewed home"
-    assert entry.options["configuration"]["chargers"][0]["control_owner"] == "external"
-    assert entry.options["configuration"]["chargers"][0]["physical_commissioned"] is False
-    assert devices.async_get_device_by_identifier(
-        (DOMAIN, "controller/home"), entry.entry_id
-    ).id == controller_before.id
-    assert len(hass.config_entries.async_entries(DOMAIN)) == 1
-    assert entry.state.value == "loaded"
-
-
-@pytest.mark.asyncio
-async def test_new_install_expert_single_ui_config_entry_four_chargers_four_assets(
-    hass: HomeAssistant,
-):
-    """UC01/02/17: full native one-shot setup; no YAML file, package or helper."""
-    import yaml
-
-    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
-    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
-    if not installed.exists():
-        shutil.copytree(source, installed)
-    assert await async_setup_component(hass, DOMAIN, {})
-    start = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
-    )
-    assert start["type"] == FlowResultType.MENU
-    assert "expert" in start["menu_options"]
-    editor = await hass.config_entries.flow.async_configure(
-        start["flow_id"], {"next_step_id": "expert"}
-    )
-    assert editor["step_id"] == "expert"
-
-    chargers = [
-        {"id": key, "name": key.replace("_", " ").title(), "kind": "on_off",
-         "rated_power_kw": 3.6, "control_entity": f"switch.{key}",
-         "connected_entity": f"binary_sensor.{key}_connected",
-         "power_entity": f"sensor.{key}_power",
-         "control_owner": "external", "physical_commissioned": False}
-        for key in ("white", "black", "peblar", "utility")
-    ]
-    assets = [
-        {"id": key, "name": key.title(), "kind": "car",
-         "target_soc": 80, "soc_entity": f"sensor.{key}_soc"}
-        for key in ("audi", "vw", "guest1", "guest2")
-    ]
-    proposed = {
-        "controller": {
-            "id": "home", "name": "Independent charge site",
-            "mode": "Automatic", "max_parallel": 4,
-            "max_power_kw": 3.6, "price_entity": "sensor.prices",
-            "solar_power_entity": "sensor.pv",
-            "home_power_entity": "sensor.house_consumption",
-            "grid_power_entity": "sensor.net_grid",
-            "current_price_entity": "sensor.import_price",
-            "export_price_entity": "sensor.export_price",
-            "solar_source_kind": "grid_export",
-            "grid_power_direction": "import_positive",
-            "plan_color_by": "vehicle",
-        },
-        "chargers": chargers, "assets": assets,
-    }
-    review = await hass.config_entries.flow.async_configure(
-        editor["flow_id"], {
-            "yaml_text": yaml.safe_dump(proposed, sort_keys=False)
-        }
-    )
-    assert review["step_id"] == "expert_review"
-    assert not hass.config_entries.async_entries(DOMAIN), (
-        "Expert draft/review must not create a Config Entry"
-    )
-    # Back to the actual draft, correct one field and review again.
-    again = await hass.config_entries.flow.async_configure(
-        review["flow_id"], {"edit_again": True}
-    )
-    assert again["step_id"] == "expert"
-    review = await hass.config_entries.flow.async_configure(
-        again["flow_id"], {
-            "yaml_text": yaml.safe_dump(proposed, sort_keys=False)
-        }
-    )
-    assert review["step_id"] == "expert_review"
-    approved = await hass.config_entries.flow.async_configure(
-        review["flow_id"], {"confirm": True}
-    )
-    assert approved["type"] == FlowResultType.CREATE_ENTRY
-    await hass.async_block_till_done()
-    entry = approved["result"]
-    assert entry.data["source"] == "ui", "GUI owns the source, not file YAML"
-    assert entry.data["configuration"] == validate_configuration(proposed)
-    assert entry.data["configuration"]["controller"]["home_power_entity"] == (
-        "sensor.house_consumption"
-    )
-    assert entry.data["configuration"]["controller"]["grid_power_entity"] == "sensor.net_grid"
-    assert len(hass.config_entries.async_entries(DOMAIN)) == 1
-    reg = dr.async_get(hass)
-    for key in ("white", "black", "peblar", "utility"):
-        assert reg.async_get_device_by_identifier(
-            (DOMAIN, f"charger/{key}"), entry.entry_id,
-        ) is not None
-    for key in ("audi", "vw", "guest1", "guest2"):
-        assert reg.async_get_device_by_identifier(
-            (DOMAIN, f"asset/{key}"), entry.entry_id,
-        ) is not None
-    assert reg.async_get_device_by_identifier(
+    prior = devices.async_get_device_by_identifier(
         (DOMAIN, "controller/home"), entry.entry_id,
-    ) is not None
-    # Daily/expert Settings remain enabled via the *same* Config Entry.
-    options = await hass.config_entries.options.async_init(entry.entry_id)
-    assert options["type"] == FlowResultType.MENU
-    assert "yaml" in options["menu_options"]
+    )
+    assert prior is not None
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    revision = await apply_native_preference(
+        hass, entry, runtime, "controller", "home",
+        {"name": "Reviewed home"}, structural=True,
+        expected_revision=configuration_revision(runtime.configuration),
+    )
+    await hass.async_block_till_done()
+    assert entry.options["configuration"]["controller"]["name"] == "Reviewed home"
+    assert configuration_revision(entry.options["configuration"]) == revision
+    after = devices.async_get_device_by_identifier(
+        (DOMAIN, "controller/home"), entry.entry_id,
+    )
+    assert after.id == prior.id
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 
 @pytest.mark.asyncio
-async def test_initial_bulk_yaml_rejects_templates_duplicate_keys_and_commissioning(
+async def test_new_install_dashboard_typed_four_chargers_four_assets(
     hass: HomeAssistant,
 ):
-    """UC01/02 negative paths: no hidden provider creation or physical writer."""
+    """One-click bootstrap; 4/4 objects created via typed dashboard write path."""
+    from custom_components.robotix_multicharge.command_query import (
+        apply_native_preference,
+    )
+    from custom_components.robotix_multicharge.configuration import (
+        configuration_revision,
+    )
     source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
     installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
     if not installed.exists():
         shutil.copytree(source, installed)
     assert await async_setup_component(hass, DOMAIN, {})
-    start = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER},
     )
-    editor = await hass.config_entries.flow.async_configure(
-        start["flow_id"], {"next_step_id": "expert"}
-    )
-    documents = (
-        "controller:\n  id: home\n  id: another\n",
-        "template:\n- sensor: []\ncontroller:\n  id: home\n",
-        "controller:\n  id: home\n  name: Site\n"
-        "chargers:\n- id: x\n  name: X\n  kind: on_off\n"
-        "  rated_power_kw: 3.6\n  control_entity: switch.x\n"
-        "  control_owner: multicharge\n  physical_commissioned: true\n",
-    )
-    for doc in documents:
-        editor = await hass.config_entries.flow.async_configure(
-            editor["flow_id"], {"yaml_text": doc}
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    entry = result["result"]
+    await hass.async_block_till_done()
+    assert not entry.data["configuration"]["assets"]
+    assert not entry.data["configuration"]["chargers"]
+    for key in ("audi", "vw", "guest1", "guest2"):
+        runtime = hass.data[DOMAIN][entry.entry_id]
+        await apply_native_preference(
+            hass, entry, runtime, "asset", key,
+            {"name": key.title(), "kind": "car",
+             "soc_entity": "sensor." + key + "_soc"},
+            action="create", structural=True,
+            expected_revision=configuration_revision(runtime.configuration),
         )
-        assert editor["step_id"] == "expert"
-        assert editor["errors"]["base"] == "invalid_config"
-        assert not hass.config_entries.async_entries(DOMAIN)
-    # Full empty-site source is valid and cannot accidentally start charging.
-    good = ("controller:\n  id: home\n  name: Empty site\n"
-            "  mode: 'Off'\n  max_parallel: 1\n")
-    preview = await hass.config_entries.flow.async_configure(
-        editor["flow_id"], {"yaml_text": good}
+        await hass.async_block_till_done()
+    for key in ("white", "black", "peblar", "utility"):
+        runtime = hass.data[DOMAIN][entry.entry_id]
+        await apply_native_preference(
+            hass, entry, runtime, "charger", key,
+            {"name": key.title(), "kind": "on_off",
+             "rated_power_kw": 3.6,
+             "control_entity": "switch." + key,
+             "connected_entity": "binary_sensor." + key + "_connected",
+             "power_entity": "sensor." + key + "_power"},
+            action="create", structural=True,
+            expected_revision=configuration_revision(runtime.configuration),
+        )
+        await hass.async_block_till_done()
+    saved = entry.options["configuration"]
+    assert len(saved["assets"]) == len(saved["chargers"]) == 4
+    assert all(c["control_owner"] == "external"
+               and c["physical_commissioned"] is False
+               for c in saved["chargers"])
+    devices = dr.async_get(hass)
+    assert devices.async_get_device_by_identifier(
+        (DOMAIN, "charger/white"), entry.entry_id,
     )
-    assert preview["step_id"] == "expert_review"
-    not_confirmed = await hass.config_entries.flow.async_configure(
-        preview["flow_id"], {"confirm": False}
+    assert devices.async_get_device_by_identifier(
+        (DOMAIN, "asset/audi"), entry.entry_id,
     )
-    assert not_confirmed["step_id"] == "expert_review"
-    assert not hass.config_entries.async_entries(DOMAIN)
+    opts = await hass.config_entries.options.async_init(entry.entry_id)
+    assert opts["type"] == FlowResultType.ABORT
+    assert opts["reason"] == "dashboard_only"
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+def test_dashboard_structural_config_rejects_unsafe_field_updates():
+    """Typed dashboard cannot forge owner/identity or delete assigned Asset."""
+    from custom_components.robotix_multicharge.configuration import (
+        apply_dashboard_structure,
+    )
+    cfg = validate_configuration({
+        "controller": {"id": "home", "name": "Home", "mode": "Off",
+                       "max_parallel": 1},
+        "assets": [{"id": "a", "name": "Vehicle A", "kind": "car"}],
+        "chargers": [{"id": "c", "name": "Charger C",
+                      "kind": "on_off", "rated_power_kw": 3.6,
+                      "asset": "a"}],
+    })
+    for changes in (
+        {"id": "different"},
+        {"control_owner": "multicharge"},
+        {"physical_commissioned": True},
+        {"template": []},
+        {"phase_count": 5},
+    ):
+        with pytest.raises(ValueError):
+            apply_dashboard_structure(cfg, "charger", "c", changes)
+    with pytest.raises(ValueError, match="unassign"):
+        apply_dashboard_structure(cfg, "asset", "a", {}, "delete")
+    after = apply_dashboard_structure(
+        cfg, "controller", "home", {"name": "New Home"},
+    )
+    assert after["controller"]["name"] == "New Home"
+    assert after["chargers"] == cfg["chargers"]
+    assert after["assets"] == cfg["assets"]
 
 
 @pytest.mark.asyncio
@@ -1619,4 +1389,160 @@ async def test_ha_idle_rebind_is_atomic_and_keeps_logical_device_ids(hass: HomeA
         )
     assert hass.states.get("switch.c1").state == "off"
     assert hass.states.get("switch.c2").state == "off"
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
+async def test_native_ha_service_injects_context_for_real_vehicle_quick_action(
+    hass: HomeAssistant,
+):
+    """Regression: iPad/HA Select must not access nonexistent Entity.context.
+
+    Test the real HA select.select_option service dispatch (not direct mocks),
+    Config Entry persistence, admin/resident and physical busy refusal.
+    """
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, patch
+    from homeassistant.core import Context
+    from homeassistant.helpers import entity_registry as er
+
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    hass.states.async_set("switch.real_quick", "off")
+    hass.states.async_set(
+        "sensor.real_quick_power", "0",
+        {"unit_of_measurement": "W"},
+    )
+    cfg = validate_configuration({
+        "controller": {
+            "id": "site", "name": "Service context regression",
+            "mode": "Off", "max_parallel": 1, "max_power_kw": 3.6,
+        },
+        "assets": [
+            {"id": "a", "name": "Car A", "kind": "car", "target_soc": 80},
+            {"id": "b", "name": "Car B", "kind": "car", "target_soc": 90},
+        ],
+        "chargers": [{
+            "id": "c", "name": "Charger", "kind": "on_off",
+            "rated_power_kw": 3.6, "asset": "a",
+            "control_entity": "switch.real_quick",
+            "power_entity": "sensor.real_quick_power",
+            "control_owner": "external",
+            "physical_commissioned": False,
+        }],
+    })
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Quick Select HA service",
+        data={"source": "ui", "configuration": cfg},
+        unique_id=DOMAIN,
+    )
+    entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+    ids = er.async_get(hass)
+    vehicle = ids.async_get_entity_id(
+        "select", DOMAIN, f"{DOMAIN}:charger:c:asset",
+    )
+    mode = ids.async_get_entity_id(
+        "select", DOMAIN, f"{DOMAIN}:controller:site:mode",
+    )
+    target = ids.async_get_entity_id(
+        "number", DOMAIN, f"{DOMAIN}:asset:b:target_soc",
+    )
+    assert all((vehicle, mode, target))
+    assert hass.states.get(vehicle).state == "Car A"
+    assert hass.states.get(mode).state == "off"
+    assert hass.states.get(target).state == "90.0"
+
+    def user_for_context(user_id):
+        return SimpleNamespace(
+            is_admin=user_id == "admin",
+            # HA's native service registry checks entity permissions before
+            # dispatch. Grant service visibility here to test MultiCharge's
+            # stricter independent admin-only write authorization.
+            permissions=SimpleNamespace(check_entity=lambda *args: True),
+        )
+
+    with patch.object(
+        hass.auth, "async_get_user",
+        new=AsyncMock(side_effect=user_for_context),
+    ):
+        # Service propagation into Entity._context is the regression,
+        # not simply access to mocked fake.context in a unit test.
+        await hass.services.async_call(
+            "select", "select_option",
+            {"entity_id": vehicle, "option": "Car B"},
+            blocking=True, context=Context(user_id="admin"),
+        )
+        await hass.async_block_till_done()
+        assert entry.options["configuration"]["chargers"][0]["asset"] == "b"
+        assert hass.states.get(vehicle).state == "Car B"
+        await hass.services.async_call(
+            "select", "select_option",
+            {"entity_id": mode, "option": "economy"},
+            blocking=True, context=Context(user_id="admin"),
+        )
+        await hass.async_block_till_done()
+        assert entry.options["configuration"]["controller"]["mode"] == "Economy"
+        await hass.services.async_call(
+            "number", "set_value",
+            {"entity_id": target, "value": 85},
+            blocking=True, context=Context(user_id="admin"),
+        )
+        await hass.async_block_till_done()
+        assert entry.options["configuration"]["assets"][1]["target_soc"] == 85
+
+        for user_id in ("resident", None):
+            with pytest.raises(RuntimeError, match="administrator"):
+                await hass.services.async_call(
+                    "select", "select_option",
+                    {"entity_id": vehicle, "option": "Car A"},
+                    blocking=True, context=Context(user_id=user_id),
+                )
+            assert entry.options["configuration"]["chargers"][0]["asset"] == "b"
+
+        hass.states.async_set(
+            "sensor.real_quick_power", "1500",
+            {"unit_of_measurement": "W"},
+        )
+        await hass.async_block_till_done()
+        with pytest.raises(ValueError, match="charger_busy"):
+            await hass.services.async_call(
+                "select", "select_option",
+                {"entity_id": vehicle, "option": "Car A"},
+                blocking=True, context=Context(user_id="admin"),
+            )
+        assert entry.options["configuration"]["chargers"][0]["asset"] == "b"
+        assert hass.states.get("switch.real_quick").state == "off"
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
+async def test_gui_managed_setup_does_not_register_rejected_yaml_editor(hass: HomeAssistant):
+    """A real HA setup retains native typed settings, without a raw YAML writer."""
+    from custom_components.robotix_multicharge import command_query
+    assert not hasattr(command_query, "websocket_dashboard_yaml_configuration")
+
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    cfg = validate_configuration({
+        "controller": {"id": "home", "name": "Home charging",
+                       "mode": "Off", "max_parallel": 1},
+        "assets": [], "chargers": [],
+    })
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Robotix MultiCharge",
+        data={"source": "ui", "configuration": cfg}, unique_id=DOMAIN,
+    )
+    entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+    assert len(hass.config_entries.async_entries(DOMAIN)) == 1
+    assert dr.async_get(hass).async_get_device_by_identifier(
+        (DOMAIN, "controller/home"), entry.entry_id,
+    ) is not None
     assert await hass.config_entries.async_unload(entry.entry_id)

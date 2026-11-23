@@ -7,11 +7,13 @@ planned execution through the same serialized and physically verified writer.
 from __future__ import annotations
 
 import voluptuous as vol
+from copy import deepcopy
 from datetime import datetime, timezone
 
 from .configuration import (
-    apply_settings_change, configuration_revision,
-    is_plan_presentation_only_change,
+    apply_settings_change, apply_dashboard_structure, configuration_revision,
+    is_plan_presentation_only_change, is_in_place_runtime_preference_change,
+    validate_configuration,
 )
 from .source_evidence import number
 from .execution import stop_power_limit
@@ -82,8 +84,9 @@ async def require_native_admin(hass, context):
 
 
 async def apply_native_preference(hass, entry, runtime, scope, target_id, changes,
-                                  *, expected_revision=None, action="save"):
-    """Single native settings writer for HA entities and admin WebSocket.
+                                  *, expected_revision=None, action="save",
+                                  structural=False):
+    """Single native settings writer for HA entities and dashboard.
 
     Under the physical executor lock, validate the one Config Entry source and
     never reload a working EVSE for a visual-only preference.
@@ -95,10 +98,26 @@ async def apply_native_preference(hass, entry, runtime, scope, target_id, change
         if expected_revision is not None and (
                 expected_revision != configuration_revision(runtime.configuration)):
             raise ValueError("stale_settings")
-        updated = apply_settings_change(
-            runtime.configuration, scope, target_id, changes, action,
+        updated = (
+            apply_dashboard_structure(
+                runtime.configuration, scope, target_id, changes, action,
+            ) if structural else apply_settings_change(
+                runtime.configuration, scope, target_id, changes, action,
+            )
         )
-        if not is_plan_presentation_only_change(runtime.configuration, updated):
+        if structural:
+            # A selected-vehicle change requires real idle/power evidence even
+            # though it is an in-place preference without HA platform reload.
+            # Never silently reassign an occupied external Charger.
+            rebind = scope == "charger" and "asset" in changes
+            if rebind or not (
+                is_plan_presentation_only_change(runtime.configuration, updated)
+                or is_in_place_runtime_preference_change(
+                    runtime.configuration, updated)
+            ):
+                from .config_flow import _assert_safe_yaml_ui_commit
+                _assert_safe_yaml_ui_commit(runtime, updated)
+        elif not is_plan_presentation_only_change(runtime.configuration, updated):
             # A charger assignment changes both its own command boundary and
             # the former charger's assignment. Other active chargers are safe.
             atomic_guest_assignment = (
@@ -167,6 +186,7 @@ async def apply_native_preference(hass, entry, runtime, scope, target_id, change
     vol.Required("changes"): dict,
     vol.Required("expected_revision"): str,
     vol.Optional("action"): vol.In(("save", "create", "delete")),
+    vol.Optional("structural", default=False): bool,
 })
 @websocket_api.async_response
 async def websocket_update_settings(
@@ -183,7 +203,7 @@ async def websocket_update_settings(
         return
     entry_id, runtime = rows[0]
     entry = hass.config_entries.async_get_entry(entry_id)
-    if entry is None or entry.data.get("source") == "yaml":
+    if entry is None or entry.data.get("source") in ("yaml", "json"):
         connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT,
                               "Expert-managed configuration is edited in its JSON/YAML source")
         return
@@ -192,6 +212,7 @@ async def websocket_update_settings(
             hass, entry, runtime, msg["scope"], msg["target_id"],
             msg["changes"], expected_revision=msg["expected_revision"],
             action=msg.get("action", "save"),
+            structural=msg.get("structural", False),
         )
     except (ValueError, TypeError, KeyError) as exc:
         # Give the admin an actionable *bounded* reason, never raw source
@@ -218,5 +239,104 @@ async def websocket_update_settings(
     })
 
 
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): "robotix_multicharge/dashboard_config",
+    vol.Required("operation"): vol.In(("commission",)),
+    vol.Required("expected_revision"): str,
+    vol.Required("charger_id"): str,
+    vol.Required("commission"): bool,
+    vol.Optional("exclusive_writer_confirmed", default=False): bool,
+    vol.Optional("electrical_limits_confirmed", default=False): bool,
+})
+@websocket_api.async_response
+async def websocket_dashboard_config(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict,
+) -> None:
+    """Dashboard-only guarded physical commissioning, never free-text config.
+
+    All ordinary/structural object settings use update_settings above.
+    This narrowly allowed command changes ownership without issuing a physical
+    switch command and cannot run without independently observed idle proof.
+    """
+    rows = tuple(hass.data.get(DOMAIN, {}).items())
+    if len(rows) != 1:
+        connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND,
+                              "NO_ACTIVE_CHARGE_CONTROLLER")
+        return
+    entry_id, runtime = rows[0]
+    entry = hass.config_entries.async_get_entry(entry_id)
+    if (entry is None or entry.source == "import"
+            or entry.data.get("source") in ("yaml", "json")):
+        connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT,
+                              "FILE_OWNED_CONFIG_READONLY")
+        return
+    try:
+        baseline = configuration_revision(runtime.configuration)
+        if baseline != msg["expected_revision"]:
+            raise ValueError("STALE_SETTINGS_REFRESH")
+        desired = msg["commission"]
+        if desired and (msg.get("exclusive_writer_confirmed") is not True
+                        or msg.get("electrical_limits_confirmed") is not True):
+            raise ValueError("COMMISSION_CHECKLIST_REQUIRED")
+        async with runtime.executor._lock:
+            if configuration_revision(runtime.configuration) != baseline:
+                raise ValueError("STALE_SETTINGS_REFRESH")
+            updated = deepcopy(runtime.configuration)
+            charger = next(
+                (c for c in updated["chargers"] if c["id"] == msg["charger_id"]),
+                None,
+            )
+            if charger is None:
+                raise ValueError("UNKNOWN_CHARGER")
+            charger["control_owner"] = "multicharge" if desired else "external"
+            charger["physical_commissioned"] = desired
+            updated = validate_configuration(updated)
+            from .config_flow import _assert_safe_expert_import
+            _assert_safe_expert_import(runtime, updated, source_changed=True)
+            if (charger["id"] in runtime.executor._sessions
+                    or charger["id"] in runtime.executor._start_pending):
+                raise ValueError("CHARGER_BUSY_STOP_FIRST")
+            current = next(c for c in runtime.configuration["chargers"]
+                           if c["id"] == charger["id"])
+            observed = runtime.executor._switch(
+                hass, current.get("control_entity"),
+            )
+            measured = number(
+                hass, current.get("power_entity"), "power",
+                datetime.now(timezone.utc),
+            )
+            if (observed is None or observed.state != "off"
+                    or measured.quality != "ok"
+                    or measured.value > stop_power_limit(current)):
+                raise ValueError("COMMISSION_REQUIRES_VERIFIED_IDLE")
+            revision = configuration_revision(updated)
+            runtime.record_settings_action(
+                "charger", charger["id"], "dashboard_commission",
+                {"commission": desired,
+                 "exclusive_writer_confirmed": bool(
+                     msg.get("exclusive_writer_confirmed")),
+                 "electrical_limits_confirmed": bool(
+                     msg.get("electrical_limits_confirmed"))},
+                revision,
+            )
+            if not await runtime.persist_control_state():
+                raise ValueError("SETTINGS_AUDIT_PERSISTENCE_UNAVAILABLE")
+            hass.config_entries.async_update_entry(
+                entry, options={**entry.options, "configuration": updated},
+            )
+        connection.send_result(msg["id"], {
+            "status": "accepted_unconfirmed",
+            "expected_revision": revision,
+            "reason": "Read back the authoritative Config Entry after reload",
+        })
+    except (ValueError, KeyError, TypeError) as exc:
+        connection.send_error(
+            msg["id"], websocket_api.ERR_INVALID_FORMAT, str(exc)[:180],
+        )
+
+
 def register_settings_query(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_update_settings)
+    websocket_api.async_register_command(hass, websocket_dashboard_config)

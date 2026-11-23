@@ -66,10 +66,15 @@ global.document={
   createTextNode:(text)=>{const n=new Element("#text");n.textContent=text;return n;}
 };
 require("../custom_components/robotix_multicharge/frontend/robotix-multicharge.js");
-assert.ok(uiSource.includes('mcButton("Edit JSON",()=>this.openYamlEditor())'),
-  "Every owner group must offer the one canonical reviewed JSON editor");
-assert.ok(uiSource.includes('this.openNative(scope,record.id,field)'),
-  "Existing native entity preferences remain directly editable by owner");
+assert.ok(uiSource.includes("this.dashboardEditField(parent,scope,record,field)"),
+  "Every persisted owner field is edited directly inside MultiCharge");
+assert.ok(!uiSource.includes("  async openYamlEditor(){")&&
+  !uiSource.includes("robotix_multicharge/yaml_configuration"),
+  "Rejected YAML/JSON editor and write endpoint must not return");
+assert.ok(!uiSource.includes("config/config_entries/options/flow"),
+  "YAML must not open Home Assistant Options Flow");
+assert.ok(uiSource.includes("this.dashboardChargerCreate(container)"),
+  "New Chargers are created inside MultiCharge with native source selectors");
 const Card=customElements.get("robotix-multicharge-card");
 assert.ok(Card,"native custom card registered");
 const Panel=customElements.get("robotix-multicharge-panel");
@@ -894,7 +899,7 @@ async function main(){
     callWS:async request=>({...fixture,configuration_managed_by_yaml:true})};
   await new Promise(resolve=>setImmediate(resolve));
   yamlCard._tab="Settings";yamlCard.render();
-  assert.ok(content(yamlCard.shadowRoot).includes("YAML · read-only"),
+  assert.ok(content(yamlCard.shadowRoot).includes("Legacy file-owned configuration is read-only"),
     "YAML-managed settings clearly disclose their authority");
   assert.ok(!find(yamlCard.shadowRoot,"button","Edit"),
     "YAML-managed configuration must not advertise writable settings");
@@ -903,101 +908,73 @@ async function main(){
   assert.ok(!find(resident.shadowRoot,"button","Edit JSON"),
     "Non-admin must never access native configuration transaction");
 
-  // A real admin begins exactly one official HA Options Flow. The frontend
-  // holds a draft only, and sends all validation/review/save to HA.
-  const yamlApis=[];
-  let yamlApplied=false;
-  const initialYaml="controller:\n  id: site\n  name: Sample\n  mode: Off\n  max_parallel: 2\nassets: []\nchargers: []\n";
+  // Dashboard-only: one typed object field, one secured Config Entry writer.
+  const dashboardCalls=[];
+  const editorFixture=JSON.parse(JSON.stringify(fixture));
+  editorFixture.configuration_revision="12345678901234567890";
   const editorCard=new Card();
   editorCard.setConfig({});
-  editorCard.hass={user:{is_admin:true},states:{},
-    callWS:async()=>fixture,
-    callApi:async(method,path,body)=>{
-      yamlApis.push({method,path,body});
-      if(method==="GET"&&path==="config/config_entries/entry")
-        return [{domain:"robotix_multicharge",entry_id:"entry-1"}];
-      if(method==="POST"&&path==="config/config_entries/options/flow")
-        return {type:"menu",flow_id:"flow-1",step_id:"init"};
-      if(method==="DELETE")
-        return {};
-      assert.equal(path,"config/config_entries/options/flow/flow-1");
-      if(body.next_step_id==="yaml")return {type:"form",flow_id:"flow-1",
-        step_id:"yaml",data_schema:[
-          {name:"yaml_text",default:initialYaml},
-          {name:"mode",default:"replace"}
-        ]};
-      if(body.edit_again)return {type:"form",flow_id:"flow-1",
-        step_id:"yaml",data_schema:[]};
-      if(body.yaml_text){
-        if(body.yaml_text.includes("INVALID"))
-          return {type:"form",flow_id:"flow-1",step_id:"yaml",
-            errors:{base:"invalid_config"},
-            description_placeholders:{note:"Validation: duplicate YAML key"}};
-        return {type:"form",flow_id:"flow-1",step_id:"yaml_review",
-          description_placeholders:{summary:"Chargers: Add outside\nWriter unchanged"},
-          data_schema:[]};
-      }
-      if(body.confirm){
-        yamlApplied=true;
-        return {type:"create_entry",title:"",data:{}};
-      }
-      throw Error("Unsupported Options Flow action");
-    }};
+  editorCard.hass={user:{is_admin:true},states:{
+    "sensor.live_price":{state:"0.23"}
+  },callWS:async request=>{
+    dashboardCalls.push(request);
+    if(request.type==="robotix_multicharge/get_plan")return editorFixture;
+    assert.equal(request.type,"robotix_multicharge/update_settings");
+    assert.equal(request.structural,true);
+    if(request.scope==="controller"&&request.changes.name){
+      editorFixture.configuration.controller.name=request.changes.name;
+    }else if(request.scope==="charger"&&request.action==="create"){
+      editorFixture.configuration.chargers.push({
+        id:request.target_id,...request.changes,control_owner:"external",
+        physical_commissioned:false
+      });
+    }
+    editorFixture.configuration_revision="98765432109876543210";
+    return {status:"accepted_unconfirmed",
+      expected_revision:"98765432109876543210"};
+  }};
   await new Promise(resolve=>setImmediate(resolve));
-  editorCard._tab="Chargeable Assets";editorCard.render();
-  find(editorCard.shadowRoot,"button","Details").click();
-  assert.ok(find(editorCard.shadowRoot,"button","Edit JSON"),
-    "Every owning Asset must reach the same first-class JSON Options Flow");
-  find(editorCard.shadowRoot,"button","Edit JSON").click();
-  await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(editorCard._tab,"Settings",
-    "Object-scoped Edit JSON must navigate to the actual reviewed editor");
-  assert.equal(editorCard._yamlFlow?.step_id,"yaml");
-  const textarea=find(editorCard.shadowRoot,"textarea");
-  assert.ok(textarea&&textarea.value===initialYaml,
-    "Editor uses backend-returned native Config Entry, not a local template");
-  textarea.value=initialYaml+"# preview only\n";
-  textarea.events.input();
-  assert.ok(!yamlApplied,"Changing YAML text cannot save by itself");
-  find(editorCard.shadowRoot,"button","Continue / review").click();
-  await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(editorCard._yamlFlow.step_id,"yaml_review");
-  assert.ok(content(editorCard.shadowRoot).includes("Writer unchanged"),
-    "Actual backend review diff is shown verbatim before Save");
-  assert.ok(!yamlApplied,"Review must not save or send any physical command");
-  find(editorCard.shadowRoot,"button","Back to JSON").click();
-  await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(editorCard._yamlFlow.step_id,"yaml");
-  editorCard._yamlText="INVALID";
+  editorCard._tab="Settings";
+  editorCard._settingsOpen="Charging site";
+  editorCard._editingField="controller:site:name";
   editorCard.render();
-  find(editorCard.shadowRoot,"button","Continue / review").click();
+  let typed=null;
+  visit(editorCard.shadowRoot,x=>{
+    if(x.className==="dashboard-field-edit")typed=x;
+  });
+  assert.ok(typed,"Controller fields expose typed in-dashboard editor");
+  const typedInput=find(typed,"input");
+  assert.ok(typedInput);
+  typedInput.value="Updated Wessels home";
+  find(typed,"button","Save").click();
   await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(editorCard._yamlFlow.step_id,"yaml");
-  assert.ok(content(editorCard.shadowRoot).includes("YAML rejected"),
-    "Backend YAML validation failure must remain visible without saving");
-  assert.ok(content(editorCard.shadowRoot).includes("duplicate YAML key"),
-    "Show actionable server validation, not only a generic failure");
-  editorCard._yamlText=initialYaml;
-  editorCard.render();
-  find(editorCard.shadowRoot,"button","Continue / review").click();
   await new Promise(resolve=>setImmediate(resolve));
-  find(editorCard.shadowRoot,"button","Apply reviewed changes").click();
-  await new Promise(resolve=>setImmediate(resolve));
-  assert.ok(yamlApplied);
-  assert.equal(editorCard._yamlFlow,null);
-  assert.ok(yamlApis.some(call=>call.body?.next_step_id==="yaml"));
-  assert.ok(yamlApis.some(call=>call.body?.confirm===true));
-  assert.ok(!yamlApis.some(call=>call.method==="POST"&&
-    call.path==="config/config_entries/options/flow/flow-1"&&
-    call.body?.action==="start"),
-    "Config review/save never sends physical actuation");
-  find(editorCard.shadowRoot,"button","Edit JSON").click();
-  await new Promise(resolve=>setImmediate(resolve));
-  find(editorCard.shadowRoot,"button","Cancel JSON").click();
-  await new Promise(resolve=>setImmediate(resolve));
-  assert.ok(yamlApis.some(call=>call.method==="DELETE"),
-    "Cancel deletes the server-side draft flow");
-  assert.equal(editorCard._yamlFlow,null);
+  assert.ok(dashboardCalls.some(x=>x.scope==="controller"&&
+    x.changes.name==="Updated Wessels home"&&x.structural===true),
+    "Dashboard Save sends one typed field to the canonical Config Entry");
+  assert.equal(editorFixture.configuration.controller.name,"Updated Wessels home");
+  assert.equal(editorCard._editingField,"");
+  editorCard._tab="Chargers";editorCard.render();
+  const addChargerInDashboard=find(editorCard.shadowRoot,"button","Add charger");
+  assert.ok(addChargerInDashboard,
+    "Chargers can be created without opening Home Assistant Options");
+  addChargerInDashboard.click();
+  assert.ok(content(editorCard.shadowRoot).includes("Stable charger ID"));
+  assert.ok(!dashboardCalls.some(x=>
+    String(x.type).includes("yaml_configuration")||
+    String(x.type).includes("dashboard_config")),
+    "Typed everyday configuration never uses raw document editors or physical commands");
+
+  // Owner final decision: typed Controller, Charger and Asset fields are
+  // the complete runtime configuration interface. No raw-document editor.
+  editorCard._tab="Settings";editorCard._settingsOpen="";editorCard.render();
+  assert.ok(!find(editorCard.shadowRoot,"button","Edit YAML"));
+  assert.ok(!find(editorCard.shadowRoot,"button","Edit JSON"));
+  assert.ok(!content(editorCard.shadowRoot).includes("YAML configuration"));
+  assert.ok(!dashboardCalls.some(x=>
+    String(x.type).includes("yaml_configuration")||
+    String(x.type).includes("options/flow")),
+    "Dashboard typed controls must not open free-text editor services");
 
   // The native sidebar forwards HA's authenticated hass object to the
   // same canonical card and exposes all five tabs to a non-admin resident.
@@ -1030,8 +1007,10 @@ async function main(){
   emptyCard._tab="Charging Plan";emptyCard.render();
   assert.ok(content(emptyCard.shadowRoot).includes("No charging points"),
     "Empty charging plan explains why there is no chart");
-  assert.ok(find(emptyCard.shadowRoot,"a","Configure in Home Assistant"),
-    "Empty charging plan offers the existing native configuration path");
+  emptyCard._tab="Chargers";emptyCard.render();
+  assert.ok(find(emptyCard.shadowRoot,"button","Add charger"),
+    "Empty setup is completed in dashboard, not HA Options");
+  emptyCard._tab="Charging Plan";emptyCard.render();
   assert.ok(!find(emptyCard.shadowRoot,"svg"),
     "Empty charging plan does not render a fictitious plot");
   assert.ok(!content(emptyCard.shadowRoot).includes("Measured power unavailable"),
@@ -1039,8 +1018,8 @@ async function main(){
   emptyCard._tab="Overview";emptyCard.render();
   assert.ok(content(emptyCard.shadowRoot).includes("Configure a charger to begin"),
     "Empty overview states the necessary next action");
-  assert.ok(find(emptyCard.shadowRoot,"a","Configure in Home Assistant"),
-    "Empty overview offers native setup action, not a passive hint");
+  assert.ok(find(emptyCard.shadowRoot,"button","Add charger"),
+    "Empty overview opens the actual MultiCharge Charger setup form");
   assert.ok(!content(emptyCard.shadowRoot).includes("No data"),
     "Empty overview does not misrepresent unconfigured site as failed readings");
   assert.ok(!require("node:fs").readFileSync(
@@ -1051,7 +1030,16 @@ async function main(){
   assert.ok(content(card.shadowRoot).includes("Family car"));
   assert.ok(content(card.shadowRoot).includes("2.30 kW"));
   find(card.shadowRoot,"button","Charging Plan").click();
-  assert.ok(find(card.shadowRoot,"svg"),"actual quarter timeline chart mounted");
+  const apexRegions=[];
+  visit(card.shadowRoot,node=>{
+    if(node.attributes?.["data-chart-engine"]==="apexcharts-3.49.1")
+      apexRegions.push(node);
+  });
+  assert.ok(apexRegions.length>=1,
+    "Locally packaged ApexCharts power-price and native Charger timelines configured");
+  assert.ok(apexRegions.every(node=>node.attributes["role"]==="img"),
+    "Every interactive chart includes a readable alternative");
+
   // UX-ROW-03 aggregate power-price chart: one combined Basic-inspired
   // timeline above every dynamic vehicle/EVSE row, no static Wessels IDs.
   assert.ok(find(card.shadowRoot,"button","48h"),
@@ -1208,21 +1196,18 @@ async function main(){
     c.action==="resume"&&c.charger_id==="drive"));
   fixture.command_capabilities={};
   card.render();
-  const addCharger=find(card.shadowRoot,"a","Add charger");
-  assert.ok(addCharger&&addCharger.href==="/config/integrations/integration/robotix_multicharge",
-    "Add Charger routes to the one native HA setup");
+  const addCharger=find(card.shadowRoot,"button","Add charger");
+  assert.ok(addCharger,
+    "Add Charger is configured entirely through this dashboard");
   find(card.shadowRoot,"button","Settings").click();
   card._settingsOpen="";card.render();
   for(const name of ["Charging site","Sources & bindings","Charging strategy",
-                     "Safety & limits","Integrations","Advanced & JSON"]){
+                     "Safety & limits","Integrations"]){
     assert.ok(content(card.shadowRoot).includes(name),name);
   }
-  assert.ok(find(card.shadowRoot,"a"),"Settings open real HA integration configuration");
-  assert.ok(content(card.shadowRoot).includes("Expert YAML / JSON configuration"),
-    "Settings summary exposes real expert configuration instead of a fake editor");
-  card._settingsOpen="Advanced & JSON";card.render();
-  assert.ok(content(card.shadowRoot).includes("Home Assistant Energy Dashboard sources may be reused"),
-    "GUI config reuses HA Energy and standalone sources");
+
+  assert.ok(!content(card.shadowRoot).includes("YAML configuration"));
+  assert.ok(!find(card.shadowRoot,"button","Edit YAML"));
   assert.ok(!content(card.shadowRoot).includes("/config/packages/multicharge.yaml"),
     "No YAML package is required to configure standalone MultiCharge");
   card._settingsOpen="Sources & bindings";card.render();
@@ -1245,7 +1230,8 @@ async function main(){
   const siteEdit=find(card.shadowRoot,"button","Edit");
   assert.ok(siteEdit,"Site name exposes its native HA text editor");
   siteEdit.click();
-  assert.equal(card._lastMoreInfo?.detail?.entityId,"text.site_name");
+  assert.equal(card._editingField,"controller:site:name",
+    "Native entity shortcut expands the in-dashboard Controller field");
   card._settingsOpen="Safety & limits";card.render();
   assert.ok(content(card.shadowRoot).includes("Electrical limits"),
     "Safety Settings show the configured electrical limits");
@@ -1256,8 +1242,8 @@ async function main(){
     "Source bindings disclose actual future tariff source selection");
   assert.ok(content(card.shadowRoot).includes("Home consumption"),
     "Home-wide power source remains a native selectable sensor");
-  assert.ok(find(card.shadowRoot,"a"),
-    "Advanced source mappings open the existing HA configuration");
+  assert.ok(find(card.shadowRoot,"button","Edit"),
+    "Every source binding is editable directly in dashboard");
   const nativeCalls=[];
   card._hass.callService=async(domain,action,args)=>{
     nativeCalls.push({domain,action,args});
@@ -1270,6 +1256,9 @@ async function main(){
       fixture.configuration.assets[0].plan_color=args.option;
     } else if(args.entity_id==="select.drive_color"){
       fixture.configuration.chargers[0].plan_color=args.option;
+    } else if(args.entity_id==="select.drive_vehicle"){
+      fixture.configuration.chargers[0].asset=
+        args.option==="none"?undefined:"car";
     }
   };
   card._tab="Settings";card._settingsOpen="Charging strategy";card.render();
@@ -1296,6 +1285,32 @@ async function main(){
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(nativeCalls.some(c=>c.args.entity_id==="select.car_color"&&
     c.args.option==="blue"),"vehicle palette is changed through its own HA entity");
+  card._tab="Chargers";card._open="";card.render();
+  const quicks=[];
+  visit(card.shadowRoot,node=>{
+    if(node.tag==="select"&&node.attributes?.["data-quick-assignment"]==="drive")
+      quicks.push(node);
+  });
+  assert.equal(quicks.length,1,
+    "Charger chosen vehicle must be editable without opening Details");
+  assert.equal(quicks[0].value,"Family car");
+  quicks[0].value="none";quicks[0].events.change();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(nativeCalls.some(x=>x.args.entity_id==="select.drive_vehicle"&&
+    x.args.option==="none"),
+    "Quick vehicle None selection must use real native HA Charger Select Entity");
+  card._tab="Overview";card._open="";card.render();
+  const overviewQuicks=[];
+  visit(card.shadowRoot,node=>{
+    if(node.tag==="select"&&node.attributes?.["data-quick-assignment"]==="drive")
+      overviewQuicks.push(node);
+  });
+  assert.equal(overviewQuicks.length,1,
+    "Overview exposes native selected-vehicle Quick Action without technical Details");
+  overviewQuicks[0].value="Family car";overviewQuicks[0].events.change();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(fixture.configuration.chargers[0].asset,"car",
+    "Quick selection persists in the canonical object rather than frontend-only state");
   card._tab="Chargers";card._open="";card.render();
   find(card.shadowRoot,"button","Details").click();
   assert.ok(content(card.shadowRoot).includes("Plan color"));

@@ -56,7 +56,7 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
         chrome, "--headless=new", "--no-sandbox", "--disable-gpu",
         "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check",
         "--hide-scrollbars", "--force-device-scale-factor=1",
-        f"--window-size={max(500,size)},900", "--virtual-time-budget=1900",
+        f"--window-size={max(500,size)},900", "--virtual-time-budget=3500",
         f"--screenshot={screenshot}", "--dump-dom",
     ]
     if dark:
@@ -89,6 +89,19 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
     if view == "asset" and count:
         if row["goalEditable"] != (role == "admin"):
             raise AssertionError(f"{label}: novice goal or resident auth drift: {row}")
+    if view in ("charger", "overview"):
+        if row["quickSelectors"] != count:
+            raise AssertionError(f"{label}: top-level Charger vehicle quick action missing: {row}")
+        if row["quickEditable"] != (count if role == "admin" else 0):
+            raise AssertionError(f"{label}: read-only resident or admin native select drift: {row}")
+    if view == "plan" and count:
+        # Only Charger 0 has qualified measured/planned source data in
+        # this fixture. All other nine lanes intentionally say no slots,
+        # not ten fabricated ApexCharts plots.
+        if row["apexHosts"] < 1 or row["apexLive"] != row["apexHosts"]:
+            raise AssertionError(f"{label}: all source-qualified local ApexCharts must render: {row}")
+        if row.get("apexErrors"):
+            raise AssertionError(f"{label}: a real browser ApexCharts error occurred: {row}")
     if row["commandButtons"]:
         raise AssertionError(f"{label}: uncommissioned external Charger shows physical writes")
     if not screenshot.is_file() or screenshot.stat().st_size < 2000:

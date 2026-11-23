@@ -98,7 +98,7 @@ class _AssetNumber(NumberEntity):
         await super().async_will_remove_from_hass()
 
     async def async_set_native_value(self, value: float):
-        await require_native_admin(self.hass, self.context)
+        await require_native_admin(self.hass, self._context)
         if self.field in ("priority", "requested_duration_minutes"):
             if not float(value).is_integer():
                 raise ValueError("whole_number_required")
@@ -173,7 +173,7 @@ class _SiteNumber(NumberEntity):
         await super().async_will_remove_from_hass()
 
     async def async_set_native_value(self, value: float):
-        await require_native_admin(self.hass, self.context)
+        await require_native_admin(self.hass, self._context)
         if self.field == "max_parallel":
             if not float(value).is_integer():
                 raise ValueError("whole_number_required")
@@ -277,8 +277,8 @@ class _ChargerPowerNumber(NumberEntity):
         await super().async_will_remove_from_hass()
 
     async def async_set_native_value(self, value: float):
-        await require_native_admin(self.hass, self.context)
-        actor = getattr(self.context, "user_id", None)
+        await require_native_admin(self.hass, self._context)
+        actor = getattr(self._context, "user_id", None)
         user = await self.hass.auth.async_get_user(actor) if actor else None
         if user is None or not user.is_admin:
             raise RuntimeError("Charging power control requires an HA administrator")
@@ -323,7 +323,7 @@ class _ChargerPowerNumber(NumberEntity):
         nearest = floor((float(value) / factor - minimum) / step + 0.5)
         current = round(minimum + max(low, min(high, nearest)) * step, 6)
         outcome = await self.runtime.executor.execute(
-            self.uid, "set_current", current_a=current, context=self.context
+            self.uid, "set_current", current_a=current, context=self._context
         )
         if outcome["status"] != "confirmed":
             raise RuntimeError("Charging power not confirmed: " + outcome["reason"])

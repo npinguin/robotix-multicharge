@@ -1,6 +1,6 @@
 /* Robotix MultiCharge native Home Assistant card: one backend, five honest views. */
 let mcLanguage="en";
-const MC_TEXT={"nl":{"Overview":"Overzicht","Charging Plan":"Laadplan","Chargeable Assets":"Voertuigen","Chargers":"Laadpalen","Settings":"Instellingen","Charging plan":"Laadplan","Charging overview":"Laadoverzicht","Refresh":"Vernieuwen","Today":"Vandaag","Tomorrow":"Morgen","All chargers":"Alle laadpalen","Show labels":"Toon","Color by":"Kleur per","Indicative forecasting":"Prognose","Vehicle":"Voertuig","Charger":"Laadpaal","Vehicle + Charger":"Voertuig + laadpaal","Show (not reserved)":"Tonen","Hide":"Verbergen","Proposed":"Voorgesteld","Accepted":"Bevestigd","Measured":"Gemeten","Indicative":"Indicatief","No vehicle selected":"Geen voertuig","Connected":"Aangesloten","Disconnected":"Niet aangesloten","Connection unknown":"Aansluiting onbekend","Vehicle unknown":"Voertuig onbekend","Unavailable":"Niet beschikbaar","Unknown":"Onbekend","Not set":"Niet ingesteld","Not assigned":"Niet toegewezen","Plan color":"Plankleur","Plan labels":"Planlabels","Active chargers":"Actieve laadpalen","Actual power":"Werkelijk vermogen","Current price":"Huidig tarief","Charging strategy":"Laadmodus","Charging site":"Laadlocatie","Solar production":"Zonneproductie","Home consumption":"Woningverbruik","Grid power":"Netvermogen","Solar surplus":"Zonne-overschot","Future tariff intervals":"Toekomstige tariefintervallen","Current import price":"Huidig aankoopttarief","Current export price":"Huidige injectievergoeding","Solar intervals":"Zonintervallen","Available surplus":"Beschikbaar overschot","Solar source":"Zonnebron","Grid direction":"Netrichting","Sources & bindings":"Bronnen","Safety & limits":"Veiligheid en limieten","Integrations":"Integraties","Advanced & JSON":"Geavanceerd","Readiness":"Gereedheid","Battery":"Batterij","Target":"Doel","Ready By":"Klaar om","Priority":"Prioriteit","Duration":"Duur","Requested energy":"Gevraagde energie","Charging intention":"Laadbehoefte","Charging priority":"Prioriteit","Connection":"Aansluiting","Selected vehicle":"Gekozen voertuig","Assigned asset":"Gekozen voertuig","Actual current":"Gemeten stroom","Power":"Vermogen","Source state":"Bronstatus","Status":"Status","Start charging":"Start laden","Stop charging":"Stop laden","Details":"Details","Hide details":"Sluiten","Edit":"Wijzigen","Saved":"Opgeslagen","Pending":"In behandeling","Rejected":"Geweigerd","Next planned session":"Volgende laadsessie","Next action":"Volgende stap","No active qualified vehicle plan":"Geen actieve planning","No qualified slots for this day.":"Geen laadmomenten","No vehicles":"Geen voertuigen","No charging points":"Geen laadpalen","Loading":"Laden","Error":"Fout","No data":"Geen gegevens","No connection":"Niet aangesloten","Not ready":"Niet gereed","Waiting":"Wachten","Forecast":"Prognose","If connected now":"Bij nu aansluiten","Expected":"Verwacht","Not reserved":"Niet gereserveerd","Measured power unavailable":"Geen meetgegevens","Vehicle plan":"Voertuigplan","Charger plan":"Laadpaalplan","No forecast":"Geen prognose","No vehicle":"Geen voertuig","Tariff":"Tarief","Proposed · pale color":"Voorgesteld","Accepted · solid color":"Geaccepteerd","Measured · physical source":"Gemeten","Indicative · dashed outline":"Indicatief","Add asset":"Voertuig toevoegen","Add charger":"Laadpaal toevoegen","Charging mode":"Laadmodus","Mode":"Modus","Plan":"Plan","Home Assistant":"Home Assistant","blue":"Blauw","orange":"Oranje","green":"Groen","purple":"Paars","gold":"Goud","teal":"Blauwgroen","pink":"Roze","indigo":"Indigo","olive":"Olijfgroen","brown":"Bruin","coral":"Koraal","slate":"Leigrijs","violet":"Violet","lime":"Limoen","salmon":"Zalm","cyan":"Cyaan","wine":"Wijnrood","forest":"Bosgroen","peach":"Perzik","lavender":"Lavendel","turquoise":"Turkoois","rust":"Roest","navy":"Marineblauw","moss":"Mosgroen","Guest expired":"Gast verlopen","Ready":"Gereed","No tariff":"Geen tarief","No solar":"Geen zon","No deadline":"Geen eindtijd","No charging goal":"Geen laaddoel","Limited power":"Beperkt vermogen","No source":"Geen bron","No capacity":"Geen capaciteit","Wiring unknown":"Aansluiting onbekend","Guest":"Gast","Charged":"Geladen","Charging":"Laden","Stopped":"Gestopt","Confirmed":"Bevestigd","No action":"Geen actie","Reason":"Reden","Energy":"Energie","Repeat":"Herhalen","Measured session energy":"Sessie-energie","Last confirmed session":"Laatste sessie","Measured energy":"Gemeten energie","Verified cost":"Kosten","Current range":"Stroomsterkte","Measured confirmation":"Gemeten om","Control type":"Sturing","On/off":"Aan/uit","Variable current":"Variabele stroom","Unverified":"Onbekend","No charger assigned":"Geen laadpaal","Target battery %":"Doelbatterij %","Asset name":"Voertuignaam","Asset type":"Soort","Temporary guest":"Tijdelijke gast","Guest until":"Gast tot","Expected connection":"Verwachte aansluiting","Save charging site":"Laadlocatie opslaan","Save sources":"Bronnen opslaan","Maximum group kW":"Max. vermogen kW","Group power ceiling kW":"Max. vermogen kW","Site name":"Locatienaam","Parallel chargers":"Gelijktijdige laders","Save electrical limits":"Limieten opslaan","Electrical limits":"Limieten","Battery data":"Batterijbron","Rated power":"Nominaal vermogen","Phases":"Fasen","Active session":"Actieve sessie","Add a chargeable asset":"Voertuig toevoegen","Create asset":"Toevoegen","Cancel adding":"Annuleren","Remove":"Verwijderen","Effective charging power":"Effectief laadvermogen","Car":"Auto","Bicycle":"Fiets","Motorcycle":"Motorfiets","Scooter":"Scooter","Other":"Overig","No active plan":"Geen actieve planning","Confirm connected vehicle":"Bevestig aangesloten voertuig","Connected vehicle":"Aangesloten voertuig","Not confirmed":"Niet bevestigd"},"fr":{"Overview":"Vue d’ensemble","Charging Plan":"Plan de charge","Chargeable Assets":"Véhicules","Chargers":"Bornes","Settings":"Réglages","Charging plan":"Plan de charge","Charging overview":"Vue des charges","Refresh":"Actualiser","Today":"Aujourd’hui","Tomorrow":"Demain","All chargers":"Toutes les bornes","Show labels":"Afficher","Color by":"Couleur par","Indicative forecasting":"Prévision","Vehicle":"Véhicule","Charger":"Borne","Vehicle + Charger":"Véhicule + borne","Show (not reserved)":"Afficher","Hide":"Masquer","Proposed":"Proposé","Accepted":"Confirmé","Measured":"Mesuré","Indicative":"Indicatif","No vehicle selected":"Aucun véhicule","Connected":"Connecté","Disconnected":"Déconnecté","Connection unknown":"Connexion inconnue","Vehicle unknown":"Véhicule inconnu","Unavailable":"Indisponible","Unknown":"Inconnu","Not set":"Non défini","Not assigned":"Non attribué","Plan color":"Couleur du plan","Plan labels":"Libellés du plan","Active chargers":"Bornes actives","Actual power":"Puissance réelle","Current price":"Tarif actuel","Charging strategy":"Mode de charge","Charging site":"Site de recharge","Solar production":"Production solaire","Home consumption":"Consommation du logement","Grid power":"Puissance du réseau","Solar surplus":"Surplus solaire","Future tariff intervals":"Intervalles futurs de prix","Current import price":"Prix d'achat actuel","Current export price":"Prix de vente actuel","Solar intervals":"Intervalles solaires","Available surplus":"Surplus disponible","Solar source":"Source solaire","Grid direction":"Sens du réseau","Sources & bindings":"Sources","Safety & limits":"Sécurité et limites","Integrations":"Intégrations","Advanced & JSON":"Avancé","Readiness":"Disponibilité","Battery":"Batterie","Target":"Cible","Ready By":"Prêt pour","Priority":"Priorité","Duration":"Durée","Requested energy":"Énergie demandée","Charging intention":"Besoin de charge","Charging priority":"Priorité","Connection":"Connexion","Selected vehicle":"Véhicule choisi","Assigned asset":"Véhicule choisi","Actual current":"Courant réel","Power":"Puissance","Source state":"État de la source","Status":"État","Start charging":"Démarrer","Stop charging":"Arrêter","Details":"Détails","Hide details":"Fermer","Edit":"Modifier","Saved":"Enregistré","Pending":"En attente","Rejected":"Refusé","Next planned session":"Prochaine charge","Next action":"Prochaine étape","No active qualified vehicle plan":"Aucune charge prévue","No qualified slots for this day.":"Aucun créneau","No vehicles":"Aucun véhicule","No charging points":"Aucune borne","Loading":"Chargement","Error":"Erreur","No data":"Aucune donnée","No connection":"Déconnecté","Not ready":"Non prêt","Waiting":"En attente","Forecast":"Prévision","If connected now":"Si connecté maintenant","Expected":"Prévu","Not reserved":"Non réservé","Measured power unavailable":"Mesure indisponible","Vehicle plan":"Plan véhicule","Charger plan":"Plan borne","No forecast":"Aucune prévision","No vehicle":"Aucun véhicule","Tariff":"Tarif","Proposed · pale color":"Proposé","Accepted · solid color":"Accepté","Measured · physical source":"Mesuré","Indicative · dashed outline":"Indicatif","Add asset":"Ajouter un véhicule","Add charger":"Ajouter borne","Charging mode":"Mode de charge","Mode":"Mode","Plan":"Plan","Home Assistant":"Home Assistant","blue":"Bleu","orange":"Orange","green":"Vert","purple":"Violet","gold":"Or","teal":"Sarcelle","pink":"Rose","indigo":"Indigo","olive":"Olive","brown":"Marron","coral":"Corail","slate":"Ardoise","violet":"Mauve","lime":"Citron vert","salmon":"Saumon","cyan":"Cyan","wine":"Bordeaux","forest":"Vert forêt","peach":"Pêche","lavender":"Lavande","turquoise":"Turquoise","rust":"Rouille","navy":"Bleu marine","moss":"Vert mousse","Guest expired":"Invité expiré","Ready":"Prêt","No tariff":"Aucun tarif","No solar":"Pas de solaire","No deadline":"Pas d’échéance","No charging goal":"Aucune cible","Limited power":"Puissance limitée","No source":"Aucune source","No capacity":"Pas de capacité","Wiring unknown":"Câblage inconnu","Guest":"Invité","Charged":"Chargé","Charging":"Recharge","Stopped":"Arrêté","Confirmed":"Confirmé","No action":"Aucune action","Reason":"Motif","Energy":"Énergie","Repeat":"Répéter","Measured session energy":"Énergie de session","Last confirmed session":"Dernière session","Measured energy":"Énergie mesurée","Verified cost":"Coût","Current range":"Plage de courant","Measured confirmation":"Mesuré à","Control type":"Commande","On/off":"Marche/arrêt","Variable current":"Courant variable","Unverified":"Inconnu","No charger assigned":"Aucune borne","Target battery %":"Batterie cible %","Asset name":"Nom du véhicule","Asset type":"Type","Temporary guest":"Invité temporaire","Guest until":"Invité jusqu’à","Expected connection":"Connexion prévue","Save charging site":"Enregistrer le site","Save sources":"Enregistrer les sources","Maximum group kW":"Puissance max. kW","Group power ceiling kW":"Puissance max. kW","Site name":"Nom du site","Parallel chargers":"Bornes simultanées","Save electrical limits":"Enregistrer les limites","Electrical limits":"Limites","Battery data":"Source batterie","Rated power":"Puissance nominale","Phases":"Phases","Active session":"Session active","Add a chargeable asset":"Ajouter un véhicule","Create asset":"Ajouter","Cancel adding":"Annuler","Remove":"Supprimer","Effective charging power":"Puissance de charge effective","Car":"Voiture","Bicycle":"Vélo","Motorcycle":"Moto","Scooter":"Trottinette","Other":"Autre","No active plan":"Aucune charge planifiée","Confirm connected vehicle":"Confirmer le véhicule branché","Connected vehicle":"Véhicule branché","Not confirmed":"Non confirmé"},"da":{"Overview":"Overblik","Charging Plan":"Ladeplan","Chargeable Assets":"Køretøjer","Chargers":"Ladere","Settings":"Indstillinger","Charging plan":"Ladeplan","Charging overview":"Ladeoversigt","Refresh":"Opdater","Today":"I dag","Tomorrow":"I morgen","All chargers":"Alle ladere","Show labels":"Vis etiketter","Color by":"Farve efter","Indicative forecasting":"Prognose","Vehicle":"Køretøj","Charger":"Lader","Vehicle + Charger":"Køretøj + lader","Show (not reserved)":"Vis","Hide":"Skjul","Proposed":"Foreslået","Accepted":"Accepteret","Measured":"Målt","Indicative":"Vejledende","No vehicle selected":"Intet køretøj valgt","Connected":"Tilsluttet","Disconnected":"Ikke tilsluttet","Connection unknown":"Tilslutning ukendt","Vehicle unknown":"Køretøj ukendt","Unavailable":"Ikke tilgængelig","Unknown":"Ukendt","Not set":"Ikke angivet","Not assigned":"Ikke tildelt","Plan color":"Planfarve","Plan labels":"Planetiketter","Active chargers":"Aktive ladere","Actual power":"Aktuel effekt","Current price":"Aktuel pris","Charging strategy":"Ladetilstand","Charging site":"Ladested","Sources & bindings":"Kilder","Safety & limits":"Sikkerhed og grænser","Integrations":"Integrationer","Advanced & JSON":"Avanceret","Readiness":"Klar","Battery":"Batteri","Target":"Mål","Ready By":"Klar kl.","Priority":"Prioritet","Duration":"Varighed","Requested energy":"Ønsket energi","Charging intention":"Ladebehov","Charging priority":"Ladeprioritet","Connection":"Tilslutning","Selected vehicle":"Valgt køretøj","Assigned asset":"Tildelt køretøj","Actual current":"Aktuel strøm","Power":"Effekt","Source state":"Kildestatus","Status":"Status","Start charging":"Start opladning","Stop charging":"Stop opladning","Details":"Detaljer","Hide details":"Skjul detaljer","Edit":"Rediger","Saved":"Gemt","Pending":"Afventer","Rejected":"Afvist","Next planned session":"Næste planlagte opladning","Next action":"Næste handling","No active qualified vehicle plan":"Ingen aktiv ladeplan","No qualified slots for this day.":"Ingen ladetider","No vehicles":"Ingen køretøjer","No charging points":"Ingen ladere","Loading":"Indlæser","Error":"Fejl","No data":"Ingen data","No connection":"Ikke tilsluttet","Not ready":"Ikke klar","Waiting":"Venter","Forecast":"Prognose","If connected now":"Hvis tilsluttet nu","Expected":"Forventet","Not reserved":"Ikke reserveret","Measured power unavailable":"Ingen måledata","Vehicle plan":"Køretøjsplan","Charger plan":"Ladeplan","No forecast":"Ingen prognose","No vehicle":"Intet køretøj","Tariff":"Tarif","Proposed · pale color":"Foreslået","Accepted · solid color":"Accepteret","Measured · physical source":"Målt","Indicative · dashed outline":"Vejledende","Add asset":"Tilføj køretøj","Add charger":"Tilføj lader","Charging mode":"Ladetilstand","Mode":"Tilstand","Plan":"Plan","Home Assistant":"Home Assistant","blue":"Blå","orange":"Orange","green":"Grøn","purple":"Lilla","gold":"Guld","teal":"Blågrøn","pink":"Pink","indigo":"Indigo","olive":"Oliven","brown":"Brun","coral":"Koral","slate":"Skifer","violet":"Violet","lime":"Lime","salmon":"Laks","cyan":"Cyan","wine":"Vinrød","forest":"Skovgrøn","peach":"Fersken","lavender":"Lavendel","turquoise":"Turkis","rust":"Rust","navy":"Marineblå","moss":"Mosgrøn","Guest expired":"Gæst udløbet","Ready":"Klar","No tariff":"Ingen tarif","No solar":"Ingen sol","No deadline":"Ingen frist","No charging goal":"Intet lademål","Limited power":"Begrænset effekt","No source":"Ingen kilde","No capacity":"Ingen kapacitet","Wiring unknown":"Ukendt ledningsføring","Guest":"Gæst","Charged":"Opladet","Charging":"Oplader","Stopped":"Stoppet","Confirmed":"Bekræftet","No action":"Ingen handling","Reason":"Årsag","Energy":"Energi","Repeat":"Gentag","Measured session energy":"Målt sessionsenergi","Last confirmed session":"Sidste session","Measured energy":"Målt energi","Verified cost":"Bekræftet pris","Current range":"Strømområde","Measured confirmation":"Målt kl.","Control type":"Styringstype","On/off":"Til/fra","Variable current":"Variabel strøm","Unverified":"Ikke verificeret","No charger assigned":"Ingen lader valgt","Target battery %":"Målbatteri %","Asset name":"Køretøjsnavn","Asset type":"Køretøjstype","Temporary guest":"Midlertidig gæst","Guest until":"Gæst indtil","Expected connection":"Forventet tilslutning","Save charging site":"Gem ladested","Save sources":"Gem kilder","Maximum group kW":"Maks. effekt kW","Group power ceiling kW":"Effektgrænse kW","Site name":"Stedsnavn","Parallel chargers":"Samtidige ladere","Save electrical limits":"Gem elektriske grænser","Electrical limits":"Elektriske grænser","Battery data":"Batterikilde","Rated power":"Nominel effekt","Phases":"Faser","Active session":"Aktiv session","Add a chargeable asset":"Tilføj køretøj","Create asset":"Opret køretøj","Cancel adding":"Annuller","Remove":"Fjern","Effective charging power":"Effektiv ladeeffekt","Car":"Bil","Bicycle":"Cykel","Motorcycle":"Motorcykel","Scooter":"Scooter","Other":"Andet","No active plan":"Ingen aktiv ladeplan","Confirm connected vehicle":"Bekræft tilsluttet køretøj","Connected vehicle":"Tilsluttet køretøj","Not confirmed":"Ikke bekræftet"},"nb":{"Overview":"Oversikt","Charging Plan":"Ladeplan","Chargeable Assets":"Kjøretøy","Chargers":"Ladere","Settings":"Innstillinger","Charging plan":"Ladeplan","Charging overview":"Ladeoversikt","Refresh":"Oppdater","Today":"I dag","Tomorrow":"I morgen","All chargers":"Alle ladere","Show labels":"Vis etiketter","Color by":"Farge etter","Indicative forecasting":"Prognose","Vehicle":"Kjøretøy","Charger":"Lader","Vehicle + Charger":"Kjøretøy + lader","Show (not reserved)":"Vis","Hide":"Skjul","Proposed":"Foreslått","Accepted":"Godkjent","Measured":"Målt","Indicative":"Veiledende","No vehicle selected":"Ingen kjøretøy valgt","Connected":"Tilkoblet","Disconnected":"Ikke tilkoblet","Connection unknown":"Tilkobling ukjent","Vehicle unknown":"Kjøretøy ukjent","Unavailable":"Ikke tilgjengelig","Unknown":"Ukjent","Not set":"Ikke angitt","Not assigned":"Ikke tilordnet","Plan color":"Planfarge","Plan labels":"Planetiketter","Active chargers":"Aktive ladere","Actual power":"Faktisk effekt","Current price":"Gjeldende pris","Charging strategy":"Lademodus","Charging site":"Ladested","Sources & bindings":"Kilder","Safety & limits":"Sikkerhet og grenser","Integrations":"Integrasjoner","Advanced & JSON":"Avansert","Readiness":"Klar","Battery":"Batteri","Target":"Mål","Ready By":"Klar innen","Priority":"Prioritet","Duration":"Varighet","Requested energy":"Ønsket energi","Charging intention":"Ladebehov","Charging priority":"Ladeprioritet","Connection":"Tilkobling","Selected vehicle":"Valgt kjøretøy","Assigned asset":"Tilordnet kjøretøy","Actual current":"Faktisk strøm","Power":"Effekt","Source state":"Kildestatus","Status":"Status","Start charging":"Start lading","Stop charging":"Stopp lading","Details":"Detaljer","Hide details":"Skjul detaljer","Edit":"Rediger","Saved":"Lagret","Pending":"Venter","Rejected":"Avvist","Next planned session":"Neste planlagte lading","Next action":"Neste handling","No active qualified vehicle plan":"Ingen aktiv ladeplan","No qualified slots for this day.":"Ingen ladetider","No vehicles":"Ingen kjøretøy","No charging points":"Ingen ladere","Loading":"Laster","Error":"Feil","No data":"Ingen data","No connection":"Ikke tilkoblet","Not ready":"Ikke klar","Waiting":"Venter","Forecast":"Prognose","If connected now":"Hvis tilkoblet nå","Expected":"Forventet","Not reserved":"Ikke reservert","Measured power unavailable":"Ingen måledata","Vehicle plan":"Kjøretøyplan","Charger plan":"Ladeplan","No forecast":"Ingen prognose","No vehicle":"Ingen kjøretøy","Tariff":"Pris","Proposed · pale color":"Foreslått","Accepted · solid color":"Godkjent","Measured · physical source":"Målt","Indicative · dashed outline":"Veiledende","Add asset":"Legg til kjøretøy","Add charger":"Legg til lader","Charging mode":"Lademodus","Mode":"Modus","Plan":"Plan","Home Assistant":"Home Assistant","blue":"Blå","orange":"Oransje","green":"Grønn","purple":"Lilla","gold":"Gull","teal":"Blågrønn","pink":"Rosa","indigo":"Indigo","olive":"Oliven","brown":"Brun","coral":"Korall","slate":"Skifer","violet":"Fiolett","lime":"Lime","salmon":"Laks","cyan":"Cyan","wine":"Vinrød","forest":"Skoggrønn","peach":"Fersken","lavender":"Lavendel","turquoise":"Turkis","rust":"Rust","navy":"Marineblå","moss":"Mosegrønn","Guest expired":"Gjest utløpt","Ready":"Klar","No tariff":"Ingen pris","No solar":"Ingen sol","No deadline":"Ingen frist","No charging goal":"Ingen lademål","Limited power":"Begrenset effekt","No source":"Ingen kilde","No capacity":"Ingen kapasitet","Wiring unknown":"Ukjent kabling","Guest":"Gjest","Charged":"Ladet","Charging":"Lader","Stopped":"Stoppet","Confirmed":"Bekreftet","No action":"Ingen handling","Reason":"Årsak","Energy":"Energi","Repeat":"Gjenta","Measured session energy":"Målt øktenergi","Last confirmed session":"Siste økt","Measured energy":"Målt energi","Verified cost":"Bekreftet kostnad","Current range":"Strømområde","Measured confirmation":"Målt kl.","Control type":"Styringstype","On/off":"Av/på","Variable current":"Variabel strøm","Unverified":"Ikke verifisert","No charger assigned":"Ingen lader valgt","Target battery %":"Batterimål %","Asset name":"Kjøretøynavn","Asset type":"Kjøretøytype","Temporary guest":"Midlertidig gjest","Guest until":"Gjest til","Expected connection":"Forventet tilkobling","Save charging site":"Lagre ladested","Save sources":"Lagre kilder","Maximum group kW":"Maks. effekt kW","Group power ceiling kW":"Effektgrense kW","Site name":"Stedsnavn","Parallel chargers":"Samtidige ladere","Save electrical limits":"Lagre grenser","Electrical limits":"Elektriske grenser","Battery data":"Batterikilde","Rated power":"Nominell effekt","Phases":"Faser","Active session":"Aktiv økt","Add a chargeable asset":"Legg til kjøretøy","Create asset":"Opprett kjøretøy","Cancel adding":"Avbryt","Remove":"Fjern","Effective charging power":"Effektiv ladeeffekt","Car":"Bil","Bicycle":"Sykkel","Motorcycle":"Motorsykkel","Scooter":"Sparkesykkel","Other":"Annet","No active plan":"Ingen aktiv ladeplan","Confirm connected vehicle":"Bekreft tilkoblet kjøretøy","Connected vehicle":"Tilkoblet kjøretøy","Not confirmed":"Ikke bekreftet"},"sv":{"Overview":"Översikt","Charging Plan":"Laddplan","Chargeable Assets":"Fordon","Chargers":"Laddare","Settings":"Inställningar","Charging plan":"Laddplan","Charging overview":"Laddöversikt","Refresh":"Uppdatera","Today":"I dag","Tomorrow":"I morgon","All chargers":"Alla laddare","Show labels":"Visa etiketter","Color by":"Färg efter","Indicative forecasting":"Prognos","Vehicle":"Fordon","Charger":"Laddare","Vehicle + Charger":"Fordon + laddare","Show (not reserved)":"Visa","Hide":"Dölj","Proposed":"Föreslaget","Accepted":"Godkänt","Measured":"Mätt","Indicative":"Preliminärt","No vehicle selected":"Inget fordon valt","Connected":"Ansluten","Disconnected":"Inte ansluten","Connection unknown":"Anslutning okänd","Vehicle unknown":"Fordon okänt","Unavailable":"Inte tillgänglig","Unknown":"Okänd","Not set":"Inte angiven","Not assigned":"Inte tilldelad","Plan color":"Planfärg","Plan labels":"Planetiketter","Active chargers":"Aktiva laddare","Actual power":"Faktisk effekt","Current price":"Aktuellt pris","Charging strategy":"Laddläge","Charging site":"Laddplats","Sources & bindings":"Källor","Safety & limits":"Säkerhet och gränser","Integrations":"Integrationer","Advanced & JSON":"Avancerat","Readiness":"Redo","Battery":"Batteri","Target":"Mål","Ready By":"Klar senast","Priority":"Prioritet","Duration":"Varaktighet","Requested energy":"Önskad energi","Charging intention":"Laddbehov","Charging priority":"Laddprioritet","Connection":"Anslutning","Selected vehicle":"Valt fordon","Assigned asset":"Tilldelat fordon","Actual current":"Faktisk ström","Power":"Effekt","Source state":"Källstatus","Status":"Status","Start charging":"Starta laddning","Stop charging":"Stoppa laddning","Details":"Detaljer","Hide details":"Dölj detaljer","Edit":"Ändra","Saved":"Sparat","Pending":"Väntar","Rejected":"Avvisat","Next planned session":"Nästa planerade laddning","Next action":"Nästa åtgärd","No active qualified vehicle plan":"Ingen aktiv laddplan","No qualified slots for this day.":"Inga laddtider","No vehicles":"Inga fordon","No charging points":"Inga laddare","Loading":"Läser in","Error":"Fel","No data":"Inga data","No connection":"Inte ansluten","Not ready":"Inte redo","Waiting":"Väntar","Forecast":"Prognos","If connected now":"Om ansluten nu","Expected":"Förväntad","Not reserved":"Inte reserverad","Measured power unavailable":"Inga mätdata","Vehicle plan":"Fordonsplan","Charger plan":"Laddplan","No forecast":"Ingen prognos","No vehicle":"Inget fordon","Tariff":"Pris","Proposed · pale color":"Föreslaget","Accepted · solid color":"Godkänt","Measured · physical source":"Mätt","Indicative · dashed outline":"Preliminärt","Add asset":"Lägg till fordon","Add charger":"Lägg till laddare","Charging mode":"Laddläge","Mode":"Läge","Plan":"Plan","Home Assistant":"Home Assistant","blue":"Blå","orange":"Orange","green":"Grön","purple":"Lila","gold":"Guld","teal":"Blågrön","pink":"Rosa","indigo":"Indigo","olive":"Oliv","brown":"Brun","coral":"Korall","slate":"Skiffer","violet":"Violett","lime":"Lime","salmon":"Lax","cyan":"Cyan","wine":"Vinröd","forest":"Skogsgrön","peach":"Persika","lavender":"Lavendel","turquoise":"Turkos","rust":"Rost","navy":"Marinblå","moss":"Mossgrön","Guest expired":"Gäst utgången","Ready":"Redo","No tariff":"Inget pris","No solar":"Ingen sol","No deadline":"Ingen tidsgräns","No charging goal":"Inget laddmål","Limited power":"Begränsad effekt","No source":"Ingen källa","No capacity":"Ingen kapacitet","Wiring unknown":"Okänd ledning","Guest":"Gäst","Charged":"Laddad","Charging":"Laddar","Stopped":"Stoppad","Confirmed":"Bekräftad","No action":"Ingen åtgärd","Reason":"Orsak","Energy":"Energi","Repeat":"Upprepa","Measured session energy":"Uppmätt sessionsenergi","Last confirmed session":"Senaste session","Measured energy":"Uppmätt energi","Verified cost":"Bekräftad kostnad","Current range":"Strömområde","Measured confirmation":"Mätt kl.","Control type":"Styrningstyp","On/off":"På/av","Variable current":"Variabel ström","Unverified":"Inte verifierad","No charger assigned":"Ingen laddare vald","Target battery %":"Batterimål %","Asset name":"Fordonsnamn","Asset type":"Fordonstyp","Temporary guest":"Tillfällig gäst","Guest until":"Gäst till","Expected connection":"Förväntad anslutning","Save charging site":"Spara laddplats","Save sources":"Spara källor","Maximum group kW":"Max. effekt kW","Group power ceiling kW":"Effektgräns kW","Site name":"Platsnamn","Parallel chargers":"Samtidiga laddare","Save electrical limits":"Spara gränser","Electrical limits":"Elektriska gränser","Battery data":"Batterikälla","Rated power":"Nominell effekt","Phases":"Faser","Active session":"Aktiv session","Add a chargeable asset":"Lägg till fordon","Create asset":"Skapa fordon","Cancel adding":"Avbryt","Remove":"Ta bort","Effective charging power":"Effektiv laddeffekt","Car":"Bil","Bicycle":"Cykel","Motorcycle":"Motorcykel","Scooter":"Elsparkcykel","Other":"Annat","No active plan":"Ingen aktiv laddplan","Confirm connected vehicle":"Bekräfta anslutet fordon","Connected vehicle":"Anslutet fordon","Not confirmed":"Inte bekräftat"},"de":{"Overview":"Übersicht","Charging Plan":"Ladeplan","Chargeable Assets":"Lade-Assets","Chargers":"Ladepunkte","Settings":"Einstellungen","Charging plan":"Ladeplan","Charging overview":"Ladeübersicht","Refresh":"Aktualisieren","Today":"Heute","Tomorrow":"Morgen","All chargers":"Alle Ladepunkte","Show labels":"Beschriftung","Color by":"Farbe nach","Indicative forecasting":"Prognose","Vehicle":"Asset","Charger":"Ladepunkt","Vehicle + Charger":"Asset + Ladepunkt","Show (not reserved)":"Anzeigen","Hide":"Ausblenden","Proposed":"Vorgeschlagen","Accepted":"Angenommen","Measured":"Gemessen","Indicative":"Unverbindlich","No vehicle selected":"Kein Asset gewählt","Connected":"Verbunden","Disconnected":"Nicht verbunden","Connection unknown":"Verbindung unbekannt","Vehicle unknown":"Asset unbekannt","Unavailable":"Nicht verfügbar","Unknown":"Unbekannt","Not set":"Nicht festgelegt","Not assigned":"Nicht zugewiesen","Plan color":"Planfarbe","Plan labels":"Planbeschriftung","Active chargers":"Aktive Ladepunkte","Actual power":"Ist-Leistung","Current price":"Aktueller Preis","Charging strategy":"Lademodus","Charging site":"Ladestandort","Solar production":"Solarproduktion","Home consumption":"Hausverbrauch","Grid power":"Netzleistung","Solar surplus":"Solarüberschuss","Future tariff intervals":"Zukünftige Preisintervalle","Current import price":"Aktueller Bezugspreis","Current export price":"Aktueller Einspeisepreis","Solar intervals":"Solarintervalle","Available surplus":"Verfügbarer Überschuss","Solar source":"Solarquelle","Grid direction":"Netzrichtung","Sources & bindings":"Quellen und Zuordnung","Safety & limits":"Sicherheit und Grenzen","Integrations":"Integrationen","Advanced & JSON":"Erweitert","Readiness":"Bereitschaft","Battery":"Batterie","Target":"Ziel","Ready By":"Bereit bis","Priority":"Priorität","Duration":"Dauer","Requested energy":"Energiebedarf","Charging intention":"Ladebedarf","Charging priority":"Ladepriorität","Connection":"Verbindung","Selected vehicle":"Ausgewähltes Asset","Assigned asset":"Zugeordnetes Asset","Actual current":"Ist-Strom","Power":"Leistung","Source state":"Quellenstatus","Status":"Status","Start charging":"Laden starten","Stop charging":"Laden stoppen","Details":"Details","Hide details":"Details schließen","Edit":"Bearbeiten","Saved":"Gespeichert","Pending":"Ausstehend","Rejected":"Abgelehnt","Next planned session":"Nächste Ladesitzung","Next action":"Nächste Aktion","No active qualified vehicle plan":"Kein aktiver Ladeplan","No qualified slots for this day.":"Keine Ladezeiten","No vehicles":"Keine Assets","No charging points":"Keine Ladepunkte","Loading":"Lädt","Error":"Fehler","No data":"Keine Daten","No connection":"Nicht verbunden","Not ready":"Nicht bereit","Waiting":"Warten","Forecast":"Prognose","If connected now":"Falls jetzt verbunden","Expected":"Erwartet","Not reserved":"Nicht reserviert","Measured power unavailable":"Keine Messdaten","Vehicle plan":"Assetplan","Charger plan":"Ladepunktplan","No forecast":"Keine Prognose","No vehicle":"Kein Asset","Tariff":"Tarif","Proposed · pale color":"Vorgeschlagen","Accepted · solid color":"Angenommen","Measured · physical source":"Gemessen","Indicative · dashed outline":"Unverbindlich","Add asset":"Asset hinzufügen","Add charger":"Ladepunkt hinzufügen","Charging mode":"Lademodus","Mode":"Modus","Plan":"Plan","Home Assistant":"Home Assistant","Guest expired":"Gast abgelaufen","Ready":"Bereit","No tariff":"Kein Tarif","No solar":"Kein Solar","No deadline":"Keine Frist","No charging goal":"Kein Ladeziel","Limited power":"Begrenzte Leistung","No source":"Keine Quelle","No capacity":"Keine Kapazität","Wiring unknown":"Verdrahtung unbekannt","Guest":"Gast","Charged":"Geladen","Charging":"Lädt","Stopped":"Gestoppt","Confirmed":"Bestätigt","No action":"Keine Aktion","Reason":"Grund","Energy":"Energie","Repeat":"Wiederholen","Measured session energy":"Gemessene Sitzungsenergie","Last confirmed session":"Letzte bestätigte Sitzung","Measured energy":"Gemessene Energie","Verified cost":"Verifizierte Kosten","Current range":"Strombereich","Measured confirmation":"Messzeit","Control type":"Steuerungstyp","On/off":"Ein/Aus","Variable current":"Variabler Strom","Unverified":"Nicht verifiziert","No charger assigned":"Kein Ladepunkt zugewiesen","Target battery %":"Batterieziel %","Asset name":"Assetname","Asset type":"Assettyp","Temporary guest":"Temporärer Gast","Guest until":"Gast bis","Expected connection":"Erwartete Verbindung","Save charging site":"Ladestandort speichern","Save sources":"Quellen speichern","Maximum group kW":"Maximale Gruppenleistung kW","Group power ceiling kW":"Gruppenleistungsgrenze kW","Site name":"Standortname","Parallel chargers":"Gleichzeitige Ladepunkte","Save electrical limits":"Elektrische Grenzen speichern","Electrical limits":"Elektrische Grenzen","Battery data":"Batteriedaten","Rated power":"Nennleistung","Phases":"Phasen","Active session":"Aktive Sitzung","Add a chargeable asset":"Lade-Asset hinzufügen","Create asset":"Asset erstellen","Cancel adding":"Abbrechen","Remove":"Entfernen","blue":"Blau","orange":"Orange","green":"Grün","purple":"Lila","gold":"Gold","teal":"Blaugrün","pink":"Rosa","indigo":"Indigo","olive":"Oliv","brown":"Braun","coral":"Koralle","slate":"Schiefer","violet":"Violett","lime":"Limette","salmon":"Lachs","cyan":"Cyan","wine":"Weinrot","forest":"Waldgrün","peach":"Pfirsich","lavender":"Lavendel","turquoise":"Türkis","rust":"Rost","navy":"Marineblau","moss":"Moosgrün","Effective charging power":"Effektive Ladeleistung","Car":"Auto","Bicycle":"Fahrrad","Motorcycle":"Motorrad","Scooter":"Roller","Other":"Sonstiges","No active plan":"Kein aktiver Ladeplan","Confirm connected vehicle":"Angeschlossenes Fahrzeug bestätigen","Connected vehicle":"Angeschlossenes Fahrzeug","Not confirmed":"Nicht bestätigt"},"es":{"Overview":"Resumen","Charging Plan":"Plan de carga","Chargeable Assets":"Activos de carga","Chargers":"Puntos de carga","Settings":"Ajustes","Charging plan":"Plan de carga","Charging overview":"Resumen de carga","Refresh":"Actualizar","Today":"Hoy","Tomorrow":"Mañana","All chargers":"Todos los puntos","Show labels":"Mostrar etiquetas","Color by":"Color por","Indicative forecasting":"Previsión","Vehicle":"Activo","Charger":"Punto de carga","Vehicle + Charger":"Activo + punto","Show (not reserved)":"Mostrar","Hide":"Ocultar","Proposed":"Propuesto","Accepted":"Aceptado","Measured":"Medido","Indicative":"Indicativo","No vehicle selected":"Ningún activo seleccionado","Connected":"Conectado","Disconnected":"Desconectado","Connection unknown":"Conexión desconocida","Vehicle unknown":"Activo desconocido","Unavailable":"No disponible","Unknown":"Desconocido","Not set":"Sin definir","Not assigned":"Sin asignar","Plan color":"Color del plan","Plan labels":"Etiquetas del plan","Active chargers":"Puntos activos","Actual power":"Potencia real","Current price":"Precio actual","Charging strategy":"Modo de carga","Charging site":"Instalación de carga","Sources & bindings":"Fuentes y asignación","Safety & limits":"Seguridad y límites","Integrations":"Integraciones","Advanced & JSON":"Avanzado","Readiness":"Preparación","Battery":"Batería","Target":"Objetivo","Ready By":"Listo para","Priority":"Prioridad","Duration":"Duración","Requested energy":"Energía solicitada","Charging intention":"Necesidad de carga","Charging priority":"Prioridad de carga","Connection":"Conexión","Selected vehicle":"Activo seleccionado","Assigned asset":"Activo asignado","Actual current":"Corriente real","Power":"Potencia","Source state":"Estado de fuente","Status":"Estado","Start charging":"Iniciar carga","Stop charging":"Detener carga","Details":"Detalles","Hide details":"Cerrar detalles","Edit":"Editar","Saved":"Guardado","Pending":"Pendiente","Rejected":"Rechazado","Next planned session":"Próxima carga","Next action":"Siguiente acción","No active qualified vehicle plan":"Sin plan activo","No qualified slots for this day.":"Sin franjas de carga","No vehicles":"Sin activos","No charging points":"Sin puntos de carga","Loading":"Cargando","Error":"Error","No data":"Sin datos","No connection":"Sin conexión","Not ready":"No preparado","Waiting":"Esperando","Forecast":"Previsión","If connected now":"Si se conecta ahora","Expected":"Previsto","Not reserved":"No reservado","Measured power unavailable":"Sin datos medidos","Vehicle plan":"Plan por activo","Charger plan":"Plan por punto","No forecast":"Sin previsión","No vehicle":"Sin activo","Tariff":"Tarifa","Proposed · pale color":"Propuesto","Accepted · solid color":"Aceptado","Measured · physical source":"Medido","Indicative · dashed outline":"Indicativo","Add asset":"Añadir activo","Add charger":"Añadir punto","Charging mode":"Modo de carga","Mode":"Modo","Plan":"Plan","Home Assistant":"Home Assistant","Guest expired":"Invitado caducado","Ready":"Listo","No tariff":"Sin tarifa","No solar":"Sin energía solar","No deadline":"Sin plazo","No charging goal":"Sin objetivo","Limited power":"Potencia limitada","No source":"Sin fuente","No capacity":"Sin capacidad","Wiring unknown":"Cableado desconocido","Guest":"Invitado","Charged":"Cargado","Charging":"Cargando","Stopped":"Detenido","Confirmed":"Confirmado","No action":"Sin acción","Reason":"Motivo","Energy":"Energía","Repeat":"Repetir","Measured session energy":"Energía medida de sesión","Last confirmed session":"Última sesión confirmada","Measured energy":"Energía medida","Verified cost":"Coste verificado","Current range":"Rango de corriente","Measured confirmation":"Confirmación medida","Control type":"Tipo de control","On/off":"Encendido/apagado","Variable current":"Corriente variable","Unverified":"No verificado","No charger assigned":"Sin punto asignado","Target battery %":"Batería objetivo %","Asset name":"Nombre del activo","Asset type":"Tipo de activo","Temporary guest":"Invitado temporal","Guest until":"Invitado hasta","Expected connection":"Conexión prevista","Save charging site":"Guardar instalación","Save sources":"Guardar fuentes","Maximum group kW":"Potencia máxima del grupo kW","Group power ceiling kW":"Límite del grupo kW","Site name":"Nombre del lugar","Parallel chargers":"Puntos simultáneos","Save electrical limits":"Guardar límites","Electrical limits":"Límites eléctricos","Battery data":"Datos de batería","Rated power":"Potencia nominal","Phases":"Fases","Active session":"Sesión activa","Add a chargeable asset":"Añadir activo de carga","Create asset":"Crear activo","Cancel adding":"Cancelar","Remove":"Eliminar","blue":"Azul","orange":"Naranja","green":"Verde","purple":"Morado","gold":"Dorado","teal":"Verde azulado","pink":"Rosa","indigo":"Índigo","olive":"Oliva","brown":"Marrón","coral":"Coral","slate":"Pizarra","violet":"Violeta","lime":"Lima","salmon":"Salmón","cyan":"Cian","wine":"Granate","forest":"Verde bosque","peach":"Melocotón","lavender":"Lavanda","turquoise":"Turquesa","rust":"Óxido","navy":"Azul marino","moss":"Verde musgo","Effective charging power":"Potencia efectiva de carga","Car":"Coche","Bicycle":"Bicicleta","Motorcycle":"Motocicleta","Scooter":"Patinete","Other":"Otro","No active plan":"Sin plan activo","Confirm connected vehicle":"Confirmar vehículo conectado","Connected vehicle":"Vehículo conectado","Not confirmed":"Sin confirmar"}};
+const MC_TEXT={"nl":{"Overview":"Overzicht","Charging Plan":"Laadplan","Chargeable Assets":"Voertuigen","Chargers":"Laadpalen","Settings":"Instellingen","Charging plan":"Laadplan","Charging overview":"Laadoverzicht","Refresh":"Vernieuwen","Today":"Vandaag","Tomorrow":"Morgen","All chargers":"Alle laadpalen","Show labels":"Toon","Color by":"Kleur per","Indicative forecasting":"Prognose","Vehicle":"Voertuig","Charger":"Laadpaal","Vehicle + Charger":"Voertuig + laadpaal","Show (not reserved)":"Tonen","Hide":"Verbergen","Proposed":"Voorgesteld","Accepted":"Bevestigd","Measured":"Gemeten","Indicative":"Indicatief","No vehicle selected":"Geen voertuig","Connected":"Aangesloten","Disconnected":"Niet aangesloten","Connection unknown":"Aansluiting onbekend","Vehicle unknown":"Voertuig onbekend","Unavailable":"Niet beschikbaar","Unknown":"Onbekend","Not set":"Niet ingesteld","Not assigned":"Niet toegewezen","Plan color":"Plankleur","Plan labels":"Planlabels","Active chargers":"Actieve laadpalen","Actual power":"Werkelijk vermogen","Current price":"Huidig tarief","Charging strategy":"Laadmodus","Charging site":"Laadlocatie","Solar production":"Zonneproductie","Home consumption":"Woningverbruik","Grid power":"Netvermogen","Solar surplus":"Zonne-overschot","Future tariff intervals":"Toekomstige tariefintervallen","Current import price":"Huidig aankoopttarief","Current export price":"Huidige injectievergoeding","Solar intervals":"Zonintervallen","Available surplus":"Beschikbaar overschot","Solar source":"Zonnebron","Grid direction":"Netrichting","Sources & bindings":"Bronnen","Safety & limits":"Veiligheid en limieten","Integrations":"Integraties","Readiness":"Gereedheid","Battery":"Batterij","Target":"Doel","Ready By":"Klaar om","Priority":"Prioriteit","Duration":"Duur","Requested energy":"Gevraagde energie","Charging intention":"Laadbehoefte","Charging priority":"Prioriteit","Connection":"Aansluiting","Selected vehicle":"Gekozen voertuig","Assigned asset":"Gekozen voertuig","Actual current":"Gemeten stroom","Power":"Vermogen","Source state":"Bronstatus","Status":"Status","Start charging":"Start laden","Stop charging":"Stop laden","Details":"Details","Hide details":"Sluiten","Edit":"Wijzigen","Saved":"Opgeslagen","Pending":"In behandeling","Rejected":"Geweigerd","Next planned session":"Volgende laadsessie","Next action":"Volgende stap","No active qualified vehicle plan":"Geen actieve planning","No qualified slots for this day.":"Geen laadmomenten","No vehicles":"Geen voertuigen","No charging points":"Geen laadpalen","Loading":"Laden","Error":"Fout","No data":"Geen gegevens","No connection":"Niet aangesloten","Not ready":"Niet gereed","Waiting":"Wachten","Forecast":"Prognose","If connected now":"Bij nu aansluiten","Expected":"Verwacht","Not reserved":"Niet gereserveerd","Measured power unavailable":"Geen meetgegevens","Vehicle plan":"Voertuigplan","Charger plan":"Laadpaalplan","No forecast":"Geen prognose","No vehicle":"Geen voertuig","Tariff":"Tarief","Proposed · pale color":"Voorgesteld","Accepted · solid color":"Geaccepteerd","Measured · physical source":"Gemeten","Indicative · dashed outline":"Indicatief","Add asset":"Voertuig toevoegen","Add charger":"Laadpaal toevoegen","Charging mode":"Laadmodus","Mode":"Modus","Plan":"Plan","Home Assistant":"Home Assistant","blue":"Blauw","orange":"Oranje","green":"Groen","purple":"Paars","gold":"Goud","teal":"Blauwgroen","pink":"Roze","indigo":"Indigo","olive":"Olijfgroen","brown":"Bruin","coral":"Koraal","slate":"Leigrijs","violet":"Violet","lime":"Limoen","salmon":"Zalm","cyan":"Cyaan","wine":"Wijnrood","forest":"Bosgroen","peach":"Perzik","lavender":"Lavendel","turquoise":"Turkoois","rust":"Roest","navy":"Marineblauw","moss":"Mosgroen","Guest expired":"Gast verlopen","Ready":"Gereed","No tariff":"Geen tarief","No solar":"Geen zon","No deadline":"Geen eindtijd","No charging goal":"Geen laaddoel","Limited power":"Beperkt vermogen","No source":"Geen bron","No capacity":"Geen capaciteit","Wiring unknown":"Aansluiting onbekend","Guest":"Gast","Charged":"Geladen","Charging":"Laden","Stopped":"Gestopt","Confirmed":"Bevestigd","No action":"Geen actie","Reason":"Reden","Energy":"Energie","Repeat":"Herhalen","Measured session energy":"Sessie-energie","Last confirmed session":"Laatste sessie","Measured energy":"Gemeten energie","Verified cost":"Kosten","Current range":"Stroomsterkte","Measured confirmation":"Gemeten om","Control type":"Sturing","On/off":"Aan/uit","Variable current":"Variabele stroom","Unverified":"Onbekend","No charger assigned":"Geen laadpaal","Target battery %":"Doelbatterij %","Asset name":"Voertuignaam","Asset type":"Soort","Temporary guest":"Tijdelijke gast","Guest until":"Gast tot","Expected connection":"Verwachte aansluiting","Save charging site":"Laadlocatie opslaan","Save sources":"Bronnen opslaan","Maximum group kW":"Max. vermogen kW","Group power ceiling kW":"Max. vermogen kW","Site name":"Locatienaam","Parallel chargers":"Gelijktijdige laders","Save electrical limits":"Limieten opslaan","Electrical limits":"Limieten","Battery data":"Batterijbron","Rated power":"Nominaal vermogen","Phases":"Fasen","Active session":"Actieve sessie","Add a chargeable asset":"Voertuig toevoegen","Create asset":"Toevoegen","Cancel adding":"Annuleren","Remove":"Verwijderen","Effective charging power":"Effectief laadvermogen","Car":"Auto","Bicycle":"Fiets","Motorcycle":"Motorfiets","Scooter":"Scooter","Other":"Overig","No active plan":"Geen actieve planning","Confirm connected vehicle":"Bevestig aangesloten voertuig","Connected vehicle":"Aangesloten voertuig","Not confirmed":"Niet bevestigd"},"fr":{"Overview":"Vue d’ensemble","Charging Plan":"Plan de charge","Chargeable Assets":"Véhicules","Chargers":"Bornes","Settings":"Réglages","Charging plan":"Plan de charge","Charging overview":"Vue des charges","Refresh":"Actualiser","Today":"Aujourd’hui","Tomorrow":"Demain","All chargers":"Toutes les bornes","Show labels":"Afficher","Color by":"Couleur par","Indicative forecasting":"Prévision","Vehicle":"Véhicule","Charger":"Borne","Vehicle + Charger":"Véhicule + borne","Show (not reserved)":"Afficher","Hide":"Masquer","Proposed":"Proposé","Accepted":"Confirmé","Measured":"Mesuré","Indicative":"Indicatif","No vehicle selected":"Aucun véhicule","Connected":"Connecté","Disconnected":"Déconnecté","Connection unknown":"Connexion inconnue","Vehicle unknown":"Véhicule inconnu","Unavailable":"Indisponible","Unknown":"Inconnu","Not set":"Non défini","Not assigned":"Non attribué","Plan color":"Couleur du plan","Plan labels":"Libellés du plan","Active chargers":"Bornes actives","Actual power":"Puissance réelle","Current price":"Tarif actuel","Charging strategy":"Mode de charge","Charging site":"Site de recharge","Solar production":"Production solaire","Home consumption":"Consommation du logement","Grid power":"Puissance du réseau","Solar surplus":"Surplus solaire","Future tariff intervals":"Intervalles futurs de prix","Current import price":"Prix d'achat actuel","Current export price":"Prix de vente actuel","Solar intervals":"Intervalles solaires","Available surplus":"Surplus disponible","Solar source":"Source solaire","Grid direction":"Sens du réseau","Sources & bindings":"Sources","Safety & limits":"Sécurité et limites","Integrations":"Intégrations","Readiness":"Disponibilité","Battery":"Batterie","Target":"Cible","Ready By":"Prêt pour","Priority":"Priorité","Duration":"Durée","Requested energy":"Énergie demandée","Charging intention":"Besoin de charge","Charging priority":"Priorité","Connection":"Connexion","Selected vehicle":"Véhicule choisi","Assigned asset":"Véhicule choisi","Actual current":"Courant réel","Power":"Puissance","Source state":"État de la source","Status":"État","Start charging":"Démarrer","Stop charging":"Arrêter","Details":"Détails","Hide details":"Fermer","Edit":"Modifier","Saved":"Enregistré","Pending":"En attente","Rejected":"Refusé","Next planned session":"Prochaine charge","Next action":"Prochaine étape","No active qualified vehicle plan":"Aucune charge prévue","No qualified slots for this day.":"Aucun créneau","No vehicles":"Aucun véhicule","No charging points":"Aucune borne","Loading":"Chargement","Error":"Erreur","No data":"Aucune donnée","No connection":"Déconnecté","Not ready":"Non prêt","Waiting":"En attente","Forecast":"Prévision","If connected now":"Si connecté maintenant","Expected":"Prévu","Not reserved":"Non réservé","Measured power unavailable":"Mesure indisponible","Vehicle plan":"Plan véhicule","Charger plan":"Plan borne","No forecast":"Aucune prévision","No vehicle":"Aucun véhicule","Tariff":"Tarif","Proposed · pale color":"Proposé","Accepted · solid color":"Accepté","Measured · physical source":"Mesuré","Indicative · dashed outline":"Indicatif","Add asset":"Ajouter un véhicule","Add charger":"Ajouter borne","Charging mode":"Mode de charge","Mode":"Mode","Plan":"Plan","Home Assistant":"Home Assistant","blue":"Bleu","orange":"Orange","green":"Vert","purple":"Violet","gold":"Or","teal":"Sarcelle","pink":"Rose","indigo":"Indigo","olive":"Olive","brown":"Marron","coral":"Corail","slate":"Ardoise","violet":"Mauve","lime":"Citron vert","salmon":"Saumon","cyan":"Cyan","wine":"Bordeaux","forest":"Vert forêt","peach":"Pêche","lavender":"Lavande","turquoise":"Turquoise","rust":"Rouille","navy":"Bleu marine","moss":"Vert mousse","Guest expired":"Invité expiré","Ready":"Prêt","No tariff":"Aucun tarif","No solar":"Pas de solaire","No deadline":"Pas d’échéance","No charging goal":"Aucune cible","Limited power":"Puissance limitée","No source":"Aucune source","No capacity":"Pas de capacité","Wiring unknown":"Câblage inconnu","Guest":"Invité","Charged":"Chargé","Charging":"Recharge","Stopped":"Arrêté","Confirmed":"Confirmé","No action":"Aucune action","Reason":"Motif","Energy":"Énergie","Repeat":"Répéter","Measured session energy":"Énergie de session","Last confirmed session":"Dernière session","Measured energy":"Énergie mesurée","Verified cost":"Coût","Current range":"Plage de courant","Measured confirmation":"Mesuré à","Control type":"Commande","On/off":"Marche/arrêt","Variable current":"Courant variable","Unverified":"Inconnu","No charger assigned":"Aucune borne","Target battery %":"Batterie cible %","Asset name":"Nom du véhicule","Asset type":"Type","Temporary guest":"Invité temporaire","Guest until":"Invité jusqu’à","Expected connection":"Connexion prévue","Save charging site":"Enregistrer le site","Save sources":"Enregistrer les sources","Maximum group kW":"Puissance max. kW","Group power ceiling kW":"Puissance max. kW","Site name":"Nom du site","Parallel chargers":"Bornes simultanées","Save electrical limits":"Enregistrer les limites","Electrical limits":"Limites","Battery data":"Source batterie","Rated power":"Puissance nominale","Phases":"Phases","Active session":"Session active","Add a chargeable asset":"Ajouter un véhicule","Create asset":"Ajouter","Cancel adding":"Annuler","Remove":"Supprimer","Effective charging power":"Puissance de charge effective","Car":"Voiture","Bicycle":"Vélo","Motorcycle":"Moto","Scooter":"Trottinette","Other":"Autre","No active plan":"Aucune charge planifiée","Confirm connected vehicle":"Confirmer le véhicule branché","Connected vehicle":"Véhicule branché","Not confirmed":"Non confirmé"},"da":{"Overview":"Overblik","Charging Plan":"Ladeplan","Chargeable Assets":"Køretøjer","Chargers":"Ladere","Settings":"Indstillinger","Charging plan":"Ladeplan","Charging overview":"Ladeoversigt","Refresh":"Opdater","Today":"I dag","Tomorrow":"I morgen","All chargers":"Alle ladere","Show labels":"Vis etiketter","Color by":"Farve efter","Indicative forecasting":"Prognose","Vehicle":"Køretøj","Charger":"Lader","Vehicle + Charger":"Køretøj + lader","Show (not reserved)":"Vis","Hide":"Skjul","Proposed":"Foreslået","Accepted":"Accepteret","Measured":"Målt","Indicative":"Vejledende","No vehicle selected":"Intet køretøj valgt","Connected":"Tilsluttet","Disconnected":"Ikke tilsluttet","Connection unknown":"Tilslutning ukendt","Vehicle unknown":"Køretøj ukendt","Unavailable":"Ikke tilgængelig","Unknown":"Ukendt","Not set":"Ikke angivet","Not assigned":"Ikke tildelt","Plan color":"Planfarve","Plan labels":"Planetiketter","Active chargers":"Aktive ladere","Actual power":"Aktuel effekt","Current price":"Aktuel pris","Charging strategy":"Ladetilstand","Charging site":"Ladested","Sources & bindings":"Kilder","Safety & limits":"Sikkerhed og grænser","Integrations":"Integrationer","Readiness":"Klar","Battery":"Batteri","Target":"Mål","Ready By":"Klar kl.","Priority":"Prioritet","Duration":"Varighed","Requested energy":"Ønsket energi","Charging intention":"Ladebehov","Charging priority":"Ladeprioritet","Connection":"Tilslutning","Selected vehicle":"Valgt køretøj","Assigned asset":"Tildelt køretøj","Actual current":"Aktuel strøm","Power":"Effekt","Source state":"Kildestatus","Status":"Status","Start charging":"Start opladning","Stop charging":"Stop opladning","Details":"Detaljer","Hide details":"Skjul detaljer","Edit":"Rediger","Saved":"Gemt","Pending":"Afventer","Rejected":"Afvist","Next planned session":"Næste planlagte opladning","Next action":"Næste handling","No active qualified vehicle plan":"Ingen aktiv ladeplan","No qualified slots for this day.":"Ingen ladetider","No vehicles":"Ingen køretøjer","No charging points":"Ingen ladere","Loading":"Indlæser","Error":"Fejl","No data":"Ingen data","No connection":"Ikke tilsluttet","Not ready":"Ikke klar","Waiting":"Venter","Forecast":"Prognose","If connected now":"Hvis tilsluttet nu","Expected":"Forventet","Not reserved":"Ikke reserveret","Measured power unavailable":"Ingen måledata","Vehicle plan":"Køretøjsplan","Charger plan":"Ladeplan","No forecast":"Ingen prognose","No vehicle":"Intet køretøj","Tariff":"Tarif","Proposed · pale color":"Foreslået","Accepted · solid color":"Accepteret","Measured · physical source":"Målt","Indicative · dashed outline":"Vejledende","Add asset":"Tilføj køretøj","Add charger":"Tilføj lader","Charging mode":"Ladetilstand","Mode":"Tilstand","Plan":"Plan","Home Assistant":"Home Assistant","blue":"Blå","orange":"Orange","green":"Grøn","purple":"Lilla","gold":"Guld","teal":"Blågrøn","pink":"Pink","indigo":"Indigo","olive":"Oliven","brown":"Brun","coral":"Koral","slate":"Skifer","violet":"Violet","lime":"Lime","salmon":"Laks","cyan":"Cyan","wine":"Vinrød","forest":"Skovgrøn","peach":"Fersken","lavender":"Lavendel","turquoise":"Turkis","rust":"Rust","navy":"Marineblå","moss":"Mosgrøn","Guest expired":"Gæst udløbet","Ready":"Klar","No tariff":"Ingen tarif","No solar":"Ingen sol","No deadline":"Ingen frist","No charging goal":"Intet lademål","Limited power":"Begrænset effekt","No source":"Ingen kilde","No capacity":"Ingen kapacitet","Wiring unknown":"Ukendt ledningsføring","Guest":"Gæst","Charged":"Opladet","Charging":"Oplader","Stopped":"Stoppet","Confirmed":"Bekræftet","No action":"Ingen handling","Reason":"Årsag","Energy":"Energi","Repeat":"Gentag","Measured session energy":"Målt sessionsenergi","Last confirmed session":"Sidste session","Measured energy":"Målt energi","Verified cost":"Bekræftet pris","Current range":"Strømområde","Measured confirmation":"Målt kl.","Control type":"Styringstype","On/off":"Til/fra","Variable current":"Variabel strøm","Unverified":"Ikke verificeret","No charger assigned":"Ingen lader valgt","Target battery %":"Målbatteri %","Asset name":"Køretøjsnavn","Asset type":"Køretøjstype","Temporary guest":"Midlertidig gæst","Guest until":"Gæst indtil","Expected connection":"Forventet tilslutning","Save charging site":"Gem ladested","Save sources":"Gem kilder","Maximum group kW":"Maks. effekt kW","Group power ceiling kW":"Effektgrænse kW","Site name":"Stedsnavn","Parallel chargers":"Samtidige ladere","Save electrical limits":"Gem elektriske grænser","Electrical limits":"Elektriske grænser","Battery data":"Batterikilde","Rated power":"Nominel effekt","Phases":"Faser","Active session":"Aktiv session","Add a chargeable asset":"Tilføj køretøj","Create asset":"Opret køretøj","Cancel adding":"Annuller","Remove":"Fjern","Effective charging power":"Effektiv ladeeffekt","Car":"Bil","Bicycle":"Cykel","Motorcycle":"Motorcykel","Scooter":"Scooter","Other":"Andet","No active plan":"Ingen aktiv ladeplan","Confirm connected vehicle":"Bekræft tilsluttet køretøj","Connected vehicle":"Tilsluttet køretøj","Not confirmed":"Ikke bekræftet"},"nb":{"Overview":"Oversikt","Charging Plan":"Ladeplan","Chargeable Assets":"Kjøretøy","Chargers":"Ladere","Settings":"Innstillinger","Charging plan":"Ladeplan","Charging overview":"Ladeoversikt","Refresh":"Oppdater","Today":"I dag","Tomorrow":"I morgen","All chargers":"Alle ladere","Show labels":"Vis etiketter","Color by":"Farge etter","Indicative forecasting":"Prognose","Vehicle":"Kjøretøy","Charger":"Lader","Vehicle + Charger":"Kjøretøy + lader","Show (not reserved)":"Vis","Hide":"Skjul","Proposed":"Foreslått","Accepted":"Godkjent","Measured":"Målt","Indicative":"Veiledende","No vehicle selected":"Ingen kjøretøy valgt","Connected":"Tilkoblet","Disconnected":"Ikke tilkoblet","Connection unknown":"Tilkobling ukjent","Vehicle unknown":"Kjøretøy ukjent","Unavailable":"Ikke tilgjengelig","Unknown":"Ukjent","Not set":"Ikke angitt","Not assigned":"Ikke tilordnet","Plan color":"Planfarge","Plan labels":"Planetiketter","Active chargers":"Aktive ladere","Actual power":"Faktisk effekt","Current price":"Gjeldende pris","Charging strategy":"Lademodus","Charging site":"Ladested","Sources & bindings":"Kilder","Safety & limits":"Sikkerhet og grenser","Integrations":"Integrasjoner","Readiness":"Klar","Battery":"Batteri","Target":"Mål","Ready By":"Klar innen","Priority":"Prioritet","Duration":"Varighet","Requested energy":"Ønsket energi","Charging intention":"Ladebehov","Charging priority":"Ladeprioritet","Connection":"Tilkobling","Selected vehicle":"Valgt kjøretøy","Assigned asset":"Tilordnet kjøretøy","Actual current":"Faktisk strøm","Power":"Effekt","Source state":"Kildestatus","Status":"Status","Start charging":"Start lading","Stop charging":"Stopp lading","Details":"Detaljer","Hide details":"Skjul detaljer","Edit":"Rediger","Saved":"Lagret","Pending":"Venter","Rejected":"Avvist","Next planned session":"Neste planlagte lading","Next action":"Neste handling","No active qualified vehicle plan":"Ingen aktiv ladeplan","No qualified slots for this day.":"Ingen ladetider","No vehicles":"Ingen kjøretøy","No charging points":"Ingen ladere","Loading":"Laster","Error":"Feil","No data":"Ingen data","No connection":"Ikke tilkoblet","Not ready":"Ikke klar","Waiting":"Venter","Forecast":"Prognose","If connected now":"Hvis tilkoblet nå","Expected":"Forventet","Not reserved":"Ikke reservert","Measured power unavailable":"Ingen måledata","Vehicle plan":"Kjøretøyplan","Charger plan":"Ladeplan","No forecast":"Ingen prognose","No vehicle":"Ingen kjøretøy","Tariff":"Pris","Proposed · pale color":"Foreslått","Accepted · solid color":"Godkjent","Measured · physical source":"Målt","Indicative · dashed outline":"Veiledende","Add asset":"Legg til kjøretøy","Add charger":"Legg til lader","Charging mode":"Lademodus","Mode":"Modus","Plan":"Plan","Home Assistant":"Home Assistant","blue":"Blå","orange":"Oransje","green":"Grønn","purple":"Lilla","gold":"Gull","teal":"Blågrønn","pink":"Rosa","indigo":"Indigo","olive":"Oliven","brown":"Brun","coral":"Korall","slate":"Skifer","violet":"Fiolett","lime":"Lime","salmon":"Laks","cyan":"Cyan","wine":"Vinrød","forest":"Skoggrønn","peach":"Fersken","lavender":"Lavendel","turquoise":"Turkis","rust":"Rust","navy":"Marineblå","moss":"Mosegrønn","Guest expired":"Gjest utløpt","Ready":"Klar","No tariff":"Ingen pris","No solar":"Ingen sol","No deadline":"Ingen frist","No charging goal":"Ingen lademål","Limited power":"Begrenset effekt","No source":"Ingen kilde","No capacity":"Ingen kapasitet","Wiring unknown":"Ukjent kabling","Guest":"Gjest","Charged":"Ladet","Charging":"Lader","Stopped":"Stoppet","Confirmed":"Bekreftet","No action":"Ingen handling","Reason":"Årsak","Energy":"Energi","Repeat":"Gjenta","Measured session energy":"Målt øktenergi","Last confirmed session":"Siste økt","Measured energy":"Målt energi","Verified cost":"Bekreftet kostnad","Current range":"Strømområde","Measured confirmation":"Målt kl.","Control type":"Styringstype","On/off":"Av/på","Variable current":"Variabel strøm","Unverified":"Ikke verifisert","No charger assigned":"Ingen lader valgt","Target battery %":"Batterimål %","Asset name":"Kjøretøynavn","Asset type":"Kjøretøytype","Temporary guest":"Midlertidig gjest","Guest until":"Gjest til","Expected connection":"Forventet tilkobling","Save charging site":"Lagre ladested","Save sources":"Lagre kilder","Maximum group kW":"Maks. effekt kW","Group power ceiling kW":"Effektgrense kW","Site name":"Stedsnavn","Parallel chargers":"Samtidige ladere","Save electrical limits":"Lagre grenser","Electrical limits":"Elektriske grenser","Battery data":"Batterikilde","Rated power":"Nominell effekt","Phases":"Faser","Active session":"Aktiv økt","Add a chargeable asset":"Legg til kjøretøy","Create asset":"Opprett kjøretøy","Cancel adding":"Avbryt","Remove":"Fjern","Effective charging power":"Effektiv ladeeffekt","Car":"Bil","Bicycle":"Sykkel","Motorcycle":"Motorsykkel","Scooter":"Sparkesykkel","Other":"Annet","No active plan":"Ingen aktiv ladeplan","Confirm connected vehicle":"Bekreft tilkoblet kjøretøy","Connected vehicle":"Tilkoblet kjøretøy","Not confirmed":"Ikke bekreftet"},"sv":{"Overview":"Översikt","Charging Plan":"Laddplan","Chargeable Assets":"Fordon","Chargers":"Laddare","Settings":"Inställningar","Charging plan":"Laddplan","Charging overview":"Laddöversikt","Refresh":"Uppdatera","Today":"I dag","Tomorrow":"I morgon","All chargers":"Alla laddare","Show labels":"Visa etiketter","Color by":"Färg efter","Indicative forecasting":"Prognos","Vehicle":"Fordon","Charger":"Laddare","Vehicle + Charger":"Fordon + laddare","Show (not reserved)":"Visa","Hide":"Dölj","Proposed":"Föreslaget","Accepted":"Godkänt","Measured":"Mätt","Indicative":"Preliminärt","No vehicle selected":"Inget fordon valt","Connected":"Ansluten","Disconnected":"Inte ansluten","Connection unknown":"Anslutning okänd","Vehicle unknown":"Fordon okänt","Unavailable":"Inte tillgänglig","Unknown":"Okänd","Not set":"Inte angiven","Not assigned":"Inte tilldelad","Plan color":"Planfärg","Plan labels":"Planetiketter","Active chargers":"Aktiva laddare","Actual power":"Faktisk effekt","Current price":"Aktuellt pris","Charging strategy":"Laddläge","Charging site":"Laddplats","Sources & bindings":"Källor","Safety & limits":"Säkerhet och gränser","Integrations":"Integrationer","Readiness":"Redo","Battery":"Batteri","Target":"Mål","Ready By":"Klar senast","Priority":"Prioritet","Duration":"Varaktighet","Requested energy":"Önskad energi","Charging intention":"Laddbehov","Charging priority":"Laddprioritet","Connection":"Anslutning","Selected vehicle":"Valt fordon","Assigned asset":"Tilldelat fordon","Actual current":"Faktisk ström","Power":"Effekt","Source state":"Källstatus","Status":"Status","Start charging":"Starta laddning","Stop charging":"Stoppa laddning","Details":"Detaljer","Hide details":"Dölj detaljer","Edit":"Ändra","Saved":"Sparat","Pending":"Väntar","Rejected":"Avvisat","Next planned session":"Nästa planerade laddning","Next action":"Nästa åtgärd","No active qualified vehicle plan":"Ingen aktiv laddplan","No qualified slots for this day.":"Inga laddtider","No vehicles":"Inga fordon","No charging points":"Inga laddare","Loading":"Läser in","Error":"Fel","No data":"Inga data","No connection":"Inte ansluten","Not ready":"Inte redo","Waiting":"Väntar","Forecast":"Prognos","If connected now":"Om ansluten nu","Expected":"Förväntad","Not reserved":"Inte reserverad","Measured power unavailable":"Inga mätdata","Vehicle plan":"Fordonsplan","Charger plan":"Laddplan","No forecast":"Ingen prognos","No vehicle":"Inget fordon","Tariff":"Pris","Proposed · pale color":"Föreslaget","Accepted · solid color":"Godkänt","Measured · physical source":"Mätt","Indicative · dashed outline":"Preliminärt","Add asset":"Lägg till fordon","Add charger":"Lägg till laddare","Charging mode":"Laddläge","Mode":"Läge","Plan":"Plan","Home Assistant":"Home Assistant","blue":"Blå","orange":"Orange","green":"Grön","purple":"Lila","gold":"Guld","teal":"Blågrön","pink":"Rosa","indigo":"Indigo","olive":"Oliv","brown":"Brun","coral":"Korall","slate":"Skiffer","violet":"Violett","lime":"Lime","salmon":"Lax","cyan":"Cyan","wine":"Vinröd","forest":"Skogsgrön","peach":"Persika","lavender":"Lavendel","turquoise":"Turkos","rust":"Rost","navy":"Marinblå","moss":"Mossgrön","Guest expired":"Gäst utgången","Ready":"Redo","No tariff":"Inget pris","No solar":"Ingen sol","No deadline":"Ingen tidsgräns","No charging goal":"Inget laddmål","Limited power":"Begränsad effekt","No source":"Ingen källa","No capacity":"Ingen kapacitet","Wiring unknown":"Okänd ledning","Guest":"Gäst","Charged":"Laddad","Charging":"Laddar","Stopped":"Stoppad","Confirmed":"Bekräftad","No action":"Ingen åtgärd","Reason":"Orsak","Energy":"Energi","Repeat":"Upprepa","Measured session energy":"Uppmätt sessionsenergi","Last confirmed session":"Senaste session","Measured energy":"Uppmätt energi","Verified cost":"Bekräftad kostnad","Current range":"Strömområde","Measured confirmation":"Mätt kl.","Control type":"Styrningstyp","On/off":"På/av","Variable current":"Variabel ström","Unverified":"Inte verifierad","No charger assigned":"Ingen laddare vald","Target battery %":"Batterimål %","Asset name":"Fordonsnamn","Asset type":"Fordonstyp","Temporary guest":"Tillfällig gäst","Guest until":"Gäst till","Expected connection":"Förväntad anslutning","Save charging site":"Spara laddplats","Save sources":"Spara källor","Maximum group kW":"Max. effekt kW","Group power ceiling kW":"Effektgräns kW","Site name":"Platsnamn","Parallel chargers":"Samtidiga laddare","Save electrical limits":"Spara gränser","Electrical limits":"Elektriska gränser","Battery data":"Batterikälla","Rated power":"Nominell effekt","Phases":"Faser","Active session":"Aktiv session","Add a chargeable asset":"Lägg till fordon","Create asset":"Skapa fordon","Cancel adding":"Avbryt","Remove":"Ta bort","Effective charging power":"Effektiv laddeffekt","Car":"Bil","Bicycle":"Cykel","Motorcycle":"Motorcykel","Scooter":"Elsparkcykel","Other":"Annat","No active plan":"Ingen aktiv laddplan","Confirm connected vehicle":"Bekräfta anslutet fordon","Connected vehicle":"Anslutet fordon","Not confirmed":"Inte bekräftat"},"de":{"Overview":"Übersicht","Charging Plan":"Ladeplan","Chargeable Assets":"Lade-Assets","Chargers":"Ladepunkte","Settings":"Einstellungen","Charging plan":"Ladeplan","Charging overview":"Ladeübersicht","Refresh":"Aktualisieren","Today":"Heute","Tomorrow":"Morgen","All chargers":"Alle Ladepunkte","Show labels":"Beschriftung","Color by":"Farbe nach","Indicative forecasting":"Prognose","Vehicle":"Asset","Charger":"Ladepunkt","Vehicle + Charger":"Asset + Ladepunkt","Show (not reserved)":"Anzeigen","Hide":"Ausblenden","Proposed":"Vorgeschlagen","Accepted":"Angenommen","Measured":"Gemessen","Indicative":"Unverbindlich","No vehicle selected":"Kein Asset gewählt","Connected":"Verbunden","Disconnected":"Nicht verbunden","Connection unknown":"Verbindung unbekannt","Vehicle unknown":"Asset unbekannt","Unavailable":"Nicht verfügbar","Unknown":"Unbekannt","Not set":"Nicht festgelegt","Not assigned":"Nicht zugewiesen","Plan color":"Planfarbe","Plan labels":"Planbeschriftung","Active chargers":"Aktive Ladepunkte","Actual power":"Ist-Leistung","Current price":"Aktueller Preis","Charging strategy":"Lademodus","Charging site":"Ladestandort","Solar production":"Solarproduktion","Home consumption":"Hausverbrauch","Grid power":"Netzleistung","Solar surplus":"Solarüberschuss","Future tariff intervals":"Zukünftige Preisintervalle","Current import price":"Aktueller Bezugspreis","Current export price":"Aktueller Einspeisepreis","Solar intervals":"Solarintervalle","Available surplus":"Verfügbarer Überschuss","Solar source":"Solarquelle","Grid direction":"Netzrichtung","Sources & bindings":"Quellen und Zuordnung","Safety & limits":"Sicherheit und Grenzen","Integrations":"Integrationen","Readiness":"Bereitschaft","Battery":"Batterie","Target":"Ziel","Ready By":"Bereit bis","Priority":"Priorität","Duration":"Dauer","Requested energy":"Energiebedarf","Charging intention":"Ladebedarf","Charging priority":"Ladepriorität","Connection":"Verbindung","Selected vehicle":"Ausgewähltes Asset","Assigned asset":"Zugeordnetes Asset","Actual current":"Ist-Strom","Power":"Leistung","Source state":"Quellenstatus","Status":"Status","Start charging":"Laden starten","Stop charging":"Laden stoppen","Details":"Details","Hide details":"Details schließen","Edit":"Bearbeiten","Saved":"Gespeichert","Pending":"Ausstehend","Rejected":"Abgelehnt","Next planned session":"Nächste Ladesitzung","Next action":"Nächste Aktion","No active qualified vehicle plan":"Kein aktiver Ladeplan","No qualified slots for this day.":"Keine Ladezeiten","No vehicles":"Keine Assets","No charging points":"Keine Ladepunkte","Loading":"Lädt","Error":"Fehler","No data":"Keine Daten","No connection":"Nicht verbunden","Not ready":"Nicht bereit","Waiting":"Warten","Forecast":"Prognose","If connected now":"Falls jetzt verbunden","Expected":"Erwartet","Not reserved":"Nicht reserviert","Measured power unavailable":"Keine Messdaten","Vehicle plan":"Assetplan","Charger plan":"Ladepunktplan","No forecast":"Keine Prognose","No vehicle":"Kein Asset","Tariff":"Tarif","Proposed · pale color":"Vorgeschlagen","Accepted · solid color":"Angenommen","Measured · physical source":"Gemessen","Indicative · dashed outline":"Unverbindlich","Add asset":"Asset hinzufügen","Add charger":"Ladepunkt hinzufügen","Charging mode":"Lademodus","Mode":"Modus","Plan":"Plan","Home Assistant":"Home Assistant","Guest expired":"Gast abgelaufen","Ready":"Bereit","No tariff":"Kein Tarif","No solar":"Kein Solar","No deadline":"Keine Frist","No charging goal":"Kein Ladeziel","Limited power":"Begrenzte Leistung","No source":"Keine Quelle","No capacity":"Keine Kapazität","Wiring unknown":"Verdrahtung unbekannt","Guest":"Gast","Charged":"Geladen","Charging":"Lädt","Stopped":"Gestoppt","Confirmed":"Bestätigt","No action":"Keine Aktion","Reason":"Grund","Energy":"Energie","Repeat":"Wiederholen","Measured session energy":"Gemessene Sitzungsenergie","Last confirmed session":"Letzte bestätigte Sitzung","Measured energy":"Gemessene Energie","Verified cost":"Verifizierte Kosten","Current range":"Strombereich","Measured confirmation":"Messzeit","Control type":"Steuerungstyp","On/off":"Ein/Aus","Variable current":"Variabler Strom","Unverified":"Nicht verifiziert","No charger assigned":"Kein Ladepunkt zugewiesen","Target battery %":"Batterieziel %","Asset name":"Assetname","Asset type":"Assettyp","Temporary guest":"Temporärer Gast","Guest until":"Gast bis","Expected connection":"Erwartete Verbindung","Save charging site":"Ladestandort speichern","Save sources":"Quellen speichern","Maximum group kW":"Maximale Gruppenleistung kW","Group power ceiling kW":"Gruppenleistungsgrenze kW","Site name":"Standortname","Parallel chargers":"Gleichzeitige Ladepunkte","Save electrical limits":"Elektrische Grenzen speichern","Electrical limits":"Elektrische Grenzen","Battery data":"Batteriedaten","Rated power":"Nennleistung","Phases":"Phasen","Active session":"Aktive Sitzung","Add a chargeable asset":"Lade-Asset hinzufügen","Create asset":"Asset erstellen","Cancel adding":"Abbrechen","Remove":"Entfernen","blue":"Blau","orange":"Orange","green":"Grün","purple":"Lila","gold":"Gold","teal":"Blaugrün","pink":"Rosa","indigo":"Indigo","olive":"Oliv","brown":"Braun","coral":"Koralle","slate":"Schiefer","violet":"Violett","lime":"Limette","salmon":"Lachs","cyan":"Cyan","wine":"Weinrot","forest":"Waldgrün","peach":"Pfirsich","lavender":"Lavendel","turquoise":"Türkis","rust":"Rost","navy":"Marineblau","moss":"Moosgrün","Effective charging power":"Effektive Ladeleistung","Car":"Auto","Bicycle":"Fahrrad","Motorcycle":"Motorrad","Scooter":"Roller","Other":"Sonstiges","No active plan":"Kein aktiver Ladeplan","Confirm connected vehicle":"Angeschlossenes Fahrzeug bestätigen","Connected vehicle":"Angeschlossenes Fahrzeug","Not confirmed":"Nicht bestätigt"},"es":{"Overview":"Resumen","Charging Plan":"Plan de carga","Chargeable Assets":"Activos de carga","Chargers":"Puntos de carga","Settings":"Ajustes","Charging plan":"Plan de carga","Charging overview":"Resumen de carga","Refresh":"Actualizar","Today":"Hoy","Tomorrow":"Mañana","All chargers":"Todos los puntos","Show labels":"Mostrar etiquetas","Color by":"Color por","Indicative forecasting":"Previsión","Vehicle":"Activo","Charger":"Punto de carga","Vehicle + Charger":"Activo + punto","Show (not reserved)":"Mostrar","Hide":"Ocultar","Proposed":"Propuesto","Accepted":"Aceptado","Measured":"Medido","Indicative":"Indicativo","No vehicle selected":"Ningún activo seleccionado","Connected":"Conectado","Disconnected":"Desconectado","Connection unknown":"Conexión desconocida","Vehicle unknown":"Activo desconocido","Unavailable":"No disponible","Unknown":"Desconocido","Not set":"Sin definir","Not assigned":"Sin asignar","Plan color":"Color del plan","Plan labels":"Etiquetas del plan","Active chargers":"Puntos activos","Actual power":"Potencia real","Current price":"Precio actual","Charging strategy":"Modo de carga","Charging site":"Instalación de carga","Sources & bindings":"Fuentes y asignación","Safety & limits":"Seguridad y límites","Integrations":"Integraciones","Readiness":"Preparación","Battery":"Batería","Target":"Objetivo","Ready By":"Listo para","Priority":"Prioridad","Duration":"Duración","Requested energy":"Energía solicitada","Charging intention":"Necesidad de carga","Charging priority":"Prioridad de carga","Connection":"Conexión","Selected vehicle":"Activo seleccionado","Assigned asset":"Activo asignado","Actual current":"Corriente real","Power":"Potencia","Source state":"Estado de fuente","Status":"Estado","Start charging":"Iniciar carga","Stop charging":"Detener carga","Details":"Detalles","Hide details":"Cerrar detalles","Edit":"Editar","Saved":"Guardado","Pending":"Pendiente","Rejected":"Rechazado","Next planned session":"Próxima carga","Next action":"Siguiente acción","No active qualified vehicle plan":"Sin plan activo","No qualified slots for this day.":"Sin franjas de carga","No vehicles":"Sin activos","No charging points":"Sin puntos de carga","Loading":"Cargando","Error":"Error","No data":"Sin datos","No connection":"Sin conexión","Not ready":"No preparado","Waiting":"Esperando","Forecast":"Previsión","If connected now":"Si se conecta ahora","Expected":"Previsto","Not reserved":"No reservado","Measured power unavailable":"Sin datos medidos","Vehicle plan":"Plan por activo","Charger plan":"Plan por punto","No forecast":"Sin previsión","No vehicle":"Sin activo","Tariff":"Tarifa","Proposed · pale color":"Propuesto","Accepted · solid color":"Aceptado","Measured · physical source":"Medido","Indicative · dashed outline":"Indicativo","Add asset":"Añadir activo","Add charger":"Añadir punto","Charging mode":"Modo de carga","Mode":"Modo","Plan":"Plan","Home Assistant":"Home Assistant","Guest expired":"Invitado caducado","Ready":"Listo","No tariff":"Sin tarifa","No solar":"Sin energía solar","No deadline":"Sin plazo","No charging goal":"Sin objetivo","Limited power":"Potencia limitada","No source":"Sin fuente","No capacity":"Sin capacidad","Wiring unknown":"Cableado desconocido","Guest":"Invitado","Charged":"Cargado","Charging":"Cargando","Stopped":"Detenido","Confirmed":"Confirmado","No action":"Sin acción","Reason":"Motivo","Energy":"Energía","Repeat":"Repetir","Measured session energy":"Energía medida de sesión","Last confirmed session":"Última sesión confirmada","Measured energy":"Energía medida","Verified cost":"Coste verificado","Current range":"Rango de corriente","Measured confirmation":"Confirmación medida","Control type":"Tipo de control","On/off":"Encendido/apagado","Variable current":"Corriente variable","Unverified":"No verificado","No charger assigned":"Sin punto asignado","Target battery %":"Batería objetivo %","Asset name":"Nombre del activo","Asset type":"Tipo de activo","Temporary guest":"Invitado temporal","Guest until":"Invitado hasta","Expected connection":"Conexión prevista","Save charging site":"Guardar instalación","Save sources":"Guardar fuentes","Maximum group kW":"Potencia máxima del grupo kW","Group power ceiling kW":"Límite del grupo kW","Site name":"Nombre del lugar","Parallel chargers":"Puntos simultáneos","Save electrical limits":"Guardar límites","Electrical limits":"Límites eléctricos","Battery data":"Datos de batería","Rated power":"Potencia nominal","Phases":"Fases","Active session":"Sesión activa","Add a chargeable asset":"Añadir activo de carga","Create asset":"Crear activo","Cancel adding":"Cancelar","Remove":"Eliminar","blue":"Azul","orange":"Naranja","green":"Verde","purple":"Morado","gold":"Dorado","teal":"Verde azulado","pink":"Rosa","indigo":"Índigo","olive":"Oliva","brown":"Marrón","coral":"Coral","slate":"Pizarra","violet":"Violeta","lime":"Lima","salmon":"Salmón","cyan":"Cian","wine":"Granate","forest":"Verde bosque","peach":"Melocotón","lavender":"Lavanda","turquoise":"Turquesa","rust":"Óxido","navy":"Azul marino","moss":"Verde musgo","Effective charging power":"Potencia efectiva de carga","Car":"Coche","Bicycle":"Bicicleta","Motorcycle":"Motocicleta","Scooter":"Patinete","Other":"Otro","No active plan":"Sin plan activo","Confirm connected vehicle":"Confirmar vehículo conectado","Connected vehicle":"Vehículo conectado","Not confirmed":"Sin confirmar"}};
 function mcTr(value){
   const raw=String(value);
   return MC_TEXT[mcLanguage]?.[raw]||raw;
@@ -48,7 +48,7 @@ function mcReason(value){
   return mcTr("Unavailable");
 }
 const MC_TABS = ["Overview", "Charging Plan", "Chargeable Assets", "Chargers", "Settings"];
-const MC_SETTINGS = ["Charging site", "Sources & bindings", "Charging strategy", "Safety & limits", "Integrations", "Advanced & JSON"];
+const MC_SETTINGS = ["Charging site", "Sources & bindings", "Charging strategy", "Safety & limits", "Integrations"];
 // Pause is a persistent Charger admission hold, not a second strategy.
 for (const [locale, terms] of Object.entries({
   nl:{"Pause charging":"Laden pauzeren","Resume charging":"Laden hervatten","Paused":"Gepauzeerd","Ready for next plan":"Klaar voor volgend laadplan"},
@@ -238,7 +238,10 @@ const MC_STYLE = [
   ".owner-group>summary{cursor:pointer;padding:11px 12px;font-size:13px;font-weight:600;display:list-item;list-style-position:inside;user-select:none}.owner-group>summary:hover{background:var(--secondary-background-color,#f6f8fa)}.owner-group[open]>summary{border-bottom:1px solid var(--divider-color,#e1e4e8)}.owner-summary-count{font-size:11px;font-weight:400;color:var(--secondary-text-color,#65717e);margin-left:7px}",
   ".owner-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,285px),1fr));gap:0 16px;padding:3px 12px 8px}.owner-field{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;min-width:0;padding:7px 0;border-bottom:1px solid var(--divider-color,#e1e4e8)}.owner-field:last-child{border-bottom:0}.owner-field-info{flex:1;min-width:0;overflow-wrap:anywhere}.owner-field-label{font-size:11px;color:var(--secondary-text-color,#65717e);line-height:1.35}.owner-field-value{font-size:12px;font-weight:550;line-height:1.35;margin-top:3px;overflow-wrap:anywhere}.owner-field button{min-height:27px;padding:3px 8px;font-size:11px;border-radius:6px;white-space:nowrap;background:transparent}",
   ".owner-inventory>.owner-configure{margin-top:10px;display:flex;flex-wrap:wrap;align-items:center;gap:8px}.owner-inventory>.owner-configure p{flex-basis:100%}.owner-inventory>button{margin:8px 0;min-height:34px}",
-  "@media(max-width:600px){.object-card{padding:11px}.owner-fields{grid-template-columns:1fr}.owner-group>summary{padding:12px 9px}.pair{grid-template-columns:minmax(0,42%) minmax(0,58%);gap:9px}}"
+  "@media(max-width:600px){.object-card{padding:11px}.owner-fields{grid-template-columns:1fr}.owner-group>summary{padding:12px 9px}.pair{grid-template-columns:minmax(0,42%) minmax(0,58%);gap:9px}}",
+  ".quick-assignment{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:9px 0}.quick-assignment label{font-weight:600;font-size:13px}.quick-vehicle-select{flex:1;min-width:155px;max-width:360px;min-height:38px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#1f2937);border:1px solid var(--divider-color,#d6dce4);border-radius:8px;padding:6px 12px;cursor:pointer}.quick-vehicle-select:disabled{opacity:.65;cursor:default}",
+  ".quick-owner-panel{margin:12px 0}.quick-owner-line{display:grid;grid-template-columns:minmax(140px,1fr) minmax(210px,2fr) minmax(110px,1fr);align-items:center;gap:16px;padding:7px 0;border-bottom:1px solid var(--divider-color,#e7e9ed)}.quick-owner-line:last-child{border-bottom:0}.quick-owner-line .quick-assignment{margin:0;padding:3px 0}.quick-owner-line .quick-assignment label{display:none}.mc-apex{min-height:165px;max-width:100%;overflow:hidden}.combined-plan .mc-apex{min-height:290px}",
+  "@media(max-width:650px){.quick-owner-line{grid-template-columns:1fr;gap:3px}.quick-owner-line .quick-vehicle-select{max-width:none}.quick-assignment{align-items:flex-start}.quick-assignment label{flex:0 0 100%}}"
 ].join("");
 
 function mcEl(tag, css, text) {
@@ -287,178 +290,233 @@ function mcPlanName(slot,configuration,labels){
 // One Basic-style power/price overview above the existing per-Charger lanes.
 // Never invent unavailable meter samples, convert a quote to a bill, or
 // attribute anonymous historical power to today's selected vehicle.
+// One local immutable MIT library shared by the native panel and card.
+// The browser must never fetch a third-party CDN or masquerade SVG as Apex.
+let mcApexLibrary=null;
+function mcEnsureApex(){
+  if(typeof window!=="undefined"&&typeof window.ApexCharts==="function")
+    return Promise.resolve(window.ApexCharts);
+  if(mcApexLibrary)return mcApexLibrary;
+  mcApexLibrary=new Promise((resolve,reject)=>{
+    if(typeof document==="undefined"||!document.head){
+      reject(Error("Local ApexCharts requires a real browser"));return;
+    }
+    const existing=document.querySelector?.('script[data-multicharge-apex]');
+    if(existing){
+      existing.addEventListener("load",()=>resolve(window.ApexCharts),{once:true});
+      existing.addEventListener("error",()=>reject(Error("Local ApexCharts unavailable")),{once:true});
+      return;
+    }
+    const node=document.createElement("script");
+    node.async=true;
+    node.src="/robotix_multicharge/frontend/vendor/apexcharts.min.js";
+    node.dataset.multichargeApex="3.49.1";
+    node.addEventListener("load",()=>{
+      if(typeof window.ApexCharts==="function")resolve(window.ApexCharts);
+      else reject(Error("Bundled ApexCharts did not initialize"));
+    },{once:true});
+    node.addEventListener("error",()=>reject(Error("Bundled ApexCharts unavailable")),{once:true});
+    document.head.append(node);
+  }).catch(error=>{mcApexLibrary=null;throw error;});
+  return mcApexLibrary;
+}
+function mcMountApex(plot,options){
+  plot.className+=" mc-apex";
+  plot.setAttribute("role","img");
+  plot.setAttribute("aria-label",options.chart?.id||"MultiCharge power timeline");
+  plot.setAttribute("data-chart-engine","apexcharts-3.49.1");
+  // Node-only DOM checks cannot assert that a browser rendered a graph:
+  // real Chromium tests below inspect the Apex-generated SVG and tooltips.
+  if(typeof window==="undefined"||typeof document==="undefined"||!document.head)
+    return;
+  void mcEnsureApex().then(Chart=>{
+    if(plot.isConnected===false)return;
+    const chart=new Chart(plot,options);
+    plot._mcApex=chart;
+    return chart.render().catch(error=>{
+      chart.destroy();plot._mcApex=null;
+      plot.append(mcEl("p","plan-caution","ApexCharts render failed: "+String(error?.stack||error?.message||error).slice(0,650)));
+    });
+  }).catch(error=>{
+    if(plot.isConnected!==false)
+      plot.append(mcEl("p","plan-caution","ApexCharts unavailable: "+String(error?.message||error)));
+  });
+}
+function mcApexCommon(from,until,height,title,withPrice=false){
+  const colors=["#7890aa","#478ab8","#18856d","#b78330"];
+  return {
+    chart:{id:title,type:"line",height,background:"transparent",
+      fontFamily:"inherit",foreColor:"#687784",parentHeightOffset:0,
+      animations:{enabled:false},toolbar:{show:true,tools:{
+        download:true,selection:false,zoom:true,zoomin:true,zoomout:true,pan:false,reset:true
+      }},zoom:{enabled:true,autoScaleYaxis:false},
+      // Keep the same source/time truth across panels and stacked Lovelace cards.
+      redrawOnParentResize:true,redrawOnWindowResize:true},
+    theme:{mode:(typeof window!=="undefined"&&
+      window.matchMedia?.("(prefers-color-scheme: dark)")?.matches)?"dark":"light"},
+    colors,
+    stroke:{curve:"straight",width:[2,2,2.8,1.8],dashArray:[5,2,0,5]},
+    fill:{opacity:[0.07,1,0.15,1]},
+    dataLabels:{enabled:false},
+    markers:{size:0,hover:{size:5}},
+    grid:{strokeDashArray:3,borderColor:"#8b97a62b",padding:{left:3,right:8}},
+    xaxis:{type:"datetime",min:from,max:until,labels:{datetimeUTC:false},
+      axisBorder:{show:false},axisTicks:{show:false}},
+    yaxis:[{
+      // Apex 3.49 uses the *visible* nonempty series count for its y-axis
+      // matching. Explicitly group the three power series so adding a
+      // separate price axis cannot index an absent series on sparse days.
+      ...(withPrice?{seriesName:["Proposed","Accepted","Measured"]}:{}),
+      title:{text:"Measured / proposed / accepted · kW"},
+      min:0,decimalsInFloat:2,
+      labels:{formatter:v=>Number(v).toFixed(1)}
+    },...(withPrice?[{
+      opposite:true,seriesName:"Reference price (EUR/kWh)",
+      title:{text:"Price · EUR/kWh"},decimalsInFloat:4,
+      labels:{formatter:v=>Number(v).toFixed(3)}
+    }]:[])],
+    tooltip:{shared:true,intersect:false,x:{format:"dd MMM HH:mm"},
+      y:{formatter:(v,{seriesIndex})=>v===null||v===undefined?"Not measured":
+        (withPrice&&seriesIndex===3?Number(v).toFixed(4)+" EUR/kWh":
+          Number(v).toFixed(2)+" kW")}},
+    legend:{show:true,fontSize:"12px",position:"bottom"},
+    noData:{text:"No qualified measurements / schedule for this period"}
+  };
+}
+function mcSeriesFromRows(rows,key,from,until,owner){
+  // Source rows remain independently qualified, no interpolation or fake zeros.
+  return rows.filter(item=>
+    (!owner||item.charger_id===owner)&&
+    typeof item[key]==="number"&&Number.isFinite(item[key])&&
+    item[key]>=0&&Date.parse(item.start)>=from&&Date.parse(item.end)<=until&&
+    Date.parse(item.end)>Date.parse(item.start))
+    .map(item=>({x:Date.parse(item.start),y:item[key]}))
+    .sort((a,b)=>a.x-b.x);
+}
+function mcApexLane(data,charger,rows,actuals,forecast){
+  const from=Date.parse(data.start),until=Date.parse(data.end);
+  const plot=mcEl("div","chart");
+  if(!Number.isFinite(from)||!Number.isFinite(until)||until<=from)return plot;
+  const fields=[
+    ["Proposed","proposed_power_kw",rows],
+    ["Accepted","accepted_power_kw",rows],
+    ["Measured · physical","actual_power_kw",actuals],
+    ["Indicative · not reserved","indicative_power_kw",forecast]
+  ];
+  const available=fields.map(([name,key,source],index)=>({
+    index,name,data:mcSeriesFromRows(source,key,from,until,charger.id)
+  })).filter(row=>row.data.length);
+  // Old ApexCharts may reject zero-length subordinate series in a stacked
+  // multi-lane Shadow DOM; absent evidence is an absent series, never a 0.
+  // An owner with no measured/planned/indicative source has no series.
+  // Apex 3.x cannot build its Y-axis mapping for an empty series array.
+  // Do not render a fake zero line to work around this vendor limitation.
+  if(!available.length){
+    plot.append(mcEl("p","muted small",
+      mcTr("No qualified physical or planned power in this period")));
+    return plot;
+  }
+  const options=mcApexCommon(from,until,190,"Charger "+charger.id);
+  options.chart.type="line";
+  options.series=available.map(({name,data})=>({name,data}));
+  options.colors=available.map(({index})=>
+    ["#7890aa","#478ab8","#18856d","#b78330"][index]);
+  options.stroke={curve:"stepline",
+    width:available.map(({index})=>[1.8,2,3,1.6][index]),
+    dashArray:available.map(({index})=>[5,0,0,7][index])};
+  options.fill={opacity:available.map(({index})=>
+    [0.06,1,0.18,0.05][index])};
+  mcMountApex(plot,options);
+  return plot;
+}
 function mcCombinedChargingChart(data, visibleChargers, slots, actuals){
   const wrapper=mcEl("section","card combined-plan");
   wrapper.append(mcEl("h3","",mcTr("All charging · Power & price")));
   wrapper.append(mcEl("p","muted small",
-    mcTr("Shaded planned · outlined accepted · solid measured · price line")));
-  const from=Date.parse(data.start), until=Date.parse(data.end);
+    mcTr("Measured physical · accepted · proposed · independently scaled price")));
+  const from=Date.parse(data.start),until=Date.parse(data.end);
   if(!Number.isFinite(from)||!Number.isFinite(until)||until<=from){
-    wrapper.append(mcEl("p","muted",mcTr("No qualified timeline")));
-    return wrapper;
+    wrapper.append(mcEl("p","muted",mcTr("No qualified timeline")));return wrapper;
   }
   const count=Math.ceil((until-from)/900000);
-  if(count>200){
-    wrapper.append(mcEl("p","muted",mcTr("Unavailable")));
-    return wrapper;
-  }
-  const visible=new Set(visibleChargers.map(x=>x.id));
-  const buckets=Array.from({length:count},()=>({
-    proposed:null,accepted:null,actual:null,price:null
+  if(count>200||count<1){wrapper.append(mcEl("p","muted",mcTr("Unavailable")));return wrapper;}
+  const visible=new Set(visibleChargers.map(c=>c.id));
+  const buckets=Array.from({length:count},(_,i)=>({
+    at:from+i*900000,proposed:null,accepted:null,measured:null,price:null
   }));
-  function collect(rows,key){
-    for(const row of rows){
-      if(!visible.has(row.charger_id)||typeof row[key]!=="number"||
-         !Number.isFinite(row[key])||row[key]<0)continue;
-      const start=Date.parse(row.start),end=Date.parse(row.end);
-      if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start)continue;
+  for(const [source,key,bucket] of [
+    [slots,"proposed_power_kw","proposed"],
+    [slots,"accepted_power_kw","accepted"],
+    [actuals,"actual_power_kw","measured"]
+  ]){
+    const seen=new Set();
+    for(const item of source){
+      if(!visible.has(item.charger_id)||typeof item[key]!=="number"||
+         !Number.isFinite(item[key])||item[key]<0)continue;
+      const start=Date.parse(item.start),end=Date.parse(item.end);
       const ix=Math.round((start-from)/900000);
-      if(ix<0||ix>=count||Math.abs(start-(from+ix*900000))>50)continue;
-      // Data contract has one sourced 15-minute row per Charger per field.
-      if(end-start!==900000)continue;
-      const k=key==="actual_power_kw"?"actual":
-        key==="accepted_power_kw"?"accepted":"proposed";
-      buckets[ix][k]=(buckets[ix][k]??0)+row[key];
+      if(ix<0||ix>=count||!Number.isFinite(start)||
+         Math.abs(start-buckets[ix].at)>50||end-start!==900000)continue;
+      const identity=item.charger_id+"|"+ix;
+      if(seen.has(identity))continue;
+      seen.add(identity);
+      buckets[ix][bucket]=(buckets[ix][bucket]??0)+item[key];
     }
   }
-  collect(slots,"proposed_power_kw");
-  collect(slots,"accepted_power_kw");
-  collect(actuals,"actual_power_kw");
-  const quotes=Array.isArray(data.price_slots)?data.price_slots.filter(q=>
-    typeof q.price_per_kwh==="number"&&Number.isFinite(q.price_per_kwh)&&
-    typeof q.currency==="string"&&q.currency.length===3):[];
-  const currencies=[...new Set(quotes.map(x=>x.currency))];
+  const quotes=(data.price_slots||[]).filter(x=>
+    typeof x.price_per_kwh==="number"&&Number.isFinite(x.price_per_kwh)&&
+    /^[A-Z]{3}$/.test(x.currency||""));
+  const currency=[...new Set(quotes.map(x=>x.currency))];
   const basis=[...new Set(quotes.map(x=>x.basis||"unqualified"))];
-  let priceReady=currencies.length===1&&basis.length===1;
-  if(priceReady){
-    for(let i=0;i<count;i++){
-      const start=from+i*900000;
-      const matched=quotes.filter(q=>Date.parse(q.start)<=start&&
-        Date.parse(q.end)>=start+900000);
-      if(matched.length===1)buckets[i].price=matched[0].price_per_kwh;
-    }
+  const priceReady=currency.length===1&&currency[0]==="EUR"&&basis.length===1;
+  if(priceReady)for(const item of buckets){
+    const matched=quotes.filter(q=>Date.parse(q.start)<=item.at&&
+      Date.parse(q.end)>=item.at+900000);
+    if(matched.length===1)item.price=matched[0].price_per_kwh;
   }
-  const values=buckets.flatMap(x=>
-    [x.proposed,x.accepted,x.actual].filter(Number.isFinite));
-  const cap=Math.max(0.5,...values,0);
-  const priceValues=priceReady?buckets.map(x=>x.price).filter(Number.isFinite):[];
-  const lo=priceValues.length?Math.min(...priceValues):0;
-  const hi=priceValues.length?Math.max(...priceValues):0;
-  const spread=hi-lo||1;
-  const x0=69,width=807,top=34,bottom=190,height=bottom-top;
-  const svg=mcSVG("svg",{
-    viewBox:"0 0 960 246",role:"img",class:"timeline",
-    "aria-label":mcTr("Combined actual charging power, planned and accepted charging, and independently scaled electricity price")
+  const powerNames=["Proposed","Accepted","Measured"];
+  const sources=["proposed","accepted","measured"];
+  const series=powerNames.map((name,i)=>({
+    name,data:buckets.filter(q=>q[sources[i]]!==null)
+      .map(q=>({x:q.at,y:q[sources[i]]}))
+  }));
+  const validPrice=priceReady&&buckets.some(x=>x.price!==null);
+  // Apex secondary axis only when source basis and currency genuinely align.
+  if(validPrice)series.push({
+    name:"Reference price (EUR/kWh)",
+    data:buckets.filter(x=>x.price!==null).map(q=>({x:q.at,y:q.price}))
   });
-  svg.append(mcSVG("text",{x:4,y:16,"font-size":13},mcTr("Power")+" · kW"));
-  svg.append(mcSVG("text",{x:955,y:16,"text-anchor":"end","font-size":12},
-    priceValues.length?basis[0]+" · "+currencies[0]+"/kWh":
-      mcTr("Price unavailable")));
-  svg.append(mcSVG("line",{x1:x0,y1:bottom,x2:x0+width,y2:bottom,
-    stroke:"currentColor","stroke-opacity":0.35}));
-  for(let t=0;t<=4;t++){
-    const y=bottom-t*height/4;
-    svg.append(mcSVG("line",{x1:x0,y1:y,x2:x0+width,y2:y,
-      stroke:"currentColor","stroke-opacity":0.12}));
-    svg.append(mcSVG("text",{x:x0-7,y:y+4,"text-anchor":"end",
-      "font-size":11},(t*cap/4).toFixed(1)));
-  }
-  const colors={proposed:"#667e9f",accepted:"#326f9d",actual:"#18856d"};
-  const layers=[["proposed",0.18],["accepted",0.8],["actual",1]];
-  for(let i=0;i<count;i++){
-    const tick=buckets[i];
-    const x=x0+i*width/count,bar=width/count;
-    for(const [key,opacity] of layers){
-      const kw=tick[key];
-      if(!Number.isFinite(kw))continue;
-      const bh=Math.min(height,(kw/cap)*height);
-      const rect=mcSVG("rect",{
-        x:x+(key==="proposed"?0:key==="accepted"?bar*0.10:bar*0.20),
-        y:bottom-bh,width:Math.max(0.6,bar*(key==="proposed"?0.88:0.68)),
-        height:bh,fill:key==="accepted"?"none":colors[key],
-        "fill-opacity":opacity,stroke:key==="accepted"?colors[key]:"none",
-        "stroke-width":key==="accepted"?1:0
-      });
-      rect.append(mcSVG("title",{},
-        mcTr(key==="actual"?"Measured":key==="accepted"?"Accepted":"Proposed")+
-        " · "+mcTime(new Date(from+i*900000).toISOString(),data.timezone)+
-        " · "+kw.toFixed(2)+" kW"));
-      svg.append(rect);
-    }
-  }
-  if(priceValues.length){
-    let d="",last=-2;
-    for(let i=0;i<count;i++){
-      const price=buckets[i].price;
-      if(!Number.isFinite(price)){last=-2;continue;}
-      const x=x0+(i+0.5)*width/count;
-      const y=bottom-(price-lo)/spread*height;
-      d+=(i===last+1?" L":" M")+x.toFixed(2)+" "+y.toFixed(2);
-      last=i;
-    }
-    if(d)svg.append(mcSVG("path",{d,fill:"none",stroke:"#ab6d13",
-      "stroke-width":2,"stroke-linecap":"round","stroke-linejoin":"round"}));
-    for(let i=0;i<count;i++){
-      const price=buckets[i].price;
-      if(!Number.isFinite(price))continue;
-      const circle=mcSVG("circle",{
-        cx:x0+(i+0.5)*width/count,
-        cy:bottom-(price-lo)/spread*height,
-        r:Math.max(1.5,Math.min(2.5,width/count/2)),
-        fill:"#ab6d13"
-      });
-      circle.append(mcSVG("title",{},
-        mcTime(new Date(from+i*900000).toISOString(),data.timezone)+
-        " · "+price.toFixed(4)+" "+currencies[0]+"/kWh"+
-        " · "+basis[0]+", "+mcTr("reference price, not an invoice")));
-      svg.append(circle);
-    }
-    svg.append(mcSVG("text",{x:950,y:top+2,"text-anchor":"end",
-      "font-size":11},hi.toFixed(3)));
-    svg.append(mcSVG("text",{x:950,y:bottom+4,"text-anchor":"end",
-      "font-size":11},lo.toFixed(3)));
-  }
-  const now=Date.now();
-  if(now>=from&&now<until){
-    const at=x0+(now-from)/(until-from)*width;
-    svg.append(mcSVG("line",{x1:at,y1:top,x2:at,y2:bottom,
-      stroke:"var(--warning-color,#b76b64)","stroke-width":2}));
-    svg.append(mcSVG("text",{x:at+3,y:top-6,"font-size":10},mcTr("Now")));
-  }
-  for(let i=0;i<=4;i++){
-    const stamp=new Date(from+(until-from)*i/4);
-    svg.append(mcSVG("text",{
-      x:x0+i*width/4,y:225,
-      "text-anchor":i===0?"start":i===4?"end":"middle",
-      "font-size":11
-    },stamp.toLocaleString(undefined,{timeZone:data.timezone||"UTC",
-      weekday:"short",hour:"2-digit",minute:"2-digit"})));
-  }
-  const plot=mcEl("div","chart");plot.append(svg);wrapper.append(plot);
-  const legend=mcEl("div","legend");
-  for(const name of ["Proposed","Accepted","Measured"]){
-    legend.append(mcEl("span","",mcTr(name)));
-  }
-  legend.append(mcEl("span","",priceValues.length?
-    basis[0]+" · "+currencies[0]+"/kWh":mcTr("Price unavailable")));
-  wrapper.append(legend);
-  if(priceReady&&priceValues.length&&priceValues.length<count)
+  const plot=mcEl("div","chart");
+  const options=mcApexCommon(from,until,310,"MultiCharge combined power and price",validPrice);
+  options.series=series;
+  options.annotations={xaxis:Date.now()>=from&&Date.now()<until?
+    [{x:Date.now(),borderColor:"#b86a44",label:{text:"Now"}}]:[]};
+  if(series.some(item=>item.data.length))mcMountApex(plot,options);
+  else plot.append(mcEl("p","muted small",
+    mcTr("No qualified physical or planned power in this period")));
+  wrapper.append(plot);
+  if(validPrice)wrapper.append(mcEl("p","muted small",
+    basis[0]+" · "+currency[0]+"/kWh · "+mcTr("reference price, not an invoice")));
+  if(!validPrice)wrapper.append(mcEl("p","muted small",
+    mcTr("Price unavailable · no price series is fabricated")));
+  else if(buckets.some(q=>q.price===null))
     wrapper.append(mcEl("p","muted small",
       mcTr("Price intervals incomplete; missing periods are not zero")));
-  const future=slots.filter(row=>visible.has(row.charger_id)&&
-    Date.parse(row.start)>=Date.now()&&typeof row.proposed_power_kw==="number"&&
-    Number.isFinite(row.proposed_power_kw)&&row.proposed_power_kw>=0);
+  const future=slots.filter(s=>visible.has(s.charger_id)&&
+    Date.parse(s.start)>=Date.now()&&Number.isFinite(s.proposed_power_kw)&&
+    s.proposed_power_kw>=0);
   if(future.length){
-    const kwh=future.reduce((sum,row)=>sum+(
-      typeof row.proposed_energy_kwh==="number"?
-        row.proposed_energy_kwh:row.proposed_power_kw/4),0);
-    const chargers=new Set(future.map(row=>row.charger_id));
+    const kwh=future.reduce((sum,row)=>sum+
+      (Number.isFinite(row.proposed_energy_kwh)?
+       row.proposed_energy_kwh:row.proposed_power_kw/4),0);
     wrapper.append(mcEl("p","small",mcTr("Still planned")+" · "+
-      kwh.toFixed(2)+" kWh · "+chargers.size+" "+
-      mcTr(chargers.size===1?"charger":"chargers")));
+      kwh.toFixed(2)+" kWh · "+
+      new Set(future.map(x=>x.charger_id)).size+" "+
+      mcTr("chargers")));
   }
-  if(!values.length)wrapper.append(mcEl("p","muted small",
-    mcTr("No qualified physical or planned power in this period")));
+  if(!series.some(item=>item.data.length))
+    wrapper.append(mcEl("p","muted small",
+      mcTr("No qualified physical or planned power in this period")));
   return wrapper;
 }
 
@@ -803,6 +861,42 @@ const MC_OWNER_UNITS={
   circuit_limit_a:" A",voltage_v:" V",target_soc:"%",
   minimum_soc_pct:"%",low_soc_trigger_pct:"%",opportunistic_level_pct:"%"
 };
+
+const MC_EDIT_NUMBERS=new Set([
+  "max_parallel","max_power_kw","target_soc","requested_kwh",
+  "requested_duration_minutes","requested_budget_amount","minimum_soc_pct",
+  "maximum_price_per_kwh","low_price_trigger_per_kwh","low_soc_trigger_pct",
+  "opportunistic_level_pct","priority","capacity_kwh","max_charge_kw",
+  "charge_efficiency","rated_power_kw","phase_count","voltage_v",
+  "min_current_a","max_current_a","current_step_a","fixed_current_a",
+  "circuit_limit_a","min_charging_power_kw","max_charging_power_kw"
+]);
+const MC_EDIT_BOOLEAN=new Set(["temporary","continuous_charging","show_indicative_forecast"]);
+const MC_EDIT_DATES=new Set(["ready_by","expires_at","earliest_start_at","expected_connection_at"]);
+const MC_EDIT_ENUM={
+  mode:["Automatic","Solar","Economy","Ready By","Force Charge","Off"],
+  plan_label_mode:["vehicle","charger","both"],
+  plan_color_by:["vehicle","charger"],
+  solar_source_kind:["none","intervals","grid_export","direct_surplus"],
+  grid_power_direction:["import_positive","export_positive"],
+  ready_by_repeat:["none","daily","weekly","specific_days"],
+  opportunistic_kind:["off","type1","type2"],
+  phase_count:["1","2","3"]
+};
+const MC_EDIT_SOURCE_DOMAINS={
+  control_entity:["switch"],current_control_entity:["number"],
+  current_readback_entity:["sensor"],connected_entity:["sensor","binary_sensor"],
+  power_entity:["sensor"],energy_entity:["sensor"],session_entity:["sensor","binary_sensor"],
+  soc_entity:["sensor"],soc_stale_entity:["binary_sensor"],
+  vehicle_control_entity:["switch"],vehicle_current_entity:["number"]
+};
+for(const key of [
+ "price_entity","current_price_entity","export_price_entity",
+ "solar_entity","solar_power_entity","solar_surplus_entity",
+ "home_power_entity","grid_power_entity","site_power_entity","binding_entity"
+])MC_EDIT_SOURCE_DOMAINS[key]=["sensor"];
+const MC_DAYS=["mon","tue","wed","thu","fri","sat","sun"];
+
 function mcAssetGoalText(a){
   if(a.requested_budget_amount!==undefined)
     return a.requested_budget_amount+" "+(a.requested_budget_currency||"EUR")+
@@ -867,11 +961,10 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._refreshTimer=null;
     this._refreshPending=false;
     this._pendingNative=null;
-    this._yamlFlow=null;
-    this._yamlBusy=false;
-    this._yamlError="";
-    this._yamlText="";
-    this._yamlMode="replace";
+    this._editingField="";
+    this._confirmDelete="";
+    this._createCharger=false;
+    this._commissionEditor=null;
   }
   canManage(){return this._hass?.user?.is_admin===true;}
   canEditSettings(){return this.canManage()&&!this._data?.configuration_managed_by_yaml;}
@@ -899,14 +992,12 @@ class RobotixMultiChargeCard extends HTMLElement {
   disconnectedCallback(){
     if(this._refreshTimer!==null)clearTimeout(this._refreshTimer);
     this._refreshTimer=null;
-    if(this._yamlFlow)void this.cancelYamlEditor();
   }
   setConfig(config){this._cardConfig=config||{};this.render();}
   getCardSize(){return 10;}
   set hass(value){
     const before=this._hass;
     this._hass=value;
-    if(this._yamlFlow&&!this.canEditSettings())void this.cancelYamlEditor();
     if(this._pendingNative&&value?.states?.[this._pendingNative.entity]?.state===
         this._pendingNative.expected){
       this._pendingNative=null;
@@ -975,7 +1066,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       };
     }finally{this._commandBusy=false;this.render();}
   }
-  async saveSettings(scope,targetId,changes,action){
+  async saveSettings(scope,targetId,changes,action,structural=false){
     if(this._settingsBusy||!this._hass||!this._data||!this.canEditSettings())return;
     if(!this._data.configuration_revision){
       this._settingsFeedback={status:"rejected",message:"Unavailable"};
@@ -988,6 +1079,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       const receipt=await this._hass.callWS({
         type:"robotix_multicharge/update_settings",
         scope,target_id:targetId,changes,action:action||"save",
+        structural,
         expected_revision:this._data.configuration_revision
       });
       if(receipt.status!=="accepted_unconfirmed"||!receipt.expected_revision)
@@ -995,6 +1087,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       this._pendingSettings={expected_revision:receipt.expected_revision};
       this._settingsFeedback={status:"accepted_unconfirmed",message:"Pending"};
       this._last=0;
+      return true;
     }catch(error){
       const detail=String(error?.message||error?.code||"");
       const reason=detail.includes("CHARGER_BUSY_STOP_FIRST")?
@@ -1002,148 +1095,179 @@ class RobotixMultiChargeCard extends HTMLElement {
         detail.includes("CHARGER_HAS_OTHER_ASSET")?
           "Unassign the other vehicle first":
         detail.includes("STALE_SETTINGS_REFRESH")?
-          "Settings changed; refresh and retry":"Unavailable";
+          "Settings changed; refresh and retry":
+        detail.includes("SETTINGS_REJECTED")?
+          "Settings rejected; check source, value and physical idle status":
+          "Settings unavailable; check permissions, sources and connection";
       this._settingsFeedback={status:"rejected",message:reason};
+      return false;
     }finally{
       this._settingsBusy=false;
       if(this._pendingSettings)await this.load();
       this.render();
     }
   }
-  async openYamlEditor(){
-    if(this._yamlBusy||this._yamlFlow||!this.canEditSettings()||
-       typeof this._hass?.callApi!=="function")return;
-    this._yamlBusy=true;this._yamlError="";this.render();
-    let pending=null;
-    try{
-      const entries=await this._hass.callApi("GET","config/config_entries/entry");
-      const matches=(Array.isArray(entries)?entries:[]).filter(x=>
-        x.domain==="robotix_multicharge");
-      if(matches.length!==1)throw Error("Exactly one MultiCharge Config Entry required");
-      pending=await this._hass.callApi("POST","config/config_entries/options/flow",
-        {handler:matches[0].entry_id});
-      if(pending?.type!=="menu"||pending.step_id!=="init"||
-         typeof pending.flow_id!=="string")
-        throw Error("Unexpected Home Assistant Options Flow menu");
-      const flow=await this._hass.callApi("POST",
-        "config/config_entries/options/flow/"+encodeURIComponent(pending.flow_id),
-        {next_step_id:"yaml"});
-      if(flow?.type!=="form"||flow.step_id!=="yaml")
-        throw Error("Home Assistant rejected JSON edit");
-      this._yamlFlow=flow;
-      const input=(flow.data_schema||[]).find(x=>x.name==="yaml_text");
-      const mode=(flow.data_schema||[]).find(x=>x.name==="mode");
-      this._yamlText=String(input?.description?.suggested_value??input?.default??"");
-      this._yamlMode=String(mode?.default||"replace");
-      // The same owner-scoped Edit JSON button is available from every
-      // Asset/Charger Details: navigate to its real reviewed Settings editor.
-      this._tab="Settings";
-      this._settingsOpen="Advanced & JSON";
-      pending=null;
-    }catch(error){
-      this._yamlError=String(error?.message||"Unable to open native configuration editor");
-      if(pending?.flow_id)try{await this._hass.callApi("DELETE",
-        "config/config_entries/options/flow/"+encodeURIComponent(pending.flow_id));}catch(_){}
-    }finally{this._yamlBusy=false;this.render();}
-  }
-  async cancelYamlEditor(){
-    const flow=this._yamlFlow;
-    this._yamlFlow=null;this._yamlError="";this._yamlText="";
-    if(flow?.flow_id&&typeof this._hass?.callApi==="function"){
-      try{await this._hass.callApi("DELETE",
-        "config/config_entries/options/flow/"+encodeURIComponent(flow.flow_id));}
-      catch(_){}
-    }
-    this.render();
-  }
-  async advanceYamlEditor(payload){
-    if(!this._yamlFlow||this._yamlBusy||!this.canEditSettings()||
-       typeof this._hass?.callApi!=="function")return;
-    const current=this._yamlFlow;
-    if(current.type!=="form")return;
-    this._yamlBusy=true;this._yamlError="";this.render();
-    try{
-      const next=await this._hass.callApi("POST",
-        "config/config_entries/options/flow/"+encodeURIComponent(current.flow_id),
-        payload);
-      if(next?.type==="create_entry"){
-        this._yamlFlow=null;this._yamlText="";
-        this._settingsFeedback={status:"accepted_unconfirmed",
-          message:"Home Assistant save accepted; verifying readback"};
-        this._last=0;
-        await this.load();
-      }else if(next?.type==="form"&&
-               ["yaml","yaml_review"].includes(next.step_id)){
-        this._yamlFlow=next;
-        if(next.step_id==="yaml"&&current.step_id==="yaml_review")
-          this._yamlError="";
-        if(Object.keys(next.errors||{}).length){
-          const source=next.description_placeholders?.note||
-            next.description_placeholders?.summary||"";
-          const detail=source.includes("Validation:")?
-            source.split("Validation:").pop().trim():
-            Object.values(next.errors).join(", ");
-          this._yamlError="JSON/YAML rejected: "+detail;
+  dashboardFieldControl(container,scope,record,field){
+    // The UI is a typed projection of the established backend schema, never
+    // a JSON document, separate settings store or native HA Options detour.
+    const prior=record[field];
+    if(field==="phase_limits_a"||field==="ready_by_weekdays"||
+       field==="charging_windows"){
+      const inputs={};
+      const keys=field==="phase_limits_a"?["L1","L2","L3"]:MC_DAYS;
+      for(const key of keys){
+        const value=(prior||{})[key];
+        if(field==="charging_windows"){
+          const line=mcEl("div","dashboard-schedule-day");
+          const enabled=this.field(line,key,value?"yes":"no",null,[
+            ["no","Off"],["yes","On"]]);
+          const start=this.field(line,"Start",value?.start||"22:00","time");
+          const end=this.field(line,"End",value?.end||"06:00","time");
+          inputs[key]={enabled,start,end};
+          container.append(line);
+        }else{
+          const unit=field==="phase_limits_a"?" A":"";
+          inputs[key]=this.field(container,key+unit,value??"",
+            field==="phase_limits_a"?"number":"time");
         }
-      }else throw Error("Unexpected native configuration response");
-    }catch(error){
-      this._yamlError=String(error?.message||"Configuration not accepted");
-      // Preserve the user's YAML draft for retry; do not claim it was saved.
-    }finally{this._yamlBusy=false;this.render();}
-  }
-  yamlEditor(container){
-    if(!this._yamlFlow)return;
-    const flow=this._yamlFlow;
-    const area=mcEl("section","yaml-editor");
-    const heading=mcEl("h3","",flow.step_id==="yaml_review"?
-      "Review configuration changes":"JSON configuration (advanced)");
-    area.append(heading);
-    area.append(mcEl("p","muted small",flow.step_id==="yaml_review"?
-      "Nothing is saved until you confirm. No charging commands are sent.":
-      "Edit the complete current Config Entry as JSON. Keep existing IDs. Home Assistant validates the full draft before Save."));
-    if(this._yamlError){
-      const msg=mcEl("p","yaml-error",this._yamlError);
-      msg.setAttribute("role","alert");area.append(msg);
-    }
-    if(flow.step_id==="yaml"){
-      const field=mcEl("div","field");
-      const label=mcEl("label","",mcTr("Update mode"));
-      const mode=mcEl("select");
-      mode.setAttribute("aria-label","Update mode");
-      for(const [value,description] of [
-        ["replace","Complete configuration (replace omitted entries)"],
-        ["merge","Scoped changes (preserve other entries)"]]){
-        const opt=mcEl("option","",description);
-        opt.value=value;mode.append(opt);
       }
-      mode.value=this._yamlMode;
-      mode.addEventListener("change",()=>{this._yamlMode=mode.value;});
-      const edit=mcEl("textarea");
-      edit.setAttribute("aria-label","MultiCharge JSON configuration");
-      edit.value=this._yamlText;
-      edit.rows=18;
-      edit.spellcheck=false;
-      edit.addEventListener("input",()=>{this._yamlText=edit.value;});
-      field.append(label,mode,mcEl("label","",mcTr("Configuration JSON")),edit);
-      area.append(field);
-      const buttons=mcEl("div","yaml-actions");
-      const review=mcButton("Continue / review",()=>this.advanceYamlEditor({
-        mode:this._yamlMode,yaml_text:this._yamlText}));
-      review.disabled=this._yamlBusy;
-      buttons.append(review,mcButton("Cancel",()=>this.cancelYamlEditor()));
-      area.append(buttons);
-    }else if(flow.step_id==="yaml_review"){
-      const summary=flow.description_placeholders?.summary||"Review changes in Home Assistant";
-      area.append(mcEl("pre","config-code",summary));
-      const actions=mcEl("div","yaml-actions");
-      const confirm=mcButton("Apply reviewed changes",()=>this.advanceYamlEditor({confirm:true}));
-      confirm.disabled=this._yamlBusy;
-      const back=mcButton("Back to JSON",()=>this.advanceYamlEditor({edit_again:true}));
-      back.disabled=this._yamlBusy;
-      actions.append(confirm,back,mcButton("Cancel",()=>this.cancelYamlEditor()));
-      area.append(actions);
+      return ()=>{
+        const result={};
+        for(const key of keys){
+          if(field==="charging_windows"){
+            if(inputs[key].enabled.value==="yes"){
+              const a=inputs[key].start.value,b=inputs[key].end.value;
+              if(!a||!b||a===b)throw Error("Charging window requires different times");
+              result[key]={start:a,end:b};
+            }
+          }else{
+            const value=inputs[key].value;
+            if(value!==""){
+              const num=Number(value);
+              if(field==="phase_limits_a"&&!Number.isFinite(num))
+                throw Error("Invalid phase current");
+              result[key]=field==="phase_limits_a"?num:value;
+            }
+          }
+        }
+        return Object.keys(result).length?result:null;
+      };
     }
-    container.append(area);
+    if(field==="phase_ids"){
+      const checked={};
+      for(const key of ["L1","L2","L3"]){
+        const input=mcEl("input");input.setAttribute("type","checkbox");
+        input.checked=(prior||[]).includes(key);
+        const label=mcEl("label","dashboard-check",key);
+        label.append(input);container.append(label);checked[key]=input;
+      }
+      return ()=>{
+        const values=Object.keys(checked).filter(key=>checked[key].checked);
+        return values.length?values:null;
+      };
+    }
+    if(field==="connected_states"||field==="disconnected_states"){
+      const inp=this.field(container,"Native status names (comma separated)",
+        Array.isArray(prior)?prior.join(", "):"","text");
+      return ()=>{
+        const values=inp.value.split(",").map(x=>x.trim()).filter(Boolean);
+        return values.length?values:null;
+      };
+    }
+    let options=null;
+    if(field==="kind")options=scope==="charger"?
+      ["on_off","variable_current"]:
+      ["car","bicycle","motorcycle","scooter","other"];
+    else if(field==="asset")options=["",...(this._data?.configuration?.assets||[]).map(x=>x.id)];
+    else if(field==="plan_color")options=Object.keys(this._data?.plan_palette||{});
+    else options=MC_EDIT_ENUM[field]||null;
+    if(MC_EDIT_BOOLEAN.has(field))options=["true","false"];
+    if(options){
+      const pairs=options.map(key=>[key,key||mcTr("No vehicle")]);
+      if(prior!==undefined&&!pairs.some(x=>x[0]===String(prior)))
+        pairs.unshift([String(prior),String(prior)]);
+      const choice=this.field(container,MC_OWNER_NAMES[field]||field,
+        prior===undefined?"":String(prior),null,pairs);
+      return ()=>MC_EDIT_BOOLEAN.has(field)?
+        choice.value==="true":MC_EDIT_NUMBERS.has(field)?
+        Number(choice.value):choice.value||null;
+    }
+    const type=MC_EDIT_NUMBERS.has(field)?"number":"text";
+    const fieldInput=this.field(container,MC_OWNER_NAMES[field]||field,
+      prior===undefined||prior===null?"":prior,type);
+    if(type==="number"){
+      fieldInput.setAttribute("step",Number.isInteger(prior)&&prior!==null?"1":"any");
+      fieldInput.setAttribute("inputmode","decimal");
+    }
+    if(MC_EDIT_SOURCE_DOMAINS[field]){
+      const list=mcEl("datalist");
+      const id="mc-source-"+scope+"-"+record.id+"-"+field;
+      list.setAttribute("id",id);fieldInput.setAttribute("list",id);
+      const domains=MC_EDIT_SOURCE_DOMAINS[field];
+      const sources=Object.keys(this._hass?.states||{}).filter(name=>
+        domains.includes(name.split(".")[0])).sort();
+      for(const name of sources.slice(0,1500)){
+        const option=mcEl("option");option.value=name;list.append(option);
+      }
+      container.append(list);
+      container.append(mcEl("p","muted small",
+        sources.length+" "+mcTr("registered Home Assistant sources")+" · "+
+        mcTr("only existing native entities")));
+    }
+    if(MC_EDIT_DATES.has(field)){
+      fieldInput.setAttribute("placeholder","YYYY-MM-DDTHH:mm:ss+01:00");
+      container.append(mcEl("p","muted small",
+        mcTr("Use an ISO timestamp with an explicit timezone")));
+    }
+    return ()=>{
+      const value=fieldInput.value.trim();
+      if(!value)return null;
+      if(MC_EDIT_NUMBERS.has(field)){
+        const numeric=Number(value);
+        if(!Number.isFinite(numeric))throw Error("Invalid number");
+        return numeric;
+      }
+      return /currency$/.test(field)?value.toUpperCase():value;
+    };
+  }
+  dashboardEditField(container,scope,record,field){
+    const body=mcEl("div","dashboard-field-edit");
+    let read=this.dashboardFieldControl(body,scope,record,field);
+    const actions=mcEl("div","dashboard-edit-actions");
+    const submit=mcButton(mcTr("Save"),async()=>{
+      let value;
+      try{value=read();}catch(e){
+        this._settingsFeedback={status:"rejected",message:String(e.message)};
+        this.render();return;
+      }
+      const ok=await this.saveSettings(scope,record.id,{[field]:value},"save",true);
+      if(ok){this._editingField="";this.render();}
+    });
+    submit.disabled=this._settingsBusy;
+    actions.append(submit,mcButton(mcTr("Cancel"),()=>{
+      this._editingField="";this.render();
+    }));
+    body.append(actions);container.append(body);
+  }
+  dashboardDelete(container,scope,record){
+    if(!this.canEditSettings()||scope==="controller")return;
+    const key=scope+":"+record.id;
+    const box=mcEl("div","dashboard-danger");
+    if(this._confirmDelete===key){
+      box.append(mcEl("span","muted small",
+        mcTr("Confirm removal")+" · "+record.name+
+        " · "+mcTr("Native history is retained")));
+      box.append(mcButton(mcTr("Confirm removal"),async()=>{
+        const ok=await this.saveSettings(scope,record.id,{},"delete",true);
+        if(ok){this._confirmDelete="";this._open="";this.render();}
+      }));
+      box.append(mcButton(mcTr("Cancel"),()=>{
+        this._confirmDelete="";this.render();
+      }));
+    }else box.append(mcButton(mcTr("Remove")+" "+record.name,()=>{
+      this._confirmDelete=key;this.render();
+    }));
+    container.append(box);
   }
   ownerEntity(scope,uid,field){
     const prefs=this._data?.preference_entities||{};
@@ -1175,7 +1299,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         this._settingsFeedback={status:"accepted_unconfirmed",message:"Updating"};
       }
     }catch(error){
-      this._settingsFeedback={status:"rejected",message:"Unavailable"};
+      this._settingsFeedback={status:"rejected",message:String(error?.message||"Selection rejected").slice(0,210)};
     }finally{this._settingsBusy=false;this.render();}
   }
   async nativeText(scope,uid,field,value){
@@ -1378,11 +1502,13 @@ class RobotixMultiChargeCard extends HTMLElement {
     container.append(panel);
   }
   openNative(scope,uid,field){
-    const entity=this.ownerEntity(scope,uid,field);
-    if(!this.canEditSettings()||!entity){this._settingsFeedback={status:"rejected",message:"Unavailable"};this.render();return;}
-    this.dispatchEvent(new CustomEvent("hass-more-info",{
-      bubbles:true,composed:true,detail:{entityId:entity}
-    }));
+    if(!this.canEditSettings())return;
+    this._editingField=scope+":"+uid+":"+field;
+    if(scope==="controller"){this._tab="Settings";this._settingsOpen="Charging site";}
+    else{this._tab=scope==="charger"?"Chargers":"Chargeable Assets";this._open=uid;}
+    const group=(MC_OWNER_GROUPS[scope]||[]).find(([,fields])=>fields.includes(field));
+    if(group)this._folds[scope+":"+uid+":"+group[0]]=true;
+    this.render();
   }
   ownerColorControl(container,scope,row){
     const palette=this._data?.plan_palette||{};
@@ -1413,6 +1539,80 @@ class RobotixMultiChargeCard extends HTMLElement {
     wrapper.append(label,input);container.append(wrapper);
     return input;
   }
+  openCommissionEditor(charger){
+    if(!this.canEditSettings())return;
+    this._commissionEditor={
+      charger_id:charger.id,name:charger.name,
+      enable:charger.control_owner!=="multicharge",
+      busy:false,error:""
+    };
+    this.render();
+  }
+  async applyCommission(exclusive,electrical){
+    const editor=this._commissionEditor;
+    if(!editor||editor.busy||!this.canEditSettings())return;
+    editor.busy=true;editor.error="";this.render();
+    try{
+      const response=await this._hass.callWS({
+        type:"robotix_multicharge/dashboard_config",
+        operation:"commission",
+        expected_revision:this._data.configuration_revision,
+        charger_id:editor.charger_id,
+        commission:editor.enable,
+        exclusive_writer_confirmed:exclusive,
+        electrical_limits_confirmed:electrical
+      });
+      if(response.status!=="accepted_unconfirmed"||!response.expected_revision)
+        throw Error("Commissioning not authorized");
+      this._pendingSettings={expected_revision:response.expected_revision};
+      this._settingsFeedback={status:"accepted_unconfirmed",
+        message:"Commissioning accepted; waiting HA Config Entry readback"};
+      this._last=0;await this.load();
+      if(this._data?.configuration_revision===response.expected_revision){
+        this._commissionEditor=null;
+        this._settingsFeedback={status:"confirmed",message:"Saved"};
+      }else editor.error="HA runtime readback pending; refresh";
+    }catch(error){
+      editor.error=String(error?.message||error?.code||"Physical commissioning rejected").slice(0,250);
+    }finally{editor.busy=false;this.render();}
+  }
+  commissionEditor(container){
+    const editor=this._commissionEditor;
+    if(!editor||!this.canEditSettings())return;
+    const card=mcEl("section","card dashboard-editor");
+    card.setAttribute("data-dashboard-commission",editor.charger_id);
+    const header=mcEl("div","row");
+    header.append(mcEl("h3","",
+      (editor.enable?"Commission":"Return to monitoring")+
+      " · "+editor.name),
+      mcButton(mcTr("Close"),()=>{
+        this._commissionEditor=null;this.render();
+      }));
+    card.append(header);
+    card.append(mcEl("p","message error",
+      "Physical hardware ownership can only change with "+
+      "an exclusive writer, verified electrical limits, OFF switch and "+
+      "independently measured zero power. No START/STOP command is issued here."));
+    const check=(label)=>{
+      const row=mcEl("label","dashboard-confirm");
+      const input=mcEl("input");input.setAttribute("type","checkbox");
+      row.append(input,mcEl("span","",label));
+      card.append(row);return input;
+    };
+    const exclusive=check("I verified no EV Smart Charging or other controller still writes to this charger");
+    const electrical=check("I verified the physical circuit/phase/current limits and source readback");
+    const save=mcButton(
+      editor.enable?"Enable MultiCharge physical ownership":"Disable MultiCharge physical ownership",
+      ()=>this.applyCommission(exclusive.checked,electrical.checked)
+    );
+    save.disabled=editor.busy;
+    card.append(save);
+    if(editor.error){
+      const p=mcEl("p","message error",editor.error);p.setAttribute("role","alert");
+      card.append(p);
+    }
+    container.append(card);
+  }
   feedback(container){
     if(!this._settingsFeedback)return;
     const result=this._settingsFeedback;
@@ -1429,8 +1629,9 @@ class RobotixMultiChargeCard extends HTMLElement {
     container.append(mcEl("div","notice"+(bad?" error":""),message));
   }
   configure(container){
-    if(!this.canManage())return;
-    const link=mcEl("a","action",mcTr("Configure in Home Assistant"));
+    // First installation only; configured runtime never navigates out for edits.
+    if(!this.canManage()||this._data)return;
+    const link=mcEl("a","action",mcTr("Install MultiCharge once in Home Assistant"));
     link.href="/config/integrations/integration/robotix_multicharge";
     link.setAttribute("aria-label",mcTr("Home Assistant"));
     container.append(link);
@@ -1438,7 +1639,13 @@ class RobotixMultiChargeCard extends HTMLElement {
   render(){
     mcLanguage=String(this._hass?.locale?.language||this._hass?.language||"en").slice(0,2).toLowerCase();
     if(!this.shadowRoot)return;
-    const root=this.shadowRoot;root.replaceChildren();
+    const root=this.shadowRoot;
+    if(typeof root.querySelectorAll==="function")
+      for(const chart of root.querySelectorAll(".mc-apex")){
+        try{chart._mcApex?.destroy();}catch(_){}
+        chart._mcApex=null;
+      }
+    root.replaceChildren();
     this._fieldSequence=0;
     const style=mcEl("style");style.textContent=MC_STYLE;root.append(style);
     const shell=mcEl("section","root");
@@ -1449,13 +1656,13 @@ class RobotixMultiChargeCard extends HTMLElement {
     const tabs=mcEl("nav","tabs");tabs.setAttribute("aria-label","MultiCharge views");
     for(const item of MC_TABS){
       const btn=mcButton(item,()=>{
-        if(item!=="Settings"&&this._yamlFlow)void this.cancelYamlEditor();
         this._tab=item;this.render();
       });
       btn.setAttribute("aria-selected",String(this._tab===item));
       tabs.append(btn);
     }
     shell.append(tabs);
+    if(this.canEditSettings()&&this._commissionEditor)this.commissionEditor(shell);
     if(this._loading&&!this._data)this.notice(shell,"Loading",false);
     if(this._error){
       this.notice(shell,"Unavailable",true);
@@ -1544,6 +1751,22 @@ class RobotixMultiChargeCard extends HTMLElement {
       card.append(controls);
       container.append(card);
     }
+    if(chargers.length){
+      const quick=mcEl("section","card quick-owner-panel");
+      quick.append(mcEl("h3","",mcTr("Quick charger assignment")));
+      quick.append(mcEl("p","muted small",mcTr("Select the vehicle at each charger · no Details needed")));
+      for(const charger of chargers){
+        const line=mcEl("div","quick-owner-line");
+        line.append(mcEl("strong","",charger.name));
+        this.chargerQuickSelection(line,charger);
+        const evidence=observations[charger.id]?.connected;
+        line.append(mcEl("span","muted small",
+          evidence?.quality==="ok"?(evidence.value?
+            mcTr("Connected"):mcTr("Disconnected")):mcTr("Connection unknown")));
+        quick.append(line);
+      }
+      container.append(quick);
+    }
     if(!assets.length&&chargers.length)this.notice(container,"No vehicles",false);
     if(this.canEditSettings()){
       const add=mcButton(mcTr("Add guest or vehicle"),()=>{
@@ -1553,7 +1776,10 @@ class RobotixMultiChargeCard extends HTMLElement {
     }
     const next=mcEl("div","card");next.append(mcEl("h3","","Next action"));
     next.append(mcEl("p","",!chargers.length?"Configure a charger to begin":d.status==="unavailable"?"Not ready":"Plan"));
-    if(!chargers.length)this.configure(next);
+    if(!chargers.length&&this.canEditSettings())
+      next.append(mcButton(mcTr("Add charger"),()=>{
+        this._tab="Chargers";this._createCharger=true;this.render();
+      }));
     const reasons=Object.entries(d.reasons||{}).filter(([key,val])=>val!=="PROPOSED");
     if(reasons.length)next.append(mcEl("p","muted small",reasons.map(([key,val])=>key+": "+mcReason(val)).slice(0,4).join(" · ")));
     container.append(next);
@@ -1692,69 +1918,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(!hasData){
         card.append(mcEl("p","muted small","No qualified slots for this day."));
       }else{
-        const area=mcEl("div","chart");
-        const svg=mcSVG("svg",{
-          viewBox:"0 0 960 149",class:"timeline",role:"img",
-          "aria-label":fullName+" — proposed, accepted, measured and indicative quarter-hour charging"
-        });
-        const cap=Math.max(0.2,charger.rated_power_kw||0.2,
-          ...activeRows.flatMap(s=>[s.proposed_power_kw||0,s.accepted_power_kw||0]),
-          ...actualRows.map(s=>s.actual_power_kw||0),
-          ...previewRows.map(s=>s.indicative_power_kw||0));
-        values.forEach(([key,samples,description],index)=>{
-          const y=yRows[index];
-          svg.append(mcSVG("text",{x:2,y:y+2},description.replace("Physically accepted","Accepted")
-            .replace("Measured physical","Measured").replace("Indicative only","Indicative")));
-          svg.append(mcSVG("line",{
-            x1:x0,y1:y+7,x2:x0+width,y2:y+7,
-            stroke:"currentColor","stroke-opacity":0.15
-          }));
-          for(const item of samples){
-            if(item.charger_id!==charger.id||typeof item[key]!=="number")continue;
-            const slotIndex=Math.floor((new Date(item.start).getTime()-from)/900000);
-            if(slotIndex<0||slotIndex>=count)continue;
-            const kw=item[key];
-            const barHeight=Math.max(0,Math.min(height,kw/cap*height));
-            const x=x0+slotIndex*width/count;
-            const isForecast=key==="indicative_power_kw";
-            const isMeasured=key==="actual_power_kw";
-            const proven=isMeasured &&
-              item.asset_provenance==="confirmed_closed_session"&&item.asset_id;
-            const entityColor=colorBy==="charger"?
-              mcOwnerColor("charger",charger.id,c,d.plan_palette):
-              mcOwnerColor("asset",item.asset_id||charger.asset,c,d.plan_palette);
-            const tint=isMeasured&&!proven&&colorBy==="vehicle"?
-              "#757d87":entityColor;
-            const rect=mcSVG("rect",{
-              x,y:y+7-barHeight,
-              width:Math.max(1,width/count-0.35),
-              height:barHeight,
-              fill:isForecast?"none":tint,
-              "fill-opacity":key==="proposed_power_kw"?0.4:1,
-              stroke:isForecast?tint:"none",
-              "stroke-width":isForecast?1.4:0,
-              "stroke-dasharray":isForecast?"3 2":"none"
-            });
-            const name=isMeasured&&!proven?
-              charger.name+" · "+mcTr("Vehicle unknown"):
-              mcPlanName(item,c,labelMode);
-            const caveat=isForecast?" · "+mcTr("Not reserved"):"";
-            rect.append(mcSVG("title",{},
-              description+" · "+name+" · "+mcTime(item.start,d.timezone)+
-              " · "+kw+" kW"+caveat));
-            svg.append(rect);
-          }
-        });
-        for(let i=0;i<=4;i++){
-          const stamp=new Date(from+(until-from)*i/4);
-          svg.append(mcSVG("text",{
-            x:x0+i*width/4,y:139,
-            "text-anchor":i===0?"start":i===4?"end":"middle"
-          },stamp.toLocaleTimeString(undefined,{
-            timeZone:d.timezone||"UTC",hour:"2-digit",minute:"2-digit"
-          })));
-        }
-        area.append(svg);card.append(area);
+        card.append(mcApexLane(d,charger,activeRows,actualRows,previewRows));
       }
       if(assumptions[charger.id]&&forecastVisible){
         const item=assumptions[charger.id];
@@ -1808,6 +1972,47 @@ class RobotixMultiChargeCard extends HTMLElement {
   }
   // One visible resident-readable goal control, one authorized atomic
   // settings transaction. Unsubmitted drafts are local form state only.
+  chargerQuickSelection(container,charger){
+    // Native Charger Device owns the *only* relationship. The card always
+    // shows the chooser without opening Details; HA persists it once.
+    const entity=this.ownerEntity("charger",charger.id,"asset");
+    const select=mcEl("select","quick-vehicle-select");
+    select.setAttribute("data-quick-assignment",charger.id);
+    select.setAttribute("aria-label",mcTr("Selected vehicle")+" · "+charger.name);
+    const assets=this._data?.configuration?.assets||[];
+    const names=new Map();
+    assets.forEach(a=>names.set(a.name,(names.get(a.name)||0)+1));
+    const display=a=>names.get(a.name)>1?
+      a.name+" ("+a.id+")":a.name;
+    // HA Entity supplies the canonical choices. Source-derived names are
+    // only a cold-start display fallback, never a second assignment writer.
+    const state=entity?this._hass?.states?.[entity]:null;
+    const nativeOptions=state?.attributes?.options;
+    const options=Array.isArray(nativeOptions)&&nativeOptions.length?
+      nativeOptions:["none",...assets.map(display)];
+    const selected=assets.find(a=>a.id===charger.asset);
+    const expected=selected?display(selected):"none";
+    const current=options.includes(state?.state)?state.state:expected;
+    for(const option of options){
+      const item=mcEl("option","",option==="none"?
+        mcTr("No vehicle"):option);
+      item.value=option;select.append(item);
+    }
+    select.value=options.includes(current)?current:"none";
+    select.disabled=!this.canEditSettings()||!entity||this._settingsBusy;
+    select.addEventListener("change",()=>{
+      const next=select.value;
+      if(next!==current)void this.nativeSelect("charger",charger.id,"asset",next);
+    });
+    const wrap=mcEl("div","quick-assignment");
+    const label=mcEl("label","",mcTr("Selected vehicle"));
+    const id="mc-vehicle-"+charger.id.replace(/[^a-z0-9_-]/gi,"-");
+    select.setAttribute("id",id);label.setAttribute("for",id);
+    wrap.append(label,select);
+    if(!entity)wrap.append(mcEl("span","muted small",
+      mcTr("Native vehicle selection unavailable")));
+    container.append(wrap);
+  }
   disclosure(container,key,title,content,hint=""){
     // Native <details>/<summary> provides browser keyboard semantics and
     // independent compact disclosure, without an alternate page or state store.
@@ -1836,15 +2041,17 @@ class RobotixMultiChargeCard extends HTMLElement {
         mcEl("div","owner-field-value",
           mcOwnerReadValue(record[field],field,this._data?.timezone)));
       line.append(info);
-      const entity=this.ownerEntity(scope,record.id,field);
-      if(this.canEditSettings()&&entity&&field!=="id"&&
-         field!=="control_owner"&&field!=="physical_commissioned"){
-        const edit=mcButton(mcTr("Edit"),()=>
-          this.openNative(scope,record.id,field));
+      const key=scope+":"+record.id+":"+field;
+      if(this.canEditSettings()&&!["id","control_owner","physical_commissioned"].includes(field)){
+        const edit=mcButton(mcTr("Edit"),()=>{
+          this._editingField=this._editingField===key?"":key;this.render();
+        });
         edit.setAttribute("aria-label",mcTr("Edit")+" "+mcTr(label)+" · "+record.name);
         line.append(edit);
       }
       parent.append(line);
+      if(this.canEditSettings()&&this._editingField===key)
+        this.dashboardEditField(parent,scope,record,field);
     };
     const fold=(title,fields,key)=>{
       const section=mcEl("details","owner-group");
@@ -1875,21 +2082,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       mcTr("Read from Home Assistant configuration")+" · "+
       Object.keys(record).length+" "+mcTr("configured fields")+" · "+
       mcTr("Missing values are not assumed")));
-    if(scope==="charger"||scope==="controller"||scope==="asset"){
-      const next=mcEl("div","owner-configure");
-      const note=scope==="charger"?
-        mcTr("Hardware source bindings and commissioning use the native Charger options"):
-        scope==="asset"?
-          mcTr("Vehicle source mappings use the native Vehicle options"):
-          mcTr("Site source configuration uses the native Controller/Energy options");
-      next.append(mcEl("p","muted small",note));
-      // One reviewed JSON transaction, not per-row independent write paths.
-      if(this.canEditSettings()){
-        next.append(mcButton("Edit JSON",()=>this.openYamlEditor()));
-        this.configure(next);
-      }
-      wrapper.append(next);
-    }
+    if(this.canEditSettings())this.dashboardDelete(wrapper,scope,record);
     container.append(wrapper);
   }
   assetGoalEditor(card,asset){
@@ -2259,6 +2452,62 @@ class RobotixMultiChargeCard extends HTMLElement {
       this._assetEditor=this._assetEditor==="new"?"":"new";this.render();
     }));
   }
+  dashboardChargerCreate(container){
+    if(!this.canEditSettings())return;
+    const box=mcEl("section","card dashboard-create");
+    box.append(mcEl("h3","",mcTr("Add charger")+" · "+
+      mcTr("configured entirely in MultiCharge")));
+    box.append(mcEl("p","muted small",
+      mcTr("New chargers start in external monitor-only mode; no physical command")));
+    const id=this.field(box,mcTr("Stable charger ID"),"","text");
+    const name=this.field(box,mcTr("Charger name"),"","text");
+    const kind=this.field(box,mcTr("Control type"),"on_off",null,[
+      ["on_off",mcTr("On/off")],["variable_current",mcTr("Variable current")]
+    ]);
+    const power=this.field(box,mcTr("Rated power (kW)"),"","number");
+    power.setAttribute("step","any");
+    const tech=mcEl("details","owner-group");
+    tech.append(mcEl("summary","",mcTr("Native connection, power and current sources")));
+    const panel=mcEl("div","owner-fields");
+    const draft={id:"new_charger"};
+    const readers={};
+    for(const field of [
+      "control_entity","connected_entity","connected_states","disconnected_states",
+      "power_entity","energy_entity","session_entity",
+      "current_control_entity","current_readback_entity",
+      "phase_count","phase_ids","voltage_v",
+      "min_current_a","max_current_a","current_step_a","fixed_current_a",
+      "circuit_id","circuit_limit_a"
+    ])readers[field]=this.dashboardFieldControl(panel,"charger",draft,field);
+    tech.append(panel);box.append(tech);
+    const actions=mcEl("div","dashboard-edit-actions");
+    const save=mcButton(mcTr("Add charger"),async()=>{
+      const uid=id.value.trim()||name.value.trim().toLowerCase()
+        .replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"");
+      const rated=Number(power.value);
+      if(!uid||!name.value.trim()||!Number.isFinite(rated)||rated<=0){
+        this._settingsFeedback={status:"rejected",
+          message:"Charger needs stable ID, name and positive rated kW"};
+        this.render();return;
+      }
+      const changes={name:name.value.trim(),kind:kind.value,rated_power_kw:rated};
+      try{
+        for(const [key,read] of Object.entries(readers)){
+          const value=read();if(value!==null)changes[key]=value;
+        }
+      }catch(error){
+        this._settingsFeedback={status:"rejected",message:String(error.message)};
+        this.render();return;
+      }
+      const ok=await this.saveSettings("charger",uid,changes,"create",true);
+      if(ok){this._createCharger=false;this._open=uid;this.render();}
+    });
+    save.disabled=this._settingsBusy;
+    actions.append(save,mcButton(mcTr("Cancel"),()=>{
+      this._createCharger=false;this.render();
+    }));
+    box.append(actions);container.append(box);
+  }
   chargers(container){
     const d=this._data,chargers=d.configuration.chargers||[],observations=(d.observations||{}).chargers||{};
     this.title(container,mcTr("Chargers")+" ("+chargers.length+")");
@@ -2281,6 +2530,10 @@ class RobotixMultiChargeCard extends HTMLElement {
         mcTr("External control (monitor only)"));
       mcPair(card,mcTr("Physically commissioned"),
         c.physical_commissioned===true?mcTr("Yes"):mcTr("No"));
+      if(this.canEditSettings())card.append(mcButton(
+        mcTr("Physical ownership & commissioning"),
+        ()=>this.openCommissionEditor(c)
+      ));
       const session=(d.active_sessions||{})[c.id];
       if(session){
         mcPair(card,"Active session",mcTime(session.started_at,d.timezone));
@@ -2304,10 +2557,11 @@ class RobotixMultiChargeCard extends HTMLElement {
             mcReason(session.budget_quality||"unknown"));
         }
       }
-      mcPair(card,"Assigned asset",c.asset||"Not assigned");
+      const selectedAsset=(d.configuration.assets||[]).find(a=>a.id===c.asset);
+      this.chargerQuickSelection(card,c);
+      mcPair(card,"Assigned asset",selectedAsset?selectedAsset.name:mcTr("Not assigned"));
       const identity=(d.connection_identity||{})[c.id]||null;
       const confirmed=(identity&&identity.asset_id===c.asset);
-      const selectedAsset=(d.configuration.assets||[]).find(a=>a.id===c.asset);
       mcPair(card,mcTr("Connected vehicle"),confirmed?
         (selectedAsset?selectedAsset.name:c.asset):mcTr("Not confirmed"));
       if(this.canManage()&&obs.connected?.quality==="ok"&&obs.connected.value===true&&
@@ -2372,12 +2626,6 @@ class RobotixMultiChargeCard extends HTMLElement {
         if(actual.reason)mcPair(detail,"Reason",mcReason(actual.reason));
         if(actual.readback_at)mcPair(detail,"Measured confirmation",mcTime(actual.readback_at,d.timezone));
         if(this.canEditSettings())this.ownerColorControl(detail,"charger",c);
-        if(this.canEditSettings()&&this.ownerEntity("charger",c.id,"asset")){
-          const setting=mcEl("div","row");
-          setting.append(mcEl("span","muted small","Selected vehicle"),
-            mcButton("Edit",()=>this.openNative("charger",c.id,"asset")));
-          detail.append(setting);
-        }
         this.ownerFacts(detail,"charger",c);
         card.append(detail);
       }
@@ -2460,10 +2708,11 @@ class RobotixMultiChargeCard extends HTMLElement {
       container.append(card);
     }
     if(this.canEditSettings()){
-      const add=mcEl("a","action",mcTr("Add charger"));
-      add.href="/config/integrations/integration/robotix_multicharge";
-      add.setAttribute("aria-label",mcTr("Add charger"));
-      container.append(add);
+      container.append(mcButton(this._createCharger?
+        mcTr("Cancel adding charger"):mcTr("Add charger"),()=>{
+        this._createCharger=!this._createCharger;this.render();
+      }));
+      if(this._createCharger)this.dashboardChargerCreate(container);
     }
   }
   settings(container){
@@ -2471,26 +2720,9 @@ class RobotixMultiChargeCard extends HTMLElement {
     this.title(container,"Settings");
     if(d.configuration_managed_by_yaml)mcPair(
       container,"Configuration",
-      d.configuration_managed_by_json?
-        "JSON · read-only; edit your MultiCharge JSON and restart":
-        "YAML · read-only; edit Home Assistant YAML and restart"
+      "Legacy file-owned configuration is read-only; migrate once to GUI ownership"
     );
-
-    const toolbar=mcEl("div","settings-toolbar");
-    this.configure(toolbar);
-    if(this.canEditSettings()){
-      const edit=mcButton(this._yamlFlow?"Cancel JSON":"Edit JSON",()=>
-        this._yamlFlow?this.cancelYamlEditor():this.openYamlEditor());
-      edit.disabled=this._yamlBusy;
-      toolbar.append(edit);
-    }
-    container.append(toolbar);
     this.feedback(container);
-    if(this._yamlError&&!this._yamlFlow){
-      const warning=mcEl("p","yaml-error",this._yamlError);
-      warning.setAttribute("role","alert");container.append(warning);
-    }
-    this.yamlEditor(container);
     const settingsGrid=mcEl("div","settings-grid");
     for(const title of MC_SETTINGS){
       const open=title===this._settingsOpen;
@@ -2506,7 +2738,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         title==="Charging strategy"?ctl.mode||"Off":
         title==="Safety & limits"?(ctl.max_power_kw===undefined?"No capacity":ctl.max_power_kw+" kW")+" · "+(ctl.max_parallel||1)+" parallel":
         title==="Integrations"?(c.chargers||[]).length+" chargers":
-        d.configuration_managed_by_yaml?"YAML / JSON source · read-only":"Expert YAML / JSON configuration";
+        d.configuration_managed_by_yaml?"Legacy file source · read-only":"One dashboard-owned configuration";
       heading.append(mcEl("p","muted small",summary));
       const row=mcEl("div","row");
       row.append(heading,mcButton(open?"Close":"Details",()=>{
@@ -2590,12 +2822,39 @@ class RobotixMultiChargeCard extends HTMLElement {
             ["site_power_entity","Site power"],["binding_entity","Capacity"]
           ]){
             mcPair(detail,label,ctl[field]||mcTr("Not set"));
-            if(this.canEditSettings()&&this.ownerEntity("controller",ctl.id,field)){
+            if(this.canEditSettings()){
               const sourceEdit=mcEl("div","row");
+              const key="controller:"+ctl.id+":"+field;
               sourceEdit.append(mcEl("span","muted small",mcTr(label)+" "+mcTr("source")),
-                mcButton(mcTr("Edit"),()=>this.openNative("controller",ctl.id,field)));
+                mcButton(mcTr("Edit"),()=>{
+                  this._editingField=this._editingField===key?"":key;this.render();
+                }));
               detail.append(sourceEdit);
+              if(this._editingField===key)
+                this.dashboardEditField(detail,"controller",ctl,field);
             }
+          }
+        }else if(title==="Safety & limits"){
+          mcPair(detail,"Maximum group kW",
+            ctl.max_power_kw===undefined?"Unknown":ctl.max_power_kw+" kW");
+          this.nativeNumberEditor(detail,"controller",ctl.id,"max_power_kw",
+            "Maximum group power",ctl.max_power_kw,"kW");
+          this.nativeNumberEditor(detail,"controller",ctl.id,"max_parallel",
+            "Parallel chargers",ctl.max_parallel);
+          const phaseValues=Object.entries(ctl.phase_limits_a||{});
+          mcPair(detail,"Electrical limits",phaseValues.length?
+            phaseValues.map(([id,amps])=>id+": "+amps+" A").join(" · "):
+            mcTr("Not set"));
+          if(this.canEditSettings()){
+            const key="controller:"+ctl.id+":phase_limits_a";
+            const row=mcEl("div","row");
+            row.append(mcEl("span","muted small","Phase and circuit limits"),
+              mcButton(mcTr("Edit"),()=>{
+                this._editingField=key;this.render();
+              }));
+            detail.append(row);
+            if(this._editingField===key)
+              this.dashboardEditField(detail,"controller",ctl,"phase_limits_a");
           }
         }else if(title==="Integrations"){
           mcPair(detail,"Tariff",mcReason((d.observations||{}).sources?.tariff_quality));
@@ -2614,31 +2873,6 @@ class RobotixMultiChargeCard extends HTMLElement {
           }
           mcPair(detail,"Solar source",ctl.solar_source_kind||"none");
           mcPair(detail,"Grid direction",ctl.grid_power_direction||"import_positive");
-        }else if(title==="Safety & limits"){
-          mcPair(detail,"Maximum group kW",ctl.max_power_kw===undefined?
-            "Unknown":ctl.max_power_kw+" kW");
-          this.nativeNumberEditor(detail,"controller",ctl.id,"max_power_kw",
-            "Maximum group power",ctl.max_power_kw,"kW");
-          this.nativeNumberEditor(detail,"controller",ctl.id,"max_parallel",
-            "Parallel chargers",ctl.max_parallel);
-          const phases=Object.entries(ctl.phase_limits_a||{});
-          mcPair(detail,"Electrical limits",
-            phases.length?phases.map(([id,amps])=>id+": "+amps+" A").join(" · "):mcTr("Not set"));
-          detail.append(mcEl("p","muted small",
-            mcTr("Phase and wiring settings are changed through the native Controller options after physical verification")));
-          if(this.canEditSettings())this.configure(detail);
-        }else{
-          mcPair(detail,"Configuration",d.configuration_managed_by_yaml?
-            (d.configuration_managed_by_json?"JSON source":"YAML source"):"Home Assistant settings");
-          detail.append(mcEl("p","muted small",
-            d.configuration_managed_by_yaml?
-              "This site is managed by external Home Assistant YAML/JSON. Edit its existing source file, validate and restart. The dashboard will not overwrite that authority.":
-              "For GUI-managed sites, use Edit JSON above, review every change and save through Home Assistant. The Config Entry remains the only authority; no separate file or charging writer is created."));
-          if(!d.configuration_managed_by_yaml)detail.append(mcEl(
-            "p","muted small",
-            "Select native Home Assistant sources through Configure → Energy & prices; "+
-            "Home Assistant Energy Dashboard sources may be reused. No template sensors "+
-            "or packages are required for MultiCharge configuration."));
         }
         group.append(detail);
       }

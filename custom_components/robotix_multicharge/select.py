@@ -213,7 +213,7 @@ class _OwnedSelect(SelectEntity):
         await super().async_will_remove_from_hass()
 
     async def async_select_option(self, option: str) -> None:
-        await require_native_admin(self.hass, self.context)
+        await require_native_admin(self.hass, self._context)
         if option not in self._options():
             raise ValueError("unsupported_choice")
         if self.field.startswith("ready_day_"):
