@@ -57,6 +57,15 @@ for(const [locale,terms] of Object.entries({
   de:{"Assign charger":"Ladepunkt zuweisen","Change charger":"Ladepunkt wechseln","Select charger":"Ladepunkt auswählen","Assign selected charger":"Ladepunkt zuweisen","Unassign charger":"Zuweisung aufheben","No free charger":"Kein freier Ladepunkt","Close assignment":"Schließen","Idle-only reassignment. Stop charging separately before moving a vehicle.":"Nur im Stillstand. Laden vor dem Wechsel separat stoppen."},
   es:{"Assign charger":"Asignar cargador","Change charger":"Cambiar cargador","Select charger":"Elegir cargador","Assign selected charger":"Asignar cargador elegido","Unassign charger":"Quitar asignación","No free charger":"No hay cargadores libres","Close assignment":"Cerrar","Idle-only reassignment. Stop charging separately before moving a vehicle.":"Solo en reposo. Detenga la carga antes de cambiar el vehículo."}
 }))Object.assign(MC_TEXT[locale],terms);
+for(const [locale,terms] of Object.entries({
+  nl:{"Stop charging before changing charger":"Stop eerst met laden voordat je van laadpaal wisselt","Settings changed; refresh and retry":"Instellingen gewijzigd; vernieuw en probeer opnieuw"},
+  fr:{"Stop charging before changing charger":"Arrêtez la charge avant de changer de borne","Settings changed; refresh and retry":"Paramètres modifiés ; actualisez et réessayez"},
+  da:{"Stop charging before changing charger":"Stop opladning før skift af lader","Settings changed; refresh and retry":"Indstillinger ændret; opdater og prøv igen"},
+  nb:{"Stop charging before changing charger":"Stopp lading før bytte av lader","Settings changed; refresh and retry":"Innstillinger endret; oppdater og prøv igjen"},
+  sv:{"Stop charging before changing charger":"Stoppa laddning innan du byter laddare","Settings changed; refresh and retry":"Inställningarna har ändrats; uppdatera och försök igen"},
+  de:{"Stop charging before changing charger":"Laden vor dem Ladepunktwechsel stoppen","Settings changed; refresh and retry":"Einstellungen geändert; aktualisieren und erneut versuchen"},
+  es:{"Stop charging before changing charger":"Detenga la carga antes de cambiar de cargador","Settings changed; refresh and retry":"La configuración cambió; actualice e inténtelo de nuevo"}
+}))Object.assign(MC_TEXT[locale],terms);
 const MC_MODES = ["Automatic", "Solar", "Economy", "Ready By", "Force Charge", "Off"];
 const MC_STYLE = [
   ":host{display:block;color:var(--primary-text-color,#20252b);font:inherit}",
@@ -279,7 +288,12 @@ class RobotixMultiChargeCard extends HTMLElement {
       this._settingsFeedback={status:"accepted_unconfirmed",message:"Pending"};
       this._last=0;
     }catch(error){
-      this._settingsFeedback={status:"rejected",message:"Unavailable"};
+      const detail=String(error?.message||error?.code||"");
+      const reason=detail.includes("CHARGER_BUSY_STOP_FIRST")?
+        "Stop charging before changing charger":
+        detail.includes("STALE_SETTINGS_REFRESH")?
+          "Settings changed; refresh and retry":"Unavailable";
+      this._settingsFeedback={status:"rejected",message:reason};
     }finally{
       this._settingsBusy=false;
       if(this._pendingSettings)await this.load();
@@ -593,7 +607,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     if(!this._settingsFeedback)return;
     const result=this._settingsFeedback;
     const node=mcEl("p","message "+(result.status==="confirmed"?"confirmed":result.status==="rejected"?"error":"pending"),
-      result.status==="confirmed"?"Saved":result.status==="rejected"?"Unavailable":"Pending");
+      result.status==="confirmed"?"Saved":
+      result.status==="rejected"?(result.message||"Unavailable"):"Pending");
     node.setAttribute("role",result.status==="rejected"?"alert":"status");
     container.append(node);
   }
