@@ -1103,6 +1103,112 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(receipt["cost"])
         self.assertEqual(receipt["energy_quality"], "unknown")
 
+    async def test_qualified_eur_budget_physically_stops_with_measured_kwh(self):
+        rt, states, service = rig()
+        asset = rt.configuration["assets"][0]
+        asset.pop("requested_kwh")
+        asset["requested_budget_amount"] = 10.0
+        asset["requested_budget_currency"] = "EUR"
+        now = datetime.now(timezone.utc)
+        provider = state("ready")
+        provider.attributes = {
+            "kind": "effective_price_kwh", "currency": "EUR",
+            "valid_until": (now + timedelta(hours=3)).isoformat(),
+            "intervals": [{
+                "start": (now - timedelta(hours=1)).isoformat(),
+                "end": (now + timedelta(hours=3)).isoformat(),
+                "value": 10.0,
+            }],
+        }
+        states["sensor.effective_price"] = provider
+        rt.configuration["controller"]["price_entity"] = "sensor.effective_price"
+        rt.refresh()
+        self.assertEqual(rt.observations["sources"]["tariff_quality"], "OK")
+        result = await rt.executor.execute("evse", "start")
+        self.assertEqual(result["status"], "confirmed")
+        snapshot = rt.executor.session_snapshot()["evse"]
+        self.assertEqual(snapshot["requested_budget_amount"], 10)
+        states["sensor.meter"].state = "6"
+        states["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        await rt.executor.supervise()
+        self.assertEqual(service.calls[-1][1], "turn_off")
+        self.assertFalse(rt.executor.session_snapshot())
+        receipt = rt.executor.completed_sessions()[0]
+        self.assertEqual(receipt["budget_cost_quality"],
+                         "qualified_effective_meter_increments")
+        self.assertAlmostEqual(receipt["budget_accrued_cost"], 10.0)
+        self.assertEqual(receipt["actual_energy_kwh"], 1.0)
+        self.assertTrue(receipt["physical_stop_confirmed"])
+        # Historical receipt does not change when later a different asset
+        # is selected on the same physical Charger.
+        rt.configuration["chargers"][0]["asset"] = None
+        self.assertEqual(rt.executor.completed_sessions()[0]["asset_id"], "car")
+
+    async def test_eur_budget_spot_reference_and_missing_meter_fail_closed(self):
+        rt, states, service = rig()
+        asset = rt.configuration["assets"][0]
+        asset.pop("requested_kwh")
+        asset["requested_budget_amount"] = 10
+        asset["requested_budget_currency"] = "EUR"
+        rt.refresh()
+        self.assertEqual((await rt.executor.execute("evse", "start"))["reason"],
+                         "BUDGET_EFFECTIVE_TARIFF_UNAVAILABLE")
+        now = datetime.now(timezone.utc)
+        for kind in ("spot", "variable_reference"):
+            provider = state("ready")
+            provider.attributes = {
+                "kind": "price_kwh" if kind == "spot" else "effective_price_kwh",
+                "currency": "EUR",
+                "valid_until": (now + timedelta(hours=3)).isoformat(),
+                "intervals": [{
+                    "start": (now - timedelta(hours=1)).isoformat(),
+                    "end": (now + timedelta(hours=3)).isoformat(),
+                    "value": 0.25,
+                }],
+            }
+            states["sensor.price"] = provider
+            rt.configuration["controller"]["price_entity"] = "sensor.price"
+            rt.refresh()
+            # The explicit internal price basis is the final authority:
+            # even a valid quote alone never grants an unqualified bill.
+            if kind == "spot":
+                self.assertNotEqual(
+                    rt.executor._qualified_budget_price(now, "EUR"), 0.25
+                )
+        self.assertFalse(service.calls)
+        rt.configuration["chargers"][0]["energy_entity"] = None
+        blocked = await rt.executor.execute("evse", "start")
+        self.assertEqual(blocked["reason"], "BUDGET_ENERGY_METER_REQUIRED")
+        self.assertFalse(service.calls)
+
+    async def test_charger_only_money_one_off_remains_anonymous(self):
+        rt, states, service = rig()
+        rt.configuration["chargers"][0]["asset"] = None
+        now = datetime.now(timezone.utc)
+        provider = state("ready")
+        provider.attributes = {
+            "kind": "effective_price_kwh", "currency": "EUR",
+            "valid_until": (now + timedelta(hours=3)).isoformat(),
+            "intervals": [{
+                "start": (now - timedelta(hours=1)).isoformat(),
+                "end": (now + timedelta(hours=3)).isoformat(),
+                "value": 1.0,
+            }],
+        }
+        states["sensor.effective_price"] = provider
+        rt.configuration["controller"]["price_entity"] = "sensor.effective_price"
+        rt.refresh()
+        result = await rt.executor.execute(
+            "evse", "start",
+            manual_request={"cost_amount": 10.0, "currency": "EUR"},
+        )
+        self.assertEqual(result["status"], "confirmed")
+        self.assertIsNone(rt.executor.session_snapshot()["evse"]["asset_id"])
+        self.assertEqual((await rt.executor.execute("evse", "stop"))["status"],
+                         "confirmed")
+        self.assertIsNone(rt.executor.completed_sessions()[0]["asset_id"])
+        self.assertTrue(service.calls)
+
     async def test_charging_weekday_window_blocks_start_and_stops_running_session(self):
         from zoneinfo import ZoneInfo
         from multicharge_physical_execution_test.configuration import WEEKDAYS
