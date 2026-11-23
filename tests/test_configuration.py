@@ -25,6 +25,89 @@ from multicharge_configuration_tests.configuration import (  # noqa: E402 - impo
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_energy_dashboard_suggestions_reuse_native_power_and_price_only(self):
+        from multicharge_configuration_tests.configuration import (
+            energy_dashboard_suggestions,
+        )
+        prefs = {"energy_sources": [
+            {"type": "solar", "stat_energy_from": "sensor.solar_total_kwh",
+             "stat_rate": "sensor.solar_instant_w"},
+            {"type": "grid", "stat_energy_from": "sensor.grid_import_kwh",
+             "stat_energy_to": "sensor.grid_export_kwh",
+             "stat_rate": "sensor.grid_net_w",
+             "entity_energy_price": "sensor.import_price",
+             "entity_energy_price_export": "sensor.export_price"},
+            {"type": "battery", "stat_rate": "sensor.battery_w"},
+        ], "device_consumption": [
+            {"stat_consumption": "sensor.fridge_kwh",
+             "stat_rate": "sensor.fridge_w"},
+        ]}
+        self.assertEqual(energy_dashboard_suggestions(prefs), {
+            "solar_power_entity": "sensor.solar_instant_w",
+            "grid_power_entity": "sensor.grid_net_w",
+            "current_price_entity": "sensor.import_price",
+            "export_price_entity": "sensor.export_price",
+        })
+        # It is not safe to mistake a device for whole-home consumption,
+        # battery discharge for solar export, or energy kWh for live kW.
+        for excluded in ("home_power_entity", "solar_surplus_entity",
+                         "solar_entity", "price_entity"):
+            self.assertNotIn(excluded, energy_dashboard_suggestions(prefs))
+        self.assertEqual(energy_dashboard_suggestions(None), {})
+        prefs["energy_sources"].append({
+            "type": "grid", "stat_rate": "sensor.other_net_power",
+            "entity_energy_price": "sensor.other_price",
+        })
+        ambiguous = energy_dashboard_suggestions(prefs)
+        self.assertNotIn("grid_power_entity", ambiguous)
+        self.assertNotIn("current_price_entity", ambiguous)
+        self.assertIn("solar_power_entity", ambiguous)
+
+    def test_native_solar_power_and_energy_price_options_have_one_authority(self):
+        from copy import deepcopy
+        base = default_configuration()
+        base["controller"].update({
+            "solar_power_entity": "sensor.pv_power",
+            "home_power_entity": "sensor.home_power",
+            "grid_power_entity": "sensor.net_power",
+            "current_price_entity": "sensor.electricity_price",
+            "export_price_entity": "sensor.feed_in_price",
+            "solar_source_kind": "grid_export",
+            "grid_power_direction": "import_positive",
+        })
+        normalized = validate_configuration(base)
+        for key in ("solar_power_entity", "home_power_entity",
+                    "grid_power_entity", "current_price_entity",
+                    "export_price_entity", "solar_source_kind",
+                    "grid_power_direction"):
+            self.assertEqual(normalized["controller"][key],
+                             base["controller"][key])
+        normalized["controller"]["name"] = "New home"
+        self.assertEqual(
+            validate_configuration(normalized)["controller"]["solar_source_kind"],
+            "grid_export",
+        )
+        for badchange in (
+            {"solar_source_kind": "unverified"},
+            {"solar_source_kind": "direct_surplus"},
+            {"grid_power_direction": "unknown"},
+            {"grid_power_entity": "sensor.fake-kwh"},
+            {"grid_power_entity": "switch.fake_grid"},
+            {"solar_source_kind": "intervals"},
+        ):
+            bad = deepcopy(base)
+            bad["controller"].update(badchange)
+            with self.subTest(badchange=badchange), self.assertRaises(ValueError):
+                validate_configuration(bad)
+
+        direct = deepcopy(base)
+        direct["controller"]["solar_source_kind"] = "direct_surplus"
+        direct["controller"]["solar_surplus_entity"] = "sensor.surplus_w"
+        self.assertEqual(
+            validate_configuration(direct)["controller"]["solar_source_kind"],
+            "direct_surplus",
+        )
+
     def test_native_status_mapping_config_requires_disjoint_known_sensor_states(self):
         from copy import deepcopy
 
