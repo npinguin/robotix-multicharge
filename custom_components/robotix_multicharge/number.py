@@ -277,13 +277,20 @@ class _ChargerPowerNumber(NumberEntity):
         if (not isfinite(value) or value < floor_kw - 1e-6
                 or value > ceiling_kw + 1e-6):
             raise ValueError("REQUESTED_POWER_OUTSIDE_VERIFIED_OPERATING_RANGE")
-        # Round down to the nearest actual Amp step. The existing executor
-        # validates the real current and rejects any unsafe/unsupported value.
-        from math import floor
-        current = round(
-            minimum + max(0, floor((float(value) / factor - minimum) / step
-                                   + 1e-9)) * step, 6
+        # A kW target may fall between native Amp steps. Choose the closest
+        # *legal* verified step in the owner's min/max envelope, then report
+        # its actual accepted setpoint. Never silently clip an out-of-range
+        # request or issue a raw manufacturer service call from the entity.
+        from math import ceil, floor
+        low = max(0, ceil((floor_kw / factor - minimum) / step - 1e-9))
+        high = min(
+            floor((charger["max_current_a"] - minimum) / step + 1e-9),
+            floor((ceiling_kw / factor - minimum) / step + 1e-9),
         )
+        if low > high:
+            raise ValueError("NO_SUPPORTED_CURRENT_STEP")
+        nearest = floor((float(value) / factor - minimum) / step + 0.5)
+        current = round(minimum + max(low, min(high, nearest)) * step, 6)
         outcome = await self.runtime.executor.execute(
             self.uid, "set_current", current_a=current, context=self.context
         )
