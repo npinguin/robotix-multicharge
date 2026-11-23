@@ -780,129 +780,31 @@ async def test_options_created_charger_auto_registers_device_owned_controls(
 
 
 @pytest.mark.asyncio
-async def test_options_flow_is_device_setup_not_daily_charge_operations(
-    hass: HomeAssistant,
-):
-    """HA Options may bind and commission devices; everyday controls are native."""
+async def test_options_flow_is_not_a_yaml_or_configuration_surface(hass: HomeAssistant):
+    """Owner requirement: HA Options is retired; dashboard owns runtime editing."""
     source = (Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN)
     installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
     if not installed.exists():
         shutil.copytree(source, installed)
     cfg = validate_configuration({
-        "controller": {
-            "id": "site", "name": "Independent home",
-            "mode": "Automatic", "max_parallel": 1, "max_power_kw": 3.6,
-        },
-        "assets": [{"id": "car", "name": "Car", "kind": "car",
-                    "target_soc": 80}],
-        "chargers": [{
-            "id": "drive", "name": "Drive", "kind": "on_off",
-            "rated_power_kw": 3.6, "control_entity": "switch.drive",
-        }],
+        "controller": {"id": "site", "name": "Independent home",
+                       "mode": "Automatic", "max_parallel": 1},
+        "assets": [{"id": "car", "name": "Car", "kind": "car"}],
+        "chargers": [],
     })
     entry = MockConfigEntry(
         domain=DOMAIN, title="Standalone MultiCharge",
-        data={"source": "ui", "configuration": cfg},
-        unique_id=DOMAIN,
+        data={"source": "ui", "configuration": cfg}, unique_id=DOMAIN,
     )
     entry.add_to_hass(hass)
     assert await async_setup_component(hass, DOMAIN, {})
     await hass.async_block_till_done()
-
-    scope = {
-        "controller": (
-            {"name", "phase_limits_a"},
-            {"mode", "max_parallel", "max_power_kw", "price_entity",
-             "solar_entity", "grid_power_entity"},
-        ),
-        "asset": (
-            {"name", "kind", "soc_entity", "capacity_kwh"},
-            {"target_soc", "ready_by", "ready_by_repeat", "priority",
-             "requested_kwh", "requested_duration_minutes"},
-        ),
-        "charger": (
-            {"kind", "control_entity", "connected_entity", "power_entity"},
-            {"asset", "control_owner", "physical_commissioned",
-             "min_charging_power_kw", "max_charging_power_kw"},
-        ),
-        "commission": (
-            {"charger_id", "commission", "exclusive_writer_confirmed",
-             "electrical_limits_confirmed"},
-            {"mode", "max_parallel", "ready_by"},
-        ),
-        "energy": (
-            {"use_energy_dashboard", "solar_source_kind", "grid_power_direction",
-             "solar_power_entity", "home_power_entity", "grid_power_entity",
-             "solar_surplus_entity", "current_price_entity", "export_price_entity",
-             "solar_entity", "price_entity"},
-            {"mode", "control_owner", "physical_commissioned"},
-        ),
-    }
-    for step, (required, prohibited) in scope.items():
-        menu = await hass.config_entries.options.async_init(entry.entry_id)
-        assert menu["type"] == FlowResultType.MENU
-        assert step in menu["menu_options"]
-        form = await hass.config_entries.options.async_configure(
-            menu["flow_id"], {"next_step_id": step}
-        )
-        assert form["type"] == FlowResultType.FORM
-        available = {
-            key.schema if hasattr(key, "schema") else key
-            for key in form["data_schema"].schema
-        }
-        assert required <= available, (step, required - available)
-        assert not (prohibited & available), (step, prohibited & available)
-
-    # One HA Energy source options transaction uses actual official Options
-    # Flow, never template helpers, files or another Config Entry.
-    menu = await hass.config_entries.options.async_init(entry.entry_id)
-    energy_form = await hass.config_entries.options.async_configure(
-        menu["flow_id"], {"next_step_id": "energy"}
-    )
-    assert energy_form["step_id"] == "energy"
-    configured = await hass.config_entries.options.async_configure(
-        energy_form["flow_id"], {
-            "use_energy_dashboard": False,
-            "solar_source_kind": "grid_export",
-            "grid_power_direction": "import_positive",
-            "solar_power_entity": "sensor.pv_power",
-            "home_power_entity": "sensor.whole_home_power",
-            "grid_power_entity": "sensor.grid_power",
-            "current_price_entity": "sensor.import_tariff",
-            "export_price_entity": "sensor.feed_in_tariff",
-        }
-    )
-    assert configured["type"] == FlowResultType.CREATE_ENTRY
-    await hass.async_block_till_done()
-    live = entry.options["configuration"]["controller"]
-    assert live["solar_source_kind"] == "grid_export"
-    assert live["solar_power_entity"] == "sensor.pv_power"
-    assert live["home_power_entity"] == "sensor.whole_home_power"
-    assert live["grid_power_entity"] == "sensor.grid_power"
-    assert live["current_price_entity"] == "sensor.import_tariff"
-    assert live["export_price_entity"] == "sensor.feed_in_tariff"
-    assert live["grid_power_direction"] == "import_positive"
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "dashboard_only"
+    assert not entry.options.get("configuration")
     assert entry.data["configuration"] == cfg
     assert len(hass.config_entries.async_entries(DOMAIN)) == 1
-
-    # User confirmation alone does not prove physical command readiness.
-    # An unqualified generic charger remains external, with no HA write.
-    menu = await hass.config_entries.options.async_init(entry.entry_id)
-    form = await hass.config_entries.options.async_configure(
-        menu["flow_id"], {"next_step_id": "commission"}
-    )
-    rejected = await hass.config_entries.options.async_configure(
-        form["flow_id"], {
-            "charger_id": "drive", "commission": True,
-            "exclusive_writer_confirmed": False,
-            "electrical_limits_confirmed": False,
-        }
-    )
-    assert rejected["type"] == FlowResultType.FORM
-    assert rejected["errors"]["base"] == "invalid_config"
-    assert entry.data["configuration"] == cfg
-    assert entry.options["configuration"]["controller"] == live
-    assert entry.options["configuration"]["chargers"][0]["physical_commissioned"] is False
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 
