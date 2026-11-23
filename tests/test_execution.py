@@ -306,6 +306,45 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(runtime.assessment.plan.slots)
         self.assertEqual(services.calls, [])
 
+    async def test_native_same_status_refresh_vs_provider_recreation(self):
+        """Same raw label is continuous only when HA preserves last_changed."""
+        runtime, sources, services = rig()
+        charger = runtime.configuration["chargers"][0]
+        charger["connected_entity"] = "sensor.native_status"
+        charger["connected_states"] = ["charging", "preparing"]
+        charger["disconnected_states"] = ["available"]
+        original = state("Charging")
+        original.last_changed = datetime.now(timezone.utc) - timedelta(seconds=4)
+        sources["sensor.native_status"] = original
+        runtime.refresh()
+        first = runtime.executor.confirm_current_connection("evse")
+        self.assertEqual(first["status"], "confirmed")
+
+        # Ordinary attribute-only refresh keeps last_changed and may retain
+        # the explicitly identified current plug; it creates no new session.
+        reported = state("Charging")
+        reported.last_changed = original.last_changed
+        reported.last_updated = datetime.now(timezone.utc)
+        sources["sensor.native_status"] = reported
+        runtime.executor.observe_connection_event(charger, original, reported)
+        runtime.refresh()
+        self.assertIsNotNone(runtime.executor.connection_confirmation(
+            charger, datetime.now(timezone.utc)
+        ))
+
+        # Recreated provider state with the same raw label but a NEW native
+        # last_changed cannot prove uninterrupted physical connector identity.
+        restarted = state("Charging")
+        restarted.last_changed = original.last_changed + timedelta(seconds=2)
+        restarted.last_updated = datetime.now(timezone.utc)
+        sources["sensor.native_status"] = restarted
+        runtime.executor.observe_connection_event(charger, reported, restarted)
+        runtime.refresh()
+        self.assertIsNone(runtime.executor.connection_confirmation(
+            charger, datetime.now(timezone.utc)
+        ))
+        self.assertEqual(services.calls, [])
+
     async def test_manual_force_start_is_durably_held_across_restart(self):
         rt, states, services = rig()
         class MemoryStore:
