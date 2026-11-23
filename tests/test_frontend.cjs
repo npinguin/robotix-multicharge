@@ -79,6 +79,63 @@ function content(node){
   let text="";visit(node,x=>{if(x.textContent)text+=x.textContent+"\n";});return text;
 }
 async function main(){
+  // SCHEDULE-06 owner-native Specific days and time windows.
+  const scheduleData=JSON.parse(JSON.stringify(fixture));
+  const asset=scheduleData.configuration.assets[0];
+  asset.ready_by_repeat="specific_days";
+  asset.ready_by_weekdays={mon:"06:45",wed:"08:30"};
+  asset.charging_windows={mon:{start:"22:00",end:"06:00"}};
+  const owned=scheduleData.preference_entities.assets.car;
+  for(const day of ["mon","tue","wed","thu","fri","sat","sun"]){
+    owned["ready_day_"+day]="select.car_day_"+day;
+    owned["charging_window_"+day]="text.car_window_"+day;
+  }
+  const scheduleCalls=[];
+  const scheduleCard=new Card();
+  scheduleCard.setConfig({});
+  scheduleCard.hass={
+    user:{is_admin:true},language:"en",
+    states:{
+      "select.car_day_mon":{state:"06:45"},
+      "select.car_day_wed":{state:"08:30"},
+    },
+    callWS:async()=>scheduleData,
+    callService:async(domain,service,args)=>{
+      scheduleCalls.push({domain,service,args});
+    },
+  };
+  await new Promise(resolve=>setImmediate(resolve));
+  scheduleCard._tab="Chargeable Assets";scheduleCard.render();
+  find(scheduleCard.shadowRoot,"button","Details").click();
+  assert.ok(content(scheduleCard.shadowRoot).includes("Specific days"),
+    "Single Weekly user option replaced by Specific days");
+  assert.ok(!content(scheduleCard.shadowRoot).includes("Every week"),
+    "Legacy single-weekday recurring option must not appear");
+  let monday;
+  visit(scheduleCard.shadowRoot,node=>{
+    if(node.tag==="select"&&node.attributes.id==="multicharge-monday")monday=node;
+  });
+  assert.ok(monday,"Monday has an owned native weekday picker");
+  monday.value="07:00";monday.events.change();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(scheduleCalls.some(x=>x.domain==="select"&&
+    x.args.entity_id==="select.car_day_mon"&&x.args.option==="07:00"),
+    "per-day Ready By updates existing Asset HA Select");
+  find(scheduleCard.shadowRoot,"button","Allowed charging times").click();
+  assert.ok(content(scheduleCard.shadowRoot).includes("Start hour"),
+    "Allowed charging hours are distinct from Ready By");
+  let startHour;
+  visit(scheduleCard.shadowRoot,node=>{
+    if(node.tag==="input"&&
+      node.attributes.id==="multicharge-monday-start-hour")startHour=node;
+  });
+  assert.ok(startHour,"native time input exists for Monday");
+  startHour.value="23:00";startHour.events.change();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(scheduleCalls.some(x=>x.domain==="text"&&
+    x.args.entity_id==="text.car_window_mon"&&x.args.value==="23:00-06:00"),
+    "allowed local charging window updates existing Asset HA Text");
+
   // FLEX-06/08/11/17: Asset-side charger assignment writes to the one
   // Charger-owned Config Entry, never to a physical switch or duplicate store.
   const assignData=JSON.parse(JSON.stringify(fixture));
