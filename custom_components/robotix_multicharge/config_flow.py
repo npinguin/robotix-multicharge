@@ -29,6 +29,13 @@ def _phases(raw):
     return [item.strip().upper() for item in raw.split(",") if item.strip()]
 
 
+def _native_status_labels(raw):
+    """Parse user-supplied native EVSE states, never infer provider semantics."""
+    if not isinstance(raw, str):
+        raise ValueError("Expected comma-separated native EVSE states")
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
 def _phase_limits(raw):
     entries = [item.strip() for item in raw.split(",") if item.strip()]
     try:
@@ -399,6 +406,9 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                               "power_entity", "energy_entity"):
                     if user_input.get(field) is not None:
                         charger[field] = user_input[field]
+                for field in ("connected_states", "disconnected_states"):
+                    if field in user_input:
+                        charger[field] = _native_status_labels(user_input[field])
                 if (user_input.get("configure_electrical")
                         or charger["kind"] == "variable_current"):
                     # Min/max current is mandatory only if this capability was
@@ -438,6 +448,8 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Optional("energy_entity"): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
+            vol.Optional("connected_states"): str,
+            vol.Optional("disconnected_states"): str,
             vol.Optional("configure_electrical", default=False): bool,
         })
 
@@ -1057,6 +1069,13 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                         charger[field] = user_input[field]
                 if user_input.get("phase_ids"):
                     charger["phase_ids"] = _phases(user_input["phase_ids"])
+                for field in ("connected_states", "disconnected_states"):
+                    if field in user_input:
+                        parsed = _native_status_labels(user_input[field])
+                        if parsed:
+                            charger[field] = parsed
+                        else:
+                            charger.pop(field, None)
                 cfg["chargers"] = [c for c in cfg["chargers"] if c["id"] != uid] + [charger]
                 result = await self._safe_structural_save(cfg)
             if result is not None:
@@ -1078,6 +1097,8 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional("connected_entity"): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain=["binary_sensor", "sensor"])
                 ),
+                vol.Optional("connected_states"): str,
+                vol.Optional("disconnected_states"): str,
                 vol.Optional("power_entity"): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
                 ),
