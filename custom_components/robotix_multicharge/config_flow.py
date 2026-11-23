@@ -609,7 +609,7 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         raise ValueError("asset identity must be unique")
                     asset = {"id": uid, "name": user_input["name"],
                              "kind": user_input["kind"]}
-                    for key in ("soc_entity", "capacity_kwh", "target_soc",
+                    for key in ("soc_entity", "soc_stale_entity", "capacity_kwh", "target_soc",
                                 "requested_kwh", "requested_duration_minutes",
                                 "ready_by", "ready_by_repeat", "charge_efficiency", "max_charge_kw",
                                 "temporary", "expires_at",
@@ -642,6 +642,9 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ),
             vol.Optional("soc_entity"): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Optional("soc_stale_entity"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="binary_sensor")
             ),
             vol.Optional("capacity_kwh"): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
             vol.Optional("target_soc"): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
@@ -1136,7 +1139,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                     "name": user_input.get("name") or asset.get("name"),
                     "kind": user_input.get("kind") or asset.get("kind", "car"),
                 })
-                for field in ("soc_entity", "capacity_kwh",
+                for field in ("soc_entity", "soc_stale_entity", "capacity_kwh",
                               "vehicle_control_entity", "vehicle_current_entity"):
                     if user_input.get(field) is not None and user_input.get(field) != "":
                         asset[field] = user_input[field]
@@ -1157,6 +1160,9 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 ),
                 vol.Optional("soc_entity"): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional("soc_stale_entity"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="binary_sensor")
                 ),
                 vol.Optional("capacity_kwh"): selector.NumberSelector(selector.NumberSelectorConfig(
                     min=0.01, max=1000, step=0.1, mode=selector.NumberSelectorMode.BOX
