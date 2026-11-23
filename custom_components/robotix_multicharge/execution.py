@@ -412,7 +412,7 @@ class NativeSwitchExecutor:
         # This reuses the SAME source-qualified budget accounting path.
         if charger and session.get("requested_budget_amount") is not None:
             self._session_stop_reason(charger, end)
-        delivered, meter_at = None, None
+        delivered, meter_at, sample = None, None, None
         if session["starting_energy_kwh"] is not None and source:
             sample = number(self.runtime.hass, source, "energy", datetime.now(timezone.utc))
             if (sample.quality == "ok" and sample.observed_at is not None
@@ -425,7 +425,7 @@ class NativeSwitchExecutor:
             last_meter = session.get("budget_last_meter_value")
             # Never persist a "qualified" zero-cost receipt if independently
             # measured energy exists after the last proven tariff increment.
-            if (delivered is None or last_meter is None
+            if (delivered is None or sample is None or last_meter is None
                     or sample.value > last_meter + 0.000001
                     or sample.value < last_meter - 0.000001):
                 session["budget_quality"] = "unknown"
@@ -691,7 +691,11 @@ class NativeSwitchExecutor:
                 if progress.get("budget_amount") is None:
                     return "BUDGET_MEASURED_PROGRESS_UNAVAILABLE"
                 money = max(0.0, money - progress["budget_amount"])
+                # An indicative euro budget cannot grant unlimited charging
+                # at free/negative prices. Per-intent physical running time
+                # remains bounded across all earlier confirmed sessions.
                 if (money <= 0.000001
+                        or progress["duration_minutes"] >= 24 * 60
                         or self.intent_completed(asset, charger, due)):
                     return "TARGET_ALREADY_MET"
             if amount is not None:
