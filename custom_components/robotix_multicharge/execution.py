@@ -1020,6 +1020,61 @@ class NativeSwitchExecutor:
             if (session["requested_kwh"] is not None
                     and delivered >= session["requested_kwh"]):
                 return "REQUESTED_ENERGY_COMPLETE"
+        if session.get("requested_budget_amount") is not None:
+            # Physical metering is the source of progress. Price intervals
+            # must cover each actually observed meter increment completely.
+            currency = session["requested_budget_currency"]
+            sample = number(
+                self.runtime.hass, charger.get("energy_entity"), "energy", now
+            )
+            if sample.quality != "ok" or sample.observed_at is None:
+                session["budget_quality"] = "unknown"
+                return "BUDGET_ENERGY_METER_UNAVAILABLE"
+            before = session.get("budget_last_meter_value")
+            since = session.get("budget_last_meter_at")
+            if before is None or since is None:
+                session["budget_quality"] = "unknown"
+                return "BUDGET_METER_BASELINE_MISSING"
+            delta = sample.value - before
+            if delta < -0.00001:
+                session["budget_quality"] = "unknown"
+                return "BUDGET_ENERGY_METER_RESET"
+            if delta > 0.000001:
+                if sample.observed_at <= since:
+                    session["budget_quality"] = "unknown"
+                    return "BUDGET_METER_TIMESTAMP_UNVERIFIED"
+                matches = [
+                    p for p in self.runtime.price_slots
+                    if p.basis == "effective" and p.currency == currency
+                    and p.start <= since and p.end >= sample.observed_at
+                ]
+                if len(matches) != 1:
+                    session["budget_quality"] = "unknown"
+                    return "BUDGET_TARIFF_BOUNDARY_UNVERIFIED"
+                # Price credit cannot turn a monetary limit into unbounded
+                # permission for infinite charging at negative rates.
+                session["budget_cost"] += delta * max(
+                    0.0, matches[0].effective_price_per_kwh
+                )
+                session["budget_last_meter_value"] = sample.value
+                session["budget_last_meter_at"] = sample.observed_at
+            current = self._qualified_budget_price(now, currency)
+            if current is None:
+                session["budget_quality"] = "unknown"
+                return "BUDGET_EFFECTIVE_TARIFF_UNAVAILABLE"
+            remaining = (
+                session["requested_budget_amount"] - session["budget_cost"]
+            )
+            if remaining <= 0.000001:
+                return "REQUESTED_BUDGET_COMPLETE"
+            # Leave conservative headroom for meter/provider cadence and STOP
+            # latency; money shown to residents remains an estimate, not a bill.
+            conservative_headroom = (
+                max(0.0, current.effective_price_per_kwh)
+                * charger["rated_power_kw"] * (120 / 3600) + 0.02
+            )
+            if remaining <= conservative_headroom:
+                return "REQUESTED_BUDGET_COMPLETE"
         if session["soc_target"] is not None:
             soc = soc_with_health(
                     self.runtime.hass, asset.get("soc_entity"),
@@ -1364,7 +1419,7 @@ class NativeSwitchExecutor:
                     completed_intent = None
                     if session_reason in (
                         "REQUESTED_ENERGY_COMPLETE", "REQUESTED_DURATION_COMPLETE",
-                        "SOC_TARGET_REACHED"
+                        "REQUESTED_BUDGET_COMPLETE", "SOC_TARGET_REACHED"
                     ) and is_auto:
                         asset = next((a for a in cfg["assets"]
                                       if a["id"] == charger.get("asset")), None)
@@ -1379,9 +1434,9 @@ class NativeSwitchExecutor:
                                     self.runtime.hass.config.time_zone,
                                     asset.get("ready_by_weekdays"),
                                 )
-                            if asset.get("requested_kwh") is not None or (
-                                asset.get("requested_duration_minutes") is not None
-                            ):
+                            if (asset.get("requested_kwh") is not None
+                                    or asset.get("requested_duration_minutes") is not None
+                                    or asset.get("requested_budget_amount") is not None):
                                 completed_intent = self._intent_key(
                                     asset, charger, occurrence
                                 )
