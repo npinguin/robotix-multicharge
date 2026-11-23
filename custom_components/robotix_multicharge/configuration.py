@@ -285,6 +285,24 @@ def validate_configuration(value):
                     "min_charging_power_kw", "max_charging_power_kw"):
             if source.get(key) is not None:
                 charger[key] = _number(source[key], "charger." + key)
+        if ("min_charging_power_kw" in charger
+                or "max_charging_power_kw" in charger):
+            if charger["kind"] != "variable_current":
+                raise ValueError("charger power preferences require adjustable current")
+            phases = source.get("phase_ids") or []
+            if not phases or not all(key in charger for key in (
+                    "voltage_v", "min_current_a", "max_current_a")):
+                raise ValueError("charger power preferences require verified physical limits")
+            factor = charger["voltage_v"] * len(phases) / 1000
+            physical_min = charger["min_current_a"] * factor
+            physical_max = min(charger["rated_power_kw"],
+                               charger["max_current_a"] * factor)
+            chosen_min = charger.get("min_charging_power_kw", physical_min)
+            chosen_max = charger.get("max_charging_power_kw", physical_max)
+            if (chosen_min < physical_min - 1e-6
+                    or chosen_max > physical_max + 1e-6
+                    or chosen_min > chosen_max + 1e-6):
+                raise ValueError("charger charging power limits exceed hardware envelope")
         if source.get("phase_ids") is not None:
             phases = source["phase_ids"]
             if not isinstance(phases, list) or not phases or (
