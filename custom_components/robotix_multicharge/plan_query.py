@@ -10,6 +10,7 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
+from .configuration import WEEKDAYS
 from .history import read_actual_history
 
 
@@ -116,8 +117,14 @@ async def websocket_get_plan(
                     "name": native_entity("text", "asset", row["id"], "name"),
                     "soc_entity": native_entity("text", "asset", row["id"], "soc_entity"),
                     **{
+                        f"charging_window_{day}": native_entity(
+                            "text", "asset", row["id"], f"charging_window_{day}")
+                        for day in WEEKDAYS
+                    },
+                    **{
                         field: native_select("asset", row["id"], field)
-                        for field in ("plan_color", "ready_by_repeat", "kind")
+                        for field in ("plan_color", "ready_by_repeat", "kind",
+                                      *(f"ready_day_{day}" for day in WEEKDAYS))
                     },
                     **{
                         field: native_entity("number", "asset", row["id"], field)
