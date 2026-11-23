@@ -513,6 +513,8 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
             target.pop(name, None)
         else:
             target[name] = value
+    if scope == "asset" and action == "create":
+        apply_new_asset_defaults(target)
     if scope == "charger" and changes.get("asset"):
         # One selected Charger per vehicle. Reassignment is one atomic
         # configuration edit, not delete/recreate or a second ownership store.
