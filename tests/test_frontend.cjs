@@ -1033,7 +1033,7 @@ async function main(){
     "Vehicle Ready By opens its native HA DateTime entity from the dashboard");
   let colorSelect;
   visit(card.shadowRoot,x=>{
-    if(x.tag==="select"&&x.attributes.id==="multicharge-plan-color")colorSelect=x;
+    if(x.tag==="select"&&String(x.attributes.id||"").startsWith("multicharge-plan-color-"))colorSelect=x;
   });
   assert.ok(colorSelect,"vehicle plan color shown on Vehicle");
   colorSelect.value="blue";
@@ -1046,7 +1046,7 @@ async function main(){
   assert.ok(content(card.shadowRoot).includes("Plan color"));
   let chargerColor;
   visit(card.shadowRoot,x=>{
-    if(x.tag==="select"&&x.attributes.id==="multicharge-plan-color")chargerColor=x;
+    if(x.tag==="select"&&String(x.attributes.id||"").startsWith("multicharge-plan-color-"))chargerColor=x;
     // The selected vehicle belongs to the native Charger device, not a copy.
   });
   assert.ok(chargerColor,"charger owns its configurable plan color");
