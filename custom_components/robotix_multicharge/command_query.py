@@ -29,6 +29,8 @@ from .const import DOMAIN
     vol.Optional("current_a"): vol.Coerce(float),
     vol.Optional("energy_kwh"): vol.Coerce(float),
     vol.Optional("duration_minutes"): vol.Coerce(int),
+    vol.Optional("cost_amount"): vol.Coerce(float),
+    vol.Optional("currency"): str,
     vol.Optional("request_id"): str,
 })
 @websocket_api.async_response
@@ -44,13 +46,14 @@ async def websocket_charge_command(
         )
         return
     manual_request = {
-        key: msg[key] for key in ("energy_kwh", "duration_minutes")
+        key: msg[key] for key in ("energy_kwh", "duration_minutes",
+                                 "cost_amount", "currency")
         if key in msg
     }
     if manual_request and msg["action"] != "start":
         connection.send_error(
             msg["id"], websocket_api.ERR_INVALID_FORMAT,
-            "One-off energy/duration is valid only for manual START",
+            "One-off energy/duration/budget is valid only for manual START",
         )
         return
     result = await runtimes[0].executor.execute(
