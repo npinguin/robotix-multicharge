@@ -8,6 +8,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 PKG = Path(__file__).resolve().parents[1] / "custom_components" / "robotix_multicharge"
 ROOT = "multicharge_source_test"
@@ -36,7 +37,8 @@ def state(value, unit=None, observed=NOW, **attributes):
 
 
 def hass(data):
-    return SimpleNamespace(states=SimpleNamespace(get=data.get))
+    return SimpleNamespace(states=SimpleNamespace(get=data.get),
+                           config=SimpleNamespace(time_zone="Europe/Brussels"))
 
 
 class EvidenceTests(unittest.TestCase):
@@ -371,6 +373,107 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(slots[0].start.utcoffset(), timedelta(0))
         self.assertEqual(slots[-1].end, beginning + timedelta(hours=25))
         self.assertEqual(slots[0].basis, "spot")
+
+    @staticmethod
+    def _native_full_day(day, zone, *, quarter=False, rate=-0.04):
+        local = datetime(day.year, day.month, day.day, tzinfo=zone)
+        first = local.astimezone(timezone.utc)
+        next_day = day + timedelta(days=1)
+        end = datetime(next_day.year, next_day.month, next_day.day,
+                       tzinfo=zone).astimezone(timezone.utc)
+        minutes = 15 if quarter else 60
+        assert int((end-first).total_seconds()) % (minutes*60) == 0
+        count = int((end-first).total_seconds()) // (minutes*60)
+        return [
+            {"start": (first + timedelta(minutes=i*minutes))
+                      .astimezone(zone).isoformat(),
+             "all_in": rate if i%2 == 0 else 0.2}
+            for i in range(count)
+        ]
+
+    def test_native_full_day_all_in_reference_requires_no_energy_bridge(self):
+        """UC07/17: direct selected native provider supplies explicit full-day data."""
+        zone = ZoneInfo("Europe/Brussels")
+        local_today = NOW.astimezone(zone).date()
+        today = self._native_full_day(local_today, zone)
+        tomorrow = self._native_full_day(local_today+timedelta(days=1), zone)
+        obj = hass({"sensor.native_price": state(
+            "-0.04", "€/kWh", today=today, tomorrow=tomorrow,
+            snapshot_stale=False,
+        )})
+        slots, quality = intervals(obj, "sensor.native_price", "price", NOW)
+        self.assertEqual(quality, "OK")
+        self.assertEqual(len(slots), 48)
+        self.assertEqual(slots[0].currency, "EUR")
+        self.assertEqual(slots[0].basis, "variable_reference")
+        self.assertAlmostEqual(slots[0].effective_price_per_kwh, -0.04)
+        self.assertEqual(slots[-1].end - slots[0].start, timedelta(hours=48))
+        self.assertEqual(slots[0].end, slots[1].start)
+
+    def test_native_full_day_rejects_partial_stale_and_wrong_currency(self):
+        zone = ZoneInfo("Europe/Brussels")
+        local_today = NOW.astimezone(zone).date()
+        original = self._native_full_day(local_today, zone)
+        bad_data = hass({
+            "sensor.partial": state("0.1", "EUR/kWh", today=original[:-1]),
+            "sensor.stale": state(
+                "0.1", "EUR/kWh", today=original, snapshot_stale=True),
+            "sensor.currency": state("0.1", "USD/kWh", today=original),
+            "sensor.future": state("0.1", "EUR/kWh", today=self._native_full_day(
+                local_today+timedelta(days=1), zone)),
+            "sensor.invalid": state("unknown", "EUR/kWh", today=original),
+            "sensor.naive": state("0.1", "EUR/kWh", today=[
+                {"start": row["start"][:19], "all_in": row["all_in"]}
+                for row in original]),
+            "sensor.gap": state("0.1", "EUR/kWh", today=[
+                *original[:10],
+                {**original[10], "start": original[11]["start"]},
+                *original[11:]]),
+        })
+        expected = {
+            "partial": "INTERVAL_COVERAGE_INCOMPLETE",
+            "stale": "INTERVAL_SOURCE_STALE",
+            "currency": "INTERVAL_SEMANTICS_UNVERIFIED",
+            "future": "INTERVAL_TIME_INVALID",
+            "invalid": "SOURCE_UNAVAILABLE",
+            "naive": "INTERVAL_PAYLOAD_INVALID",
+            "gap": "INTERVAL_COVERAGE_INCOMPLETE",
+        }
+        for entity, reason in expected.items():
+            with self.subTest(entity=entity):
+                self.assertEqual(
+                    intervals(bad_data, f"sensor.{entity}", "price", NOW)[1],
+                    reason,
+                )
+        # A plain current price with no qualified future interval cannot
+        # silently invent future Economy rates.
+        no_future = hass({"sensor.only_now": state("0.1", "€/kWh")})
+        self.assertEqual(intervals(
+            no_future, "sensor.only_now", "price", NOW,
+        )[1], "INTERVAL_SEMANTICS_UNVERIFIED")
+
+    def test_native_23_and_25_hour_all_in_days_use_real_utc_boundaries(self):
+        zone = ZoneInfo("Europe/Brussels")
+        for when, count, quarter_count in (
+            (datetime(2026,3,29,12,tzinfo=zone), 23, 92),
+            (datetime(2026,10,25,12,tzinfo=zone), 25, 100),
+        ):
+            at = when.astimezone(timezone.utc)
+            for quarters, n in ((False,count),(True,quarter_count)):
+                native = self._native_full_day(when.date(),zone,quarter=quarters)
+                obj = hass({"sensor.dynamic": state(
+                    "-0.04","EUR/kWh",observed=at,today=native,
+                )})
+                quotes, quality = intervals(obj,"sensor.dynamic","price",at)
+                self.assertEqual(quality,"OK")
+                self.assertEqual(len(quotes),n)
+                self.assertEqual(quotes[-1].end - quotes[0].start,
+                                 timedelta(hours=count))
+                self.assertEqual(quotes[0].basis,"variable_reference")
+                self.assertTrue(all(
+                    first.end == second.start
+                    for first,second in zip(quotes,quotes[1:])
+                ))
 
     def test_binding_requires_fresh_authoritative_intervals(self):
         attrs = {
