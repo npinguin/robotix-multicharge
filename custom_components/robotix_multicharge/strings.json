@@ -96,7 +96,18 @@
           "max_parallel": "Maximum simultaneous charging points (optional)",
           "max_power_kw": "Configured group power ceiling (kW; hardware verification required) (optional)",
           "phase_limits_a": "Verified phase current ceilings, e.g. L1:16,L2:16,L3:16 (A) (optional)",
-          "mode": "Initial charging mode"
+          "mode": "Initial charging mode",
+          "solar_power_entity": "Solar production power (W/kW)",
+          "home_power_entity": "Whole-home consumption power (W/kW)",
+          "grid_power_entity": "Grid import/export power (W/kW)",
+          "solar_surplus_entity": "Measured usable solar surplus (W/kW)",
+          "solar_entity": "Qualified solar intervals (kW)",
+          "price_entity": "Qualified future price intervals",
+          "current_price_entity": "Current import price (currency/kWh)",
+          "export_price_entity": "Current export compensation (currency/kWh)",
+          "solar_source_kind": "Solar control source",
+          "grid_power_direction": "Grid meter sign",
+          "use_energy_dashboard": "Use configured Energy Dashboard sources"
         }
       },
       "expert": {
@@ -134,7 +145,8 @@
           "charger": "Chargers",
           "display": "Dashboard card",
           "yaml": "Edit YAML (review before save)",
-          "commission": "Commission Charger"
+          "commission": "Commission Charger",
+          "energy": "Energy & prices"
         }
       },
       "controller": {
@@ -222,6 +234,23 @@
           "commission": "Enable MultiCharge control for this Charger",
           "exclusive_writer_confirmed": "Other controllers and automations have relinquished physical command ownership",
           "electrical_limits_confirmed": "Electrical limits, physical power and independent sensor readback have been verified"
+        }
+      },
+      "energy": {
+        "title": "Energy & prices",
+        "description": "{note}",
+        "data": {
+          "solar_power_entity": "Solar production power (W/kW)",
+          "home_power_entity": "Whole-home consumption power (W/kW)",
+          "grid_power_entity": "Grid import/export power (W/kW)",
+          "solar_surplus_entity": "Measured usable solar surplus (W/kW)",
+          "solar_entity": "Qualified solar intervals (kW)",
+          "price_entity": "Qualified future price intervals",
+          "current_price_entity": "Current import price (currency/kWh)",
+          "export_price_entity": "Current export compensation (currency/kWh)",
+          "solar_source_kind": "Solar control source",
+          "grid_power_direction": "Grid meter sign",
+          "use_energy_dashboard": "Use configured Energy Dashboard sources"
         }
       }
     },
