@@ -14,7 +14,7 @@ from math import floor, isfinite
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from .source_evidence import binding, connection, number
+from .source_evidence import binding, connection, number, soc_with_health
 from .planner import resolve_recurring_ready_by
 
 _LOGGER = logging.getLogger(__name__)
@@ -581,7 +581,10 @@ class NativeSwitchExecutor:
                 "soc_entity", "capacity_kwh", "target_soc", "charge_efficiency"
             )):
                 return "ASSET_DEMAND_UNVERIFIED"
-            soc = number(self.runtime.hass, asset["soc_entity"], "soc", at)
+            soc = soc_with_health(
+                    self.runtime.hass, asset["soc_entity"],
+                    asset.get("soc_stale_entity"), at,
+                )
             if soc.quality != "ok":
                 return "ASSET_SOC_UNAVAILABLE"
             if soc.value >= asset["target_soc"]:
@@ -880,7 +883,10 @@ class NativeSwitchExecutor:
                     and delivered >= session["requested_kwh"]):
                 return "REQUESTED_ENERGY_COMPLETE"
         if session["soc_target"] is not None:
-            soc = number(self.runtime.hass, asset.get("soc_entity"), "soc", now)
+            soc = soc_with_health(
+                    self.runtime.hass, asset.get("soc_entity"),
+                    asset.get("soc_stale_entity"), now,
+                )
             if soc.quality != "ok":
                 return "SESSION_SOC_UNAVAILABLE"
             if soc.value >= session["soc_target"]:
