@@ -643,7 +643,17 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
         "charger": {"name", "asset", "plan_color",
                     "min_charging_power_kw", "max_charging_power_kw"},
     }
-    if scope not in allowed or set(changes) - allowed[scope]:
+    # Atomic native Guest/Asset onboarding: assigning a presently unassigned
+    # Charger is one Config Entry revision, never a second relation registry.
+    create_charger_id = changes.get("assign_charger_id")
+    if create_charger_id is not None and not (
+            scope == "asset" and action == "create"
+            and isinstance(create_charger_id, str)
+            and create_charger_id.strip()):
+        raise ValueError("assign_charger_id: only on Asset create")
+    accepted_changes = {k: v for k, v in changes.items()
+                        if k != "assign_charger_id"}
+    if scope not in allowed or set(accepted_changes) - allowed[scope]:
         raise ValueError("settings field not editable in this scope")
     if action not in ("save", "create", "delete"):
         raise ValueError("unsupported settings action")
@@ -688,7 +698,7 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
                 changes.get("requested_duration_minutes") is not None):
             target.pop("requested_budget_amount", None)
             target.pop("requested_budget_currency", None)
-    for name, value in changes.items():
+    for name, value in accepted_changes.items():
         if value is None or value == "":
             if name == "name":
                 raise ValueError("name cannot be empty")
@@ -697,6 +707,14 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
             target[name] = value
     if scope == "asset" and action == "create":
         apply_new_asset_defaults(target)
+        if create_charger_id is not None:
+            chosen = next((c for c in cfg["chargers"]
+                           if c["id"] == create_charger_id), None)
+            if chosen is None:
+                raise ValueError("unknown_free_charger")
+            if chosen.get("asset") is not None:
+                raise ValueError("charger_occupied")
+            chosen["asset"] = target_id
     if scope == "charger" and changes.get("asset"):
         # One selected Charger per vehicle. Reassignment is one atomic
         # configuration edit, not delete/recreate or a second ownership store.
