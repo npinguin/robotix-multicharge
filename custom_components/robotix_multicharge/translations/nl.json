@@ -2,14 +2,9 @@
   "config": {
     "step": {
       "user": {
-        "title": "Laadlocatie",
-        "description": "Stap 1/5 — Geef de laadlocatie een naam; alle elektrische limieten zijn bij de installatie optioneel.",
-        "data": {
-          "name": "Naam (optioneel)",
-          "max_parallel": "Aantal (optioneel)",
-          "max_power_kw": "Vermogen (optioneel)",
-          "phase_limits_a": "Fasen (optioneel)",
-          "mode": "Initiële laadmodus"
+        "menu_options": {
+          "guided": "Begeleide configuratie",
+          "expert": "Volledige laadlocatie configureren"
         }
       },
       "charger": {
@@ -89,6 +84,32 @@
           "circuit_limit_a": "Stroom (optioneel)",
           "current_control_entity": "Stroom (optioneel)",
           "current_readback_entity": "Stroom (optioneel)"
+        }
+      },
+      "guided": {
+        "title": "Laadlocatie",
+        "description": "Stap 1/5 — Geef de laadlocatie een naam; alle elektrische limieten zijn bij de installatie optioneel.",
+        "data": {
+          "name": "Naam (optioneel)",
+          "max_parallel": "Aantal (optioneel)",
+          "max_power_kw": "Vermogen (optioneel)",
+          "phase_limits_a": "Fasen (optioneel)",
+          "mode": "Initiële laadmodus"
+        }
+      },
+      "expert": {
+        "title": "Volledige laadlocatie",
+        "description": "Controleer alle laadpalen, voertuigen en bronnen vóór opslaan. Er wordt geen laadopdracht uitgevoerd. {note}",
+        "data": {
+          "yaml_text": "Volledige MultiCharge YAML (controller/assets/chargers)"
+        }
+      },
+      "expert_review": {
+        "title": "Volledige configuratie controleren",
+        "description": "{summary} Bevestig pas na controle van de volledige configuratie.",
+        "data": {
+          "confirm": "Ik heb de volledige configuratie gecontroleerd",
+          "edit_again": "Terug naar YAML"
         }
       }
     },
