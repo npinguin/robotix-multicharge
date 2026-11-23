@@ -32,11 +32,11 @@ async def async_setup_entry(
     for field in ("max_parallel", "max_power_kw"):
         entities.append(_SiteNumber(entry, runtime, field))
     for charger in runtime.configuration["chargers"]:
-        if (charger.get("kind") == "variable_current"
-                and charger.get("phase_ids") and charger.get("voltage_v")
-                and charger.get("current_step_a")
-                and charger.get("min_current_a") is not None
-                and charger.get("max_current_a") is not None):
+        # The logical Charger owns its inputs from the moment it is added.
+        # A variable-current hardware capability may be incomplete during
+        # onboarding; its native Numbers still exist, but report unavailable
+        # until independently verified physical limits are configured.
+        if charger.get("kind") == "variable_current":
             for field in ("min_charging_power_kw", "max_charging_power_kw",
                           "set_charging_power_kw"):
                 entities.append(_ChargerPowerNumber(entry, runtime, charger, field))
@@ -205,6 +205,19 @@ class _ChargerPowerNumber(NumberEntity):
             self._attr_available = False
             self._attr_native_value = None
             return
+        required = ("voltage_v", "phase_ids", "min_current_a",
+                    "max_current_a", "current_step_a")
+        if (charger.get("kind") != "variable_current"
+                or any(not charger.get(key) for key in required)):
+            self._attr_available = False
+            self._attr_native_value = None
+            self._attr_native_min_value = 0.01
+            self._attr_native_max_value = max(0.01, charger["rated_power_kw"])
+            self._attr_extra_state_attributes = {
+                "reason": "CHARGER_CURRENT_CAPABILITY_NOT_VERIFIED"
+            }
+            return
+        self._attr_extra_state_attributes = {}
         factor = charger["voltage_v"] * len(charger["phase_ids"]) / 1000
         physical_min = charger["min_current_a"] * factor
         physical_max = min(charger["rated_power_kw"],
@@ -253,6 +266,8 @@ class _ChargerPowerNumber(NumberEntity):
         user = await self.hass.auth.async_get_user(actor) if actor else None
         if user is None or not user.is_admin:
             raise RuntimeError("Charging power control requires an HA administrator")
+        if not self.available:
+            raise ValueError("CHARGER_CURRENT_CAPABILITY_NOT_AVAILABLE")
         if self.field != "set_charging_power_kw":
             await apply_native_preference(
                 self.hass, self.entry, self.runtime, "charger", self.uid,
