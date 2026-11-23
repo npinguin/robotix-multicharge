@@ -1206,11 +1206,15 @@ async def test_dashboard_yaml_review_commit_and_recorder_identity(hass: HomeAssi
 
 
 @pytest.mark.asyncio
-async def test_new_install_expert_single_ui_config_entry_four_chargers_four_assets(
+async def test_new_install_dashboard_yaml_configures_four_chargers_four_assets(
     hass: HomeAssistant,
 ):
-    """UC01/02/17: full native one-shot setup; no YAML file, package or helper."""
+    """New native bootstrap is one click; complete YAML is saved inside dashboard."""
     import yaml
+    from types import SimpleNamespace
+    from custom_components.robotix_multicharge.command_query import (
+        websocket_dashboard_yaml_configuration,
+    )
 
     source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
     installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
@@ -1218,14 +1222,13 @@ async def test_new_install_expert_single_ui_config_entry_four_chargers_four_asse
         shutil.copytree(source, installed)
     assert await async_setup_component(hass, DOMAIN, {})
     start = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
+        DOMAIN, context={"source": config_entries.SOURCE_USER},
     )
-    assert start["type"] == FlowResultType.MENU
-    assert "expert" in start["menu_options"]
-    editor = await hass.config_entries.flow.async_configure(
-        start["flow_id"], {"next_step_id": "expert"}
-    )
-    assert editor["step_id"] == "expert"
+    assert start["type"] == FlowResultType.CREATE_ENTRY
+    entry = start["result"]
+    await hass.async_block_till_done()
+    assert entry.data["source"] == "ui"
+    assert entry.data["configuration"]["chargers"] == []
 
     chargers = [
         {"id": key, "name": key.replace("_", " ").title(), "kind": "on_off",
@@ -1240,7 +1243,7 @@ async def test_new_install_expert_single_ui_config_entry_four_chargers_four_asse
          "target_soc": 80, "soc_entity": f"sensor.{key}_soc"}
         for key in ("audi", "vw", "guest1", "guest2")
     ]
-    proposed = {
+    proposed = validate_configuration({
         "controller": {
             "id": "home", "name": "Independent charge site",
             "mode": "Automatic", "max_parallel": 4,
@@ -1255,39 +1258,48 @@ async def test_new_install_expert_single_ui_config_entry_four_chargers_four_asse
             "plan_color_by": "vehicle",
         },
         "chargers": chargers, "assets": assets,
-    }
-    review = await hass.config_entries.flow.async_configure(
-        editor["flow_id"], {
-            "yaml_text": yaml.safe_dump(proposed, sort_keys=False)
-        }
+    })
+
+    class AdminConnection:
+        user = SimpleNamespace(is_admin=True)
+        result = None
+        failure = None
+
+        def send_result(self, _id, value):
+            self.result = value
+            self.failure = None
+
+        def send_error(self, _id, code, message):
+            self.result = None
+            self.failure = (code, message)
+
+    conn = AdminConnection()
+
+    async def send(action, **kwargs):
+        await websocket_dashboard_yaml_configuration(hass, conn, {
+            "id": 6, "type": "robotix_multicharge/yaml_configuration",
+            "action": action, **kwargs,
+        })
+        return conn.result
+
+    loaded = await send("read")
+    assert loaded["status"] == "ready"
+    assert yaml.safe_load(loaded["yaml_text"]) == entry.data["configuration"]
+    document = yaml.safe_dump(proposed, sort_keys=False)
+    review = await send("preview", mode="replace", yaml_text=document,
+                        expected_revision=loaded["configuration_revision"])
+    assert review["status"] == "preview"
+    assert len(review["groups"]["chargers"]["add"]) == 4
+    assert len(review["groups"]["assets"]["add"]) == 4
+    assert not entry.options.get("configuration"), "Preview must never Save"
+    saved = await send(
+        "apply", mode="replace", yaml_text=document,
+        expected_revision=loaded["configuration_revision"],
+        reviewed_revision=review["reviewed_revision"],
     )
-    assert review["step_id"] == "expert_review"
-    assert not hass.config_entries.async_entries(DOMAIN), (
-        "Expert draft/review must not create a Config Entry"
-    )
-    # Back to the actual draft, correct one field and review again.
-    again = await hass.config_entries.flow.async_configure(
-        review["flow_id"], {"edit_again": True}
-    )
-    assert again["step_id"] == "expert"
-    review = await hass.config_entries.flow.async_configure(
-        again["flow_id"], {
-            "yaml_text": yaml.safe_dump(proposed, sort_keys=False)
-        }
-    )
-    assert review["step_id"] == "expert_review"
-    approved = await hass.config_entries.flow.async_configure(
-        review["flow_id"], {"confirm": True}
-    )
-    assert approved["type"] == FlowResultType.CREATE_ENTRY
+    assert saved["status"] == "accepted_unconfirmed"
     await hass.async_block_till_done()
-    entry = approved["result"]
-    assert entry.data["source"] == "ui", "GUI owns the source, not file YAML"
-    assert entry.data["configuration"] == validate_configuration(proposed)
-    assert entry.data["configuration"]["controller"]["home_power_entity"] == (
-        "sensor.house_consumption"
-    )
-    assert entry.data["configuration"]["controller"]["grid_power_entity"] == "sensor.net_grid"
+    assert entry.options["configuration"] == proposed
     assert len(hass.config_entries.async_entries(DOMAIN)) == 1
     reg = dr.async_get(hass)
     for key in ("white", "black", "peblar", "utility"):
@@ -1301,10 +1313,9 @@ async def test_new_install_expert_single_ui_config_entry_four_chargers_four_asse
     assert reg.async_get_device_by_identifier(
         (DOMAIN, "controller/home"), entry.entry_id,
     ) is not None
-    # Daily/expert Settings remain enabled via the *same* Config Entry.
-    options = await hass.config_entries.options.async_init(entry.entry_id)
-    assert options["type"] == FlowResultType.MENU
-    assert "yaml" in options["menu_options"]
+    opts = await hass.config_entries.options.async_init(entry.entry_id)
+    assert opts["type"] == FlowResultType.ABORT
+    assert opts["reason"] == "dashboard_only"
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 
