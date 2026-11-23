@@ -458,6 +458,90 @@ class RobotixMultiChargeCard extends HTMLElement {
       this._settingsFeedback={status:"rejected",message:"Unavailable"};
     }finally{this._settingsBusy=false;this.render();}
   }
+  async nativeNumber(scope,uid,field,value){
+    const entity=this.ownerEntity(scope,uid,field);
+    if(!this.canEditSettings()||this._settingsBusy||!entity||
+       typeof this._hass?.callService!=="function"||!Number.isFinite(value)){
+      this._settingsFeedback={status:"rejected",message:"Unsupported number value"};
+      this.render();return;
+    }
+    this._settingsBusy=true;
+    this._settingsFeedback={status:"requested",message:"Applying"};
+    this.render();
+    try{
+      await this._hass.callService("number","set_value",{
+        entity_id:entity,value
+      });
+      this._last=0;
+      await this.load();
+      const state=this._hass?.states?.[entity]?.state;
+      const confirmed=state!==undefined&&state!=="unknown"&&
+        state!=="unavailable"&&Math.abs(Number(state)-value)<0.00001;
+      // An EVSE may quantize a requested kW into real physical Amp steps:
+      // never claim a requested setpoint equals physically measured power.
+      this._settingsFeedback={
+        status:confirmed?"confirmed":"accepted_unconfirmed",
+        message:confirmed?"Saved":"Awaiting native HA/EVSE readback"
+      };
+      if(!confirmed&&field!=="set_charging_power_kw")
+        this._pendingNative={entity,expected:String(value)};
+    }catch(error){
+      this._settingsFeedback={status:"rejected",message:String(
+        error?.message||"Number rejected by Home Assistant"
+      )};
+    }finally{
+      this._settingsBusy=false;this.render();
+    }
+  }
+  nativeNumberEditor(container,scope,uid,field,label,fallback,unit=""){
+    const entity=this.ownerEntity(scope,uid,field);
+    if(!this.canEditSettings()||!entity)return;
+    const native=this._hass?.states?.[entity];
+    const state=native?.state;
+    const observed=state!==undefined&&state!=="unavailable"&&
+      state!=="unknown"&&state!==""&&Number.isFinite(Number(state))?
+      Number(state):fallback;
+    const row=mcEl("div","field native-number");
+    const labelNode=mcEl("label","",mcTr(label)+(unit?" ("+unit+")":""));
+    const control=mcEl("div","row");
+    const input=mcEl("input");
+    input.setAttribute("type","number");
+    input.setAttribute("aria-label",mcTr(label));
+    input.value=observed===undefined||observed===null?"":String(observed);
+    const attr=native?.attributes||{};
+    if(Number.isFinite(Number(attr.min))&&attr.min!==undefined)
+      input.setAttribute("min",String(attr.min));
+    if(Number.isFinite(Number(attr.max))&&attr.max!==undefined)
+      input.setAttribute("max",String(attr.max));
+    input.setAttribute("step",String(attr.step||0.01));
+    const apply=mcButton(mcTr("Apply"),()=>{
+      const value=Number(input.value);
+      if(!input.value.trim()||!Number.isFinite(value)){
+        this._settingsFeedback={status:"rejected",message:"Number required"};
+        this.render();return;
+      }
+      void this.nativeNumber(scope,uid,field,value);
+    });
+    apply.disabled=this._settingsBusy||native?.state==="unavailable";
+    control.append(input,apply);row.append(labelNode,control);
+    container.append(row);
+  }
+  nativeRepeatEditor(container,asset){
+    const field="ready_by_repeat",entity=this.ownerEntity("asset",asset.id,field);
+    if(!this.canEditSettings()||!entity)return;
+    const input=this.field(container,mcTr("Charging schedule"),asset.ready_by_repeat||"none",null,[
+      ["none",mcTr("One time / none")],
+      ["daily",mcTr("Every day")],
+      ["weekly",mcTr("Every week")]
+    ]);
+    input.disabled=this._settingsBusy||!asset.ready_by;
+    input.setAttribute("aria-label",mcTr("Charging schedule"));
+    input.addEventListener("change",()=>
+      this.nativeSelect("asset",asset.id,field,input.value)
+    );
+    if(!asset.ready_by)container.append(mcEl("p","muted small",
+      mcTr("Set Ready By first to enable recurring charging")));
+  }
   openNative(scope,uid,field){
     const entity=this.ownerEntity(scope,uid,field);
     if(!this.canEditSettings()||!entity){this._settingsFeedback={status:"rejected",message:"Unavailable"};this.render();return;}
