@@ -980,6 +980,28 @@ class RobotixMultiChargeCard extends HTMLElement {
         mcPair(detail,"Rated power",c.rated_power_kw+" kW");
         mcPair(detail,"Phases",c.phase_count||"Unverified");
         mcPair(detail,"Current range",c.min_current_a&&c.max_current_a?c.min_current_a+"–"+c.max_current_a+" A":"Unknown");
+        if(c.kind==="variable_current"){
+          for(const [field,label] of [
+            ["min_charging_power_kw","Minimum charging power"],
+            ["max_charging_power_kw","Maximum charging power"],
+            ["set_charging_power_kw","Set charging power"]
+          ]){
+            const session=(d.active_sessions||{})[c.id];
+            const kw=field==="set_charging_power_kw"?
+              (session?.target_current_a!=null&&c.voltage_v&&c.phase_ids?.length?
+                session.target_current_a*c.voltage_v*c.phase_ids.length/1000:null):
+              c[field];
+            mcPair(detail,mcTr(label),kw==null?mcTr("Not set"):Number(kw).toFixed(2)+" kW");
+            if(this.canEditSettings()&&this.ownerEntity("charger",c.id,field)){
+              const control=mcEl("div","row");
+              control.append(mcEl("span","muted small",mcTr(label)),
+                mcButton(mcTr("Edit"),()=>this.openNative("charger",c.id,field)));
+              detail.append(control);
+            }
+          }
+        }else{
+          mcPair(detail,mcTr("Charging power control"),mcTr("On/off only"));
+        }
         mcPair(detail,"Source state",obs.power_kw?mcTr(obs.power_kw.quality==="ok"?"Ready":"Unavailable"):"Unknown");
         const actual=(d.command_outcomes||{})[c.id]||{};
         mcPair(detail,"Status",mcTr(actual.status==="confirmed"?"Confirmed":actual.status==="rejected"?"Rejected":actual.status==="execution_unknown"?"Unavailable":"No action"));
