@@ -875,6 +875,51 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(services.calls, [])
         self.assertTrue(rt.executor.capabilities()["evse"]["stop_allowed"])
 
+    async def test_minimal_unassigned_charger_exposes_specific_manual_start_holds(self):
+        """UC05/11/17: no SoC, price or PV prerequisite; no fake cable proof."""
+        rt, sources, services = rig(owner="external")
+        charger = rt.configuration["chargers"][0]
+        charger.pop("asset")
+        cap = rt.executor.capabilities()["evse"]
+        self.assertFalse(cap["manual_one_off_allowed"])
+        self.assertEqual(cap["manual_one_off_reason"],
+                         "EXTERNAL_WRITER_OWNS_CHARGER")
+
+        charger["control_owner"] = "multicharge"
+        charger["physical_commissioned"] = False
+        cap = rt.executor.capabilities()["evse"]
+        self.assertEqual(cap["manual_one_off_reason"],
+                         "PHYSICAL_COMMISSIONING_REQUIRED")
+
+        charger["physical_commissioned"] = True
+        sources.pop("binary_sensor.cable")
+        cap = rt.executor.capabilities()["evse"]
+        self.assertEqual(cap["manual_one_off_reason"],
+                         "PHYSICAL_CONNECTION_UNVERIFIED")
+        denied = await rt.executor.execute(
+            "evse", "start", manual_request={"duration_minutes": 15},
+        )
+        self.assertEqual(denied["status"], "rejected")
+        self.assertEqual(denied["reason"], "PHYSICAL_CONNECTION_UNVERIFIED")
+        self.assertEqual(services.calls, [], "Switch-only can never prove a cable")
+
+        # With independently observed native connection and physical meter,
+        # the same already-existing bounded executor becomes available.
+        sources["binary_sensor.cable"] = state("on")
+        cap = rt.executor.capabilities()["evse"]
+        self.assertTrue(cap["manual_one_off_allowed"])
+        self.assertEqual(cap["manual_one_off_reason"], "READY")
+        outcome = await rt.executor.execute(
+            "evse", "start", manual_request={"duration_minutes": 15},
+        )
+        self.assertEqual(outcome["status"], "confirmed")
+        self.assertEqual(rt.executor.session_snapshot()["evse"]["asset_id"], None)
+        self.assertEqual(
+            rt.executor.session_snapshot()["evse"]["requested_duration_minutes"],
+            15,
+        )
+        self.assertEqual(services.calls[0][1], "turn_on")
+
     async def test_corrupt_trailing_receipt_never_partially_restores_control_state(self):
         """UC23/26: validate every persisted field before mutating live truth."""
         rt, _, services = rig()
