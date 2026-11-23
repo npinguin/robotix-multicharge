@@ -92,13 +92,30 @@ class NativeSwitchExecutor:
             self._plug_epochs.pop(uid, None)
             self._plug_confirmations.pop(uid, None)
             return None
+        changed_at = changed.astimezone(timezone.utc).isoformat()
+        raw_state = str(source.state).strip().casefold()
         existing = self._plug_epochs.get(uid)
         if existing and existing["entity"] == entity:
-            return existing["connected_at"]
-        epoch = changed.astimezone(timezone.utc).isoformat()
-        self._plug_epochs[uid] = {"entity": entity, "connected_at": epoch}
+            if existing["last_changed"] == changed_at and (
+                    existing["raw_state"] == raw_state):
+                return existing["connected_at"]
+            # Only a documented native enum mapping supports *positive*
+            # connected-substate transitions. Native binary_sensor/literal
+            # connected/disconnected changes retain strict plug-instance
+            # invalidation, including a real replug with the same state.
+            mapped = bool(charger.get("connected_states"))
+            substate_changed = existing["raw_state"] != raw_state
+            if mapped and substate_changed and (
+                    existing["last_changed"] != changed_at):
+                existing["last_changed"] = changed_at
+                existing["raw_state"] = raw_state
+                return existing["connected_at"]
+        self._plug_epochs[uid] = {
+            "entity": entity, "connected_at": changed_at,
+            "last_changed": changed_at, "raw_state": raw_state,
+        }
         self._plug_confirmations.pop(uid, None)
-        return epoch
+        return changed_at
 
     def connection_confirmation(self, charger, at):
         """Return only an explicit confirmation for the current plug instance."""
