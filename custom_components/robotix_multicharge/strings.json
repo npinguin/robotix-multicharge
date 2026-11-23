@@ -376,6 +376,9 @@
       },
       "continuous_charging": {
         "name": "Charging pattern"
+      },
+      "opportunistic_kind": {
+        "name": "Opportunistic price mode"
       }
     },
     "number": {
@@ -417,6 +420,21 @@
       },
       "requested_budget_amount": {
         "name": "Charging budget (€)"
+      },
+      "minimum_soc_pct": {
+        "name": "Minimum battery level"
+      },
+      "maximum_price_per_kwh": {
+        "name": "Maximum price per kWh"
+      },
+      "low_price_trigger_per_kwh": {
+        "name": "Low-price charging trigger"
+      },
+      "low_soc_trigger_pct": {
+        "name": "Low battery charging trigger"
+      },
+      "opportunistic_level_pct": {
+        "name": "Opportunistic level"
       }
     },
     "datetime": {
@@ -428,6 +446,9 @@
       },
       "expires_at": {
         "name": "Guest until"
+      },
+      "earliest_start_at": {
+        "name": "Earliest charging start"
       }
     },
     "sensor": {
@@ -577,6 +598,9 @@
       },
       "charging_window_sun": {
         "name": "Sunday charging hours"
+      },
+      "price_currency": {
+        "name": "Price currency"
       }
     },
     "binary_sensor": {
