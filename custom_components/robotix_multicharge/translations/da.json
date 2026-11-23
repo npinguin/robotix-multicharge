@@ -38,7 +38,8 @@
           "ready_by_repeat": "Gentag (valgfrit)",
           "temporary": "Gæst (valgfrit)",
           "expires_at": "Udløb (valgfrit)",
-          "expected_connection_at": "Forventet tilslutning (valgfrit)"
+          "expected_connection_at": "Forventet tilslutning (valgfrit)",
+          "soc_stale_entity": "OEM-data forældet (binær sensor: til = forældet)"
         }
       },
       "sources": {
@@ -172,7 +173,8 @@
           "soc_entity": "Batteri",
           "capacity_kwh": "Batteri",
           "vehicle_control_entity": "Køretøjets styrekontakt (kilde)",
-          "vehicle_current_entity": "Køretøjets strømindstilling (kilde)"
+          "vehicle_current_entity": "Køretøjets strømindstilling (kilde)",
+          "soc_stale_entity": "OEM-data forældet (binær sensor: til = forældet)"
         }
       },
       "charger": {
