@@ -373,6 +373,9 @@
       },
       "ready_day_sun": {
         "name": "Sunday Ready By"
+      },
+      "continuous_charging": {
+        "name": "Charging pattern"
       }
     },
     "number": {
