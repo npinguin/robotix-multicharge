@@ -663,6 +663,12 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 for name in ("price_entity", "solar_entity", "binding_entity"):
                     if user_input.get(name):
                         trial["controller"][name] = user_input[name]
+                # The historical wizard's Sources page selects an interval
+                # provider. Preserve that explicit choice even if the Site
+                # step initially defaulted to monitoring-only.
+                if (user_input.get("solar_entity")
+                        and trial["controller"].get("solar_source_kind", "none") == "none"):
+                    trial["controller"]["solar_source_kind"] = "intervals"
                 for charger in trial["chargers"]:
                     selected = user_input.get("assign_" + charger["id"])
                     if selected:
