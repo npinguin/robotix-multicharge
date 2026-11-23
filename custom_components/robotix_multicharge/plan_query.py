@@ -116,6 +116,8 @@ async def websocket_get_plan(
                 row["id"]: {
                     "name": native_entity("text", "asset", row["id"], "name"),
                     "soc_entity": native_entity("text", "asset", row["id"], "soc_entity"),
+                    "price_currency": native_entity(
+                        "text", "asset", row["id"], "price_currency"),
                     **{
                         f"charging_window_{day}": native_entity(
                             "text", "asset", row["id"], f"charging_window_{day}")
@@ -123,21 +125,24 @@ async def websocket_get_plan(
                     },
                     **{
                         field: native_select("asset", row["id"], field)
-                        for field in ("plan_color", "ready_by_repeat", "continuous_charging", "kind",
+                        for field in ("plan_color", "ready_by_repeat", "continuous_charging",
+                                      "opportunistic_kind", "kind",
                                       *(f"ready_day_{day}" for day in WEEKDAYS))
                     },
                     **{
                         field: native_entity("number", "asset", row["id"], field)
                         for field in ("target_soc", "requested_kwh",
                                       "requested_duration_minutes", "requested_budget_amount",
-                                      "priority",
+                                      "minimum_soc_pct", "maximum_price_per_kwh",
+                                      "low_price_trigger_per_kwh", "low_soc_trigger_pct",
+                                      "opportunistic_level_pct", "priority",
                                       "max_charge_kw", "capacity_kwh",
                                       "charge_efficiency")
                     },
                     **{
                         field: native_entity("datetime", "asset", row["id"], field)
                         for field in ("ready_by", "expected_connection_at",
-                                      "expires_at")
+                                      "expires_at", "earliest_start_at")
                     },
                 }
                 for row in cfg["assets"]
