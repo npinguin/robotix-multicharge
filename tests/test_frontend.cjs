@@ -16,7 +16,19 @@ assert.ok(groupSource.startsWith("const MC_OWNER_GROUPS = {"));
 const scopeList=["controller","asset","charger"];
 for(let index=0;index<scopeList.length;index++){
   const scope=scopeList[index];
-  const sourceMatch=configurationSource.match(
+  // Bound the regex to the actual owning schema. Asset and Charger
+  // both use _allowed(source, ...); spanning both falsely reports Asset
+  // fields as missing from the Charger when validating against its UX.
+  const assetStart=configurationSource.indexOf("    assets = []");
+  const chargerStart=configurationSource.indexOf("    chargers = []");
+  assert.ok(assetStart>=0&&chargerStart>assetStart,
+    "Owning schema sections must be separately identifiable");
+  const schemaSection=scope==="controller"?
+    configurationSource.slice(0,assetStart):
+    scope==="asset"?
+      configurationSource.slice(assetStart,chargerStart):
+      configurationSource.slice(chargerStart);
+  const sourceMatch=schemaSection.match(
     new RegExp("_allowed\\("+(scope==="controller"?"ctl":"source")+
       ", \\(([\\s\\S]*?)\\), \""+scope+"\"\\)")
   );
