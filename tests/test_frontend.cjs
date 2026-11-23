@@ -238,9 +238,15 @@ async function main(){
     "Legacy single-weekday recurring option must not appear");
   let monday;
   visit(scheduleCard.shadowRoot,node=>{
-    if(node.tag==="select"&&node.attributes.id==="multicharge-monday")monday=node;
+    if(node.tag==="select"&&String(node.attributes.id||"").startsWith("multicharge-monday-"))monday=node;
   });
   assert.ok(monday,"Monday has an owned native weekday picker");
+  const fieldIds=[];
+  visit(scheduleCard.shadowRoot,node=>{
+    if(node.attributes?.id)fieldIds.push(node.attributes.id);
+  });
+  assert.equal(new Set(fieldIds).size,fieldIds.length,
+    "All displayed goal/weekday/price inputs must have unique DOM label IDs");
   monday.value="07:00";monday.events.change();
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(scheduleCalls.some(x=>x.domain==="select"&&
@@ -252,7 +258,7 @@ async function main(){
   let startHour;
   visit(scheduleCard.shadowRoot,node=>{
     if(node.tag==="input"&&
-      node.attributes.id==="multicharge-monday-start-hour")startHour=node;
+      String(node.attributes.id||"").startsWith("multicharge-monday-start-hour-"))startHour=node;
   });
   assert.ok(startHour,"native time input exists for Monday");
   startHour.value="23:00";startHour.events.change();
