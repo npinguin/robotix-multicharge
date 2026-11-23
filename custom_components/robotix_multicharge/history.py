@@ -130,30 +130,45 @@ def _estimated_session_variable_cost(states, receipt, price_slots, now):
         first[0] == second[0] for first, second in zip(observed, observed[1:])
     ):
         return None
-    tariffs = sorted(
-        (slot for slot in price_slots if slot.start < end and slot.end > start),
-        key=lambda slot: slot.start,
-    )
-    if not tariffs or any(slot.basis != "effective" for slot in tariffs):
+    # Convert provider-local aware timestamps to UTC before ordering.
+    # Python's local-zone comparison can otherwise collapse distinct fold=0
+    # and fold=1 instants on a 25-hour DST fallback day.
+    tariffs = []
+    try:
+        for slot in price_slots:
+            if (slot.start.utcoffset() is None
+                    or slot.end.utcoffset() is None
+                    or slot.basis != "effective"
+                    or not isfinite(slot.effective_price_per_kwh)):
+                return None
+            left = slot.start.astimezone(timezone.utc)
+            right = slot.end.astimezone(timezone.utc)
+            if left >= right:
+                return None
+            if left < end and right > start:
+                tariffs.append((left, right, slot))
+    except (AttributeError, TypeError, ValueError, OverflowError):
         return None
-    currencies = {slot.currency for slot in tariffs}
+    tariffs.sort(key=lambda row: row[0])
+    if not tariffs:
+        return None
+    currencies = {slot.currency for _, _, slot in tariffs}
     if len(currencies) != 1 or not next(iter(currencies)):
         return None
-    if any(
-        first.end > second.start for first, second in zip(tariffs, tariffs[1:])
-    ):
+    if any(first[1] > second[0]
+           for first, second in zip(tariffs, tariffs[1:])):
         return None
     boundaries = sorted(
         {start, end}
         | {stamp for stamp, _ in observed if start < stamp < end}
-        | {edge for slot in tariffs for edge in (slot.start, slot.end)
+        | {edge for left, right, _ in tariffs for edge in (left, right)
            if start < edge < end}
     )
     cost = 0.0
     measured_kwh = 0.0
     for left, right in zip(boundaries, boundaries[1:]):
-        candidates = [slot for slot in tariffs
-                      if slot.start <= left and slot.end >= right]
+        candidates = [slot for from_utc, to_utc, slot in tariffs
+                      if from_utc <= left and to_utc >= right]
         if len(candidates) != 1:
             return None
         readings = [reading for reading in observed if reading[0] <= left]
