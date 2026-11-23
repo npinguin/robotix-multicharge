@@ -461,6 +461,21 @@
     "text": {
       "name": {
         "name": "Name"
+      },
+      "price_entity": {
+        "name": "Tariff source"
+      },
+      "solar_entity": {
+        "name": "Solar source"
+      },
+      "site_power_entity": {
+        "name": "Site power source"
+      },
+      "binding_entity": {
+        "name": "Power envelope source"
+      },
+      "soc_entity": {
+        "name": "Battery level source"
       }
     },
     "binary_sensor": {
