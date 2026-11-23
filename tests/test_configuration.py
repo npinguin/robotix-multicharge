@@ -25,6 +25,53 @@ from multicharge_configuration_tests.configuration import (  # noqa: E402 - impo
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_native_status_mapping_config_requires_disjoint_known_sensor_states(self):
+        from copy import deepcopy
+
+        basic = {
+            "controller": {"id": "home", "name": "Home", "max_parallel": 1},
+            "assets": [],
+            "chargers": [{
+                "id": "evse", "name": "EVSE", "kind": "on_off",
+                "rated_power_kw": 3.6, "control_entity": "switch.evse",
+                "connected_entity": "sensor.evse_status",
+                "connected_states": ["Charging", "Preparing"],
+                "disconnected_states": ["Available"],
+            }],
+        }
+        resolved = validate_configuration(basic)
+        self.assertEqual(resolved["chargers"][0]["connected_states"],
+                         ["charging", "preparing"])
+        self.assertEqual(resolved["chargers"][0]["disconnected_states"],
+                         ["available"])
+        for changes in (
+            {"connected_states": ["charging", "CHARGING"]},
+            {"connected_states": ["Available"]},
+            {"disconnected_states": []},
+            {"connected_states": [""]},
+            {"connected_entity": "switch.evse"},
+        ):
+            bad = deepcopy(basic)
+            bad["chargers"][0].update(changes)
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                validate_configuration(bad)
+        missing = deepcopy(basic)
+        del missing["chargers"][0]["disconnected_states"]
+        with self.assertRaises(ValueError):
+            validate_configuration(missing)
+
+        expert = normalize_expert_json({
+            "Controller": {"ID": "home", "Name": "Home"},
+            "Charger": [{
+                "Name": "EVSE",
+                "Charging-startstop-entity": "switch.evse",
+                "Charging-connected-sensor": "sensor.evse_status",
+                "Charging-connected-states": ["Charging"],
+                "Charging-disconnected-states": ["Available"],
+            }],
+        })
+        self.assertEqual(expert["chargers"][0]["connected_states"], ["charging"])
+
     def test_new_car_defaults_to_80_without_overriding_existing_or_finite_goal(self):
         from multicharge_configuration_tests.configuration import (
             apply_settings_change, apply_new_asset_defaults,
