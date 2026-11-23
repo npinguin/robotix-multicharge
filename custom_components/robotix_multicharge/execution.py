@@ -215,7 +215,7 @@ class NativeSwitchExecutor:
         # Preserve fingerprints for every existing non-budget legacy intent.
         # Additional fields are incorporated only when actually configured.
         for field in ("requested_budget_amount", "requested_budget_currency",
-                      "ready_by_weekdays", "charging_windows"):
+                      "ready_by_weekdays"):
             if asset.get(field) is not None:
                 data[field] = asset[field]
         return sha256(dumps(data, sort_keys=True).encode()).hexdigest()
@@ -403,6 +403,11 @@ class NativeSwitchExecutor:
         begun = session["started_at"]
         end = max(finished_at or datetime.now(timezone.utc), begun)
         source = charger.get("energy_entity") if charger else None
+        # Final physical STOP must reconcile the last meter increment, even
+        # if a user pressed STOP before the 60-second budget supervisor poll.
+        # This reuses the SAME source-qualified budget accounting path.
+        if charger and session.get("requested_budget_amount") is not None:
+            self._session_stop_reason(charger, end)
         delivered, meter_at = None, None
         if session["starting_energy_kwh"] is not None and source:
             sample = number(self.runtime.hass, source, "energy", datetime.now(timezone.utc))
@@ -412,6 +417,14 @@ class NativeSwitchExecutor:
                 if delta >= -0.00001:
                     delivered = round(max(delta, 0), 6)
                     meter_at = sample.observed_at.isoformat()
+        if session.get("requested_budget_amount") is not None:
+            last_meter = session.get("budget_last_meter_value")
+            # Never persist a "qualified" zero-cost receipt if independently
+            # measured energy exists after the last proven tariff increment.
+            if (delivered is None or last_meter is None
+                    or sample.value > last_meter + 0.000001
+                    or sample.value < last_meter - 0.000001):
+                session["budget_quality"] = "unknown"
         cost, currency = None, None
         if (delivered is not None and self.runtime.observations.get(
                 "sources", {}).get("tariff_quality") == "OK"):
