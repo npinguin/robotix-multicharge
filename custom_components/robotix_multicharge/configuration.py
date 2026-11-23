@@ -72,6 +72,21 @@ def _allowed(row, fields, name):
         raise ValueError(f"{name}: unknown keys {', '.join(sorted(extra))}")
 
 
+def apply_new_asset_defaults(row):
+    """80% is an editable starting *target*, never an OEM hardware limit.
+
+    Only newly created normal car profiles receive this default; expert
+    imports and existing persisted vehicle targets are never rewritten.
+    A percentage without a qualified SoC does not authorize charging.
+    """
+    if (row.get("kind", "car") == "car"
+            and row.get("target_soc") is None
+            and row.get("requested_kwh") is None
+            and row.get("requested_duration_minutes") is None):
+        row["target_soc"] = 80
+    return row
+
+
 def default_configuration(name="Home charging"):
     return {"controller": {"id": "home", "name": name, "max_parallel": 1},
             "assets": [], "chargers": []}
