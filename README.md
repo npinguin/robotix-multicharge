@@ -8,7 +8,7 @@
 
 Robotix MultiCharge is an open-source Home Assistant integration being built to coordinate charging for electric cars, e-bikes and other compatible rechargeable assets. The goal: make smart use of electricity prices, solar energy, available power and charging deadlines—without locking you to a vehicle, charger or energy provider.
 
-> **HACS TEST v0.1.7 candidate — independent Community integration, not STABLE or field-qualified.** This increment adds device-owned native Home Assistant inputs/actions automatically on the logical ChargeController, Charger and ChargeableAsset, with everyday charging controls in the integrated dashboard instead of the Options Flow. Newly added car profiles default to an editable 80% target; recurring Ready By schedules and variable-current Charger min/max/set kW are supported where the hardware qualifies. Guided setup can select Automatic mode, but **real Charger ownership remains external until explicit qualified commissioning**. Never run two physical writers on the same charger. Actual charger operation, source quality, responsive UX and every field use-case still require acceptance. No other Robotix/RHI integration is required.
+> **HACS TEST v0.1.8 candidate — independent Community integration, not STABLE or field-qualified.** This increment adds device-owned native Home Assistant inputs/actions automatically on the logical ChargeController, Charger and ChargeableAsset, with everyday charging controls in the integrated dashboard instead of the Options Flow. Newly added car profiles default to an editable 80% target; recurring Ready By schedules and variable-current Charger min/max/set kW are supported where the hardware qualifies. Guided setup can select Automatic mode, but **real Charger ownership remains external until explicit qualified commissioning**. Never run two physical writers on the same charger. Actual charger operation, source quality, responsive UX and every field use-case still require acceptance. No other Robotix/RHI integration is required.
 
 ## Functional product authority
 
@@ -301,6 +301,8 @@ Keep the existing controller `id` when converting from a GUI-created entry (the 
 
 A new installation offers **Guided setup** or **Complete charging site (JSON)**. For a **GUI-managed** Config Entry, an HA administrator can use **MultiCharge → Settings → Edit JSON**. The editor shows the exact current validated `controller / assets / chargers` configuration, including IDs, source bindings, power limits, per-Asset goals and scheduling. Choose **Complete configuration** to replace all rows (review removals carefully), or **Scoped changes** to merge only supplied IDs and preserve the remaining objects. **Continue / review** shows changed/added/removed objects; only **Apply reviewed changes** commits through the existing native Home Assistant Options Flow. Safe legacy YAML documents remain accepted through the same validator.
 
+**v0.1.8 iPad UX correction:** Real Home Assistant native setting services now use the service-injected HA entity context, so selecting vehicle/mode and editing Numbers/Texts/DateTimes no longer crashes with `_OwnedSelect.context`; the actual HA service-call and permission tests verify this. Overview and Charger cards expose an immediate **Selected vehicle** chooser outside technical Details; changing A → B is one optimistic-locked atomic idle-only update, never a physical session identity override. Charging Plan now uses a **locally bundled MIT ApexCharts 3.49.1** interactive timeline (no HACS add-on or CDN), with separate measured/proposed/accepted/indicative facts and an independently qualified EUR/kWh price axis. Full SOURCE/HA/browser evidence is required before publication, physical Wessels tests remain distinct.
+
 The five existing tabs expose everyday charging without learning JSON: **Overview** for real state and quick actions, **Charging Plan** for measured/accepted/proposed/indicative quarters and prices, **Chargeable Assets** for goal/schedule/Guest and vehicle detail, **Chargers** for physical connection/ownership/STOP/one-off, and **Settings** for site strategy, native sources and diagnosis. Each object has compact daily state and foldable groups for its complete technical configuration. Ordinary writable preferences open the owning **native HA Entity**; changes to physical wiring/source structure require the reviewed JSON/Options Flow, and ownership transfer requires separate commissioning. The three logical native HA Device types also expose one read-only Configuration diagnostic sensor each, while the actual charger integration retains original device ownership.
 
 The single validated Config Entry is authoritative for GUI-managed installs; a **file-imported** JSON or YAML configuration stays authoritative in that source and is deliberately read-only in the dashboard. Invalid duplicate keys, stale Config Entry revisions, commissioning changes, unsafe active-device rewiring and unqualified writers fail closed. There is no second configuration database, manual helper dependency or additional physical service.
@@ -310,10 +312,10 @@ The single validated Config Entry is authoritative for GUI-managed installs; a *
 Robotix MultiCharge is a **single MIT-licensed community integration**. It installs
 from source; no precompiled runtime, paid Robotix services or separate mirror.
 
-For the `v0.1.7` TEST candidate, after the corresponding GitHub prerelease is published, open HACS in Home Assistant and add
+For the `v0.1.8` TEST candidate, after the corresponding GitHub prerelease is published, open HACS in Home Assistant and add
 `https://github.com/npinguin/robotix-multicharge` as a **custom Integration
 repository**, enable prerelease/beta versions where applicable, and install
-the `v0.1.7` TEST prerelease. Restart Home Assistant. For the GUI wizard,
+the `v0.1.8` TEST prerelease. Restart Home Assistant. For the GUI wizard,
 open **Settings → Devices & services → Add integration → Robotix MultiCharge**;
 for an expert YAML/JSON include, Home Assistant imports or adopts the **existing**
 Config Entry automatically and you should **not add a second entry**.
