@@ -2,14 +2,9 @@
   "config": {
     "step": {
       "user": {
-        "title": "Robotix MultiCharge",
-        "description": "Step 1/5 — Name the charging site; all electrical limits are optional for setup.",
-        "data": {
-          "name": "Charging site name (optional)",
-          "max_parallel": "Maximum simultaneous charging points (optional)",
-          "max_power_kw": "Configured group power ceiling (kW; hardware verification required) (optional)",
-          "phase_limits_a": "Verified phase current ceilings, e.g. L1:16,L2:16,L3:16 (A) (optional)",
-          "mode": "Initial charging mode"
+        "menu_options": {
+          "guided": "Guided setup",
+          "expert": "Configure entire charging site"
         }
       },
       "charger": {
@@ -89,6 +84,32 @@
           "circuit_limit_a": "Circuit current ceiling (A) (optional)",
           "current_control_entity": "Native current limit setpoint (number) (optional)",
           "current_readback_entity": "Independent actual current sensor (A) (optional)"
+        }
+      },
+      "guided": {
+        "title": "Robotix MultiCharge",
+        "description": "Step 1/5 — Name the charging site; all electrical limits are optional for setup.",
+        "data": {
+          "name": "Charging site name (optional)",
+          "max_parallel": "Maximum simultaneous charging points (optional)",
+          "max_power_kw": "Configured group power ceiling (kW; hardware verification required) (optional)",
+          "phase_limits_a": "Verified phase current ceilings, e.g. L1:16,L2:16,L3:16 (A) (optional)",
+          "mode": "Initial charging mode"
+        }
+      },
+      "expert": {
+        "title": "Complete site setup",
+        "description": "Review all Chargers, Assets and source bindings before saving. No physical charging command or ownership change is performed. {note}",
+        "data": {
+          "yaml_text": "Paste one complete MultiCharge YAML document (controller/assets/chargers)"
+        }
+      },
+      "expert_review": {
+        "title": "Review complete site configuration",
+        "description": "{summary} Confirm only after reviewing all logical devices and settings.",
+        "data": {
+          "confirm": "I have reviewed the complete configuration",
+          "edit_again": "Return to YAML editing"
         }
       }
     },
