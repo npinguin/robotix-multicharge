@@ -1896,6 +1896,26 @@ class RobotixMultiChargeCard extends HTMLElement {
           detail.append(row);
         }
         this.ownerFacts(detail,"asset",a);
+        const recent=(d.completed_sessions||[])
+          .filter(entry=>entry.asset_id===a.id&&entry.physical_stop_confirmed===true)
+          .slice(-3).reverse();
+        detail.append(mcEl("h4","",mcTr("Vehicle charging history")));
+        if(!recent.length)detail.append(mcEl("p","muted small",
+          mcTr("No confirmed charging history")));
+        for(const receipt of recent){
+          const row=mcEl("div","owner-group");
+          mcPair(row,mcTr("Charger at session time"),
+            chargers.find(ch=>ch.id===receipt.charger_id)?.name||
+              receipt.charger_id||mcTr("Unknown"));
+          mcPair(row,mcTr("Completed"),mcTime(receipt.ended_at,d.timezone));
+          mcPair(row,mcTr("Measured energy"),
+            receipt.actual_energy_kwh===null||receipt.actual_energy_kwh===undefined?
+              mcTr("Unknown"):receipt.actual_energy_kwh+" kWh");
+          mcPair(row,mcTr("Physical STOP confirmed"),mcTr("Yes"));
+          if(receipt.stop_reason)mcPair(row,mcTr("Session stop reason"),
+            mcReason(receipt.stop_reason));
+          detail.append(row);
+        }
         card.append(detail);
       }
       container.append(card);
@@ -1975,11 +1995,33 @@ class RobotixMultiChargeCard extends HTMLElement {
       mcPair(card,"Connection",mcValue(obs.connected));
       mcPair(card,"Effective charging power",mcValue(obs.power_kw," kW"));
       mcPair(card,"Control type",c.kind==="on_off"?"On/off":"Variable current");
+      mcPair(card,mcTr("Physical control owner"),
+        c.control_owner==="multicharge"?mcTr("MultiCharge"):
+        mcTr("External control (monitor only)"));
+      mcPair(card,mcTr("Physically commissioned"),
+        c.physical_commissioned===true?mcTr("Yes"):mcTr("No"));
       const session=(d.active_sessions||{})[c.id];
       if(session){
         mcPair(card,"Active session",mcTime(session.started_at,d.timezone));
         mcPair(card,"Measured session energy",
-               session.actual_energy_kwh===null?"Unknown":session.actual_energy_kwh+" kWh");
+               session.actual_energy_kwh===null||session.actual_energy_kwh===undefined?
+                 mcTr("Unknown"):session.actual_energy_kwh+" kWh");
+        const intent=session.requested_budget_amount!=null?
+          session.requested_budget_amount+" "+
+            (session.requested_budget_currency||"EUR"):
+          session.requested_kwh!=null?session.requested_kwh+" kWh":
+          session.requested_duration_minutes!=null?
+            session.requested_duration_minutes+" "+mcTr("minutes"):
+          session.soc_target!=null?session.soc_target+"%":mcTr("Not set");
+        mcPair(card,mcTr("Active session goal"),intent);
+        if(session.requested_budget_amount!=null){
+          mcPair(card,mcTr("Indicative budget used"),
+            session.budget_cost===null||session.budget_cost===undefined?
+              mcTr("Unknown"):String(session.budget_cost)+" "+
+                (session.requested_budget_currency||"EUR"));
+          mcPair(card,mcTr("Budget measurement quality"),
+            mcReason(session.budget_quality||"unknown"));
+        }
       }
       mcPair(card,"Assigned asset",c.asset||"Not assigned");
       const identity=(d.connection_identity||{})[c.id]||null;
@@ -1999,7 +2041,14 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(latest){
         mcPair(card,"Last confirmed session",mcTime(latest.ended_at,d.timezone));
         mcPair(card,"Measured energy",latest.actual_energy_kwh===null?"Unknown":latest.actual_energy_kwh+" kWh");
-        mcPair(card,"Verified cost",latest.cost===null?"Unknown":latest.cost+" "+latest.currency);
+        mcPair(card,"Verified cost",latest.cost===null?
+          mcTr("Unknown"):latest.cost+" "+latest.currency);
+        mcPair(card,mcTr("Original vehicle at session time"),
+          latest.asset_id||mcTr("Anonymous charger-only session"));
+        mcPair(card,mcTr("Physical STOP confirmed"),
+          latest.physical_stop_confirmed===true?mcTr("Yes"):mcTr("Unknown"));
+        if(latest.stop_reason)
+          mcPair(card,mcTr("Session stop reason"),mcReason(latest.stop_reason));
         if(latest.cost===null && latest.estimated_variable_cost!==undefined){
           mcPair(card,mcTr("Indicative variable energy cost"),
             latest.estimated_variable_cost+" "+
@@ -2010,6 +2059,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       }
       if(this._open===c.id){
         const detail=mcEl("div","details");
+        detail.append(mcEl("h4","",mcTr("Physical Charger & verified sources")));
         mcPair(detail,"Rated power",c.rated_power_kw+" kW");
         mcPair(detail,"Phases",c.phase_count||"Unverified");
         mcPair(detail,"Current range",c.min_current_a&&c.max_current_a?c.min_current_a+"–"+c.max_current_a+" A":"Unknown");
