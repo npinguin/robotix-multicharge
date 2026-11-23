@@ -97,7 +97,12 @@ class NativeSwitchExecutor:
                 and isinstance(old_at, datetime) and old_at.utcoffset() is not None
                 and isinstance(new_at, datetime) and new_at.utcoffset() is not None
                 and existing.get("last_changed") ==
-                    old_at.astimezone(timezone.utc).isoformat()):
+                    old_at.astimezone(timezone.utc).isoformat()
+                # A real mapped positive-substate change advances time.
+                # Same-raw attribute updates may preserve the same last_changed
+                # timestamp, but provider re-creation must invalidate identity.
+                and ((raw_old != raw_new and new_at > old_at)
+                     or (raw_old == raw_new and new_at == old_at))):
             existing["raw_state"] = raw_new
             existing["last_changed"] = new_at.astimezone(timezone.utc).isoformat()
             return
