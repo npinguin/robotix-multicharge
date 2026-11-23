@@ -98,6 +98,10 @@ def validate_configuration(value):
     ctl = value.get("controller")
     _allowed(ctl, ("id", "name", "max_parallel", "max_power_kw",
                    "price_entity", "site_power_entity", "solar_entity",
+                   "solar_power_entity", "home_power_entity",
+                   "grid_power_entity", "solar_surplus_entity",
+                   "current_price_entity", "export_price_entity",
+                   "solar_source_kind", "grid_power_direction",
                    "binding_entity", "mode", "phase_limits_a",
                    "plan_label_mode", "plan_color_by", "show_indicative_forecast"), "controller")
     cid = _text(ctl.get("id", "home"), "controller.id")
@@ -116,10 +120,24 @@ def validate_configuration(value):
         raise ValueError("controller.plan_color_by: choose vehicle/charger")
     if type(show_forecast) is not bool:
         raise ValueError("controller.show_indicative_forecast: expected boolean")
+    solar_kind = ctl.get("solar_source_kind", "intervals" if ctl.get("solar_entity") else "none")
+    if solar_kind not in ("none", "intervals", "grid_export", "direct_surplus"):
+        raise ValueError("controller.solar_source_kind: unsupported native source")
+    grid_direction = ctl.get("grid_power_direction", "import_positive")
+    if grid_direction not in ("import_positive", "export_positive"):
+        raise ValueError("controller.grid_power_direction: invalid meter sign")
+    if solar_kind == "intervals" and not ctl.get("solar_entity"):
+        raise ValueError("controller: interval Solar requires solar_entity")
+    if solar_kind == "grid_export" and not ctl.get("grid_power_entity"):
+        raise ValueError("controller: grid-export Solar requires grid_power_entity")
+    if solar_kind == "direct_surplus" and not ctl.get("solar_surplus_entity"):
+        raise ValueError("controller: direct surplus requires solar_surplus_entity")
     controller = {"id": cid, "name": _text(ctl.get("name"), "controller.name"),
                   "max_parallel": parallel, "mode": mode,
                   "plan_label_mode": label_mode, "plan_color_by": color_by,
-                  "show_indicative_forecast": show_forecast}
+                  "show_indicative_forecast": show_forecast,
+                  "solar_source_kind": solar_kind,
+                  "grid_power_direction": grid_direction}
     if ctl.get("max_power_kw") is not None:
         controller["max_power_kw"] = _number(ctl["max_power_kw"], "controller.max_power_kw")
     if ctl.get("phase_limits_a") is not None:
@@ -134,9 +152,16 @@ def validate_configuration(value):
         }
     if ctl.get("binding_entity") and ctl.get("site_power_entity"):
         raise ValueError("controller: select one authoritative capacity binding source")
-    for key in ("price_entity", "site_power_entity", "solar_entity", "binding_entity"):
+    for key in (
+        "price_entity", "site_power_entity", "solar_entity", "binding_entity",
+        "solar_power_entity", "home_power_entity", "grid_power_entity",
+        "solar_surplus_entity", "current_price_entity", "export_price_entity",
+    ):
         if ctl.get(key):
-            controller[key] = _entity(ctl[key], "controller." + key)
+            entity_id = _entity(ctl[key], "controller." + key)
+            if not entity_id.startswith("sensor."):
+                raise ValueError(f"controller.{key}: native sensor required")
+            controller[key] = entity_id
     ChargeController(uid=cid, name=controller["name"],
                      max_parallel=parallel, max_group_power_kw=controller.get("max_power_kw"),
                      phase_limits_a=controller.get("phase_limits_a"))
@@ -709,6 +734,9 @@ def normalize_expert_json(value):
         "Phase-limits-A", "Price-entity", "Solar-entity",
         "Power-envelope-entity", "Plan-label-mode", "Plan-color-by",
         "Show-indicative-forecast",
+        "Solar-power-entity", "Home-power-entity", "Grid-power-entity",
+        "Solar-surplus-entity", "Current-price-entity", "Export-price-entity",
+        "Solar-source-kind", "Grid-power-direction",
     ), "Controller")
     cfg = default_configuration(controller.get("Name") or "Home charging")
     ctl = cfg["controller"]
@@ -719,11 +747,19 @@ def normalize_expert_json(value):
         ("Max-power-kW", "max_power_kw"), ("Phase-limits-A", "phase_limits_a"),
         ("Plan-label-mode", "plan_label_mode"), ("Plan-color-by", "plan_color_by"),
         ("Show-indicative-forecast", "show_indicative_forecast"),
+        ("Solar-source-kind", "solar_source_kind"),
+        ("Grid-power-direction", "grid_power_direction"),
     ):
         if key in controller:
             ctl[field] = controller[key]
     for key, field in (
         ("Price-entity", "price_entity"), ("Solar-entity", "solar_entity"),
+        ("Solar-power-entity", "solar_power_entity"),
+        ("Home-power-entity", "home_power_entity"),
+        ("Grid-power-entity", "grid_power_entity"),
+        ("Solar-surplus-entity", "solar_surplus_entity"),
+        ("Current-price-entity", "current_price_entity"),
+        ("Export-price-entity", "export_price_entity"),
         ("Power-envelope-entity", "binding_entity"),
     ):
         selected = entity(controller, key, ("sensor",))
