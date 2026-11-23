@@ -7,7 +7,10 @@ planned execution through the same serialized and physically verified writer.
 from __future__ import annotations
 
 import voluptuous as vol
+from copy import deepcopy
 from datetime import datetime, timezone
+from hashlib import sha256
+import json
 
 from .configuration import (
     apply_settings_change, apply_dashboard_structure, configuration_revision,
@@ -233,6 +236,77 @@ async def websocket_update_settings(
         "expected_revision": next_revision,
         "reason": "Native Config Entry reload pending; refresh for verified settings",
     })
+
+
+
+def _strict_dashboard_json(document: str) -> dict:
+    """Parse bounded JSON-only input with duplicate and NaN refusal."""
+    if (not isinstance(document, str) or not document.strip()
+            or len(document.encode("utf-8")) > 131072):
+        raise ValueError("JSON_REQUIRED_128K_LIMIT")
+
+    def unique(pairs):
+        mapping = {}
+        for key, value in pairs:
+            if key in mapping:
+                raise ValueError("DUPLICATE_JSON_KEY")
+            mapping[key] = value
+        return mapping
+
+    def invalid_constant(_value):
+        raise ValueError("NON_FINITE_JSON_VALUE")
+
+    try:
+        parsed = json.loads(
+            document, object_pairs_hook=unique, parse_constant=invalid_constant,
+        )
+    except json.JSONDecodeError as exc:
+        raise ValueError("INVALID_JSON_SYNTAX") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError("JSON_OBJECT_REQUIRED")
+    return parsed
+
+
+def _dashboard_candidate(current: dict, document: str, mode: str) -> dict:
+    if mode not in ("replace", "merge"):
+        raise ValueError("INVALID_JSON_MODE")
+    return prepare_expert_yaml_revision(
+        current, _strict_dashboard_json(document), mode,
+    )
+
+
+def _dashboard_review(current: dict, candidate: dict, mode: str) -> dict:
+    """One deterministic preview fingerprint; no duplicate draft store."""
+    from .config_flow import _yaml_review_summary
+    fields = sorted(
+        k for k in set(current["controller"]) | set(candidate["controller"])
+        if current["controller"].get(k) != candidate["controller"].get(k)
+    )
+    groups = {}
+    for group in ("assets", "chargers"):
+        old = {item["id"]: item for item in current[group]}
+        new = {item["id"]: item for item in candidate[group]}
+        groups[group] = {
+            "add": sorted(new.keys() - old.keys()),
+            "remove": sorted(old.keys() - new.keys()),
+            "modify": sorted(
+                uid for uid in new.keys() & old.keys() if new[uid] != old[uid]
+            ),
+            "total": len(new),
+        }
+    baseline = configuration_revision(current)
+    updated = configuration_revision(candidate)
+    fingerprint = sha256(f"{baseline}|{mode}|{updated}".encode()).hexdigest()
+    return {
+        "baseline_revision": baseline,
+        "expected_revision": updated,
+        "review_fingerprint": fingerprint,
+        "summary": _yaml_review_summary(current, candidate),
+        "controller_changed": fields,
+        "groups": groups,
+        "changes_present": current != candidate,
+        "mode": mode,
+    }
 
 
 def register_settings_query(hass: HomeAssistant) -> None:
