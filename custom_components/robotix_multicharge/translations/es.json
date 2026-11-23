@@ -38,7 +38,8 @@
           "ready_by_repeat": "Repetición (opcional)",
           "temporary": "Invitado temporal (opcional)",
           "expires_at": "Caducidad del invitado (opcional)",
-          "expected_connection_at": "Conexión prevista (opcional)"
+          "expected_connection_at": "Conexión prevista (opcional)",
+          "soc_stale_entity": "Sensor binario de datos OEM obsoletos (on = obsoleto)"
         }
       },
       "sources": {
@@ -171,7 +172,8 @@
           "soc_entity": "Sensor de batería",
           "capacity_kwh": "Capacidad de batería (kWh)",
           "vehicle_control_entity": "Interruptor del vehículo (origen)",
-          "vehicle_current_entity": "Corriente del vehículo (origen)"
+          "vehicle_current_entity": "Corriente del vehículo (origen)",
+          "soc_stale_entity": "Sensor binario de datos OEM obsoletos (on = obsoleto)"
         }
       },
       "charger": {
