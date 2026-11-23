@@ -440,8 +440,10 @@ async function main(){
   assert.ok(find(card.shadowRoot,"button","Apply"),
     "Site power limits are directly editable through Controller native Numbers");
   card._settingsOpen="Sources & bindings";card.render();
-  assert.ok(content(card.shadowRoot).includes("Tariff"),
-    "Source bindings disclose real configured source presence");
+  assert.ok(content(card.shadowRoot).includes("Future tariff intervals"),
+    "Source bindings disclose actual future tariff source selection");
+  assert.ok(content(card.shadowRoot).includes("Home consumption"),
+    "Home-wide power source remains a native selectable sensor");
   assert.ok(find(card.shadowRoot,"a"),
     "Advanced source mappings open the existing HA configuration");
   const nativeCalls=[];
