@@ -115,7 +115,7 @@
         "title": "Configuration complète",
         "description": "Vérifiez les bornes, véhicules et sources avant de sauvegarder. Aucune commande physique n'est envoyée. {note}",
         "data": {
-          "yaml_text": "Configuration YAML MultiCharge complète (controller/assets/chargers)"
+          "yaml_text": "Configuration JSON MultiCharge complète (controller/assets/chargers)"
         }
       },
       "expert_review": {
@@ -123,7 +123,7 @@
         "description": "{summary} Confirmez après vérification de toute la configuration.",
         "data": {
           "confirm": "J'ai vérifié la configuration complète",
-          "edit_again": "Retour au YAML"
+          "edit_again": "Retour au JSON"
         }
       }
     },
@@ -145,7 +145,7 @@
           "asset": "Chargeable assets",
           "charger": "Chargers",
           "display": "Dashboard card",
-          "yaml": "Modifier YAML (vérification avant enregistrement)",
+          "yaml": "Modifier JSON (vérification avant enregistrement)",
           "commission": "Mise en service de la borne",
           "energy": "Énergie et tarifs"
         },
@@ -214,19 +214,19 @@
         }
       },
       "yaml": {
-        "title": "Configuration YAML MultiCharge",
+        "title": "Configuration JSON MultiCharge",
         "description": "Modifier la configuration complète ou des éléments ciblés. Valider avant enregistrement. {note}",
         "data": {
           "mode": "Mode de mise à jour",
-          "yaml_text": "Configuration MultiCharge (YAML/JSON)"
+          "yaml_text": "Configuration MultiCharge (JSON)"
         }
       },
       "yaml_review": {
-        "title": "Vérifier les modifications YAML",
+        "title": "Vérifier les modifications JSON",
         "description": "{summary}\nConfirmez uniquement après vérification.",
         "data": {
           "confirm": "Appliquer les modifications vérifiées",
-          "edit_again": "Retour au YAML"
+          "edit_again": "Retour au JSON"
         }
       },
       "commission": {
