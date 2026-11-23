@@ -373,6 +373,9 @@
       },
       "ready_day_sun": {
         "name": "Domingo Ready By"
+      },
+      "continuous_charging": {
+        "name": "Patrón de carga"
       }
     },
     "number": {
