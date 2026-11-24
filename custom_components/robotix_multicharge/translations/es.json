@@ -212,7 +212,7 @@
       },
       "yaml": {
         "title": "Configuración completa (JSON / YAML)",
-        "description": "Edit the existing full configuration and press Save. One Home Assistant Config Entry, no physical charging command. {note}",
+        "description": "Edit the existing full configuration and press Save. One Home Assistant Config Entry, no physical charging command. {note} {validation_error}",
         "data": {
           "yaml_text": "Configuración completa (JSON / YAML)"
         }
