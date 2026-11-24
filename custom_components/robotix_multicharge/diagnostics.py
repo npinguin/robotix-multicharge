@@ -93,12 +93,17 @@ def build_diagnostics(runtime, entry, captured_at=None):
             "kind": item.get("kind"),
             "temporary": bool(item.get("temporary")),
             "has_soc_binding": bool(item.get("soc_entity")),
+            "has_soc_target": item.get("target_soc") is not None,
+            "has_budget_request": item.get("requested_budget_amount") is not None,
             "has_energy_request": item.get("requested_kwh") is not None,
             "has_duration_request": item.get("requested_duration_minutes") is not None,
             "has_deadline": bool(item.get("ready_by")),
         } for item in cfg["assets"]],
         "observations": {
-            "sources": dict(obs.get("sources", {})),
+            "sources": {
+                key: _alias(value) if key == "tariff_source" else value
+                for key, value in obs.get("sources", {}).items()
+            },
             "chargers": {
                 _alias(uid): {key: _evidence(readings.get(key))
                               for key in ("connected", "power_kw", "session")}

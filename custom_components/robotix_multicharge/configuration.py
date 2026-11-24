@@ -113,8 +113,8 @@ def _charging_windows(source, field="asset.charging_windows"):
 def apply_new_asset_defaults(row):
     """80% is an editable starting *target*, never an OEM hardware limit.
 
-    Only newly created normal car profiles receive this default; expert
-    imports and existing persisted vehicle targets are never rewritten.
+    New car profiles receive this default. Existing persisted vehicle targets
+    are never rewritten by validation.
     A percentage without a qualified SoC does not authorize charging.
     """
     if (row.get("kind", "car") == "car"
@@ -484,30 +484,34 @@ def validate_configuration(value):
                 if charger["kind"] != "variable_current":
                     raise ValueError("charger power preferences require adjustable current")
                 phase_count = charger.get("phase_count")
-                if phase_count is None or not charger.get("voltage_v"):
-                    raise ValueError("charger power preferences require declared phase count and voltage")
-                factor = charger["voltage_v"] * phase_count / 1000
-                # Persist user intent independently of live native number metadata.
-                # If explicit bounds exist, validate the complete declared envelope.
-                physical_min = charger.get("min_current_a", 0) * factor
-                physical_max = min(charger["rated_power_kw"],
-                                   charger.get("max_current_a", charger["rated_power_kw"]/factor) * factor)
-                chosen_min = charger.get("min_charging_power_kw", physical_min)
-                chosen_max = charger.get("max_charging_power_kw", physical_max)
-                if (chosen_min < physical_min - 1e-6
-                        or chosen_max > physical_max + 1e-6
-                        or chosen_min > chosen_max + 1e-6):
+                chosen_min = charger.get("min_charging_power_kw", 0)
+                chosen_max = charger.get("max_charging_power_kw", charger["rated_power_kw"])
+                if chosen_min > chosen_max or chosen_max > charger["rated_power_kw"]:
                     raise ValueError("charger charging power limits exceed hardware envelope")
-                if all(key in charger for key in ("min_current_a", "max_current_a", "current_step_a")):
-                    minimum, maximum = charger["min_current_a"], charger["max_current_a"]
-                    step = charger["current_step_a"]
-                    first = max(0, ceil((chosen_min / factor - minimum) / step - 1e-9))
-                    last = min(
-                        floor((maximum - minimum) / step + 1e-9),
-                        floor((chosen_max / factor - minimum) / step + 1e-9),
-                    )
-                    if first > last:
-                        raise ValueError("charger power envelope has no supported current step")
+                # User preferences do not require conversion until actual current control.
+                if phase_count is not None and charger.get("voltage_v"):
+                    factor = charger["voltage_v"] * phase_count / 1000
+                    # Persist user intent independently of live native number metadata.
+                    # If explicit bounds exist, validate the complete declared envelope.
+                    physical_min = charger.get("min_current_a", 0) * factor
+                    physical_max = min(charger["rated_power_kw"],
+                                       charger.get("max_current_a", charger["rated_power_kw"]/factor) * factor)
+                    chosen_min = charger.get("min_charging_power_kw", physical_min)
+                    chosen_max = charger.get("max_charging_power_kw", physical_max)
+                    if (chosen_min < physical_min - 1e-6
+                            or chosen_max > physical_max + 1e-6
+                            or chosen_min > chosen_max + 1e-6):
+                        raise ValueError("charger charging power limits exceed hardware envelope")
+                    if all(key in charger for key in ("min_current_a", "max_current_a", "current_step_a")):
+                        minimum, maximum = charger["min_current_a"], charger["max_current_a"]
+                        step = charger["current_step_a"]
+                        first = max(0, ceil((chosen_min / factor - minimum) / step - 1e-9))
+                        last = min(
+                            floor((maximum - minimum) / step + 1e-9),
+                            floor((chosen_max / factor - minimum) / step + 1e-9),
+                        )
+                        if first > last:
+                            raise ValueError("charger power envelope has no supported current step")
             if source.get("phase_ids") is not None:
                 phases = source["phase_ids"]
                 if not isinstance(phases, list) or not phases or (
@@ -874,6 +878,8 @@ def apply_dashboard_structure(configuration, scope, target_id, changes, action="
                 or changes.get("requested_duration_minutes") is not None):
             target.pop("requested_budget_amount", None)
             target.pop("requested_budget_currency", None)
+        if scope == "asset" and action == "create":
+            apply_new_asset_defaults(target)
     return validate_configuration(cfg)
 
 
@@ -1019,10 +1025,30 @@ def prepare_expert_yaml_revision(current, document, mode="merge"):
                         existing.update(deepcopy(supplied))
             candidate = validate_configuration(candidate)
 
+    candidate = apply_new_import_defaults(before, candidate)
     if candidate["controller"]["id"] != before["controller"]["id"]:
         raise ValueError("controller ID cannot change in UI; preserve existing HA history")
     assert_expert_authority_change(before, candidate)
     return candidate
+
+
+def apply_new_import_defaults(before, candidate):
+    """Default only new SoC-capable imported profiles; preserve explicit goals."""
+    candidate = deepcopy(candidate)
+    existing = {row["id"]: row for row in before.get("assets", [])}
+    for asset in candidate["assets"]:
+        if not asset.get("soc_entity") or any(asset.get(key) is not None for key in (
+            "target_soc", "requested_kwh", "requested_duration_minutes", "requested_budget_amount"
+        )):
+            continue
+        prior = existing.get(asset["id"])
+        if prior is None:
+            apply_new_asset_defaults(asset)
+        elif prior.get("target_soc") is not None:
+            # A repeated import of the original input retains its persisted
+            # target rather than silently removing the default or user preference.
+            asset["target_soc"] = prior["target_soc"]
+    return validate_configuration(candidate)
 
 
 # Expert JSON is only an adapter to the existing canonical Config Entry validator.

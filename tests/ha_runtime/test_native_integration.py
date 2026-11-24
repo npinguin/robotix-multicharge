@@ -539,6 +539,9 @@ async def test_native_setup_registry_diagnostics_and_unload(hass: HomeAssistant)
             (DOMAIN, f"{kind}/{uid}"), entry.entry_id
         )
         assert registry.async_get(entity_id).device_id == owning.id
+    named = [registry.async_get_entity_id("sensor", DOMAIN, f"{DOMAIN}:charger:charger:{field}") for field in ("power", "readiness", "command_status", "selected_vehicle")]
+    names = [registry.async_get(entity_id).original_name for entity_id in named]
+    assert all(names) and len(set(names)) == len(names), names
     diagnostic = await async_get_config_entry_diagnostics(hass, entry)
     assert diagnostic["schema_major"] == 1
     assert len(diagnostic["chargers"]) == 1
@@ -613,6 +616,86 @@ async def test_variable_charger_native_power_controls_share_owning_device(hass: 
 
 
 @pytest.mark.asyncio
+async def test_native_nordpool_action_resolves_selected_registry_area(hass: HomeAssistant):
+    """Real HA registry and response-service contract; fixture market values."""
+    from datetime import datetime, timedelta, timezone
+    from homeassistant.core import SupportsResponse
+    from homeassistant.helpers import entity_registry as er
+    from custom_components.robotix_multicharge.source_evidence import async_native_nordpool_prices
+
+    provider = MockConfigEntry(domain="nordpool", title="Selected market",
+                               data={"areas": ["BE", "NL"], "currency": "EUR"})
+    provider.add_to_hass(hass)
+    selected = er.async_get(hass).async_get_or_create(
+        "sensor", "nordpool", "BE-current_price", config_entry=provider,
+        suggested_object_id="renamed_price_sensor")
+    at = datetime(2026, 11, 24, 12, tzinfo=timezone.utc)
+    calls = []
+
+    async def price_service(call):
+        calls.append(dict(call.data))
+        if len(calls) == 2:
+            return {"BE": []}  # tomorrow not published
+        return {"BE": [{"start": at.isoformat(),
+                        "end": (at + timedelta(minutes=15)).isoformat(),
+                        "price": -25.0}]}
+
+    hass.services.async_register("nordpool", "get_prices_for_date",
+                                 price_service, supports_response=SupportsResponse.ONLY)
+    slots, status = await async_native_nordpool_prices(hass, selected.entity_id, at)
+    assert status == "OK" and len(slots) == 1
+    assert slots[0].effective_price_per_kwh == -0.025
+    assert slots[0].basis == "spot"
+    assert [c["date"] for c in calls] == ["2026-11-24", "2026-11-25"]
+    assert all(c["areas"] == ["BE"] and c["config_entry"] == provider.entry_id
+               and c["currency"] == "EUR" for c in calls)
+    assert await async_native_nordpool_prices(hass, "sensor.unrelated", at) is None
+
+
+@pytest.mark.asyncio
+async def test_v1_migration_keeps_identity_and_repairs_missing_inactive_soc_target(hass: HomeAssistant):
+    """Upgrade existing UI profiles without granting an active new charging intent."""
+    from homeassistant.helpers import entity_registry as er
+
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    cfg = validate_configuration({
+        "controller": {"id": "home", "name": "Home", "mode": "Off"},
+        "assets": [
+            {"id": "car", "name": "Car", "kind": "car", "soc_entity": "sensor.car_soc"},
+            {"id": "explicit", "name": "Explicit", "kind": "car",
+             "soc_entity": "sensor.explicit_soc", "target_soc": 65},
+            {"id": "guest", "name": "Guest", "kind": "car"},
+        ],
+        "chargers": [{"id": "socket", "name": "Socket", "kind": "on_off",
+                      "rated_power_kw": 2.0, "asset": "car",
+                      "control_owner": "external", "control_entity": "switch.socket"}],
+    })
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="MultiCharge", version=1, minor_version=1,
+        data={"source": "ui", "configuration": cfg}, unique_id=DOMAIN,
+    )
+    entry.add_to_hass(hass)
+    original_id = entry.entry_id
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+    assert entry.state.value == "loaded"
+    assert entry.entry_id == original_id and entry.minor_version == 2
+    actual = entry.data["configuration"]
+    assets = {row["id"]: row for row in actual["assets"]}
+    assert assets["car"]["target_soc"] == 80
+    assert assets["explicit"]["target_soc"] == 65
+    assert "target_soc" not in assets["guest"]
+    assert actual["chargers"] == cfg["chargers"]
+    registry = er.async_get(hass)
+    assert any(row.unique_id.endswith(":car:target_soc")
+               for row in er.async_entries_for_config_entry(registry, entry.entry_id))
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
 async def test_every_logical_device_auto_creates_own_native_inputs(hass: HomeAssistant):
     """No user-created input_number/input_select/helpers; one owned Config Entry.
 
@@ -683,14 +766,14 @@ async def test_every_logical_device_auto_creates_own_native_inputs(hass: HomeAss
                      "charging_window_sun"),
         },
         ("charger", "socket"): {
-            "select": ("plan_color", "asset"),
+            "select": ("plan_color", "asset", "control_owner"),
             "text": ("name",),
             "button": ("confirm_connection", "stop", "pause", "resume"),
         },
         ("charger", "smart"): {
             "number": ("min_charging_power_kw", "max_charging_power_kw",
                        "set_charging_power_kw"),
-            "select": ("plan_color", "asset"),
+            "select": ("plan_color", "asset", "control_owner"),
             "text": ("name",),
             "button": ("confirm_connection", "stop", "pause", "resume"),
         },
@@ -712,7 +795,8 @@ async def test_every_logical_device_auto_creates_own_native_inputs(hass: HomeAss
                   "set_charging_power_kw"):
         uid = f"{DOMAIN}:charger:smart:{field}"
         entity_id = registry.async_get_entity_id("number", DOMAIN, uid)
-        assert hass.states.get(entity_id).state == "unavailable", field
+        expected_state = "unavailable" if field == "set_charging_power_kw" else "unknown"
+        assert hass.states.get(entity_id).state == expected_state, field
         # Fixed on/off equipment cannot advertise fake current modulation.
         assert registry.async_get_entity_id(
             "number", DOMAIN, f"{DOMAIN}:charger:socket:{field}"
@@ -1631,7 +1715,9 @@ async def test_expert_json_include_skips_wizard_and_reuses_entry(hass: HomeAssis
     entry = entries[0]
     assert entry.state.value == "loaded"
     assert entry.data["source"] == "json"
-    assert entry.data["configuration"] == normalize_expert_json(expert)
+    expected = normalize_expert_json(expert)
+    expected["assets"][0]["target_soc"] = 80.0
+    assert entry.data["configuration"] == expected
     assert frontend.async_panel_exists(hass, "robotix-multicharge"), (
         "Direct JSON expert import must also create resident sidebar dashboard"
     )

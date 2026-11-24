@@ -21,12 +21,13 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .configuration import (
-    effective_configuration, normalize_expert_json,
+    effective_configuration, normalize_expert_json, apply_new_asset_defaults,
     is_plan_presentation_only_change,
     is_in_place_runtime_preference_change,
 )
 from .const import DOMAIN
 from .runtime import MultiChargeRuntime
+from .source_evidence import async_native_nordpool_prices
 from .plan_query import register_plan_query
 from .command_query import register_command_query, register_settings_query
 from .frontend import (
@@ -114,6 +115,33 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     return True
 
 
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Repair missing targets once; never implicitly authorize Active charging."""
+    if entry.version != 1:
+        return False
+    if entry.minor_version >= 2:
+        return True
+    if entry.data.get("source") in ("yaml", "json"):
+        hass.config_entries.async_update_entry(entry, minor_version=2)
+        return True
+    try:
+        cfg = effective_configuration(entry)
+    except (KeyError, ValueError, TypeError):
+        return False
+    active_assets = {c.get("asset") for c in cfg["chargers"]
+                     if c.get("control_owner") == "multicharge"}
+    for asset in cfg["assets"]:
+        if asset.get("soc_entity") and asset["id"] not in active_assets:
+            apply_new_asset_defaults(asset)
+    if "configuration" in entry.options:
+        hass.config_entries.async_update_entry(
+            entry, options={**entry.options, "configuration": cfg}, minor_version=2)
+    else:
+        hass.config_entries.async_update_entry(
+            entry, data={**entry.data, "configuration": cfg}, minor_version=2)
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Expose only truthful configuration-status entities in this bootstrap."""
     if (entry.data.get("source") in ("yaml", "json")
@@ -137,6 +165,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     pending = None
     dirty = False
+    price_pending = None
+    price_last_attempt = None
+    price_source = cfg["controller"].get("price_entity") or cfg["controller"].get("current_price_entity")
 
     async def reconcile():
         nonlocal dirty
@@ -145,9 +176,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             runtime.refresh()
             await runtime.executor.supervise()
 
+    async def fetch_price():
+        result = await async_native_nordpool_prices(hass, price_source, utc_datetime.now(timezone.utc))
+        if result is not None and runtime.active:
+            slots, quality = result
+            runtime.nordpool_prices = (price_source, slots, quality, utc_datetime.now(timezone.utc))
+            on_source_change()
+
     @callback
     def on_source_change(event=None):
-        nonlocal pending, dirty
+        nonlocal pending, dirty, price_pending, price_last_attempt
         if not runtime.active:
             return
         if event is not None:
@@ -162,6 +200,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         charger, event.data.get("old_state"),
                         event.data.get("new_state"),
                     )
+        now = utc_datetime.now(timezone.utc)
+        if (price_source and (price_pending is None or price_pending.done())
+                and (price_last_attempt is None or now-price_last_attempt >= timedelta(minutes=15))):
+            price_last_attempt = now
+            price_pending = hass.async_create_task(fetch_price())
         dirty = True
         if pending is None or pending.done():
             pending = hass.async_create_task(reconcile())
@@ -169,6 +212,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     runtime.set_unsubscribe(
         async_track_time_interval(hass, on_source_change, timedelta(minutes=1))
     )
+    runtime.set_unsubscribe(lambda: price_pending.cancel() if price_pending is not None and not price_pending.done() else None)
 
     @callback
     def on_quarter(_event=None):
@@ -208,6 +252,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await register_sidebar_panel(hass, entry)
     await runtime.executor.supervise()
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
+    if price_source:
+        on_source_change()
     return True
 
 

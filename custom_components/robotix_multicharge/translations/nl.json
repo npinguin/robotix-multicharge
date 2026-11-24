@@ -376,6 +376,13 @@
       },
       "grid_power_direction": {
         "name": "Richting netmeter"
+      },
+      "control_owner": {
+        "name": "Activatie",
+        "state": {
+          "inactive": "Inactief",
+          "active": "Actief"
+        }
       }
     },
     "number": {
@@ -457,9 +464,13 @@
           "physical_readback_confirmed": "Gereed",
           "readback_stale": "Geen update",
           "unavailable": "Niet beschikbaar",
-          "source_observed": "Verbonden",
+          "source_observed": "Batterijgegevens beschikbaar",
           "demand_configured": "Ingesteld",
-          "needs_input": "Doel instellen"
+          "needs_input": "Doel instellen",
+          "ready": "Gereed",
+          "waiting": "Wachten",
+          "error": "Fout",
+          "unknown": "Onbekend"
         }
       },
       "plan_status": {

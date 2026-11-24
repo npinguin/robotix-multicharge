@@ -24,8 +24,10 @@ const MC_REASONS={
   DEMAND_UNKNOWN:"No charging goal",INSUFFICIENT_CAPACITY_OR_TIME:"Limited power",
   SOURCE_NOT_SELECTED:"No source",BINDING_CAPACITY_UNAVAILABLE:"No capacity",
   PHASE_WIRING_UNVERIFIED:"Wiring unknown",NO_ASSIGNED_ASSET:"No vehicle",
-  EXTERNAL_WRITER_OWNS_CHARGER:"External charging controller",
-  PHYSICAL_COMMISSIONING_REQUIRED:"Verify charger safety",
+  EXTERNAL_WRITER_OWNS_CHARGER:"Inactive",
+  CHARGER_INACTIVE:"Inactive",
+  PHYSICAL_COMMISSIONING_REQUIRED:"Inactive",
+  NATIVE_CURRENT_UNIT_UNSUPPORTED:"Current control must use A",
   PHYSICAL_CONNECTION_UNVERIFIED:"Connection not verified",
   INDEPENDENT_POWER_UNAVAILABLE:"Power measurement missing",
   NATIVE_SWITCH_REQUIRED:"Charger control missing",
@@ -369,6 +371,7 @@ function mcMountApex(plot,options){
   plot.setAttribute("role","img");
   plot.setAttribute("aria-label",options.chart?.id||"MultiCharge power timeline");
   plot.setAttribute("data-chart-engine","apexcharts-3.49.1");
+  plot._mcSignature=JSON.stringify(options, (key,value)=>typeof value==="function"?String(value):value);
   // Node-only DOM checks cannot assert that a browser rendered a graph:
   // real Chromium tests below inspect the Apex-generated SVG and tooltips.
   if(typeof window==="undefined"||typeof document==="undefined"||!document.head)
@@ -400,7 +403,7 @@ function mcApexCommon(from,until,height,title,withPrice=false){
       window.matchMedia?.("(prefers-color-scheme: dark)")?.matches)?"dark":"light"},
     colors,
     stroke:{curve:"straight",width:[2,2,2.8,1.8],dashArray:[5,2,0,5]},
-    fill:{opacity:[0.07,1,0.15,1]},
+    fill:{type:"solid",opacity:1},
     dataLabels:{enabled:false},
     markers:{size:0,hover:{size:5}},
     grid:{strokeDashArray:3,borderColor:"#8b97a62b",padding:{left:3,right:8}},
@@ -468,8 +471,7 @@ function mcApexLane(data,charger,rows,actuals,forecast){
   options.stroke={curve:"stepline",
     width:available.map(({index})=>[1.8,2,3,1.6][index]),
     dashArray:available.map(({index})=>[5,0,0,7][index])};
-  options.fill={opacity:available.map(({index})=>
-    [0.06,1,0.18,0.05][index])};
+  options.fill={type:"solid",opacity:1};
   mcMountApex(plot,options);
   return plot;
 }
@@ -521,20 +523,19 @@ function mcCombinedChargingChart(data, visibleChargers, slots, actuals){
   const powerNames=["Proposed","Accepted","Measured"];
   const sources=["proposed","accepted","measured"];
   const series=powerNames.map((name,i)=>({
-    name,data:buckets.filter(q=>q[sources[i]]!==null)
-      .map(q=>({x:q.at,y:q[sources[i]]}))
+    name,data:buckets.some(q=>q[sources[i]]!==null)?buckets.map(q=>({x:q.at,y:q[sources[i]]})):[]
   }));
   const validPrice=priceReady&&buckets.some(x=>x.price!==null);
   // Apex secondary axis only when source basis and currency genuinely align.
   if(validPrice)series.push({
     name:"Reference price (EUR/kWh)",
-    data:buckets.filter(x=>x.price!==null).map(q=>({x:q.at,y:q.price}))
+    data:buckets.map(q=>({x:q.at,y:q.price}))
   });
   const plot=mcEl("div","chart");
   const options=mcApexCommon(from,until,310,"MultiCharge combined power and price",validPrice);
   options.series=series;
   options.annotations={xaxis:Date.now()>=from&&Date.now()<until?
-    [{x:Date.now(),borderColor:"#b86a44",label:{text:"Now"}}]:[]};
+    [{x:Math.floor(Date.now()/60000)*60000,borderColor:"#b86a44",label:{text:"Now"}}]:[]};
   if(series.some(item=>item.data.length))mcMountApex(plot,options);
   else plot.append(mcEl("p","muted small",
     mcTr("No qualified physical or planned power in this period")));
@@ -1013,6 +1014,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._fieldSequence=0;
     this._refreshTimer=null;
     this._refreshPending=false;
+    this._historyFetchedAt=0;
+    this._historyKey="";
     this._pendingNative=null;
     this._editingField="";
     this._confirmDelete="";
@@ -1081,7 +1084,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       this._refreshTimer=null;
       if(this._loading){this._refreshPending=true;return;}
       this._last=0;this.load();
-    },350);
+    },Math.max(350, 2500-(Date.now()-this._last)));
   }
   disconnectedCallback(){
     if(this._refreshTimer!==null)clearTimeout(this._refreshTimer);
@@ -1102,16 +1105,41 @@ class RobotixMultiChargeCard extends HTMLElement {
     );
     if(changed)this.scheduleSourceRefresh();
     else if(!this._loading&&(!this._last||Date.now()-this._last>60000))this.load();
-    else if(this._data)this.passiveRender();
+    else if(this._data && before?.locale?.language!==value?.locale?.language)this.passiveRender();
   }
   async load(){
     if(!this._hass||this._loading)return;
-    this._loading=true;this._error="";this.passiveRender();
+    this._loading=true;this._error="";if(!this._data)this.passiveRender();
     try {
-      const cmd={type:"robotix_multicharge/get_plan",day:this._day};
+      const historyKey=this._day+"|"+this._filter;
+      const wantsHistory=["Charging Plan","Chargeable Assets","Chargers"].includes(this._tab);
+      const beforeData=this._data;
+      const cmd={type:"robotix_multicharge/get_plan",day:this._day,
+        include_history:wantsHistory&&(!beforeData||this._historyKey!==historyKey||
+          Date.now()-this._historyFetchedAt>=30000||
+          beforeData.actual_history_quality==="NOT_REQUESTED")};
       if(this._filter.startsWith("charger:"))cmd.charger_id=this._filter.slice(8);
       if(this._filter.startsWith("asset:"))cmd.asset_id=this._filter.slice(6);
       const nextData=await this._hass.callWS(cmd);
+      if(cmd.include_history){
+        this._historyKey=historyKey;this._historyFetchedAt=Date.now();
+      }else if(beforeData&&this._historyKey===historyKey&&
+        beforeData.start===nextData.start&&beforeData.end===nextData.end&&
+        beforeData.configuration_revision===nextData.configuration_revision){
+        nextData.actual_slots=beforeData.actual_slots;
+        nextData.actual_history_quality=beforeData.actual_history_quality;
+        const key=r=>r.charger_id+"|"+r.started_at+"|"+r.ended_at;
+        const prior=new Map((beforeData.completed_sessions||[]).map(r=>[key(r),r]));
+        for(const row of nextData.completed_sessions||[]){
+          const earlier=prior.get(key(row));
+          if(earlier&&earlier.estimated_variable_cost!==undefined){
+            for(const k of ["estimated_variable_cost","estimated_variable_cost_currency","estimated_variable_cost_quality"])
+              if(earlier[k]!==undefined)row[k]=earlier[k];
+          }
+        }
+      }else if(wantsHistory&&!cmd.include_history){
+        this._historyFetchedAt=0;this._refreshPending=true;
+      }
       if(this._data?.configuration_revision&&
          this._data.configuration_revision!==nextData.configuration_revision)
         this._manualDrafts={};
@@ -1674,18 +1702,14 @@ class RobotixMultiChargeCard extends HTMLElement {
     mcLanguage=String(this._hass?.locale?.language||this._hass?.language||"en").slice(0,2).toLowerCase();
     if(!this.shadowRoot)return;
     const root=this.shadowRoot;
-    if(typeof root.querySelectorAll==="function")
-      for(const chart of root.querySelectorAll(".mc-apex")){
-        try{chart._mcApex?.destroy();}catch(_){}
-        chart._mcApex=null;
-      }
+    const previousCharts=typeof root.querySelectorAll==="function"?[...root.querySelectorAll(".mc-apex")]:[];
     root.replaceChildren();
     this._fieldSequence=0;
     const style=mcEl("style");style.textContent=MC_STYLE;root.append(style);
     const shell=mcEl("section","root");
     const head=mcEl("div","heading");const heading=mcEl("div");
     heading.append(mcEl("h2","","MultiCharge"));
-    head.append(heading,mcButton("Refresh",()=>{this._last=0;this.load();}));
+    head.append(heading,mcButton("Refresh",()=>{this._historyFetchedAt=0;this._last=0;this.load();}));
     shell.append(head);
     const tabs=mcEl("nav","tabs");tabs.setAttribute("aria-label","MultiCharge views");
     for(const item of MC_TABS){
@@ -1694,6 +1718,9 @@ class RobotixMultiChargeCard extends HTMLElement {
         this._yamlEditorOpen=false;
         this._yamlCommittedRevision=null;
         this.render();
+        if(["Charging Plan","Chargeable Assets","Chargers"].includes(item)&&this._data?.actual_history_quality==="NOT_REQUESTED"){
+          if(this._loading)this._refreshPending=true;else{this._last=0;this.load();}
+        }
       });
       btn.setAttribute("aria-selected",String(this._tab===item));
       tabs.append(btn);
@@ -1715,6 +1742,16 @@ class RobotixMultiChargeCard extends HTMLElement {
 
     }
     root.append(shell);
+    if(typeof root.querySelectorAll==="function"){
+      for(const plot of root.querySelectorAll(".mc-apex")){
+        const existing=previousCharts.find(old=>old._mcApex&&old._mcSignature===plot._mcSignature&&typeof plot.replaceWith==="function");
+        if(existing){
+          previousCharts.splice(previousCharts.indexOf(existing),1);
+          plot.replaceWith(existing);
+        }
+      }
+    }
+    for(const old of previousCharts){try{old._mcApex?.destroy();}catch(_){}old._mcApex=null;}
   }
   overview(container){
     const d=this._data,c=d.configuration||{},assets=c.assets||[],chargers=c.chargers||[];
@@ -1731,9 +1768,10 @@ class RobotixMultiChargeCard extends HTMLElement {
     const powers=chargers.map(x=>(observations[x.id]||{}).power_kw);
     const complete=powers.length>0&&powers.every(x=>x&&x.quality==="ok"&&typeof x.value==="number");
     const active=powers.filter(x=>x&&x.quality==="ok"&&x.value>0).length;
+    const activated=chargers.filter(x=>x.control_owner==="multicharge"&&x.physical_commissioned===true).length;
     const metrics=mcEl("div","grid");
     for(const [key,value] of [
-      ["Active chargers",!chargers.length?"0":complete?String(active):"Unknown"],
+      ["Active chargers",String(activated)],
       ["Actual power",complete?(powers.reduce((sum,x)=>sum+x.value,0).toFixed(2)+" kW"):"Unknown"],
       [priceKind,priceLabel],
       ["Solar production",mcValue(sources.solar_power," kW")],
@@ -1904,6 +1942,11 @@ class RobotixMultiChargeCard extends HTMLElement {
           s.charger_id===item.id&&s.asset_id===assetId);
     });
     container.append(mcCombinedChargingChart(d,shown,rows,measured));
+    if(!d.price_slots?.length&&d.observations?.sources?.tariff_quality==="SOURCE_NOT_SELECTED"){
+      const msg=mcEl("div","card");msg.append(mcEl("p","muted small",mcTr("Future tariff intervals")+" · "+mcTr("Not configured")));
+      if(this.canEditSettings())msg.append(mcButton("Sources & bindings",()=>{this._tab="Settings";this._settingsOpen="Sources & bindings";this.render();}));
+      container.append(msg);
+    }
     container.append(mcEl("h3","",mcTr("Charging per vehicle and charger")));
     const values=[["proposed_power_kw",rows,"Proposed"],
       ["accepted_power_kw",rows,"Physically accepted"],
@@ -1969,7 +2012,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(assumptions[charger.id]&&forecastVisible){
         const item=assumptions[charger.id];
         card.append(mcEl("p","plan-caution",mcTr("Indicative")+" · "+
-          (item.assumption==="IF_CONNECTED_NOW"?mcTr("If connected now"):
+          (item.assumption==="IF_ACTIVATED"?mcTr("If activated"):item.assumption==="IF_CONNECTED_NOW"?mcTr("If connected now"):
             mcTr("Expected")+" "+mcTime(item.assumed_connection_at,d.timezone))+
           " · "+mcTr("Not reserved")));
       }
@@ -1987,7 +2030,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         this._filter==="asset:"+meta.asset_id));
     if(groups.length){
       const forecastInfo=mcEl("div","card");
-      forecastInfo.append(mcEl("h3","",mcTr("Indicative")+" · "+mcTr("Disconnected")));
+      forecastInfo.append(mcEl("h3","",mcTr("Indicative")+" · "+mcTr(groups.every(([id,meta])=>meta.physically_connected===false||(d.observations?.chargers?.[id]?.connected?.quality==="ok"&&d.observations.chargers[id].connected.value===false))?"Disconnected":"Not reserved")));
       for(const [chargerId,meta] of groups){
         const obj=chargers.find(c=>c.id===chargerId);
         const car=cars.find(a=>a.id===meta.asset_id);
@@ -2916,6 +2959,12 @@ class RobotixMultiChargeCard extends HTMLElement {
           if(!this.canEditSettings())mcPair(detail,"Charging mode",ctl.mode||"Unknown");
         }else if(title==="Sources & bindings"){
           detail.append(mcEl("h4","",mcTr("Site energy configuration")));
+          detail.append(mcEl("p","muted small",mcTr("Select your import price sensor. Forecast intervals are detected automatically; use a separate forecast source only when needed.")));
+          const price=d.observations?.sources||{};
+          mcPair(detail,"Forecast source",price.tariff_source||mcTr("Not set"));
+          mcPair(detail,"Forecast intervals",price.tariff_slot_count??0);
+          mcPair(detail,"Prices available until",price.tariff_coverage_until?mcTime(price.tariff_coverage_until,d.timezone):mcTr("Unknown"));
+          mcPair(detail,"Tariff",mcReason(price.tariff_quality));
           const solarMode=ctl.solar_source_kind||
             (ctl.solar_entity?"intervals":"none");
           mcPair(detail,mcTr("Solar source type"),mcTr(solarMode));
@@ -2957,8 +3006,8 @@ class RobotixMultiChargeCard extends HTMLElement {
             ["home_power_entity","Home consumption"],
             ["grid_power_entity","Grid power"],
             ["solar_surplus_entity","Solar surplus"],
-            ["price_entity","Future tariff intervals"],
             ["current_price_entity","Current import price"],
+            ["price_entity","Future tariff intervals"],
             ["export_price_entity","Current export price"],
             ["solar_entity","Solar intervals"],
             ["site_power_entity","Site power"],["binding_entity","Capacity"]
@@ -2999,7 +3048,12 @@ class RobotixMultiChargeCard extends HTMLElement {
               this.dashboardEditField(detail,"controller",ctl,"phase_limits_a");
           }
         }else if(title==="Integrations"){
-          mcPair(detail,"Tariff",mcReason((d.observations||{}).sources?.tariff_quality));
+          const tariff=d.observations?.sources||{};
+          mcPair(detail,"Tariff",mcReason(tariff.tariff_quality));
+          mcPair(detail,"Forecast source",tariff.tariff_source||mcTr("Not set"));
+          mcPair(detail,"Forecast intervals",tariff.tariff_slot_count??0);
+          mcPair(detail,"Forecast price basis",tariff.tariff_basis||mcTr("Unknown"));
+          mcPair(detail,"Prices available until",tariff.tariff_coverage_until?mcTime(tariff.tariff_coverage_until,d.timezone):mcTr("Unknown"));
           mcPair(detail,"Solar",mcReason((d.observations||{}).sources?.solar_quality));
           mcPair(detail,"Capacity",mcReason((d.observations||{}).sources?.binding_quality));
           for(const [field,label,unit] of [

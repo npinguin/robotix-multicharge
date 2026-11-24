@@ -322,6 +322,41 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(euro[0].currency, "EUR")
         self.assertEqual(euro[0].basis, "spot")
 
+    def test_common_price_attributes_and_cents_without_templates(self):
+        start = NOW
+        end = NOW + timedelta(minutes=15)
+        source = hass({
+            "sensor.explicit": state("-20", "EUR/MWh", data=[
+                {"start": start, "end": end, "price": -20}]),
+            "sensor.epex": state("0.2", "EUR/kWh", data=[
+                {"start_time": start, "end_time": end, "price_ct_per_kwh": 20}]),
+            "sensor.nordpool_cents": state("20", "c/kWh", price_in_cents=True,
+                raw_today=[{"start": start, "end": end, "value": 20}]),
+        })
+        for entity, expected in (("explicit", -0.02), ("epex", 0.2),
+                                 ("nordpool_cents", 0.2)):
+            slots, quality = intervals(source, f"sensor.{entity}", "price", NOW)
+            self.assertEqual(quality, "OK", entity)
+            self.assertAlmostEqual(slots[0].effective_price_per_kwh, expected)
+        self.assertEqual(live_price(source, "sensor.nordpool_cents", NOW)[0].value, 0.2)
+
+    def test_entsoe_timestamp_prices_do_not_fill_missing_slots(self):
+        local = NOW.astimezone(ZoneInfo("Europe/Brussels"))
+        midnight = local.replace(hour=0, minute=0, second=0).astimezone(timezone.utc)
+        rows = [{"time": midnight + timedelta(minutes=15*i), "price": 0.12}
+                for i in range(96)]
+        rows.append({"time": midnight + timedelta(minutes=15*97), "price": -0.05})
+        obj = hass({"sensor.entsoe": state("0.12", "EUR/kWh", prices=rows)})
+        slots, quality = intervals(obj, "sensor.entsoe", "price", NOW)
+        self.assertEqual(quality, "OK")
+        self.assertEqual(len(slots), 97)
+        self.assertEqual(slots[-1].start-slots[-2].end, timedelta(minutes=15))
+        self.assertEqual(slots[-1].end-slots[-1].start, timedelta(minutes=15))
+        self.assertEqual(slots[-1].basis, "variable_reference")
+        obj.states.get("sensor.entsoe").attributes["prices"] = rows[-1:]
+        self.assertEqual(intervals(obj, "sensor.entsoe", "price", NOW)[1],
+                         "INTERVAL_RESOLUTION_UNVERIFIED")
+
     def test_native_spot_never_infers_currency_unit_or_rewrites_bad_intervals(self):
         row = {"start": NOW.isoformat(),
                "end": (NOW + timedelta(minutes=15)).isoformat(),

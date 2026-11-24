@@ -16,7 +16,7 @@ from homeassistant.helpers import selector
 from .configuration import (
     default_configuration, is_plan_presentation_only_change,
     validate_configuration, configuration_revision,
-    apply_new_asset_defaults, energy_dashboard_suggestions,
+    apply_new_asset_defaults, apply_new_import_defaults, energy_dashboard_suggestions,
     assert_expert_authority_change, is_in_place_runtime_preference_change,
 )
 from .source_evidence import number
@@ -185,8 +185,24 @@ def _assert_safe_yaml_ui_commit(runtime, updated):
         _assert_safe_expert_import(runtime, updated)
     existing = {row["id"]: row for row in before["chargers"]}
     revised = {row["id"]: row for row in updated["chargers"]}
+    old_assets = {a["id"]: a for a in before["assets"]}
+    new_assets = {a["id"]: a for a in updated["assets"]}
+    session_fields = ("requested_kwh", "requested_duration_minutes",
+                      "requested_budget_amount", "requested_budget_currency",
+                      "ready_by", "ready_by_repeat", "ready_by_weekdays",
+                      "capacity_kwh", "charge_efficiency")
     for uid, old in existing.items():
         new = revised.get(uid)
+        if uid in runtime.executor._sessions or uid in runtime.executor._start_pending:
+            old_asset = old_assets.get(old.get("asset"), {})
+            new_asset = new_assets.get(old.get("asset"), {})
+            session = runtime.executor._sessions.get(uid, {})
+            target_changed = old_asset.get("target_soc") != new_asset.get("target_soc")
+            direct_soc_edit = (session.get("soc_target") is not None
+                               and new_asset.get("target_soc") is not None)
+            if (any(old_asset.get(k) != new_asset.get(k) for k in session_fields)
+                    or (target_changed and not direct_soc_edit)):
+                raise ValueError(f"charger_busy: {old['name']} ({uid}) stop before replacing the active finite intent")
         if new is not None and old.get("control_owner") != new.get("control_owner"):
             executor = runtime.executor
             if (not executor._persistence_verified or uid in executor._sessions
@@ -225,6 +241,7 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Native beginner wizard; the resulting Config Entry remains sole authority."""
 
     VERSION = 1
+    MINOR_VERSION = 2
 
     @staticmethod
     def async_get_options_flow(config_entry):
@@ -291,7 +308,7 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
         if user_input is not None:
             try:
-                cfg = validate_configuration(_parse_editor_yaml(user_input["yaml_text"]))
+                cfg = apply_new_import_defaults({"assets": []}, validate_configuration(_parse_editor_yaml(user_input["yaml_text"])))
                 if any(row.get("control_owner") != "external"
                        or row.get("physical_commissioned") is True
                        for row in cfg["chargers"]):
@@ -704,6 +721,9 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if expert_format not in ("yaml", "json"):
             raise ValueError("Unsupported expert configuration format")
         entries = self._async_current_entries()
+        # Declarative imports reapply the default on every read of an omitted
+        # target, so a reboot cannot remove a defaulted goal. Explicit goals win.
+        cfg = apply_new_import_defaults({"assets": []}, cfg)
         if entries:
             # An existing setup can adopt expert YAML without deleting/readding
             # the HA Config Entry: this preserves its entry ID, logical devices,
@@ -832,7 +852,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         validation_error = ""
         if user_input is not None:
             try:
-                proposed = validate_configuration(_parse_editor_yaml(user_input["yaml_text"]))
+                proposed = apply_new_import_defaults(cfg, validate_configuration(_parse_editor_yaml(user_input["yaml_text"])))
                 if proposed["controller"]["id"] != cfg["controller"]["id"]:
                     raise ValueError("CONTROLLER_ID_IMMUTABLE")
                 assert_expert_authority_change(cfg, proposed)

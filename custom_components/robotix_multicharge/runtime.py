@@ -45,6 +45,7 @@ class MultiChargeRuntime:
         self.observations = {"chargers": {}, "assets": {}, "sources": {}}
         self.excluded = {}
         self.price_slots = ()
+        self.nordpool_prices = None
         self.executor = NativeSwitchExecutor(self)
         self._control_store = None
         self._save_lock = asyncio.Lock()
@@ -163,8 +164,19 @@ class MultiChargeRuntime:
         return lambda: self._listeners.discard(callback)
 
     def notify(self):
-        for listener in tuple(self._listeners):
-            listener()
+        # Native entity listeners share one projection during this synchronous dispatch.
+        self._notification_capabilities = self.executor.capabilities() if self._listeners else None
+        self._notification_live = self.live_state() if self._listeners else None
+        try:
+            for listener in tuple(self._listeners):
+                listener()
+        finally:
+            self._notification_capabilities = None
+            self._notification_live = None
+
+    def projected_capabilities(self):
+        cached = getattr(self, "_notification_capabilities", None)
+        return cached if cached is not None else self.executor.capabilities()
 
     def stop(self):
         self.active = False
@@ -399,21 +411,23 @@ class MultiChargeRuntime:
                 max_power_kw=asset.get("max_charge_kw"),
                 not_before=eligible_after,
             )
-            if disconnected:
-                self.executor.connection_confirmation(raw, at)
-                self.excluded[uid] = "DISCONNECTED"
+            inactive = raw.get("control_owner") != "multicharge" or raw.get("physical_commissioned") is not True
+            if disconnected or inactive:
+                if disconnected:
+                    self.executor.connection_confirmation(raw, at)
+                self.excluded[uid] = "DISCONNECTED" if disconnected else "CHARGER_INACTIVE"
                 indicative_demands.append(request)
                 self.forecast_assumptions[uid] = {
                     "asset_id": asset["id"], "charger_id": uid,
                     "assumption": (
                         "USER_EXPECTED_CONNECTION_TIME" if assumed_arrival
-                        else "IF_CONNECTED_NOW"
+                        else "IF_CONNECTED_NOW" if disconnected else "IF_ACTIVATED"
                     ),
                     "assumed_connection_at": (
                         max(at, assumed_arrival).isoformat()
                         if assumed_arrival else at.isoformat()
                     ),
-                    "physically_connected": False,
+                    "physically_connected": cable.value if cable.quality == "ok" else None,
                     "may_execute": False,
                     "reserves_capacity": False,
                 }
@@ -452,9 +466,15 @@ class MultiChargeRuntime:
                 else:
                     power = source_power
             readings["effective_power_kw"] = power
-        tariff, tariff_quality = intervals(
-            self.hass, setting.get("price_entity"), "price", at
-        )
+        tariff_source = setting.get("price_entity") or setting.get("current_price_entity")
+        tariff, tariff_quality = intervals(self.hass, tariff_source, "price", at)
+        if (tariff_quality != "OK" and self.nordpool_prices
+                and self.nordpool_prices[0] == tariff_source):
+            _, cached, quality, fetched_at = self.nordpool_prices
+            if at - fetched_at <= timedelta(minutes=45) and any(row.end > at for row in cached):
+                tariff, tariff_quality = cached, quality
+            elif quality != "OK":
+                tariff_quality = quality
         solar_kind = setting.get(
             "solar_source_kind", "intervals" if setting.get("solar_entity") else "none",
         )
@@ -519,6 +539,10 @@ class MultiChargeRuntime:
             }
         self.observations["sources"] = {
             "tariff_quality": tariff_quality, "solar_quality": solar_quality,
+            "tariff_source": tariff_source,
+            "tariff_basis": tariff[0].basis if tariff else None,
+            "tariff_coverage_until": tariff[-1].end.isoformat() if tariff else None,
+            "tariff_slot_count": len(tariff),
             "binding_quality": binding_quality,
             "current_price": current_price,
             "solar_power": _evidence(live_power(
@@ -583,7 +607,7 @@ class MultiChargeRuntime:
     def charger_states(self, capabilities=None):
         """Four read-only projections of the existing source and control truth."""
         if capabilities is None:
-            capabilities = self.executor.capabilities()
+            capabilities = self.projected_capabilities()
         states = {}
         for charger in self.configuration["chargers"]:
             uid = charger["id"]
@@ -612,10 +636,22 @@ class MultiChargeRuntime:
             capability = capabilities.get(uid, {})
             goal_reason = (capability.get("reason") if charger.get("asset") is not None
                            else capability.get("manual_one_off_reason"))
+            if goal_reason == "MANUAL_START_REQUIRES_FORCE_CHARGE" and charger.get("asset") is not None:
+                # A disabled manual action is not the readiness of an
+                # automatic charging plan. Use the same planner evidence.
+                goal_reason = self.excluded.get(uid)
+                if goal_reason is None and self.assessment is not None:
+                    goal_reason = self.assessment.reasons.get(uid)
+                if goal_reason == "PROPOSED":
+                    goal_reason = "READY"
+                elif goal_reason is None:
+                    goal_reason = "INVALID_PLANNING_INPUT"
             if reported == "fault":
                 readiness, reason = "error", "CHARGER_REPORTED_FAULT"
             elif reported == "unavailable" or (charger.get("control_entity") and switch is None and activation == "active"):
                 readiness, reason = "unavailable", "CHARGER_SOURCE_UNAVAILABLE"
+            elif activation == "inactive":
+                readiness, reason = "waiting", "CHARGER_INACTIVE"
             elif activation == "active" and capability.get("paused"):
                 readiness, reason = "waiting", "USER_PAUSED"
             elif activation == "active" and goal_reason in ("CONTROL_STATE_UNVERIFIED", "PREVIOUS_COMMAND_UNCONFIRMED"):
@@ -629,6 +665,8 @@ class MultiChargeRuntime:
                     "CHARGING_WINDOW_CLOSED", "EARLIEST_START_NOT_REACHED",
                     "NATIVE_SOLAR_SURPLUS_INSUFFICIENT", "AUTOMATIC_MODE_NOT_ENABLED",
                 ) and goal_reason != "TARGET_ALREADY_MET":
+                    readiness, reason = "waiting", goal_reason
+                elif goal_reason not in (None, "READY", "MANUAL_START_REQUIRES_FORCE_CHARGE", "SWITCH_ALREADY_ON"):
                     readiness, reason = "waiting", goal_reason
                 else:
                     readiness, reason = "ready", "EQUIPMENT_OBSERVED"
@@ -655,6 +693,9 @@ class MultiChargeRuntime:
         All counts are unknown if any required physical source is unavailable.
         Never count an unknown or unplugged charger as zero measured power.
         """
+        cached = getattr(self, "_notification_live", None)
+        if cached is not None:
+            return cached
         chargers = self.configuration["chargers"]
         observations = self.observations.get("chargers", {})
         cables = [observations.get(c["id"], {}).get("connected") for c in chargers]
@@ -685,6 +726,7 @@ class MultiChargeRuntime:
         )
         return {
             "configured_chargers": len(chargers),
+            "active_chargers": sum(c.get("control_owner") == "multicharge" and c.get("physical_commissioned") is True for c in chargers),
             "connected_chargers": sum(int(e.value is True) for e in cables) if cable_ok else None,
             "charging_chargers": sum(int(e.value > 0.05) for e in powers) if power_ok else None,
             "actual_power_kw": round(sum(e.value for e in powers), 6) if power_ok else None,
@@ -734,7 +776,7 @@ class MultiChargeRuntime:
             "read_only": True,
             "physical_actuation_authorized": any(
                 x["start_allowed"] or x["stop_allowed"]
-                for x in self.executor.capabilities().values()
+                for x in self.projected_capabilities().values()
             ),
             "command_outcomes": self.executor.snapshot(),
             "active_sessions": self.executor.session_snapshot(),
@@ -938,6 +980,6 @@ class MultiChargeRuntime:
             "read_only": True,
             "physical_actuation_authorized": any(
                 x["start_allowed"] or x["stop_allowed"]
-                for x in self.executor.capabilities().values()
+                for x in self.projected_capabilities().values()
             ),
         }

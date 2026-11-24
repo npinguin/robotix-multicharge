@@ -174,7 +174,7 @@ class _AssetWindowText(TextEntity):
     """
     _attr_has_entity_name = True
     _attr_should_poll = False
-    _attr_entity_category = None
+    _attr_entity_category = EntityCategory.CONFIG
     _attr_native_min = 0
     _attr_native_max = 11
 

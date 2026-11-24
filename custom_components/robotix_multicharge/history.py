@@ -5,6 +5,7 @@ are returned as unknown and never coerced into zero delivered energy.
 """
 from __future__ import annotations
 
+from bisect import bisect_left, bisect_right
 from datetime import datetime, timedelta, timezone
 from math import isfinite
 
@@ -38,15 +39,16 @@ def _quarter_actuals(states, first, last, now):
     """Integrate timestamped actual power, without inventing uncovered spans."""
     observations = sorted((value for row in states if (value := _sample(row))),
                           key=lambda row: row[0])
+    stamps = [value[0] for value in observations]
     series = []
     slot = datetime.fromtimestamp(
         (int(first.timestamp()) + 899) // 900 * 900, timezone.utc
     )
     while slot + QUARTER <= min(last, now):
         finish = slot + QUARTER
-        earlier = [o for o in observations if o[0] <= slot]
-        active = earlier[-1] if earlier else None
-        events = [o for o in observations if slot < o[0] < finish]
+        first_event = bisect_right(stamps, slot)
+        active = observations[first_event - 1] if first_event else None
+        events = observations[first_event:bisect_left(stamps, finish)]
         cursor = slot
         energy = 0.0
         valid = active is not None
@@ -236,8 +238,9 @@ async def read_actual_history(hass, configuration, start, end, *,
     ]
     if not selected:
         return reply([], "NO_MATCHING_CHARGER")
-    entities = [c.get("power_entity") for c in selected]
-    if any(not entity for entity in entities):
+    missing_meter = any(not c.get("power_entity") for c in selected)
+    entities = [c["power_entity"] for c in selected if c.get("power_entity")]
+    if not entities:
         return reply([], "POWER_METER_NOT_CONFIGURED")
     if last <= first or last - first > timedelta(hours=49):
         raise ValueError("historical view must be bounded to two civil days (<=49h)")
@@ -259,7 +262,7 @@ async def read_actual_history(hass, configuration, start, end, *,
     result = []
     for charger in selected:
         rows = _quarter_actuals(
-            historical.get(charger["power_entity"], []), first, last, now
+            historical.get(charger.get("power_entity"), []), first, last, now
         )
         for row in rows:
             since = datetime.fromisoformat(row["start"])
@@ -281,6 +284,6 @@ async def read_actual_history(hass, configuration, start, end, *,
             "NO_CONFIRMED_ASSET_HISTORY" if asset_id is not None
             else "NO_RECORDED_QUARTERS"
         ), historical)
-    if any(row["quality"] != "measured_power_integral" for row in result):
+    if missing_meter or any(row["quality"] != "measured_power_integral" for row in result):
         return reply(result, "INCOMPLETE_POWER_HISTORY", historical)
     return reply(result, "MEASURED_POWER_HISTORY", historical)

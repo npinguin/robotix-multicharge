@@ -422,7 +422,7 @@ class NativeSwitchExecutor:
         # if a user pressed STOP before the 60-second budget supervisor poll.
         # This reuses the SAME source-qualified budget accounting path.
         if charger and session.get("requested_budget_amount") is not None:
-            self._session_stop_reason(charger, end)
+            self._update_budget_progress(charger, session, end)
         delivered, meter_at, sample = None, None, None
         if session["starting_energy_kwh"] is not None and source:
             sample = number(self.runtime.hass, source, "energy", datetime.now(timezone.utc))
@@ -970,6 +970,8 @@ class NativeSwitchExecutor:
         device = self.runtime.hass.states.get(entity)
         if device is None or device.state in ("unavailable", "unknown"):
             return "CURRENT_CONTROL_UNAVAILABLE", None
+        if device.attributes.get("unit_of_measurement") != "A":
+            return "NATIVE_CURRENT_UNIT_UNSUPPORTED", None
         try:
             attrs = device.attributes
             hmin, hmax, hstep = (float(attrs["min"]), float(attrs["max"]),
@@ -997,6 +999,9 @@ class NativeSwitchExecutor:
             return "ABOVE_USER_CHARGING_POWER_MAXIMUM", None
         if kw > charger["rated_power_kw"] + 1e-9:
             return "RATED_CHARGER_POWER_EXCEEDED", None
+        asset = next((a for a in self.runtime.configuration["assets"] if a["id"] == charger.get("asset")), None)
+        if asset and asset.get("max_charge_kw") is not None and kw > asset["max_charge_kw"] + 1e-9:
+            return "ASSET_POWER_CAP_REQUIRES_MODULATION", None
         return None, round(kw, 6)
 
 
@@ -1056,10 +1061,8 @@ class NativeSwitchExecutor:
                 state is None
                 and other.get("control_owner") != "multicharge"
             )
-            if unknown_external_state and power.value <= stop_power_limit(other):
-                cable = self._connection(other, at)
-                if cable.quality == "ok" and cable.value is False:
-                    continue
+            if other.get("control_owner") != "multicharge" and power.quality == "ok" and power.value <= stop_power_limit(other) and (state is None or state.state == "off"):
+                continue
             if state is None and not unknown_external_state:
                 return "OTHER_CHARGER_OWNER_OR_STATE_UNKNOWN"
             # Another independently controlled charger may start at any time
@@ -1201,6 +1204,61 @@ class NativeSwitchExecutor:
                               charger["id"])
             return False
 
+    def _update_budget_progress(self, charger, session, now):
+        """One measured-increment calculation for live and final receipts."""
+        # Physical metering is the source of progress. Price intervals
+        # must cover each actually observed meter increment completely.
+        currency = session["requested_budget_currency"]
+        sample = number(
+            self.runtime.hass, charger.get("energy_entity"), "energy", now
+        )
+        if sample.quality != "ok" or sample.observed_at is None:
+            session["budget_quality"] = "unknown"
+            return "BUDGET_ENERGY_METER_UNAVAILABLE"
+        before = session.get("budget_last_meter_value")
+        since = session.get("budget_last_meter_at")
+        if before is None or since is None:
+            session["budget_quality"] = "unknown"
+            return "BUDGET_METER_BASELINE_MISSING"
+        delta = sample.value - before
+        if delta < -0.00001:
+            session["budget_quality"] = "unknown"
+            return "BUDGET_ENERGY_METER_RESET"
+        if delta > 0.000001:
+            if sample.observed_at <= since:
+                session["budget_quality"] = "unknown"
+                return "BUDGET_METER_TIMESTAMP_UNVERIFIED"
+            # Meter delta may span several effective-price windows.
+            # Without meter readings at the boundary, exact kWh split
+            # is unknowable: consume the conservative MAX rate across
+            # each actually covered interval, never an average invoice.
+            covered_until = since
+            max_rate = 0.0
+            covered_periods = 0
+            while covered_until < sample.observed_at:
+                matches = [
+                    p for p in self.runtime.price_slots
+                    if p.basis == "effective" and p.currency == currency
+                    and p.start <= covered_until < p.end
+                ]
+                if len(matches) != 1:
+                    session["budget_quality"] = "unknown"
+                    return "BUDGET_TARIFF_BOUNDARY_UNVERIFIED"
+                price = matches[0]
+                max_rate = max(max_rate, price.effective_price_per_kwh)
+                next_boundary = min(price.end, sample.observed_at)
+                if next_boundary <= covered_until:
+                    session["budget_quality"] = "unknown"
+                    return "BUDGET_TARIFF_BOUNDARY_UNVERIFIED"
+                covered_until = next_boundary
+                covered_periods += 1
+            session["budget_cost"] += delta * max(0.0, max_rate)
+            if covered_periods > 1:
+                session["budget_quality"] = "conservative_effective_upper_bound"
+            session["budget_last_meter_value"] = sample.value
+            session["budget_last_meter_at"] = sample.observed_at
+        return None
+
     def _session_stop_reason(self, charger, now):
         """Demand closure is based on observed energy, time or SoC, never a guess."""
         session = self._sessions.get(charger["id"])
@@ -1264,57 +1322,10 @@ class NativeSwitchExecutor:
                         and delivered >= session["requested_kwh"]):
                     return "REQUESTED_ENERGY_COMPLETE"
         if session.get("requested_budget_amount") is not None:
-            # Physical metering is the source of progress. Price intervals
-            # must cover each actually observed meter increment completely.
+            issue = self._update_budget_progress(charger, session, now)
+            if issue:
+                return issue
             currency = session["requested_budget_currency"]
-            sample = number(
-                self.runtime.hass, charger.get("energy_entity"), "energy", now
-            )
-            if sample.quality != "ok" or sample.observed_at is None:
-                session["budget_quality"] = "unknown"
-                return "BUDGET_ENERGY_METER_UNAVAILABLE"
-            before = session.get("budget_last_meter_value")
-            since = session.get("budget_last_meter_at")
-            if before is None or since is None:
-                session["budget_quality"] = "unknown"
-                return "BUDGET_METER_BASELINE_MISSING"
-            delta = sample.value - before
-            if delta < -0.00001:
-                session["budget_quality"] = "unknown"
-                return "BUDGET_ENERGY_METER_RESET"
-            if delta > 0.000001:
-                if sample.observed_at <= since:
-                    session["budget_quality"] = "unknown"
-                    return "BUDGET_METER_TIMESTAMP_UNVERIFIED"
-                # Meter delta may span several effective-price windows.
-                # Without meter readings at the boundary, exact kWh split
-                # is unknowable: consume the conservative MAX rate across
-                # each actually covered interval, never an average invoice.
-                covered_until = since
-                max_rate = 0.0
-                covered_periods = 0
-                while covered_until < sample.observed_at:
-                    matches = [
-                        p for p in self.runtime.price_slots
-                        if p.basis == "effective" and p.currency == currency
-                        and p.start <= covered_until < p.end
-                    ]
-                    if len(matches) != 1:
-                        session["budget_quality"] = "unknown"
-                        return "BUDGET_TARIFF_BOUNDARY_UNVERIFIED"
-                    price = matches[0]
-                    max_rate = max(max_rate, price.effective_price_per_kwh)
-                    next_boundary = min(price.end, sample.observed_at)
-                    if next_boundary <= covered_until:
-                        session["budget_quality"] = "unknown"
-                        return "BUDGET_TARIFF_BOUNDARY_UNVERIFIED"
-                    covered_until = next_boundary
-                    covered_periods += 1
-                session["budget_cost"] += delta * max(0.0, max_rate)
-                if covered_periods > 1:
-                    session["budget_quality"] = "conservative_effective_upper_bound"
-                session["budget_last_meter_value"] = sample.value
-                session["budget_last_meter_at"] = sample.observed_at
             current = self._qualified_budget_price(now, currency)
             if current is None:
                 session["budget_quality"] = "unknown"
@@ -1333,6 +1344,8 @@ class NativeSwitchExecutor:
             if remaining <= conservative_headroom:
                 return "REQUESTED_BUDGET_COMPLETE"
         if session["soc_target"] is not None:
+            # A same-type target edit is a current SoC objective, not a new meter intent.
+            session["soc_target"] = asset.get("target_soc", session["soc_target"])
             soc = soc_with_health(
                     self.runtime.hass, asset.get("soc_entity"),
                     asset.get("soc_stale_entity"), now,
@@ -1369,6 +1382,7 @@ class NativeSwitchExecutor:
             else asset.get("requested_budget_currency")
         )
         intent_key = None
+        budget_minutes = 24 * 60
         if asset is not None:
             raw_due = asset.get("ready_by")
             due = datetime.fromisoformat(raw_due) if raw_due else None
@@ -1381,8 +1395,15 @@ class NativeSwitchExecutor:
                 if due is None:
                     return error
             intent_key = self._intent_key(asset, charger, due)
-            if explicit_energy is not None or duration is not None:
+            if explicit_energy is not None or duration is not None or budget is not None:
                 progress = self.measured_intent_usage(asset, charger, due, now)
+                if budget is not None:
+                    if progress.get("budget_amount") is None or progress.get("duration_minutes") is None:
+                        return "BUDGET_MEASURED_PROGRESS_UNAVAILABLE"
+                    budget = max(0.0, budget - progress["budget_amount"])
+                    budget_minutes = max(0.0, budget_minutes - progress["duration_minutes"])
+                    if budget <= 0.000001 or budget_minutes <= 0:
+                        return "TARGET_ALREADY_MET"
                 if explicit_energy is not None:
                     if progress["energy_kwh"] is None:
                         return "ASSET_MEASURED_PROGRESS_UNAVAILABLE"
@@ -1412,7 +1433,7 @@ class NativeSwitchExecutor:
                 now, budget_currency) is None:
             return "BUDGET_EFFECTIVE_TARIFF_UNAVAILABLE"
         # Session cannot run longer than 24h on one manual authorization.
-        end = now + timedelta(hours=24)
+        end = now + timedelta(minutes=budget_minutes if budget is not None else 24 * 60)
         if duration is not None:
             end = min(end, now + timedelta(minutes=duration))
         if asset is not None and (
@@ -1699,6 +1720,11 @@ class NativeSwitchExecutor:
                                if charger["kind"] == "on_off"
                                else session["target_current_a"])
                     limit_reason = self._physical_budget(charger, at, kw, current)
+                    assigned = next((a for a in cfg["assets"] if a["id"] == charger.get("asset")), None)
+                    if assigned and assigned.get("max_charge_kw") is not None and kw > assigned["max_charge_kw"] + 1e-9:
+                        limit_reason = "ASSET_POWER_CAP_REQUIRES_MODULATION"
+                    if charger["kind"] == "variable_current":
+                        limit_reason = self._requested_current(charger, current, at)[0] or limit_reason
                     if limit_reason is not None:
                         if not await self._reduce_current(charger, at):
                             unsafe = True

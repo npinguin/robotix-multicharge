@@ -74,7 +74,9 @@ async def async_setup_entry(
         key = names.get(entity.unique_id.rsplit(":", 1)[-1])
         if key is not None:
             entity._attr_translation_key = key
-            entity._attr_name = None
+            # HA Entity._name_internal prioritizes even explicit None over
+            # translation_key. Delete the explicit name to use native translations.
+            del entity._attr_name
     async_add_entities(entities)
 
 
@@ -130,7 +132,7 @@ class _OwnerConfigurationSensor(_NativeMultiChargeSensor):
 
     def __init__(self, kind: str, data: dict, runtime) -> None:
         super().__init__(kind, data, runtime)
-        self._attr_name = "Configuration"
+        self._attr_name = "Configuration revision"
         self._attr_unique_id = f"{DOMAIN}:{kind}:{data['id']}:configuration"
         self._revision = None
         self._update_value()
@@ -168,36 +170,28 @@ class _LogicalReadinessSensor(_NativeMultiChargeSensor):
 
     def _update_value(self):
         outcomes = self.runtime.executor.snapshot()
-        caps = self.runtime.executor.capabilities()
+        caps = self.runtime.projected_capabilities()
         active = [
             uid for uid, cap in caps.items()
             if cap["start_allowed"] or cap["stop_allowed"]
         ]
-        confirmed = outcomes.get(self.data["id"], {}).get("status") == "confirmed"
         if self.kind == "controller":
             status = "manual_controls_available" if active else "not_commissioned"
             operational = any(row.get("status") == "confirmed" for row in outcomes.values())
         elif self.kind == "charger":
-            cap = caps.get(self.data["id"], {})
-            if confirmed:
-                obs = self.runtime.observations.get("chargers", {}).get(self.data["id"], {})
-                power = obs.get("power_kw")
-                operational = bool(power is not None and power.quality == "ok")
-                status = "physical_readback_confirmed" if operational else "readback_stale"
-            elif cap.get("start_allowed") or cap.get("stop_allowed"):
-                status = "manual_controls_available"
-                operational = False
-            else:
-                status = "not_commissioned" if self.data.get("physical_commissioned") is not True else "unavailable"
-                operational = False
+            projection = self.runtime.charger_states(caps).get(self.data["id"], {})
+            status = projection.get("charging_state", "unknown")
+            operational = status == "ready"
         else:
             obs = self.runtime.observations.get("assets", {}).get(self.data["id"], {})
             soc = obs.get("soc")
+            asset = next((a for a in self.runtime.configuration["assets"] if a["id"] == self.data["id"]), {})
             status = (
                 "source_observed" if soc is not None and soc.quality == "ok"
                 else "demand_configured" if (
-                    self.data.get("requested_kwh") is not None
-                    or self.data.get("requested_duration_minutes") is not None
+                    asset.get("requested_kwh") is not None
+                    or asset.get("requested_duration_minutes") is not None
+                    or asset.get("requested_budget_amount") is not None
                 )
                 else "needs_input"
             )
@@ -392,6 +386,7 @@ class _LogicalSessionEnergySensor(_NativeMultiChargeSensor):
             "quality": "measured" if (
                 session is not None and session["actual_energy_kwh"] is not None
             ) else "unknown",
+            "reason": "NO_ACTIVE_SESSION" if session is None else ("METER_UNAVAILABLE" if session["actual_energy_kwh"] is None else "OK"),
             "asset_id": session["asset_id"] if session else None,
             "started_at": session["started_at"] if session else None,
             "meter_source": self.data.get("energy_entity"),
@@ -439,7 +434,8 @@ class _LastSessionEnergySensor(_NativeMultiChargeSensor):
         last = rows[-1] if rows else None
         self._attr_native_value = last["actual_energy_kwh"] if last else None
         self._attr_extra_state_attributes = {
-            "quality": last["energy_quality"] if last else "unknown",
+            "quality": last["energy_quality"] if last else "not_applicable",
+            "reason": "NO_PREVIOUS_SESSION" if last is None else ("METER_UNAVAILABLE" if last["actual_energy_kwh"] is None else "OK"),
             "asset_id": last["asset_id"] if last else None,
             "ended_at": last["ended_at"] if last else None,
             "cost": last["cost"] if last else None,
@@ -700,6 +696,7 @@ class _ChargerCurrentSensor(_NativeMultiChargeSensor):
             else actual.value if actual.quality == "ok" else None
         )
         self._attr_extra_state_attributes = {
+            "reason": ("NO_ACTIVE_SESSION" if self.metric == "setpoint" and session is None else actual.reason if self.metric == "actual" else "OK"),
             "confirmed_setpoint_a": setpoint,
             "physical_current_a": actual.value if actual.quality == "ok" else None,
             "readback_quality": actual.quality,

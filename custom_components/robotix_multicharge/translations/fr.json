@@ -376,6 +376,13 @@
       },
       "grid_power_direction": {
         "name": "Sens du compteur réseau"
+      },
+      "control_owner": {
+        "name": "Activation",
+        "state": {
+          "inactive": "Inactif",
+          "active": "Actif"
+        }
       }
     },
     "number": {
@@ -457,9 +464,13 @@
           "physical_readback_confirmed": "Prêt",
           "readback_stale": "Sans mise à jour",
           "unavailable": "Indisponible",
-          "source_observed": "Connecté",
+          "source_observed": "Données de batterie disponibles",
           "demand_configured": "Configuré",
-          "needs_input": "Définir une cible"
+          "needs_input": "Définir une cible",
+          "ready": "Prêt",
+          "waiting": "En attente",
+          "error": "Erreur",
+          "unknown": "Inconnu"
         }
       },
       "plan_status": {
