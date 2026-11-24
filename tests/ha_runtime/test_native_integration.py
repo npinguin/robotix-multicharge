@@ -1004,6 +1004,51 @@ async def test_optional_one_click_install_and_native_guided_configure(
     assert final["controller"]["solar_power_entity"] == "sensor.energy_solar_power"
     assert final["assets"][0]["id"] == "audi_q8"
     assert final["chargers"][0]["id"] == "garage_white"
+
+    choose_current_asset = await menu_step("asset_pick")
+    edit_asset = await hass.config_entries.options.async_configure(
+        choose_current_asset["flow_id"], {"selected": "audi_q8"},
+    )
+    soc_marker = next(k for k in edit_asset["data_schema"].schema
+                      if str(k) == "soc_entity")
+    assert soc_marker.default() == "sensor.audi_oem_soc"
+    update_asset = await hass.config_entries.options.async_configure(
+        edit_asset["flow_id"], {
+            "action": "save", "name": "Audi Q8", "kind": "car",
+            "target_soc": 85,
+        },
+    )
+    assert update_asset["type"] == FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert entry.options["configuration"]["assets"][0]["target_soc"] == 85
+    assert entry.options["configuration"]["assets"][0]["soc_entity"] == (
+        "sensor.audi_oem_soc"
+    )
+
+    choose_current_charger = await menu_step("charger_pick")
+    delete_form = await hass.config_entries.options.async_configure(
+        choose_current_charger["flow_id"], {"selected": "garage_white"},
+    )
+    deleted = await hass.config_entries.options.async_configure(
+        delete_form["flow_id"], {"action": "delete", "name": "White Wallbox",
+                                 "kind": "on_off", "rated_power_kw": 3.6},
+    )
+    assert deleted["type"] == FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert entry.options["configuration"]["chargers"] == []
+
+    choose_current_asset = await menu_step("asset_pick")
+    delete_asset = await hass.config_entries.options.async_configure(
+        choose_current_asset["flow_id"], {"selected": "audi_q8"},
+    )
+    deleted_asset = await hass.config_entries.options.async_configure(
+        delete_asset["flow_id"], {"action": "delete", "name": "Audi Q8",
+                                  "kind": "car"},
+    )
+    assert deleted_asset["type"] == FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert entry.options["configuration"]["assets"] == []
+    assert entry.options["configuration"]["controller"]["name"] == "Configured Home"
     assert len(hass.config_entries.async_entries(DOMAIN)) == 1
     assert await hass.config_entries.async_unload(entry.entry_id)
 
@@ -1032,7 +1077,7 @@ async def test_unconfigured_energy_dashboard_does_not_initialize_component(
 async def test_dashboard_native_energy_source_mapping_no_shadow_settings(
     hass: HomeAssistant,
 ):
-    """One dashboard source selection, no templating or Options flow."""
+    """One native source owner, no templates or shadow Options settings."""
     from custom_components.robotix_multicharge.command_query import (
         apply_native_preference,
     )
