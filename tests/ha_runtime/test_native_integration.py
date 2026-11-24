@@ -276,7 +276,51 @@ async def test_clean_ha_minimal_unassigned_charger_has_finite_manual_hold(
         "plug", "start", manual_request={"duration_minutes": 10},
     )
     assert outcome["status"] == "rejected"
-    assert not issued, "A native switch state is not cable or permission proof"
+    assert not issued, "A native switch state alone is not permission to control"
+
+    # Authorize through the ordinary charger settings path, without a second
+    # commissioning workflow. The isolated HA service confirms the switch
+    # state only; it does not supply battery, cable or measured power evidence.
+    from custom_components.robotix_multicharge.command_query import apply_native_preference
+    from datetime import timedelta
+    async def observed_switch_on(call):
+        issued.append(call.service)
+        hass.states.async_set("switch.suitable_plug", "on")
+    async def observed_switch_off(call):
+        issued.append(call.service)
+        hass.states.async_set("switch.suitable_plug", "off")
+    hass.services.async_register("switch", "turn_on", observed_switch_on)
+    hass.services.async_register("switch", "turn_off", observed_switch_off)
+    await apply_native_preference(hass, entry, runtime, "charger", "plug",
+                                  {"control_owner": "multicharge"}, structural=True)
+    await hass.async_block_till_done()
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    assert runtime.configuration["chargers"][0]["control_owner"] == "multicharge"
+    assert issued == [], "Configuration Save is not a charging command"
+    assert runtime.executor.capabilities()["plug"]["manual_goal_reasons"]["duration"] == "READY"
+    assert runtime.executor.capabilities()["plug"]["manual_goal_reasons"]["energy"] != "READY"
+    started = await runtime.executor.execute(
+        "plug", "start", manual_request={"duration_minutes": 10}
+    )
+    assert started["status"] == "confirmed"
+    assert started["reason"] == "NATIVE_SWITCH_STATE"
+    assert started["measured_power_kw"] is None
+    assert runtime.charger_states()["plug"]["charging_session"] == "unknown"
+    runtime.executor._sessions["plug"]["started_at"] -= timedelta(minutes=11)
+    await runtime.executor.supervise()
+    assert issued == ["turn_on", "turn_off"]
+    assert hass.states.get("switch.suitable_plug").state == "off"
+    receipt = runtime.executor.completed_sessions()[-1]
+    assert receipt["switch_stop_confirmed"] is True
+    assert receipt["physical_stop_confirmed"] is False
+    assert receipt["actual_energy_kwh"] is None
+    await apply_native_preference(hass, entry, runtime, "charger", "plug",
+                                  {"control_owner": "external"}, structural=True)
+    await hass.async_block_till_done()
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    assert runtime.charger_states()["plug"]["activation"] == "inactive"
+    assert runtime.configuration["chargers"][0]["control_entity"] == "switch.suitable_plug"
+    assert issued == ["turn_on", "turn_off"]
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 
@@ -835,7 +879,8 @@ async def test_native_options_menu_expert_prefill_save_and_reject_unsafe(
     marker = next(k for k in editor["data_schema"].schema
                   if str(k) == "yaml_text")
     prefilled = json.loads(marker.default())
-    assert prefilled == cfg, "Expert editor must prefill the actual Config Entry"
+    assert validate_configuration(prefilled) == cfg, "Expert editor must preserve the actual Config Entry"
+    assert "physical_commissioned" not in prefilled["chargers"][0]
 
     invalid = await hass.config_entries.options.async_configure(
         editor["flow_id"], {"yaml_text": 'controller: {}\\ncontroller: {}'},
@@ -1021,7 +1066,8 @@ async def test_native_expert_save_four_external_adjustable_chargers_without_gues
     )
     marker = next(k for k in again["data_schema"].schema
                   if str(k) == "yaml_text")
-    assert json.loads(marker.default()) == actual
+    assert validate_configuration(json.loads(marker.default())) == actual
+    assert "physical_commissioned" not in json.loads(marker.default())["chargers"][0]
     # Real existing options (not only first save from an empty entry).
     repeated = await hass.config_entries.options.async_configure(
         again["flow_id"], {"yaml_text": json.dumps(config)},

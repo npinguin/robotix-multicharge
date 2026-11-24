@@ -329,11 +329,6 @@ def compile_plan(
             shortfall[uid] = demand.remaining_grid_kwh
             coverage[uid] = "UNAVAILABLE"
             continue
-        if controller.max_group_power_kw is None:
-            reasons[uid] = "GROUP_CAPACITY_UNQUALIFIED"
-            shortfall[uid] = demand.remaining_grid_kwh
-            coverage[uid] = "UNAVAILABLE"
-            continue
         if not isfinite(charger.rated_power_kw) or charger.rated_power_kw <= 0:
             reasons[uid] = "CHARGER_CAPABILITY_UNQUALIFIED"
             shortfall[uid] = demand.remaining_grid_kwh
@@ -409,7 +404,11 @@ def compile_plan(
                     demand.not_before is not None and slot < _utc(demand.not_before)):
 
                 continue
+            # An unselected site ceiling is not an invented electrical limit.
+            # Each charger rating, parallelism and selected binding still apply.
             cap = controller.max_group_power_kw
+            if cap is None:
+                cap = sum(row.rated_power_kw for row in chargers.values())
             if binding is not None:
                 if (_utc(binding.issued_at) > slot
                         or _utc(binding.valid_until) < finish):

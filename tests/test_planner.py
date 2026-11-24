@@ -237,12 +237,13 @@ class PlannerTests(unittest.TestCase):
         complete = compile_plan(ctl, chargers, [demand(0, kwh=0)], NOW)
         self.assertEqual(complete.reasons["c0"], "TARGET_MET")
 
-    def test_missing_group_cap_is_unqualified_not_unlimited(self):
+    def test_unselected_group_cap_uses_declared_charger_capacity_and_parallelism(self):
         ctl = ChargeController(uid="home", name="Home", max_parallel=1)
-        _, chargers = build()
-        result = compile_plan(ctl, chargers, [demand(0)], NOW)
-        self.assertEqual(result.reasons["c0"], "GROUP_CAPACITY_UNQUALIFIED")
-        self.assertEqual(len(result.plan.slots), 0)
+        _, chargers = build(n=2)
+        result = compile_plan(ctl, chargers, [demand(0), demand(1)], NOW)
+        self.assertEqual(len(result.plan.slots), 2)
+        self.assertEqual(len({row.start for row in result.plan.slots}), 2)
+        self.assertTrue(all(row.power_kw == 4.0 for row in result.plan.slots))
 
     def test_asset_power_cap_blocks_unqualified_modulation(self):
         ctl, chargers = build(power=7.2, limit=11)
