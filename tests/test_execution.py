@@ -1421,6 +1421,18 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(rt.executor.session_snapshot()["evse"]["requested_budget_amount"], 6.0)
         self.assertEqual((await rt.executor.execute("evse", "stop"))["status"], "confirmed")
 
+    async def test_live_soc_target_reduction_closes_own_session(self):
+        rt, states, services = rig()
+        asset = rt.configuration["assets"][0]
+        asset.pop("requested_kwh")
+        asset.update(soc_entity="sensor.soc", target_soc=80)
+        states["sensor.soc"] = state(65, "%")
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"], "confirmed")
+        asset["target_soc"] = 60
+        await rt.executor.supervise()
+        self.assertEqual(services.calls[-1][1], "turn_off")
+        self.assertFalse(rt.executor.session_snapshot())
+
     async def test_money_meter_delta_across_dynamic_price_boundary_is_upper_bound(self):
         from multicharge_physical_execution_test.contracts import PriceSlot
         rt, sources, _ = rig()

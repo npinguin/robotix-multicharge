@@ -1014,6 +1014,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._fieldSequence=0;
     this._refreshTimer=null;
     this._refreshPending=false;
+    this._historyFetchedAt=0;
+    this._historyKey="";
     this._pendingNative=null;
     this._editingField="";
     this._confirmDelete="";
@@ -1109,11 +1111,35 @@ class RobotixMultiChargeCard extends HTMLElement {
     if(!this._hass||this._loading)return;
     this._loading=true;this._error="";if(!this._data)this.passiveRender();
     try {
+      const historyKey=this._day+"|"+this._filter;
+      const wantsHistory=["Charging Plan","Chargeable Assets","Chargers"].includes(this._tab);
+      const beforeData=this._data;
       const cmd={type:"robotix_multicharge/get_plan",day:this._day,
-        include_history:["Charging Plan","Chargeable Assets","Chargers"].includes(this._tab)};
+        include_history:wantsHistory&&(!beforeData||this._historyKey!==historyKey||
+          Date.now()-this._historyFetchedAt>=30000||
+          beforeData.actual_history_quality==="NOT_REQUESTED")};
       if(this._filter.startsWith("charger:"))cmd.charger_id=this._filter.slice(8);
       if(this._filter.startsWith("asset:"))cmd.asset_id=this._filter.slice(6);
       const nextData=await this._hass.callWS(cmd);
+      if(cmd.include_history){
+        this._historyKey=historyKey;this._historyFetchedAt=Date.now();
+      }else if(beforeData&&this._historyKey===historyKey&&
+        beforeData.start===nextData.start&&beforeData.end===nextData.end&&
+        beforeData.configuration_revision===nextData.configuration_revision){
+        nextData.actual_slots=beforeData.actual_slots;
+        nextData.actual_history_quality=beforeData.actual_history_quality;
+        const key=r=>r.charger_id+"|"+r.started_at+"|"+r.ended_at;
+        const prior=new Map((beforeData.completed_sessions||[]).map(r=>[key(r),r]));
+        for(const row of nextData.completed_sessions||[]){
+          const earlier=prior.get(key(row));
+          if(earlier&&earlier.estimated_variable_cost!==undefined){
+            for(const k of ["estimated_variable_cost","estimated_variable_cost_currency","estimated_variable_cost_quality"])
+              if(earlier[k]!==undefined)row[k]=earlier[k];
+          }
+        }
+      }else if(wantsHistory&&!cmd.include_history){
+        this._historyFetchedAt=0;this._refreshPending=true;
+      }
       if(this._data?.configuration_revision&&
          this._data.configuration_revision!==nextData.configuration_revision)
         this._manualDrafts={};
@@ -1683,7 +1709,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     const shell=mcEl("section","root");
     const head=mcEl("div","heading");const heading=mcEl("div");
     heading.append(mcEl("h2","","MultiCharge"));
-    head.append(heading,mcButton("Refresh",()=>{this._last=0;this.load();}));
+    head.append(heading,mcButton("Refresh",()=>{this._historyFetchedAt=0;this._last=0;this.load();}));
     shell.append(head);
     const tabs=mcEl("nav","tabs");tabs.setAttribute("aria-label","MultiCharge views");
     for(const item of MC_TABS){
@@ -1916,6 +1942,11 @@ class RobotixMultiChargeCard extends HTMLElement {
           s.charger_id===item.id&&s.asset_id===assetId);
     });
     container.append(mcCombinedChargingChart(d,shown,rows,measured));
+    if(!d.price_slots?.length&&d.observations?.sources?.tariff_quality==="SOURCE_NOT_SELECTED"){
+      const msg=mcEl("div","card");msg.append(mcEl("p","muted small",mcTr("Future tariff intervals")+" · "+mcTr("Not configured")));
+      if(this.canEditSettings())msg.append(mcButton("Sources & bindings",()=>{this._tab="Settings";this._settingsOpen="Sources & bindings";this.render();}));
+      container.append(msg);
+    }
     container.append(mcEl("h3","",mcTr("Charging per vehicle and charger")));
     const values=[["proposed_power_kw",rows,"Proposed"],
       ["accepted_power_kw",rows,"Physically accepted"],
@@ -1999,7 +2030,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         this._filter==="asset:"+meta.asset_id));
     if(groups.length){
       const forecastInfo=mcEl("div","card");
-      forecastInfo.append(mcEl("h3","",mcTr("Indicative")+" · "+mcTr("Not reserved")));
+      forecastInfo.append(mcEl("h3","",mcTr("Indicative")+" · "+mcTr(groups.every(([,meta])=>meta.physically_connected===false)?"Disconnected":"Not reserved")));
       for(const [chargerId,meta] of groups){
         const obj=chargers.find(c=>c.id===chargerId);
         const car=cars.find(a=>a.id===meta.asset_id);

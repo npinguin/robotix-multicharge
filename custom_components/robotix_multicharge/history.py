@@ -238,8 +238,9 @@ async def read_actual_history(hass, configuration, start, end, *,
     ]
     if not selected:
         return reply([], "NO_MATCHING_CHARGER")
-    entities = [c.get("power_entity") for c in selected]
-    if any(not entity for entity in entities):
+    missing_meter = any(not c.get("power_entity") for c in selected)
+    entities = [c["power_entity"] for c in selected if c.get("power_entity")]
+    if not entities:
         return reply([], "POWER_METER_NOT_CONFIGURED")
     if last <= first or last - first > timedelta(hours=49):
         raise ValueError("historical view must be bounded to two civil days (<=49h)")
@@ -261,7 +262,7 @@ async def read_actual_history(hass, configuration, start, end, *,
     result = []
     for charger in selected:
         rows = _quarter_actuals(
-            historical.get(charger["power_entity"], []), first, last, now
+            historical.get(charger.get("power_entity"), []), first, last, now
         )
         for row in rows:
             since = datetime.fromisoformat(row["start"])
@@ -283,6 +284,6 @@ async def read_actual_history(hass, configuration, start, end, *,
             "NO_CONFIRMED_ASSET_HISTORY" if asset_id is not None
             else "NO_RECORDED_QUARTERS"
         ), historical)
-    if any(row["quality"] != "measured_power_integral" for row in result):
+    if missing_meter or any(row["quality"] != "measured_power_integral" for row in result):
         return reply(result, "INCOMPLETE_POWER_HISTORY", historical)
     return reply(result, "MEASURED_POWER_HISTORY", historical)

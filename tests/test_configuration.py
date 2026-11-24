@@ -306,6 +306,16 @@ class ConfigurationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_configuration(fixed)
 
+    def test_adjustable_power_preferences_can_be_prepared_without_wiring_conversion(self):
+        cfg = default_configuration()
+        cfg["chargers"] = [{"id":"evse", "name":"EVSE", "kind":"variable_current",
+                            "rated_power_kw":3.6, "max_charging_power_kw":2.0}]
+        checked = validate_configuration(cfg)
+        self.assertEqual(checked["chargers"][0]["max_charging_power_kw"], 2.0)
+        cfg["chargers"][0]["max_charging_power_kw"] = 4.0
+        with self.assertRaises(ValueError):
+            validate_configuration(cfg)
+
     def test_direct_expert_json_normalizes_charger_and_vehicle_without_wizard(self):
         """Owner's JSON fields are the complete input, not internal YAML keys."""
         data = {

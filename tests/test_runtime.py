@@ -110,6 +110,18 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual({slot.charger_uid for slot in rt.assessment.plan.slots}, {"drive"})
         self.assertEqual(rt.excluded["inactive"], "CHARGER_INACTIVE")
 
+    def test_selected_current_price_can_supply_native_interval_forecast(self):
+        cfg = sample()
+        cfg["controller"]["current_price_entity"] = "sensor.price"
+        quote = state("0.3", "EUR/kWh")
+        quote.attributes.update(kind="effective_price_kwh", currency="EUR",
+            valid_until=(NOW + timedelta(hours=2)).isoformat(),
+            intervals=[{"start": NOW.isoformat(), "end": (NOW + timedelta(hours=2)).isoformat(), "value": 0.3}])
+        rt = MultiChargeRuntime(SimpleNamespace(states=SimpleNamespace(get={"sensor.price": quote}.get)), cfg)
+        rt.refresh(NOW)
+        self.assertEqual(rt.observations["sources"]["tariff_quality"], "OK")
+        self.assertTrue(rt.price_slots)
+
     def test_native_diagnostics_capture_errors_without_leaking_names(self):
         import json
         from multicharge_runtime_test.diagnostics import build_diagnostics

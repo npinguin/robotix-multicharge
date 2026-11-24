@@ -187,19 +187,22 @@ def _assert_safe_yaml_ui_commit(runtime, updated):
     revised = {row["id"]: row for row in updated["chargers"]}
     old_assets = {a["id"]: a for a in before["assets"]}
     new_assets = {a["id"]: a for a in updated["assets"]}
-    session_fields = ("target_soc", "requested_kwh", "requested_duration_minutes",
+    session_fields = ("requested_kwh", "requested_duration_minutes",
                       "requested_budget_amount", "requested_budget_currency",
                       "ready_by", "ready_by_repeat", "ready_by_weekdays",
-                      "max_charge_kw", "capacity_kwh", "charge_efficiency")
+                      "capacity_kwh", "charge_efficiency")
     for uid, old in existing.items():
         new = revised.get(uid)
         if uid in runtime.executor._sessions or uid in runtime.executor._start_pending:
             old_asset = old_assets.get(old.get("asset"), {})
             new_asset = new_assets.get(old.get("asset"), {})
+            session = runtime.executor._sessions.get(uid, {})
+            target_changed = old_asset.get("target_soc") != new_asset.get("target_soc")
+            direct_soc_edit = (session.get("soc_target") is not None
+                               and new_asset.get("target_soc") is not None)
             if (any(old_asset.get(k) != new_asset.get(k) for k in session_fields)
-                    or (new is not None and any(old.get(k) != new.get(k) for k in (
-                        "min_charging_power_kw", "max_charging_power_kw")))):
-                raise ValueError(f"charger_busy: {old['name']} ({uid}) stop before changing active charging goal or power limits")
+                    or (target_changed and not direct_soc_edit)):
+                raise ValueError(f"charger_busy: {old['name']} ({uid}) stop before replacing the active finite intent")
         if new is not None and old.get("control_owner") != new.get("control_owner"):
             executor = runtime.executor
             if (not executor._persistence_verified or uid in executor._sessions

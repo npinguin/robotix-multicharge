@@ -709,6 +709,7 @@ class MultiChargeRuntime:
         )
         return {
             "configured_chargers": len(chargers),
+            "active_chargers": sum(c.get("control_owner") == "multicharge" and c.get("physical_commissioned") is True for c in chargers),
             "connected_chargers": sum(int(e.value is True) for e in cables) if cable_ok else None,
             "charging_chargers": sum(int(e.value > 0.05) for e in powers) if power_ok else None,
             "actual_power_kw": round(sum(e.value for e in powers), 6) if power_ok else None,
