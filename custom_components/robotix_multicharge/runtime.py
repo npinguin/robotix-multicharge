@@ -595,6 +595,7 @@ class MultiChargeRuntime:
                     binding=external_binding,
                     reserved_slots=self.assessment.plan.slots,
                     charging_windows=active_windows, site_time_zone=site_zone,
+                    indicative_only=True,
                 )
         except (ValueError, TypeError, OverflowError) as exc:
             _LOGGER.warning("MultiCharge proposal unavailable: %s", exc)

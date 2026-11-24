@@ -216,6 +216,7 @@ def compile_plan(
     reserved_slots: Sequence[PlannedChargeSlot] = (),
     charging_windows: Mapping[str, Mapping[str, Mapping[str, str]]] | None = None,
     site_time_zone: str | None = None,
+    indicative_only: bool = False,
 ) -> PlanAssessment:
     """Calculate one deterministic, bounded, non-actuating Controller proposal.
 
@@ -349,10 +350,16 @@ def compile_plan(
         # A verified adjustable charger can propose stepped current, never a
         # fictitious fractional on/off switch. Unknown wiring remains unavailable.
         adjustable = charger.control_kind == "variable_current"
-        if adjustable and (
+        incomplete_current = adjustable and (
             charger.phase_count is None or charger.voltage_v is None
-            or charger.current_step_a is None
-        ):
+            or charger.current_step_a is None or charger.min_current_a is None
+            or charger.max_current_a is None
+        )
+        # Only nonbinding previews may use rated/user-limited kW without
+        # conversion, where no declared phase/circuit constraint requires A.
+        estimate_kw = bool(indicative_only and incomplete_current
+                           and controller.phase_limits_a is None and not charger.circuit_id)
+        if incomplete_current and not estimate_kw:
             reasons[uid] = "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED"
             shortfall[uid] = demand.remaining_grid_kwh
             coverage[uid] = "UNAVAILABLE"
@@ -432,7 +439,13 @@ def compile_plan(
                 remaining_kw = min(remaining_kw, demand.max_power_kw)
             phases = charger.phase_ids
             voltage = charger.voltage_v
-            if adjustable:
+            if estimate_kw:
+                power = min(remaining_kw, charger.rated_power_kw,
+                            charger.max_charging_power_kw or charger.rated_power_kw)
+                current = None
+                if power <= 0 or power < (charger.min_charging_power_kw or 0):
+                    continue
+            elif adjustable:
                 remaining_kw = min(remaining_kw, charger.rated_power_kw)
                 current_cap = min(charger.max_current_a,
                                   remaining_kw * 1000 / (voltage * charger.phase_count))

@@ -42,6 +42,23 @@ def hass(data):
 
 
 class EvidenceTests(unittest.TestCase):
+    def test_split_timestamp_prices_from_existing_numeric_sensor(self):
+        zone = ZoneInfo("Europe/Brussels")
+        midnight = NOW.astimezone(zone).replace(hour=0, minute=0, second=0).astimezone(timezone.utc)
+        today = [{"time": (midnight+timedelta(minutes=15*i)).isoformat(), "price": 0.43} for i in range(96)]
+        tomorrow = [{"time": (midnight+timedelta(days=1,hours=i)).isoformat(), "price": -0.02} for i in range(24)]
+        provider = state("0.43", "EUR/kWh", prices_today=today, prices_tomorrow=tomorrow)
+        h = hass({"sensor.price": provider})
+        slots, quality = intervals(h, "sensor.price", "price", NOW)
+        self.assertEqual(quality, "OK")
+        self.assertEqual(len(slots), 120)
+        self.assertEqual(slots[-1].effective_price_per_kwh, -0.02)
+        self.assertEqual(slots[-1].basis, "variable_reference")
+        provider.attributes["prices_tomorrow"] = []
+        self.assertEqual(len(intervals(h, "sensor.price", "price", NOW)[0]), 96)
+        provider.attributes["prices_today"] = today[:-1]
+        self.assertEqual(intervals(h, "sensor.price", "price", NOW)[1], "INTERVAL_COVERAGE_INCOMPLETE")
+
     def test_native_live_power_and_price_are_unit_and_freshness_qualified(self):
         source = hass({
             "sensor.pv": state("2200", "W"),
