@@ -117,14 +117,6 @@
         "data": {
           "yaml_text": "Configuration JSON MultiCharge complète (controller/assets/chargers)"
         }
-      },
-      "expert_review": {
-        "title": "Vérifier la configuration complète",
-        "description": "{summary} Confirmez après vérification de toute la configuration.",
-        "data": {
-          "confirm": "J'ai vérifié la configuration complète",
-          "edit_again": "Retour au JSON"
-        }
       }
     },
     "abort": {
@@ -145,9 +137,11 @@
           "asset": "Chargeable assets",
           "charger": "Chargers",
           "display": "Dashboard card",
-          "yaml": "Modifier JSON (vérification avant enregistrement)",
+          "yaml": "Configuration complète (JSON / YAML)",
           "commission": "Mise en service de la borne",
-          "energy": "Énergie et tarifs"
+          "energy": "Énergie et tarifs",
+          "charger_pick": "Choisir une borne",
+          "asset_pick": "Choisir un véhicule ou objet rechargeable"
         },
         "title": "Réglages"
       },
@@ -159,7 +153,10 @@
           "solar_entity": "Solaire (facultatif)",
           "binding_entity": "Puissance (facultatif)",
           "phase_limits_a": "Phases (facultatif)",
-          "site_power_entity": "Puissance (facultatif)"
+          "site_power_entity": "Puissance (facultatif)",
+          "mode": "Mode de charge",
+          "max_parallel": "Bornes simultanées maximum",
+          "max_power_kw": "Puissance du site (kW)"
         }
       },
       "asset": {
@@ -174,7 +171,8 @@
           "capacity_kwh": "Batterie",
           "vehicle_control_entity": "Interrupteur de commande du véhicule (source)",
           "vehicle_current_entity": "Consigne de courant du véhicule (source)",
-          "soc_stale_entity": "Capteur binaire données OEM périmées (on = périmé)"
+          "soc_stale_entity": "Capteur binaire données OEM périmées (on = périmé)",
+          "target_soc": "Charge cible (%)"
         }
       },
       "charger": {
@@ -214,19 +212,10 @@
         }
       },
       "yaml": {
-        "title": "Configuration JSON MultiCharge",
-        "description": "Modifier la configuration complète ou des éléments ciblés. Valider avant enregistrement. {note}",
+        "title": "Configuration complète (JSON / YAML)",
+        "description": "Edit the existing full configuration and press Save. One Home Assistant Config Entry, no physical charging command. {note}",
         "data": {
-          "mode": "Mode de mise à jour",
-          "yaml_text": "Configuration MultiCharge (JSON)"
-        }
-      },
-      "yaml_review": {
-        "title": "Vérifier les modifications JSON",
-        "description": "{summary}\nConfirmez uniquement après vérification.",
-        "data": {
-          "confirm": "Appliquer les modifications vérifiées",
-          "edit_again": "Retour au JSON"
+          "yaml_text": "Configuration complète (JSON / YAML)"
         }
       },
       "commission": {
@@ -254,6 +243,18 @@
           "solar_source_kind": "Source de pilotage solaire",
           "grid_power_direction": "Signe du compteur réseau",
           "use_energy_dashboard": "Reprendre les sources du tableau Énergie"
+        }
+      },
+      "charger_pick": {
+        "title": "Choisir une borne",
+        "data": {
+          "selected": "Ajouter ou sélectionner un existant"
+        }
+      },
+      "asset_pick": {
+        "title": "Choisir un véhicule ou objet rechargeable",
+        "data": {
+          "selected": "Ajouter ou sélectionner un existant"
         }
       }
     },
