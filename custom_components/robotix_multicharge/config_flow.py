@@ -892,7 +892,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         self._form_baseline_revision = configuration_revision(self._current())
         return self.async_show_menu(
             step_id="init",
-            menu_options=["controller", "charger", "asset", "energy",
+            menu_options=["controller", "charger_pick", "asset_pick", "energy",
                           "yaml", "display", "commission"],
         )
 
@@ -1015,59 +1015,102 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             step_id="controller", data_schema=vol.Schema(schema), errors=errors,
         )
 
-    async def async_step_asset(self, user_input=None):
-        cfg = self._current()
+    async def async_step_asset_pick(self, user_input=None):
+        """Choose an existing asset by name or add a new one; no ID guessing."""
+        rows = self._current()["assets"]
         if user_input is not None:
-            uid = _id(user_input.get("id") or user_input.get("name") or "")
-            action = user_input.get("action", "save")
-            if not uid:
-                result = None
-            elif action == "delete":
-                cfg["assets"] = [a for a in cfg["assets"] if a["id"] != uid]
-                result = self._saved(cfg)
-            else:
-                asset = next((dict(a) for a in cfg["assets"] if a["id"] == uid), {})
-                asset.update({
-                    "id": uid,
-                    "name": user_input.get("name") or asset.get("name"),
-                    "kind": user_input.get("kind") or asset.get("kind", "car"),
-                })
-                for field in ("soc_entity", "soc_stale_entity", "capacity_kwh",
-                              "vehicle_control_entity", "vehicle_current_entity"):
-                    if user_input.get(field) is not None and user_input.get(field) != "":
-                        asset[field] = user_input[field]
-                if not any(a["id"] == uid for a in cfg["assets"]):
-                    apply_new_asset_defaults(asset)
-                cfg["assets"] = [a for a in cfg["assets"] if a["id"] != uid] + [asset]
-                result = self._saved(cfg)
-            if result is not None:
-                return result
+            target = user_input["selected"]
+            self._edit_asset_id = None if target == "__new__" else target
+            return await self.async_step_asset()
+        choices = {"__new__": "Add chargeable asset"}
+        choices.update({row["id"]: row["name"] for row in rows})
         return self.async_show_form(
-            step_id="asset",
-            data_schema=vol.Schema({
-                vol.Required("action", default="save"): vol.In(["save", "delete"]),
-                vol.Optional("id"): str,
-                vol.Optional("name"): str,
-                vol.Optional("kind"): vol.In(
-                    ["car", "bicycle", "motorcycle", "scooter", "other"]
-                ),
-                vol.Optional("soc_entity"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Optional("soc_stale_entity"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="binary_sensor")
-                ),
-                vol.Optional("capacity_kwh"): selector.NumberSelector(selector.NumberSelectorConfig(
-                    min=0.01, max=1000, step=0.1, mode=selector.NumberSelectorMode.BOX
-                )),
-                vol.Optional("vehicle_control_entity"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="switch")
-                ),
-                vol.Optional("vehicle_current_entity"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="number")
-                ),
-            }),
-            errors={"base": "invalid_config"} if user_input else {},
+            step_id="asset_pick",
+            data_schema=vol.Schema({vol.Required(
+                "selected", default="__new__"): vol.In(choices)}),
+        )
+
+    async def async_step_asset(self, user_input=None):
+        """Add, edit or delete the selected actual asset in one form."""
+        cfg = self._current()
+        selected = getattr(self, "_edit_asset_id", None)
+        original = next(
+            (dict(row) for row in cfg["assets"] if row["id"] == selected), {},
+        )
+        errors = {}
+        if user_input is not None:
+            uid = selected or _id(user_input.get("id") or user_input.get("name") or "")
+            action = user_input.get("action", "save")
+            if not uid or (action == "delete" and not selected):
+                errors["base"] = "invalid_config"
+            else:
+                trial = deepcopy(cfg)
+                if action == "delete":
+                    trial["assets"] = [
+                        row for row in trial["assets"] if row["id"] != uid
+                    ]
+                else:
+                    record = next(
+                        (dict(row) for row in trial["assets"] if row["id"] == uid),
+                        {"id": uid},
+                    )
+                    if not user_input.get("name") and not record.get("name"):
+                        errors["base"] = "invalid_config"
+                    else:
+                        for key in ("name", "kind", "soc_entity",
+                                    "soc_stale_entity", "capacity_kwh",
+                                    "target_soc", "vehicle_control_entity",
+                                    "vehicle_current_entity"):
+                            if key in user_input:
+                                if user_input[key] not in (None, ""):
+                                    record[key] = user_input[key]
+                                else:
+                                    record.pop(key, None)
+                        record.setdefault("kind", "car")
+                        if not any(row["id"] == uid for row in trial["assets"]):
+                            apply_new_asset_defaults(record)
+                            trial["assets"].append(record)
+                        else:
+                            trial["assets"] = [
+                                record if row["id"] == uid else row
+                                for row in trial["assets"]
+                            ]
+                if not errors:
+                    result = await self._safe_structural_save(trial)
+                    if result is not None:
+                        return result
+                    errors["base"] = "invalid_config"
+
+        def field(key):
+            return (vol.Optional(key, default=original[key])
+                    if key in original else vol.Optional(key))
+
+        schema = {
+            vol.Required("action", default="save"): vol.In(
+                ["save", "delete"] if selected else ["save"]),
+            vol.Optional("id", default=selected or ""): str,
+            vol.Required("name", default=original.get("name", "")): str,
+            vol.Required("kind", default=original.get("kind", "car")):
+                vol.In(["car", "bicycle", "motorcycle", "scooter", "other"]),
+            field("soc_entity"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")),
+            field("soc_stale_entity"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="binary_sensor")),
+            field("vehicle_control_entity"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="switch")),
+            field("vehicle_current_entity"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="number")),
+            field("capacity_kwh"): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0.01, max=1000, step=0.1,
+                    mode=selector.NumberSelectorMode.BOX)),
+            field("target_soc"): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=100, step=1,
+                    mode=selector.NumberSelectorMode.BOX)),
+        }
+        return self.async_show_form(
+            step_id="asset", data_schema=vol.Schema(schema), errors=errors,
         )
 
     async def async_step_charger(self, user_input=None):
