@@ -14,7 +14,7 @@ from math import floor, isfinite
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from .source_evidence import binding, connection, number, soc_with_health
+from .source_evidence import Evidence, binding, connection, number, soc_with_health
 from .planner import (resolve_recurring_ready_by, charging_window_allows,
                       qualified_price_policy_cap)
 
@@ -448,7 +448,8 @@ class NativeSwitchExecutor:
             "meter_entity": source, "meter_observed_at": meter_at,
             "cost": cost, "currency": currency,
             "cost_quality": "qualified_effective_tariff" if cost is not None else "unknown",
-            "stop_reason": reason, "physical_stop_confirmed": True,
+            "stop_reason": reason, "physical_stop_confirmed": reason != "NATIVE_SWITCH_STATE",
+            "switch_stop_confirmed": True,
             "budget_accrued_cost": (
                 session.get("budget_cost")
                 if session.get("budget_quality") in (
@@ -580,10 +581,13 @@ class NativeSwitchExecutor:
                 if (receipt is not None and receipt["charger_id"] == uid
                         and receipt.get("asset_id") == session.get("asset_id")
                         and receipt.get("intent_key") == expected
-                        and receipt.get("physical_stop_confirmed") is True
+                        and (receipt.get("physical_stop_confirmed") is True
+                             or (session.get("switch_only") and receipt.get("switch_stop_confirmed")))
                         and (session.get("requested_kwh") is None
                              or receipt.get("actual_energy_kwh") is not None)):
                     self._inflight.pop(hold_key, None)
+            if reason == "NATIVE_SWITCH_STATE":
+                self._inflight.pop(f"charger:{uid}", None)
             self._quarantine.discard(uid)
             self._sessions.pop(uid, None)
             self._accepted.pop(uid, None)
@@ -696,7 +700,8 @@ class NativeSwitchExecutor:
             return "CONTROL_STATE_UNVERIFIED"
         if charger["id"] in self._paused:
             return "USER_PAUSED"
-        if not planned and ctl.get("mode") != "Force Charge":
+        if not planned and ctl.get("mode") != "Force Charge" and not (
+                manual_request is not None and ctl.get("mode") == "Automatic"):
             return "MANUAL_START_REQUIRES_FORCE_CHARGE"
         if planned and ctl.get("mode") not in (
             "Automatic", "Solar", "Economy", "Ready By"
@@ -743,7 +748,10 @@ class NativeSwitchExecutor:
         # a confirmed disconnect must report the physical blocker, not an
         # unrelated missing energy-meter progress from a completed session.
         cable = self._connection(charger, at)
-        if cable.quality != "ok" or cable.value is not True:
+        bounded_switch = (charger["kind"] == "on_off" and manual_request is not None
+                          and duration is not None and not planned)
+        if (not bounded_switch or charger.get("connected_entity")) and (
+                cable.quality != "ok" or cable.value is not True):
             return "PHYSICAL_CONNECTION_UNVERIFIED"
         if asset is not None and asset.get("charging_windows"):
             if not charging_window_allows(
@@ -860,9 +868,9 @@ class NativeSwitchExecutor:
         if manual_request is None and self.connection_confirmation(charger, at) is None:
             return "CURRENT_PLUG_ASSET_UNCONFIRMED"
         this_power = number(self.runtime.hass, charger.get("power_entity"), "power", at)
-        if this_power.quality != "ok":
+        if this_power.quality != "ok" and (not bounded_switch or charger.get("power_entity")):
             return "INDEPENDENT_POWER_UNAVAILABLE"
-        if this_power.value > start_power_limit(charger):
+        if this_power.quality == "ok" and this_power.value > start_power_limit(charger):
             return "POWER_ALREADY_PRESENT_WITHOUT_CONFIRMED_OWNER"
         # The final admission gate prevents a previous manual Force start
         # from replaying after a crash. Earlier source/guest checks keep their
@@ -954,8 +962,6 @@ class NativeSwitchExecutor:
         cfg = self.runtime.configuration
         ctl = cfg["controller"]
         cap = ctl.get("max_power_kw")
-        if cap is None:
-            return "SITE_POWER_CAPACITY_UNVERIFIED"
         selected = ctl.get("binding_entity") or ctl.get("site_power_entity")
         if selected:
             envelope, quality = binding(self.runtime.hass, selected, at)
@@ -965,7 +971,7 @@ class NativeSwitchExecutor:
             slots = [s for s in envelope.slots if s.start <= at and s.end >= until]
             if len(slots) != 1 or envelope.valid_until < until:
                 return "BINDING_CAPACITY_SLOT_MISSING"
-            cap = min(cap, slots[0].max_charging_kw)
+            cap = slots[0].max_charging_kw if cap is None else min(cap, slots[0].max_charging_kw)
         occupied, reserved = 0, kw
         phase_totals = {}
         circuits = {}
@@ -973,9 +979,11 @@ class NativeSwitchExecutor:
             if other["id"] == charger["id"]:
                 continue
             power = number(self.runtime.hass, other.get("power_entity"), "power", at)
-            if power.quality != "ok":
-                return "OTHER_CHARGER_POWER_UNAVAILABLE"
             state = self._switch(self.runtime.hass, other.get("control_entity"))
+            # Use the declared rating as a reservation, not a fabricated measurement.
+            if power.quality != "ok":
+                power = Evidence(other["rated_power_kw"] if state is None or state.state == "on" else 0.0,
+                                 "estimated", None, "DECLARED_CAPACITY_RESERVATION")
             # A third-party Charger need not expose its writer switch.
             # Both a fresh physical disconnect AND zero measured power prove
             # this *present* plug cannot energize; do not reserve a phantom
@@ -1048,7 +1056,7 @@ class NativeSwitchExecutor:
                 return "OTHER_CHARGER_POWER_WITH_SWITCH_OFF"
         if occupied >= ctl["max_parallel"]:
             return "MAX_PARALLEL_REACHED"
-        if reserved > cap + 1e-9:
+        if cap is not None and reserved > cap + 1e-9:
             return "SITE_CAPACITY_EXCEEDED"
         if (ctl.get("mode") == "Solar"
                 and ctl.get("solar_source_kind") in ("grid_export", "direct_surplus")):
@@ -1340,6 +1348,8 @@ class NativeSwitchExecutor:
         self._sessions[charger["id"]] = {
             "asset_id": asset["id"] if asset is not None else None,
             "intent_key": intent_key,
+            "manual_duration": manual_request is not None and duration is not None,
+            "switch_only": observed.reason == "NATIVE_SWITCH_STATE",
             "started_at": now,
             "hard_stop_at": end,
             "requested_kwh": explicit_energy,
@@ -1410,6 +1420,8 @@ class NativeSwitchExecutor:
                 if switch is None:
                     continue
                 if switch.state == "on":
+                    if self._sessions.get(uid, {}).get("manual_duration"):
+                        continue  # finite manual timer owns this session, not a quarter plan
                     # Never adopt an unowned session after restart or handover.
                     session = self._sessions.get(uid)
                     if session is None or uid not in self._accepted:
@@ -1546,13 +1558,18 @@ class NativeSwitchExecutor:
                     accepted is None or accepted["end"] <= at and not in_grace
                 )
                 unowned = is_auto and accepted is None
-                wrong_mode = mode == "Off" or (is_auto and (no_plan or unowned))
+                manual_duration = self._sessions.get(uid, {}).get("manual_duration", False)
+                switch_only = self._sessions.get(uid, {}).get("switch_only", False)
+                wrong_mode = mode == "Off" or (is_auto and (no_plan or unowned)
+                    and not (manual_duration and mode == "Automatic"))
                 if mode == "Force Charge" and accepted is not None:
                     wrong_mode = True
                 unsafe = (
-                    uid in self._paused or wrong_mode or cable.quality != "ok" or cable.value is not True
-                    or power.quality != "ok"
-                    or power.value > charger["rated_power_kw"] * 1.10
+                    uid in self._paused or wrong_mode
+                    or ((not manual_duration or charger.get("connected_entity"))
+                        and (cable.quality != "ok" or cable.value is not True))
+                    or ((not switch_only or charger.get("power_entity")) and power.quality != "ok")
+                    or (power.quality == "ok" and power.value > charger["rated_power_kw"] * 1.10)
                     or session_reason is not None
                 )
                 if charger["kind"] == "variable_current":
@@ -1631,8 +1648,8 @@ class NativeSwitchExecutor:
                 return False
             power = number(self.runtime.hass, charger.get("power_entity"),
                            "power", datetime.now(timezone.utc))
-            if (state.state == "off" and power.quality == "ok"
-                    and power.value <= stop_power_limit(charger)):
+            if (state.state == "off" and (not charger.get("power_entity")
+                    or (power.quality == "ok" and power.value <= stop_power_limit(charger)))):
                 continue
             outcome = await self.execute(charger["id"], "stop")
             if outcome["status"] != "confirmed":
@@ -1645,6 +1662,11 @@ class NativeSwitchExecutor:
         switch = self._switch(self.runtime.hass, charger["control_entity"])
         if switch is None or switch.state != ("on" if action == "start" else "off"):
             return None
+        if charger["kind"] == "on_off" and not charger.get("power_entity"):
+            observed_at = getattr(switch, "last_updated", None)
+            if observed_at is None or observed_at < requested_at:
+                return None
+            return Evidence(None, "ok", observed_at, "NATIVE_SWITCH_STATE")
         power = number(self.runtime.hass, charger.get("power_entity"), "power",
                        datetime.now(timezone.utc))
         if power.quality != "ok" or power.observed_at is None:
@@ -1744,8 +1766,8 @@ class NativeSwitchExecutor:
                     return result("rejected", "UNCONFIRMED_SESSION_CANNOT_RESUME")
                 power = number(self.runtime.hass, charger.get("power_entity"),
                                "power", at)
-                if (state.state != "off" or power.quality != "ok"
-                        or power.value > stop_power_limit(charger)):
+                if (state.state != "off" or (charger.get("power_entity") and (
+                        power.quality != "ok" or power.value > stop_power_limit(charger)))):
                     return result("rejected", "PHYSICAL_STOP_NOT_VERIFIED")
                 self._paused.remove(charger_id)
                 if not await self.runtime.persist_control_state():
@@ -1877,6 +1899,12 @@ class NativeSwitchExecutor:
             elif state.state == "off":
                 power = number(self.runtime.hass, charger.get("power_entity"),
                                "power", at)
+                if not charger.get("power_entity") and charger["kind"] == "on_off":
+                    outcome = result("confirmed", "NATIVE_SWITCH_STATE",
+                                     observed_at=getattr(state, "last_updated", None))
+                    if not await self.runtime.persist_control_state():
+                        self._persistence_verified = False
+                    return outcome
                 if (power.quality == "ok"
                         and power.value <= stop_power_limit(charger)):
                     outcome = result("confirmed", "ALREADY_PHYSICALLY_STOPPED",
@@ -1940,7 +1968,8 @@ class NativeSwitchExecutor:
                                 reason + ";PROTECTIVE_STOP_SENT",
                                 service_sent=True
                             )
-                    outcome = result("confirmed", "INDEPENDENT_POWER_READBACK",
+                    outcome = result("confirmed", ("NATIVE_SWITCH_STATE" if observed.reason == "NATIVE_SWITCH_STATE"
+                                      else "INDEPENDENT_POWER_READBACK"),
                                   observed_at=observed.observed_at,
                                   measured_kw=observed.value,
                                   service_sent=True)

@@ -132,8 +132,9 @@ def _assert_safe_expert_import(runtime, updated, *, source_changed=False):
             power = number(
                 runtime.hass, charger.get("power_entity"), "power", now
             )
-            if (switch is None or switch.state != "off" or power.quality != "ok"
-                    or power.value > stop_power_limit(charger)):
+            if (switch is None or switch.state != "off"
+                    or (charger.get("power_entity") and (power.quality != "ok"
+                        or power.value > stop_power_limit(charger)))):
                 raise ValueError(f"EXPERT_IMPORT_REQUIRES_VERIFIED_IDLE_CHARGERS: {charger['name']} ({uid}) must be idle for structural reload")
 
 
@@ -225,6 +226,7 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Charger and Asset setting is configured subsequently in MultiCharge.
         # Do not force a native HA wizard or free-text JSON/YAML upon users.
         cfg = default_configuration()
+        cfg["controller"]["mode"] = "Automatic"
         return self.async_create_entry(
             title=NAME, data={"source": "ui", "configuration": cfg},
         )
@@ -920,7 +922,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_menu(
             step_id="init",
             menu_options=["controller", "charger_pick", "asset_pick", "energy",
-                          "yaml", "display", "commission"],
+                          "yaml", "display"],
         )
 
     async def async_step_energy(self, user_input=None):
@@ -1201,7 +1203,9 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                     if not user_input.get("name") and not record.get("name"):
                         errors["base"] = "invalid_config"
                     else:
-                        for key in ("name", "kind", "rated_power_kw",
+                        if "control_owner" in user_input:
+                            record.pop("physical_commissioned", None)
+                        for key in ("name", "kind", "rated_power_kw", "control_owner",
                                     "control_entity", "connected_entity",
                                     "power_entity", "energy_entity",
                                     "current_control_entity",
@@ -1242,6 +1246,8 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                     selector.NumberSelectorConfig(
                         min=0.01, max=1000, step=0.1,
                         mode=selector.NumberSelectorMode.BOX)),
+            vol.Required("control_owner", default=original.get("control_owner", "external")):
+                vol.In(["external", "multicharge"]),
             field("control_entity"): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="switch")),
             field("connected_entity"): selector.EntitySelector(

@@ -813,7 +813,7 @@ const MC_OWNER_GROUPS = {
   charger: [
     ["Identity & ownership",[
       "id","name","kind","asset","plan_color",
-      "control_owner","physical_commissioned"
+      "control_owner"
     ]],
     ["Connection & meter sources",[
       "control_entity","connected_entity","connected_states",
@@ -873,7 +873,7 @@ const MC_OWNER_NAMES = {
   capacity_kwh:"Usable battery capacity",
   max_charge_kw:"Vehicle charging limit",
   charge_efficiency:"Charging efficiency",
-  control_owner:"Physical command owner",
+  control_owner:"Control mode",
   physical_commissioned:"Physical commissioning",
   control_entity:"Native Charger control switch",
   connected_entity:"Cable/connection sensor",
@@ -918,6 +918,7 @@ const MC_EDIT_NUMBERS=new Set([
 const MC_EDIT_BOOLEAN=new Set(["temporary","continuous_charging","show_indicative_forecast"]);
 const MC_EDIT_DATES=new Set(["ready_by","expires_at","earliest_start_at","expected_connection_at"]);
 const MC_EDIT_ENUM={
+  control_owner:["external","multicharge"],
   mode:["Automatic","Solar","Economy","Ready By","Force Charge","Off"],
   plan_label_mode:["vehicle","charger","both"],
   plan_color_by:["vehicle","charger"],
@@ -1289,7 +1290,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     else options=MC_EDIT_ENUM[field]||null;
     if(MC_EDIT_BOOLEAN.has(field))options=["true","false"];
     if(options){
-      const pairs=options.map(key=>[key,key||mcTr("No vehicle")]);
+      const pairs=options.map(key=>[key,field==="control_owner"?(key==="multicharge"?"MultiCharge manages charging":"Monitor only"):key||mcTr("No vehicle")]);
       if(prior!==undefined&&!pairs.some(x=>x[0]===String(prior)))
         pairs.unshift([String(prior),String(prior)]);
       const choice=this.field(container,MC_OWNER_NAMES[field]||field,
@@ -2168,7 +2169,7 @@ class RobotixMultiChargeCard extends HTMLElement {
           mcOwnerReadValue(record[field],field,this._data?.timezone)));
       line.append(info);
       const key=scope+":"+record.id+":"+field;
-      if(this.canEditSettings()&&!["id","control_owner","physical_commissioned"].includes(field)){
+      if(this.canEditSettings()&&!["id","physical_commissioned"].includes(field)){
         const edit=mcButton(mcTr("Edit"),()=>{
           this._editingField=this._editingField===key?"":key;this.render();
         });
@@ -2660,11 +2661,12 @@ class RobotixMultiChargeCard extends HTMLElement {
       mcPair(card,mcTr("Physical control owner"),
         c.control_owner==="multicharge"?mcTr("MultiCharge"):
         mcTr("External control (monitor only)"));
-      mcPair(card,mcTr("Physically commissioned"),
-        c.physical_commissioned===true?mcTr("Yes"):mcTr("No"));
       if(this.canEditSettings())card.append(mcButton(
-        mcTr("Physical ownership & commissioning"),
-        ()=>this.openCommissionEditor(c)
+        "Change control mode",()=>{
+          this._open=c.id;
+          this._editingField="charger:"+c.id+":control_owner";
+          this.render();
+        }
       ));
       const session=(d.active_sessions||{})[c.id];
       if(session){

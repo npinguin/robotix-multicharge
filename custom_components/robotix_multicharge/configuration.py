@@ -441,17 +441,17 @@ def validate_configuration(value):
                 raise ValueError("charger.control_owner: expected external/multicharge")
             if "physical_commissioned" in source and type(source["physical_commissioned"]) is not bool:
                 raise ValueError("charger.physical_commissioned: expected boolean")
-            commissioned = source.get("physical_commissioned", False)
-            if commissioned and owner != "multicharge":
+            legacy = source.get("physical_commissioned")
+            if legacy is True and owner != "multicharge":
                 raise ValueError("charger: physical commissioning requires MultiCharge owner")
-            if owner == "multicharge" and (
-                not str(source.get("control_entity", "")).startswith("switch.")
-                or not source.get("connected_entity")
-                or not source.get("power_entity")
-            ):
-                raise ValueError("charger: native switch, connection and power source required")
+            # A legacy uncommissioned writer never becomes active on upgrade.
+            if owner == "multicharge" and legacy is False:
+                owner = "external"
+            if owner == "multicharge" and not str(source.get("control_entity", "")).startswith("switch."):
+                raise ValueError("charger: managed control requires a native switch")
             charger["control_owner"] = owner
-            charger["physical_commissioned"] = commissioned
+            # Compatibility projection, not an independent user setting.
+            charger["physical_commissioned"] = owner == "multicharge"
             if ("connected_states" in source or "disconnected_states" in source):
                 entity = source.get("connected_entity")
                 if not isinstance(entity, str) or not entity.startswith("sensor."):
@@ -819,7 +819,7 @@ def apply_dashboard_structure(configuration, scope, target_id, changes, action="
     if (not isinstance(target_id, str) or not target_id
             or len(target_id) > 100):
         raise ValueError("stable dashboard object ID required")
-    forbidden = {"id", "control_owner", "physical_commissioned"}
+    forbidden = {"id", "physical_commissioned"}
     if forbidden & changes.keys():
         raise ValueError("ownership and identity cannot change in dashboard editor")
     cfg = deepcopy(configuration)
@@ -849,6 +849,8 @@ def apply_dashboard_structure(configuration, scope, target_id, changes, action="
             items.remove(target)
             return validate_configuration(cfg)
     if action != "delete":
+        if scope == "charger" and "control_owner" in changes:
+            target.pop("physical_commissioned", None)
         for key, value in changes.items():
             if not isinstance(key, str) or key.startswith("_"):
                 raise ValueError("invalid dashboard field")
@@ -939,7 +941,7 @@ def is_in_place_runtime_preference_change(before, after):
 
 
 def assert_expert_authority_change(before, after):
-    """Expert Save may relinquish authority, never silently grant new control.
+    """Explicit authenticated control intent may change; preserve owned identities.
 
     This checks intent only. The serialized runtime writer separately protects
     outstanding commands/sessions and any required structural reload.
@@ -951,19 +953,7 @@ def assert_expert_authority_change(before, after):
             raise ValueError(
                 f"charger {old['name']} ({uid}): return to monitoring before removal"
             )
-    for uid, new in revised.items():
-        old = previous.get(uid, {})
-        was_managed = old.get("control_owner", "external") == "multicharge"
-        was_commissioned = old.get("physical_commissioned", False)
-        wants_managed = new.get("control_owner", "external") == "multicharge"
-        wants_commissioned = new.get("physical_commissioned", False)
-        if (wants_managed and not was_managed
-                or wants_commissioned and not was_commissioned):
-            raise ValueError(
-                f"charger {new['name']} ({uid}): cannot transfer ownership or commissioning "
-                f"to MultiCharge from {old.get('control_owner', 'external')}; "
-                "explicitly authorize control first"
-            )
+
 
 
 def prepare_expert_yaml_revision(current, document, mode="merge"):
@@ -1025,6 +1015,8 @@ def prepare_expert_yaml_revision(current, document, mode="merge"):
                     if existing is None:
                         rows.append(deepcopy(supplied))
                     else:
+                        if group == "chargers" and "control_owner" in supplied and "physical_commissioned" not in supplied:
+                            existing.pop("physical_commissioned", None)
                         existing.update(deepcopy(supplied))
             candidate = validate_configuration(candidate)
 
@@ -1189,7 +1181,8 @@ def normalize_expert_json(value):
             "kind": source.get("Control-kind", "on_off"),
             "rated_power_kw": source.get("Rated-power-kW", 3.6),
             "control_owner": source.get("Control-owner", "external"),
-            "physical_commissioned": source.get("Physical-commissioned", False),
+            **({"physical_commissioned": source["Physical-commissioned"]}
+               if "Physical-commissioned" in source else {}),
         }
         for key, field, domains, required in (
             ("Charging-startstop-entity", "control_entity", ("switch",), True),
@@ -1226,30 +1219,9 @@ def normalize_expert_json(value):
                 raise ValueError("Charger.ChargingAsset: unknown ChargingAsset")
             charger["asset"] = asset_ids[selected]
 
-        # The expert route must not turn a guessed 3.6 kW default into
-        # electrical commissioning. An owned charger needs explicit measured
-        # limits and independent readback, even if commissioning is still false.
-        if charger["control_owner"] == "multicharge":
-            required_controller = ("Max-power-kW", "Phase-limits-A")
-            required_charger = (
-                "Rated-power-kW", "Phase-count", "Phase-IDs", "Voltage-V",
-                "Circuit-ID", "Circuit-limit-A", "Charging-connected-sensor",
-                "Charging-power-sensor",
-            )
-            missing = [key for key in required_controller if key not in controller]
-            missing += [key for key in required_charger if key not in source]
-            if charger["kind"] == "on_off" and "Fixed-current-A" not in source:
-                missing.append("Fixed-current-A")
-            if charger["kind"] == "variable_current":
-                missing += [key for key in (
-                    "Charging-amp-entity", "Charging-current-readback-sensor",
-                    "Min-current-A", "Max-current-A", "Current-step-A",
-                ) if key not in source]
-            if missing:
-                raise ValueError(
-                    "Charger: owned physical control requires verified "
-                    "configuration for " + ", ".join(missing)
-                )
+        # Never infer a nominal rating for an explicitly managed load.
+        if charger["control_owner"] == "multicharge" and "Rated-power-kW" not in source:
+            raise ValueError("Charger: managed control requires verified user-supplied rated power")
         cfg["chargers"].append(charger)
     return validate_configuration(cfg)
 
