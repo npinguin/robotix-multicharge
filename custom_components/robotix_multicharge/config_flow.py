@@ -1113,108 +1113,106 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             step_id="asset", data_schema=vol.Schema(schema), errors=errors,
         )
 
-    async def async_step_charger(self, user_input=None):
-        cfg = self._current()
+    async def async_step_charger_pick(self, user_input=None):
+        """Choose a real charger by its name or create another."""
+        rows = self._current()["chargers"]
         if user_input is not None:
-            uid = _id(user_input.get("id") or user_input.get("name") or "")
-            action = user_input.get("action", "save")
-            if not uid:
-                result = None
-            elif action == "delete":
-                cfg["chargers"] = [c for c in cfg["chargers"] if c["id"] != uid]
-                result = await self._safe_structural_save(cfg)
-            else:
-                charger = next((dict(c) for c in cfg["chargers"] if c["id"] == uid), {})
-                charger["id"] = uid
-                if user_input.get("name"):
-                    charger["name"] = user_input["name"]
-                if user_input.get("kind"):
-                    charger["kind"] = user_input["kind"]
-                elif "kind" not in charger:
-                    charger["kind"] = "on_off"
-                if user_input.get("rated_power_kw") is not None:
-                    charger["rated_power_kw"] = user_input["rated_power_kw"]
-                for field in ("control_entity", "connected_entity", "power_entity",
-                              "energy_entity", "phase_count", "min_current_a", "max_current_a",
-                              "voltage_v", "current_step_a", "fixed_current_a",
-                              "circuit_id", "circuit_limit_a", "current_control_entity",
-                              "current_readback_entity", "session_entity"):
-
-                    if user_input.get(field) is not None and user_input.get(field) != "":
-                        charger[field] = user_input[field]
-                if user_input.get("phase_ids"):
-                    charger["phase_ids"] = _phases(user_input["phase_ids"])
-                for field in ("connected_states", "disconnected_states"):
-                    if field in user_input:
-                        parsed = _native_status_labels(user_input[field])
-                        if parsed:
-                            charger[field] = parsed
-                        else:
-                            charger.pop(field, None)
-                cfg["chargers"] = [c for c in cfg["chargers"] if c["id"] != uid] + [charger]
-                result = await self._safe_structural_save(cfg)
-            if result is not None:
-                return result
+            target = user_input["selected"]
+            self._edit_charger_id = None if target == "__new__" else target
+            return await self.async_step_charger()
+        choices = {"__new__": "Add charger"}
+        choices.update({row["id"]: row["name"] for row in rows})
         return self.async_show_form(
-            step_id="charger",
-            data_schema=vol.Schema({
-                vol.Required("action", default="save"): vol.In(["save", "delete"]),
-                vol.Optional("id"): str,
-                vol.Optional("name"): str,
-                vol.Optional("kind"): vol.In(["on_off", "variable_current"]),
-                vol.Optional("rated_power_kw"): selector.NumberSelector(selector.NumberSelectorConfig(
-                    min=0.01, max=1000, step=0.1, mode=selector.NumberSelectorMode.BOX
-                )),
+            step_id="charger_pick",
+            data_schema=vol.Schema({vol.Required(
+                "selected", default="__new__"): vol.In(choices)}),
+        )
 
-                vol.Optional("control_entity"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="switch")
-                ),
-                vol.Optional("connected_entity"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain=["binary_sensor", "sensor"])
-                ),
-                vol.Optional("connected_states"): str,
-                vol.Optional("disconnected_states"): str,
-                vol.Optional("power_entity"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Optional("energy_entity"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Optional("phase_count"): vol.In([1, 2, 3]),
-                vol.Optional("min_current_a"): selector.NumberSelector(selector.NumberSelectorConfig(
-                    min=0.01, max=1000, step=0.1, mode=selector.NumberSelectorMode.BOX
-                )),
-                vol.Optional("max_current_a"): selector.NumberSelector(selector.NumberSelectorConfig(
-                    min=0.01, max=1000, step=0.1, mode=selector.NumberSelectorMode.BOX
-                )),
-                vol.Optional("phase_ids"): str,
-                vol.Optional("voltage_v"): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=200, max=260, step=1,
-                        mode=selector.NumberSelectorMode.BOX
+    async def async_step_charger(self, user_input=None):
+        """Edit real HA sources without rewriting the electrical controls."""
+        cfg = self._current()
+        selected = getattr(self, "_edit_charger_id", None)
+        original = next(
+            (dict(row) for row in cfg["chargers"] if row["id"] == selected), {},
+        )
+        errors = {}
+        if user_input is not None:
+            uid = selected or _id(user_input.get("id") or user_input.get("name") or "")
+            action = user_input.get("action", "save")
+            if not uid or (action == "delete" and not selected):
+                errors["base"] = "invalid_config"
+            else:
+                trial = deepcopy(cfg)
+                if action == "delete":
+                    trial["chargers"] = [
+                        row for row in trial["chargers"] if row["id"] != uid
+                    ]
+                else:
+                    record = next(
+                        (dict(row) for row in trial["chargers"] if row["id"] == uid),
+                        {"id": uid, "control_owner": "external",
+                         "physical_commissioned": False},
                     )
-                ),
-                vol.Optional("current_step_a"): selector.NumberSelector(selector.NumberSelectorConfig(
-                    min=0.01, max=1000, step=0.1, mode=selector.NumberSelectorMode.BOX
-                )),
-                vol.Optional("fixed_current_a"): selector.NumberSelector(selector.NumberSelectorConfig(
-                    min=0.01, max=1000, step=0.1, mode=selector.NumberSelectorMode.BOX
-                )),
-                vol.Optional("circuit_id"): str,
-                vol.Optional("circuit_limit_a"): selector.NumberSelector(selector.NumberSelectorConfig(
-                    min=0.01, max=1000, step=0.1, mode=selector.NumberSelectorMode.BOX
-                )),
-                vol.Optional("current_control_entity"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="number")
-                ),
-                vol.Optional("current_readback_entity"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Optional("session_entity"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain=["sensor", "binary_sensor"])
-                ),
-            }),
-            errors={"base": "invalid_config"} if user_input else {},
+                    if not user_input.get("name") and not record.get("name"):
+                        errors["base"] = "invalid_config"
+                    else:
+                        for key in ("name", "kind", "rated_power_kw",
+                                    "control_entity", "connected_entity",
+                                    "power_entity", "energy_entity",
+                                    "current_control_entity",
+                                    "current_readback_entity"):
+                            if key in user_input:
+                                if user_input[key] not in (None, ""):
+                                    record[key] = user_input[key]
+                                else:
+                                    record.pop(key, None)
+                        record.setdefault("kind", "on_off")
+                        if "rated_power_kw" not in record:
+                            errors["base"] = "invalid_config"
+                        elif not any(row["id"] == uid for row in trial["chargers"]):
+                            trial["chargers"].append(record)
+                        else:
+                            trial["chargers"] = [
+                                record if row["id"] == uid else row
+                                for row in trial["chargers"]
+                            ]
+                if not errors:
+                    result = await self._safe_structural_save(trial)
+                    if result is not None:
+                        return result
+                    errors["base"] = "invalid_config"
+
+        def field(key):
+            return (vol.Optional(key, default=original[key])
+                    if key in original else vol.Optional(key))
+
+        schema = {
+            vol.Required("action", default="save"): vol.In(
+                ["save", "delete"] if selected else ["save"]),
+            vol.Optional("id", default=selected or ""): str,
+            vol.Required("name", default=original.get("name", "")): str,
+            vol.Required("kind", default=original.get("kind", "on_off")):
+                vol.In(["on_off", "variable_current"]),
+            vol.Required("rated_power_kw", default=original.get(
+                "rated_power_kw", 3.6)): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0.01, max=1000, step=0.1,
+                        mode=selector.NumberSelectorMode.BOX)),
+            field("control_entity"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="switch")),
+            field("connected_entity"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain=["binary_sensor", "sensor"])),
+            field("power_entity"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")),
+            field("energy_entity"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")),
+            field("current_control_entity"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="number")),
+            field("current_readback_entity"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")),
+        }
+        return self.async_show_form(
+            step_id="charger", data_schema=vol.Schema(schema), errors=errors,
         )
 
     async def async_step_display(self, user_input=None):
