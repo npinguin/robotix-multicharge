@@ -1468,6 +1468,49 @@ async function main(){
   }
   assert.ok(!content(card.shadowRoot).includes("3.6 kW actually charged"),
     "Disconnection forecast must not become measured charging");
+  // All graphs share backend-selected civil-day bounds, even if goal
+  // horizons/deadlines differ. Verify cross-midnight, DST and charger color.
+  const originalRange=[fixture.start,fixture.end], originalForecast=fixture.forecast_slots;
+  const previousGoals=fixture.goal_assessments;
+  const previousColor=fixture.configuration.controller.plan_color_by;
+  for(const [start,end,slotStart,slotEnd] of [
+    ["2026-11-22T00:00:00+01:00","2026-11-24T00:00:00+01:00",
+     "2026-11-23T00:00:00+01:00","2026-11-23T00:15:00+01:00"],
+    ["2026-10-25T00:00:00+02:00","2026-10-26T00:00:00+01:00",
+     "2026-10-25T02:00:00+01:00","2026-10-25T02:15:00+01:00"],
+    ["2026-03-29T00:00:00+01:00","2026-03-30T00:00:00+02:00",
+     "2026-03-29T03:00:00+02:00","2026-03-29T03:15:00+02:00"]
+  ]){
+    fixture.start=start;fixture.end=end;
+    fixture.configuration.controller.plan_color_by="charger";
+    fixture.forecast_slots=[{charger_id:"drive",asset_id:"car",start:slotStart,end:slotEnd,
+      indicative_power_kw:3.6,may_execute:false,reserves_capacity:false}];
+    fixture.goal_assessments={drive:{asset_id:"car",status:"achievable",conditional:true,
+      timeline_start:slotStart,timeline_end:slotEnd,deadline:slotEnd,
+      timeline_windows:[{start:slotStart,end:slotEnd}]}};
+    card.render();
+    const ranges=[], bars=[];
+    visit(card.shadowRoot,node=>{
+      if(node.attributes?.["data-range-start"])ranges.push(node);
+      if(String(node.className||"").startsWith("goal-window"))bars.push(node);
+    });
+    assert.equal(ranges.length,3,"Combined, lane and bar all share one range");
+    assert.ok(ranges.every(node=>node.attributes["data-range-start"]===String(Date.parse(start))&&
+      node.attributes["data-range-end"]===String(Date.parse(end))));
+    assert.equal(bars.length,1);
+    assert.equal(bars[0].style.background,"#32816E");
+    const width=parseFloat(bars[0].style.width);
+    assert.ok(Math.abs(width-100*900000/(Date.parse(end)-Date.parse(start)))<1e-8);
+    for(const host of ranges.filter(n=>n._mcSignature)){
+      const opts=JSON.parse(host._mcSignature);
+      assert.equal(opts.colors[opts.series.findIndex(s=>s.name.includes("Indicative"))],"#32816E");
+      assert.equal(opts.chart.zoom.enabled,false);
+      assert.equal(opts.xaxis.tickAmount,4);
+    }
+  }
+  [fixture.start,fixture.end]=originalRange;
+  fixture.configuration.controller.plan_color_by=previousColor;
+  fixture.goal_assessments=previousGoals;fixture.forecast_slots=originalForecast;
   fixture.slots=firm;
   fixture.forecast_slots=[];
   fixture.forecast_assumptions={};
