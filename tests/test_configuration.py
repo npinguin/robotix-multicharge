@@ -1216,7 +1216,8 @@ class YamlEditorConfigurationTests(unittest.TestCase):
         return validate_configuration(cfg)
 
     def test_explicit_expert_relinquishment_preserves_charger_identity(self):
-        from custom_components.robotix_multicharge.configuration import (
+        from copy import deepcopy
+        from multicharge_configuration_tests.configuration import (
             assert_expert_authority_change,
         )
         cfg = self.configured_site()
