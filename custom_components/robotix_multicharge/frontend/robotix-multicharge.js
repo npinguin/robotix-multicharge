@@ -535,7 +535,7 @@ function mcCombinedChargingChart(data, visibleChargers, slots, actuals){
   const options=mcApexCommon(from,until,310,"MultiCharge combined power and price",validPrice);
   options.series=series;
   options.annotations={xaxis:Date.now()>=from&&Date.now()<until?
-    [{x:Date.now(),borderColor:"#b86a44",label:{text:"Now"}}]:[]};
+    [{x:Math.floor(Date.now()/60000)*60000,borderColor:"#b86a44",label:{text:"Now"}}]:[]};
   if(series.some(item=>item.data.length))mcMountApex(plot,options);
   else plot.append(mcEl("p","muted small",
     mcTr("No qualified physical or planned power in this period")));
@@ -2030,7 +2030,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         this._filter==="asset:"+meta.asset_id));
     if(groups.length){
       const forecastInfo=mcEl("div","card");
-      forecastInfo.append(mcEl("h3","",mcTr("Indicative")+" · "+mcTr(groups.every(([,meta])=>meta.physically_connected===false)?"Disconnected":"Not reserved")));
+      forecastInfo.append(mcEl("h3","",mcTr("Indicative")+" · "+mcTr(groups.every(([id,meta])=>meta.physically_connected===false||(d.observations?.chargers?.[id]?.connected?.quality==="ok"&&d.observations.chargers[id].connected.value===false))?"Disconnected":"Not reserved")));
       for(const [chargerId,meta] of groups){
         const obj=chargers.find(c=>c.id===chargerId);
         const car=cars.find(a=>a.id===meta.asset_id);
