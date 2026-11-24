@@ -128,6 +128,16 @@ def test_expert_reimport_rejects_live_writer_before_entry_mutation():
         _assert_safe_expert_import(runtime, old)
     states["sensor.charger_power"].state = "0"
     _assert_safe_expert_import(runtime, old)
+    # A permitted return to monitoring still requires safe structural reload.
+    from custom_components.robotix_multicharge.configuration import assert_expert_authority_change
+    assert_expert_authority_change(old, external)
+    runtime.configuration = old
+    _assert_safe_expert_import(runtime, external)
+    states["switch.charger"].state = "on"
+    with pytest.raises(ValueError, match="VERIFIED_IDLE"):
+        _assert_safe_expert_import(runtime, external)
+    states["switch.charger"].state = "off"
+    runtime.configuration = external
     # An unclosed prior command is not an idle physical session even when
     # measured zero and switch OFF happen to be present.
     executor._inflight["asset"] = "unreconciled"

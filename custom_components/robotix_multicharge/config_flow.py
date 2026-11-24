@@ -17,6 +17,7 @@ from .configuration import (
     default_configuration, is_plan_presentation_only_change,
     validate_configuration, configuration_revision,
     apply_new_asset_defaults, energy_dashboard_suggestions,
+    assert_expert_authority_change, is_in_place_runtime_preference_change,
 )
 from .source_evidence import number
 from .execution import stop_power_limit
@@ -123,7 +124,7 @@ def _assert_safe_expert_import(runtime, updated, *, source_changed=False):
         if not checked:
             continue
         if uid in executor._sessions:
-            raise ValueError("EXPERT_IMPORT_REQUIRES_VERIFIED_IDLE_CHARGERS")
+            raise ValueError(f"EXPERT_IMPORT_REQUIRES_VERIFIED_IDLE_CHARGERS: {uid} has an open MultiCharge session")
         for charger in checked:
             switch = executor._switch(
                 runtime.hass, charger.get("control_entity")
@@ -133,7 +134,7 @@ def _assert_safe_expert_import(runtime, updated, *, source_changed=False):
             )
             if (switch is None or switch.state != "off" or power.quality != "ok"
                     or power.value > stop_power_limit(charger)):
-                raise ValueError("EXPERT_IMPORT_REQUIRES_VERIFIED_IDLE_CHARGERS")
+                raise ValueError(f"EXPERT_IMPORT_REQUIRES_VERIFIED_IDLE_CHARGERS: {charger['name']} ({uid}) must be idle for structural reload")
 
 
 def _parse_editor_yaml(text):
@@ -170,44 +171,38 @@ def _parse_editor_yaml(text):
 
 def _assert_safe_yaml_ui_commit(runtime, updated):
     """Recheck source and safety immediately before native Options Save."""
-    _assert_safe_expert_import(runtime, updated)
-    existing = {charger["id"]: charger for charger in runtime.configuration["chargers"]}
-    revised = {charger["id"]: charger for charger in updated["chargers"]}
-    # Even an external-owner charger must be measured idle to remove or change
-    # its historical association; a name-only edit never needs this gate.
-    for uid, previous in existing.items():
-        current = revised.get(uid)
-        if (current is not None and
-                all(previous.get(key) == current.get(key)
-                    for key in ("asset", "control_entity", "power_entity",
-                                "connected_entity", "connected_states",
-                                "disconnected_states", "energy_entity",
-                                "session_entity", "kind", "rated_power_kw"))):
+    before = runtime.configuration
+    if before == updated:
+        return
+    # Existing preferences apply in place: no unload, no authority transfer.
+    # Runtime execution/supervision enforces the updated goals and limits.
+    in_place = (is_plan_presentation_only_change(before, updated)
+                or is_in_place_runtime_preference_change(before, updated))
+    if not in_place:
+        # Structural changes still reload the HA platforms. Protect all
+        # managed writers affected by that actual reload, not external EVSEs.
+        _assert_safe_expert_import(runtime, updated)
+    existing = {row["id"]: row for row in before["chargers"]}
+    revised = {row["id"]: row for row in updated["chargers"]}
+    for uid, old in existing.items():
+        new = revised.get(uid)
+        # Selection/attribution is independent of names and user preferences.
+        if new is None or old.get("asset") == new.get("asset"):
             continue
-        if (uid in runtime.executor._sessions or
-                uid in runtime.executor._start_pending):
-            raise ValueError("YAML_UPDATE_CHARGER_BUSY")
-        # Read-only external hardware can be mapped without asserting idle:
-        # MultiCharge has no physical command authority over this charger.
-        # Active or commissioned MultiCharge writers retain full idle checks.
-        if (previous.get("control_owner") != "multicharge"
-                and previous.get("physical_commissioned") is not True):
-            continue
-        if previous.get("power_entity"):
-            observed = number(
-                runtime.hass, previous["power_entity"], "power",
-                datetime.now(timezone.utc),
-            )
-            if (observed.quality != "ok" or
-                    observed.value > stop_power_limit(previous)):
-                raise ValueError("YAML_UPDATE_REQUIRES_VERIFIED_IDLE")
-        elif previous.get("control_owner") == "multicharge":
-            raise ValueError("YAML_UPDATE_REQUIRES_VERIFIED_IDLE")
-        switch = runtime.executor._switch(
-            runtime.hass, previous.get("control_entity"),
-        )
-        if switch is not None and switch.state != "off":
-            raise ValueError("YAML_UPDATE_REQUIRES_VERIFIED_IDLE")
+        executor = runtime.executor
+        if uid in executor._sessions or uid in executor._start_pending:
+            raise ValueError(f"charger_busy: {old['name']} ({uid}) has an open session")
+        power = number(runtime.hass, old.get("power_entity"), "power",
+                       datetime.now(timezone.utc))
+        switch = executor._switch(runtime.hass, old.get("control_entity"))
+        owned = (old.get("control_owner") == "multicharge"
+                 and old.get("physical_commissioned") is True)
+        # An assignment affects actual energy attribution, not hardware
+        # certification. Keep the existing verified-idle rebind contract.
+        if (power.quality != "ok" or power.value > stop_power_limit(old)
+                or (switch is not None and switch.state != "off")
+                or (owned and switch is None)):
+            raise ValueError(f"charger_busy: {old['name']} ({uid}) assignment needs idle evidence")
 
 
 class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -881,23 +876,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 proposed = validate_configuration(_parse_editor_yaml(user_input["yaml_text"]))
                 if proposed["controller"]["id"] != cfg["controller"]["id"]:
                     raise ValueError("CONTROLLER_ID_IMMUTABLE")
-                old = {row["id"]: row for row in cfg["chargers"]}
-                new = {row["id"]: row for row in proposed["chargers"]}
-                for uid, existing in old.items():
-                    if uid not in new and (
-                        existing.get("control_owner") == "multicharge"
-                        or existing.get("physical_commissioned") is True
-                    ):
-                        raise ValueError("COMMISSIONING_ONLY_IN_NATIVE_FLOW")
-                for row in proposed["chargers"]:
-                    existing = old.get(row["id"], {})
-                    if (
-                        row.get("control_owner", "external")
-                        != existing.get("control_owner", "external")
-                        or row.get("physical_commissioned", False)
-                        != existing.get("physical_commissioned", False)
-                    ):
-                        raise ValueError("COMMISSIONING_ONLY_IN_NATIVE_FLOW")
+                assert_expert_authority_change(cfg, proposed)
                 result = await self._safe_structural_save(proposed)
                 if result is not None:
                     return result

@@ -1215,6 +1215,26 @@ class YamlEditorConfigurationTests(unittest.TestCase):
         ]
         return validate_configuration(cfg)
 
+    def test_explicit_expert_relinquishment_preserves_charger_identity(self):
+        from custom_components.robotix_multicharge.configuration import (
+            assert_expert_authority_change,
+        )
+        cfg = self.configured_site()
+        old = cfg["chargers"][0]
+        old.update(control_owner="multicharge", physical_commissioned=True,
+                   connected_entity="binary_sensor.white_connected",
+                   power_entity="sensor.white_power")
+        cfg = validate_configuration(cfg)
+        proposed = deepcopy(cfg)
+        proposed["chargers"][0].update(control_owner="external",
+                                       physical_commissioned=False)
+        saved = prepare_expert_yaml_revision(cfg, proposed, "replace")
+        self.assertEqual(saved["chargers"][0]["id"], "white")
+        self.assertEqual(saved["chargers"][0]["control_owner"], "external")
+        self.assertFalse(saved["chargers"][0]["physical_commissioned"])
+        with self.assertRaisesRegex(ValueError, "white"):
+            assert_expert_authority_change(saved, cfg)
+
     def test_independent_errors_identify_objects(self):
         cfg = self.configured_site()
         cfg["assets"][0]["target_soc"] = 120

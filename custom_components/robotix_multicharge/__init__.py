@@ -58,6 +58,7 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
             original = existing.configuration
             existing.configuration = changed
             existing.refresh()
+            await existing.executor.supervise()
             from homeassistant.helpers import device_registry as dr
             registry = dr.async_get(hass)
             for kind, before_rows, after_rows in (

@@ -12,8 +12,7 @@ from datetime import datetime, timezone
 
 from .configuration import (
     apply_settings_change, apply_dashboard_structure, configuration_revision,
-    is_plan_presentation_only_change, is_in_place_runtime_preference_change,
-    validate_configuration,
+    assert_expert_authority_change, validate_configuration,
 )
 from .source_evidence import number
 from .execution import stop_power_limit
@@ -105,67 +104,8 @@ async def apply_native_preference(hass, entry, runtime, scope, target_id, change
                 runtime.configuration, scope, target_id, changes, action,
             )
         )
-        if structural:
-            # A selected-vehicle change requires real idle/power evidence even
-            # though it is an in-place preference without HA platform reload.
-            # Never silently reassign an occupied external Charger.
-            rebind = scope == "charger" and "asset" in changes
-            if rebind or not (
-                is_plan_presentation_only_change(runtime.configuration, updated)
-                or is_in_place_runtime_preference_change(
-                    runtime.configuration, updated)
-            ):
-                from .config_flow import _assert_safe_yaml_ui_commit
-                _assert_safe_yaml_ui_commit(runtime, updated)
-        elif not is_plan_presentation_only_change(runtime.configuration, updated):
-            # A charger assignment changes both its own command boundary and
-            # the former charger's assignment. Other active chargers are safe.
-            atomic_guest_assignment = (
-                scope == "asset" and action == "create"
-                and changes.get("assign_charger_id") is not None
-            )
-            if scope == "charger" and set(changes) <= {"asset"}:
-                affected = {target_id}
-                selected = changes.get("asset")
-                affected.update(
-                    c["id"] for c in runtime.configuration["chargers"]
-                    if c.get("asset") == selected and selected
-                )
-                candidates = [
-                    c for c in runtime.configuration["chargers"]
-                    if c["id"] in affected
-                ]
-            else:
-                candidates = runtime.configuration["chargers"]
-            for charger in candidates:
-                rebind = (
-                    (scope == "charger" and set(changes) <= {"asset"})
-                    or (atomic_guest_assignment
-                        and charger["id"] == changes["assign_charger_id"])
-                )
-                owned = (charger.get("control_owner") == "multicharge"
-                         and charger.get("physical_commissioned") is True)
-                if not rebind and not owned:
-                    continue
-                # A remembered assignment is not an active connection identity.
-                # Never move an in-flight or unclosed physical session.
-                if rebind and (charger["id"] in runtime.executor._sessions
-                               or charger["id"] in runtime.executor._start_pending):
-                    raise ValueError("charger_busy")
-                observed = runtime.executor._switch(
-                    hass, charger.get("control_entity")
-                )
-                power = number(
-                    hass, charger.get("power_entity"), "power",
-                    datetime.now(timezone.utc)
-                )
-                # For an idle-only rebind even an external-owned charger needs
-                # physical power evidence: unobserved is not safely idle.
-                if (power.quality != "ok"
-                        or power.value > stop_power_limit(charger)
-                        or (observed is not None and observed.state != "off")
-                        or (owned and observed is None)):
-                    raise ValueError("charger_busy")
+        from .config_flow import _assert_safe_yaml_ui_commit
+        _assert_safe_yaml_ui_commit(runtime, updated)
         expected = configuration_revision(updated)
         runtime.record_settings_action(
             scope, target_id, action, changes, expected,
@@ -386,22 +326,7 @@ async def websocket_yaml_configuration(
         proposed = validate_configuration(_parse_editor_yaml(msg["yaml_text"]))
         if proposed["controller"]["id"] != runtime.configuration["controller"]["id"]:
             raise ValueError("CONTROLLER_ID_IMMUTABLE")
-        # Commissioning / exclusive physical writer is only available through
-        # the separate native owner-aware commissioning transaction. A text
-        # import cannot silently activate a physical charger.
-        existing = {c["id"]: c for c in runtime.configuration["chargers"]}
-        for uid, former in existing.items():
-            if (uid not in {c["id"] for c in proposed["chargers"]}
-                    and (former.get("control_owner") == "multicharge"
-                         or former.get("physical_commissioned") is True)):
-                raise ValueError("COMMISSIONING_ONLY_IN_NATIVE_FLOW")
-        for charger in proposed["chargers"]:
-            former = existing.get(charger["id"], {})
-            if (charger.get("control_owner", "external")
-                    != former.get("control_owner", "external")
-                    or charger.get("physical_commissioned", False)
-                    != former.get("physical_commissioned", False)):
-                raise ValueError("COMMISSIONING_ONLY_IN_NATIVE_FLOW")
+        assert_expert_authority_change(runtime.configuration, proposed)
 
         # No review token or second UI step: validate once, then commit
         # under the original executor lock and authoritative revision.

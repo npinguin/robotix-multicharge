@@ -938,6 +938,34 @@ def is_in_place_runtime_preference_change(before, after):
     return structure(before) == structure(after)
 
 
+def assert_expert_authority_change(before, after):
+    """Expert Save may relinquish authority, never silently grant new control.
+
+    This checks intent only. The serialized runtime writer separately protects
+    outstanding commands/sessions and any required structural reload.
+    """
+    previous = {row["id"]: row for row in before["chargers"]}
+    revised = {row["id"]: row for row in after["chargers"]}
+    for uid, old in previous.items():
+        if uid not in revised and old.get("control_owner") == "multicharge":
+            raise ValueError(
+                f"charger {old['name']} ({uid}): return to monitoring before removal"
+            )
+    for uid, new in revised.items():
+        old = previous.get(uid, {})
+        was_managed = old.get("control_owner", "external") == "multicharge"
+        was_commissioned = old.get("physical_commissioned", False)
+        wants_managed = new.get("control_owner", "external") == "multicharge"
+        wants_commissioned = new.get("physical_commissioned", False)
+        if (wants_managed and not was_managed
+                or wants_commissioned and not was_commissioned):
+            raise ValueError(
+                f"charger {new['name']} ({uid}): cannot transfer ownership or commissioning "
+                f"to MultiCharge from {old.get('control_owner', 'external')}; "
+                "explicitly authorize control first"
+            )
+
+
 def prepare_expert_yaml_revision(current, document, mode="merge"):
     """Prepare one YAML/JSON editor draft for the existing native Config Entry.
 
@@ -1002,17 +1030,7 @@ def prepare_expert_yaml_revision(current, document, mode="merge"):
 
     if candidate["controller"]["id"] != before["controller"]["id"]:
         raise ValueError("controller ID cannot change in UI; preserve existing HA history")
-    old_by_id = {item["id"]: item for item in before["chargers"]}
-    for charger in candidate["chargers"]:
-        original = old_by_id.get(charger["id"])
-        prior_owner = original.get("control_owner", "external") if original else "external"
-        prior_commissioned = original.get("physical_commissioned", False) if original else False
-        if (charger.get("control_owner", "external") != prior_owner
-                or charger.get("physical_commissioned", False) != prior_commissioned):
-            raise ValueError(
-                "YAML editor cannot transfer charger ownership or commissioning; "
-                "qualify the exclusive physical writer separately"
-            )
+    assert_expert_authority_change(before, candidate)
     return candidate
 
 
