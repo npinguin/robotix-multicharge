@@ -745,6 +745,15 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             updated = validate_configuration(configuration)
         except ValueError:
             return None
+        def same_version():
+            return (
+                not hasattr(self, "_form_baseline_revision")
+                or configuration_revision(self._current())
+                == self._form_baseline_revision
+            )
+
+        if not same_version():
+            return None
         runtime = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
         if runtime is None:
             old = self._current()
@@ -757,6 +766,8 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             return self._saved(updated)
         try:
             async with runtime.executor._lock:
+                if not same_version():
+                    return None
                 _assert_safe_yaml_ui_commit(runtime, updated)
                 return self._saved(updated)
         except ValueError:
