@@ -860,6 +860,34 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(services.calls[0][2]["value"], 15)
         self.assertEqual((await rt.executor.execute("evse", "stop"))["status"], "confirmed")
 
+    async def test_adjustable_native_ceiling_accepts_lower_actual_vehicle_draw(self):
+        rt, states, services = rig(group_kw=3.6)
+        charger = rt.configuration["chargers"][0]
+        charger.update(kind="variable_current", rated_power_kw=3.68,
+                       voltage_v=230, min_current_a=6, max_current_a=16, current_step_a=1,
+                       current_control_entity="number.charge_limit",
+                       current_readback_entity="sensor.actual_current")
+        entity = state(6, "A")
+        entity.attributes.update(min=6, max=16, step=1)
+        states["number.charge_limit"] = entity
+        states["sensor.actual_current"] = state(0, "A")
+        original = services.async_call
+        async def vehicle_draw(domain, service, data, **kwargs):
+            await original(domain, service, data, **kwargs)
+            if service in ("turn_on", "set_value"):
+                states["sensor.actual_current"].state = "7"
+                states["sensor.actual_current"].last_updated = datetime.now(timezone.utc)
+                states["sensor.actual_power"].state = "1610"
+                states["sensor.actual_power"].last_updated = datetime.now(timezone.utc)
+        services.async_call = vehicle_draw
+        started = await rt.executor.execute("evse", "start")
+        self.assertEqual(started["status"], "confirmed")
+        self.assertEqual(started["measured_power_kw"], 1.61)
+        self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 15)
+        await rt.executor.supervise()
+        self.assertEqual(states["switch.evse_control"].state, "on")
+        self.assertEqual((await rt.executor.execute("evse", "stop"))["status"], "confirmed")
+
     async def test_native_adjustable_bounds_and_setpoint_with_power_without_amp_sensor(self):
         rt, states, services = rig(group_kw=3.6)
         cfg = rt.configuration["chargers"][0]

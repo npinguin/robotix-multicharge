@@ -484,32 +484,30 @@ def validate_configuration(value):
                 if charger["kind"] != "variable_current":
                     raise ValueError("charger power preferences require adjustable current")
                 phase_count = charger.get("phase_count")
-                if phase_count is None or not all(key in charger for key in (
-                        "voltage_v", "min_current_a", "max_current_a",
-                        "current_step_a")):
-                    raise ValueError("charger power preferences require declared physical limits")
+                if phase_count is None or not charger.get("voltage_v"):
+                    raise ValueError("charger power preferences require declared phase count and voltage")
                 factor = charger["voltage_v"] * phase_count / 1000
-                physical_min = charger["min_current_a"] * factor
+                # Persist user intent independently of live native number metadata.
+                # If explicit bounds exist, validate the complete declared envelope.
+                physical_min = charger.get("min_current_a", 0) * factor
                 physical_max = min(charger["rated_power_kw"],
-                                   charger["max_current_a"] * factor)
+                                   charger.get("max_current_a", charger["rated_power_kw"]/factor) * factor)
                 chosen_min = charger.get("min_charging_power_kw", physical_min)
                 chosen_max = charger.get("max_charging_power_kw", physical_max)
                 if (chosen_min < physical_min - 1e-6
                         or chosen_max > physical_max + 1e-6
                         or chosen_min > chosen_max + 1e-6):
                     raise ValueError("charger charging power limits exceed hardware envelope")
-                # A legal Amp step must exist within the user envelope: never
-                # accept a setting that leaves the Charger with no possible
-                # physical current for its next verified session.
-                minimum, maximum = charger["min_current_a"], charger["max_current_a"]
-                step = charger["current_step_a"]
-                first = max(0, ceil((chosen_min / factor - minimum) / step - 1e-9))
-                last = min(
-                    floor((maximum - minimum) / step + 1e-9),
-                    floor((chosen_max / factor - minimum) / step + 1e-9),
-                )
-                if first > last:
-                    raise ValueError("charger power envelope has no supported current step")
+                if all(key in charger for key in ("min_current_a", "max_current_a", "current_step_a")):
+                    minimum, maximum = charger["min_current_a"], charger["max_current_a"]
+                    step = charger["current_step_a"]
+                    first = max(0, ceil((chosen_min / factor - minimum) / step - 1e-9))
+                    last = min(
+                        floor((maximum - minimum) / step + 1e-9),
+                        floor((chosen_max / factor - minimum) / step + 1e-9),
+                    )
+                    if first > last:
+                        raise ValueError("charger power envelope has no supported current step")
             if source.get("phase_ids") is not None:
                 phases = source["phase_ids"]
                 if not isinstance(phases, list) or not phases or (

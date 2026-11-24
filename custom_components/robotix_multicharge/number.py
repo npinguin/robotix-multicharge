@@ -220,7 +220,8 @@ class _ChargerPowerNumber(NumberEntity):
             self._attr_available = False
             self._attr_native_value = None
             return
-        required = ("voltage_v", "phase_ids", "min_current_a",
+        charger = self.runtime.executor.effective_charger(charger)
+        required = ("voltage_v", "phase_count", "min_current_a",
                     "max_current_a", "current_step_a")
         if (charger.get("kind") != "variable_current"
                 or any(not charger.get(key) for key in required)):
@@ -233,7 +234,7 @@ class _ChargerPowerNumber(NumberEntity):
             }
             return
         self._attr_extra_state_attributes = {}
-        factor = charger["voltage_v"] * len(charger["phase_ids"]) / 1000
+        factor = charger["voltage_v"] * charger["phase_count"] / 1000
         physical_min = charger["min_current_a"] * factor
         physical_max = min(charger["rated_power_kw"],
                            charger["max_current_a"] * factor)
@@ -294,7 +295,8 @@ class _ChargerPowerNumber(NumberEntity):
                         if c["id"] == self.uid), None)
         if charger is None or charger.get("kind") != "variable_current":
             raise ValueError("CHARGER_NOT_ADJUSTABLE")
-        factor = charger["voltage_v"] * len(charger["phase_ids"]) / 1000
+        charger = self.runtime.executor.effective_charger(charger)
+        factor = charger["voltage_v"] * charger["phase_count"] / 1000
         minimum = charger["min_current_a"]
         step = charger.get("current_step_a")
         if factor <= 0 or not step:

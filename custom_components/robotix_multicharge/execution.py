@@ -1161,24 +1161,23 @@ class NativeSwitchExecutor:
                        datetime.now(timezone.utc))
         target_kw = current * charger["voltage_v"] * charger["phase_count"] / 1000
         tolerance = max(0.25, charger.get("current_step_a", 1) / 2)
-        if not charger.get("current_readback_entity"):
-            # Native setpoint readback is not measured current. Independently
-            # observe actual power within the declared conversion envelope.
-            reading = number(self.runtime.hass, charger.get("current_control_entity"),
-                             "current", datetime.now(timezone.utc))
-            return (reading.quality == "ok" and reading.observed_at is not None
-                    and reading.observed_at >= requested_at
-                    and abs(reading.value-current) <= tolerance
-                    and watts.quality == "ok" and watts.observed_at is not None
-                    and watts.observed_at >= requested_at
-                    and 0 <= watts.value <= target_kw * 1.10 + 0.01)
-        return (reading.quality == "ok" and reading.observed_at is not None
-                and reading.observed_at >= requested_at
+        # A native EVSE current setting is a ceiling, not a promise that
+        # the vehicle will consume exactly that current. Confirm the setpoint
+        # separately from actual draw; tapering or lower vehicle acceptance is valid.
+        setting = number(self.runtime.hass, charger.get("current_control_entity"),
+                         "current", datetime.now(timezone.utc))
+        if not (setting.quality == "ok" and setting.observed_at is not None
+                and setting.observed_at >= requested_at
+                and abs(setting.value-current) <= tolerance
                 and watts.quality == "ok" and watts.observed_at is not None
                 and watts.observed_at >= requested_at
-                and max(START_POWER_KW, target_kw * 0.80 - 0.01)
-                    <= watts.value <= target_kw * 1.10 + 0.01
-                and abs(reading.value - current) <= tolerance)
+                and 0 <= watts.value <= target_kw * 1.10 + 0.01):
+            return False
+        if not charger.get("current_readback_entity"):
+            return True
+        return (reading.quality == "ok" and reading.observed_at is not None
+                and reading.observed_at >= requested_at
+                and 0 <= reading.value <= current + tolerance)
 
     async def _protective_stop(self, charger, context):
         """Best-effort real STOP on an unconfirmed START, never claim it succeeded."""

@@ -2752,8 +2752,8 @@ class RobotixMultiChargeCard extends HTMLElement {
           ]){
             const session=(d.active_sessions||{})[c.id];
             const kw=field==="set_charging_power_kw"?
-              (session?.target_current_a!=null&&c.voltage_v&&c.phase_ids?.length?
-                session.target_current_a*c.voltage_v*c.phase_ids.length/1000:null):
+              (session?.target_current_a!=null&&c.voltage_v&&c.phase_count?
+                session.target_current_a*c.voltage_v*c.phase_count/1000:null):
               c[field];
             mcPair(detail,mcTr(label),kw==null?mcTr("Not set"):Number(kw).toFixed(2)+" kW");
             this.nativeNumberEditor(detail,"charger",c.id,field,label,
