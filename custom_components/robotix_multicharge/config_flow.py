@@ -969,26 +969,50 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         )
 
     async def async_step_controller(self, user_input=None):
+        """Edit actual site identity, strategy and planning limits in native HA."""
         cfg = self._current()
+        current = cfg["controller"]
+        errors = {}
         if user_input is not None:
-            cfg["controller"]["name"] = user_input["name"]
+            trial = deepcopy(cfg)
+            ctl = trial["controller"]
+            for key in ("name", "mode", "max_parallel", "max_power_kw"):
+                if key in user_input:
+                    ctl[key] = user_input[key]
             if user_input.get("phase_limits_a"):
-                cfg["controller"]["phase_limits_a"] = _phase_limits(user_input["phase_limits_a"])
-            # Other source bindings are owned by the dedicated Energy step.
-            # Editing a site name or phase limits must not silently erase them.
-            # Electrical changes must use the existing guarded native writer.
-            result = await self._safe_structural_save(cfg)
-            if result is not None:
-                return result
+                try:
+                    ctl["phase_limits_a"] = _phase_limits(user_input["phase_limits_a"])
+                except ValueError:
+                    errors["base"] = "invalid_config"
+            elif "phase_limits_a" in user_input:
+                ctl.pop("phase_limits_a", None)
+            if not errors:
+                result = await self._safe_structural_save(trial)
+                if result is not None:
+                    return result
+                errors["base"] = "invalid_config"
+        schema = {
+            vol.Required("name", default=current["name"]): str,
+            vol.Required("mode", default=current.get("mode", "Automatic")):
+                vol.In(["Automatic", "Solar", "Economy", "Ready By",
+                        "Force Charge", "Off"]),
+            vol.Required("max_parallel", default=current.get("max_parallel", 1)):
+                selector.NumberSelector(selector.NumberSelectorConfig(
+                    min=1, max=16, step=1, mode=selector.NumberSelectorMode.BOX,
+                )),
+            vol.Optional("phase_limits_a", default=",".join(
+                f"{p}:{x}" for p, x in current.get("phase_limits_a", {}).items(),
+            )): str,
+        }
+        if current.get("max_power_kw") is not None:
+            field = vol.Optional("max_power_kw", default=current["max_power_kw"])
+        else:
+            field = vol.Optional("max_power_kw")
+        schema[field] = selector.NumberSelector(selector.NumberSelectorConfig(
+            min=0.01, max=1000, step=0.1, mode=selector.NumberSelectorMode.BOX,
+        ))
         return self.async_show_form(
-            step_id="controller",
-            data_schema=vol.Schema({
-                vol.Required("name", default=cfg["controller"]["name"]): str,
-                vol.Optional("phase_limits_a",
-                             default=",".join(f"{p}:{x}" for p,x in
-                                    cfg["controller"].get("phase_limits_a", {}).items())): str,
-            }),
-            errors={"base": "invalid_config"} if user_input else {},
+            step_id="controller", data_schema=vol.Schema(schema), errors=errors,
         )
 
     async def async_step_asset(self, user_input=None):
