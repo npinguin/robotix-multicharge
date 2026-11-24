@@ -68,9 +68,9 @@ global.document={
 require("../custom_components/robotix_multicharge/frontend/robotix-multicharge.js");
 assert.ok(uiSource.includes("this.dashboardEditField(parent,scope,record,field)"),
   "Every persisted owner field is edited directly inside MultiCharge");
-assert.ok(!uiSource.includes("  async openYamlEditor(){")&&
-  !uiSource.includes("robotix_multicharge/yaml_configuration"),
-  "Rejected YAML/JSON editor and write endpoint must not return");
+assert.ok(uiSource.includes("robotix_multicharge/yaml_configuration")&&
+  uiSource.includes("Save reviewed configuration"),
+  "UC02 reviewed in-dashboard YAML/JSON editor must use guarded native writer");
 assert.ok(!uiSource.includes("config/config_entries/options/flow"),
   "YAML must not open Home Assistant Options Flow");
 assert.ok(uiSource.includes("this.dashboardChargerCreate(container)"),
@@ -919,6 +919,18 @@ async function main(){
   },callWS:async request=>{
     dashboardCalls.push(request);
     if(request.type==="robotix_multicharge/get_plan")return editorFixture;
+    if(request.type==="robotix_multicharge/yaml_configuration"){
+      if(request.operation==="review"){
+        return {status:"reviewed",expected_revision:request.expected_revision,
+          proposed_revision:"yaml-change-2",
+          summary:"Site settings: name\nChargers: unchanged\nAssets: unchanged"};
+      }
+      assert.equal(request.reviewed_revision,"yaml-change-2");
+      editorFixture.configuration=JSON.parse(request.yaml_text);
+      editorFixture.configuration_revision="yaml-change-2";
+      return {status:"accepted_unconfirmed",
+        expected_revision:"yaml-change-2"};
+    }
     assert.equal(request.type,"robotix_multicharge/update_settings");
     assert.equal(request.structural,true);
     if(request.scope==="controller"&&request.changes.name){
@@ -965,16 +977,56 @@ async function main(){
     String(x.type).includes("dashboard_config")),
     "Typed everyday configuration never uses raw document editors or physical commands");
 
-  // Owner final decision: typed Controller, Charger and Asset fields are
-  // the complete runtime configuration interface. No raw-document editor.
+  // UC02 owner override 2026-11-24: a large, reviewed one-Config-Entry editor.
   editorCard._tab="Settings";editorCard._settingsOpen="";editorCard.render();
-  assert.ok(!find(editorCard.shadowRoot,"button","Edit YAML"));
-  assert.ok(!find(editorCard.shadowRoot,"button","Edit JSON"));
-  assert.ok(!content(editorCard.shadowRoot).includes("YAML configuration"));
-  assert.ok(!dashboardCalls.some(x=>
-    String(x.type).includes("yaml_configuration")||
-    String(x.type).includes("options/flow")),
-    "Dashboard typed controls must not open free-text editor services");
+  const editYaml=find(editorCard.shadowRoot,"button","Edit YAML");
+  assert.ok(editYaml,"Settings exposes the owner-requested YAML editor");
+  editYaml.click();
+  const yamlInput=find(editorCard.shadowRoot,"textarea");
+  assert.ok(yamlInput&&yamlInput.value.includes('"controller"')&&
+    yamlInput.value.includes('"chargers"'),
+    "Multiline editor starts from the authoritative full configuration");
+  assert.ok(yamlInput.attributes.rows==="22");
+  const yamlRoot=editorCard.shadowRoot;
+  const newDocument=JSON.parse(yamlInput.value);
+  newDocument.controller.name="Edited complete YAML";
+  yamlInput.value=JSON.stringify(newDocument,null,2);
+  yamlInput.events.input();
+  const saveYaml=find(yamlRoot,"button","Save reviewed configuration");
+  assert.ok(saveYaml.disabled,"No unreviewed document can Save");
+  // HA source refresh while typing cannot unmount or replace the textarea.
+  editorCard.hass={...editorCard._hass,states:{
+    "sensor.live_price":{state:"0.45"}
+  }};
+  assert.equal(editorCard.shadowRoot,yamlRoot);
+  assert.equal(find(editorCard.shadowRoot,"textarea"),yamlInput);
+  assert.equal(yamlInput.value,JSON.stringify(newDocument,null,2));
+  const reviewYaml=find(yamlRoot,"button","Review changes");
+  reviewYaml.click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(!saveYaml.disabled,"Server Review must enable explicit Save");
+  assert.ok(content(editorCard.shadowRoot).includes("Site settings: name"));
+  saveYaml.click();
+  await new Promise(resolve=>setImmediate(resolve));
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(editorFixture.configuration.controller.name,"Edited complete YAML");
+  assert.ok(dashboardCalls.some(x=>x.type==="robotix_multicharge/yaml_configuration"&&
+    x.operation==="save"&&x.reviewed_revision==="yaml-change-2"),
+    "Reviewed YAML is committed through the same existing HA Config Entry");
+  assert.ok(!find(editorCard.shadowRoot,"textarea"),
+    "Editor closes only after authoritative configuration readback");
+  assert.ok(!dashboardCalls.some(x=>String(x.type).includes("options/flow")),
+    "YAML editing never opens the retired Home Assistant Options Flow");
+
+  const cancelYaml=find(editorCard.shadowRoot,"button","Edit YAML");
+  cancelYaml.click();
+  const abandoned=find(editorCard.shadowRoot,"textarea");
+  abandoned.value="not valid yet";
+  abandoned.events.input();
+  find(editorCard.shadowRoot,"button","Cancel").click();
+  assert.ok(!find(editorCard.shadowRoot,"textarea"),
+    "Explicit Cancel exits without writing an unreviewed draft");
+  assert.equal(editorFixture.configuration.controller.name,"Edited complete YAML");
 
   // UC14-UX-INPUT-PERSISTENCE-01: passive HA/Sensor refresh must never
   // unmount an editor or discard a typed field, even after input blur.
