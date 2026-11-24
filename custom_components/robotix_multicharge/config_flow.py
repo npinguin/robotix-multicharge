@@ -996,9 +996,18 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             trial = deepcopy(cfg)
             ctl = trial["controller"]
-            for key in ("name", "mode", "max_parallel", "max_power_kw"):
+            for key in ("name", "mode", "max_power_kw"):
                 if key in user_input:
                     ctl[key] = user_input[key]
+            if "max_parallel" in user_input:
+                parallel = user_input["max_parallel"]
+                if (type(parallel) not in (int, float)
+                        or parallel != int(parallel)):
+                    errors["base"] = "invalid_config"
+                else:
+                    # HA NumberSelector returns a float even with step=1;
+                    # canonical schema correctly requires a positive int.
+                    ctl["max_parallel"] = int(parallel)
             if user_input.get("phase_limits_a"):
                 try:
                     ctl["phase_limits_a"] = _phase_limits(user_input["phase_limits_a"])
