@@ -344,6 +344,7 @@ async def websocket_dashboard_config(
     vol.Required("operation"): vol.In(("review", "save")),
     vol.Required("expected_revision"): str,
     vol.Required("yaml_text"): str,
+    vol.Optional("reviewed_revision"): str,
 })
 @websocket_api.async_response
 async def websocket_yaml_configuration(
@@ -380,6 +381,11 @@ async def websocket_yaml_configuration(
         # the separate native owner-aware commissioning transaction. A text
         # import cannot silently activate a physical charger.
         existing = {c["id"]: c for c in runtime.configuration["chargers"]}
+        for uid, former in existing.items():
+            if (uid not in {c["id"] for c in proposed["chargers"]}
+                    and (former.get("control_owner") == "multicharge"
+                         or former.get("physical_commissioned") is True)):
+                raise ValueError("COMMISSIONING_ONLY_IN_NATIVE_FLOW")
         for charger in proposed["chargers"]:
             former = existing.get(charger["id"], {})
             if (charger.get("control_owner", "external")
@@ -398,6 +404,9 @@ async def websocket_yaml_configuration(
                 "summary": _yaml_review_summary(runtime.configuration, proposed),
             })
             return
+
+        if msg.get("reviewed_revision") != configuration_revision(proposed):
+            raise ValueError("REVIEW_REQUIRED_OR_TEXT_CHANGED")
 
         # Save performs all validation again under the *same* executor lock
         # as native preferences. Stale reviews or changed physical states fail.
