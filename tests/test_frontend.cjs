@@ -1296,6 +1296,12 @@ async function main(){
     "Actual kW stays separate from proposed or accepted");
   assert.ok(content(many.shadowRoot).includes("vehicle may be unknown"),
     "Charger metering is shown without fabricating historical Vehicle identity");
+  multiPlan.observations.sources.tariff_tomorrow_quality="INTERVAL_COVERAGE_INCOMPLETE";
+  many.render();
+  assert.ok(content(many.shadowRoot).includes("Tomorrow · Future tariff intervals · Interval coverage incomplete"),
+    "Invalid tomorrow is disclosed even while today has valid price slots");
+  assert.ok(content(many.shadowRoot).includes("spot · EUR/kWh"),
+    "Tomorrow coverage warning must preserve today's valid chart");
   const last=multiPlan.configuration.chargers[9];
   assert.ok(content(many.shadowRoot).includes(last.name),
     "Last Charger lane remains available; no four-fixed-charger limit");

@@ -1988,6 +1988,12 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(this.canEditSettings())msg.append(mcButton("Sources & bindings",()=>{this._tab="Settings";this._settingsOpen="Sources & bindings";this.render();}));
       container.append(msg);
     }
+    const tomorrowQuality=d.observations?.sources?.tariff_tomorrow_quality;
+    if(tomorrowQuality&&tomorrowQuality!=="OK"){
+      const msg=mcEl("div","card");
+      msg.append(mcEl("p","muted small",mcTr("Tomorrow")+" · "+mcTr("Future tariff intervals")+" · "+mcReason(tomorrowQuality)));
+      container.append(msg);
+    }
     container.append(mcEl("h3","",mcTr("Charging per vehicle and charger")));
     const values=[["proposed_power_kw",rows,"Proposed"],
       ["accepted_power_kw",rows,"Physically accepted"],
@@ -3009,6 +3015,7 @@ class RobotixMultiChargeCard extends HTMLElement {
           mcPair(detail,"Forecast intervals",price.tariff_slot_count??0);
           mcPair(detail,"Prices available until",price.tariff_coverage_until?mcTime(price.tariff_coverage_until,d.timezone):mcTr("Unknown"));
           mcPair(detail,"Tariff",mcReason(price.tariff_quality));
+          if(price.tariff_tomorrow_quality)mcPair(detail,"Tomorrow",price.tariff_tomorrow_quality==="OK"?mcTr("Ready"):mcReason(price.tariff_tomorrow_quality));
           const solarMode=ctl.solar_source_kind||
             (ctl.solar_entity?"intervals":"none");
           mcPair(detail,mcTr("Solar source type"),mcTr(solarMode));
@@ -3094,6 +3101,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         }else if(title==="Integrations"){
           const tariff=d.observations?.sources||{};
           mcPair(detail,"Tariff",mcReason(tariff.tariff_quality));
+          if(tariff.tariff_tomorrow_quality)mcPair(detail,"Tomorrow",tariff.tariff_tomorrow_quality==="OK"?mcTr("Ready"):mcReason(tariff.tariff_tomorrow_quality));
           mcPair(detail,"Forecast source",tariff.tariff_source||mcTr("Not set"));
           mcPair(detail,"Forecast intervals",tariff.tariff_slot_count??0);
           mcPair(detail,"Forecast price basis",tariff.tariff_basis||mcTr("Unknown"));

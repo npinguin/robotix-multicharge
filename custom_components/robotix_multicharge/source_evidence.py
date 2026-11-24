@@ -317,7 +317,8 @@ def _native_spot_price_intervals(obj, now):
         return (), "INTERVAL_PAYLOAD_INVALID"
 
 
-def _native_all_in_reference_intervals(hass, obj, now, *, split_prices=False):
+def _native_all_in_reference_intervals(hass, obj, now, *, split_prices=False,
+                                       coverage_details=None):
     """Use full native electricity-price days without a Robotix bridge.
 
     A provider that explicitly publishes timestamped all_in EUR/kWh values
@@ -334,10 +335,7 @@ def _native_all_in_reference_intervals(hass, obj, now, *, split_prices=False):
     raw_today = attrs.get("prices_today" if split_prices else "today")
     raw_tomorrow = attrs.get("prices_tomorrow" if split_prices else "tomorrow")
     stamp_key, price_key = ("time", "price") if split_prices else ("start", "all_in")
-    if (not isinstance(raw_today, list) or
-            raw_tomorrow is not None and not isinstance(raw_tomorrow, list)):
-        return (), "INTERVAL_PAYLOAD_INVALID"
-    if not raw_today:
+    if not isinstance(raw_today, list) or not raw_today:
         return (), "INTERVAL_PAYLOAD_INVALID"
     zone_name = attrs.get("time_zone") or getattr(
         getattr(hass, "config", None), "time_zone", None
@@ -349,56 +347,67 @@ def _native_all_in_reference_intervals(hass, obj, now, *, split_prices=False):
     except (ZoneInfoNotFoundError, ValueError):
         return (), "INTERVAL_TIMEZONE_UNVERIFIED"
     local_today = now.astimezone(zone).date()
-    raw_days = [raw_today] + ([raw_tomorrow] if raw_tomorrow else [])
-    all_slots = []
-    previous_end = None
-    try:
-        price_now = float(obj.state)
-        if not isfinite(price_now):
+    def normalize_day(day, local_date):
+        # Commit a day only after every interval and the civil-day boundaries
+        # have passed validation. Never carry partly validated tomorrow slots.
+        if not isinstance(day, list):
             return (), "INTERVAL_PAYLOAD_INVALID"
-        for index_day, day in enumerate(raw_days):
-            count = len(day)
-            if count not in (23, 24, 25, 92, 96, 100):
-                return (), "INTERVAL_COVERAGE_INCOMPLETE"
-            step = timedelta(minutes=15) if count >= 90 else timedelta(hours=1)
-            local_date = local_today + timedelta(days=index_day)
-            next_date = local_date + timedelta(days=1)
-            expected_start = datetime(
-                local_date.year, local_date.month, local_date.day,
-                tzinfo=zone,
-            ).astimezone(timezone.utc)
-            expected_end = datetime(
-                next_date.year, next_date.month, next_date.day,
-                tzinfo=zone,
-            ).astimezone(timezone.utc)
-            if expected_end - expected_start != count * step:
-                return (), "INTERVAL_COVERAGE_INCOMPLETE"
+        count = len(day)
+        if count not in (23, 24, 25, 92, 96, 100):
+            return (), "INTERVAL_COVERAGE_INCOMPLETE"
+        step = timedelta(minutes=15) if count >= 90 else timedelta(hours=1)
+        next_date = local_date + timedelta(days=1)
+        expected_start = datetime(
+            local_date.year, local_date.month, local_date.day, tzinfo=zone,
+        ).astimezone(timezone.utc)
+        expected_end = datetime(
+            next_date.year, next_date.month, next_date.day, tzinfo=zone,
+        ).astimezone(timezone.utc)
+        if expected_end - expected_start != count * step:
+            return (), "INTERVAL_COVERAGE_INCOMPLETE"
+        try:
             first = _date(day[0][stamp_key])
-            if first != expected_start or (
-                    previous_end is not None and first != previous_end):
+            if first != expected_start:
                 return (), "INTERVAL_TIME_INVALID"
+            slots = []
             for index, row in enumerate(day):
-                stamp = _date(row[stamp_key])
                 expected = first + index * step
-                if stamp != expected:
+                if _date(row[stamp_key]) != expected:
                     return (), "INTERVAL_COVERAGE_INCOMPLETE"
                 price = float(row[price_key])
                 if not isfinite(price):
                     return (), "INTERVAL_PAYLOAD_INVALID"
-                all_slots.append(PriceSlot(
+                slots.append(PriceSlot(
                     expected, expected + step, price, "EUR",
                     basis="variable_reference",
                 ))
-            previous_end = first + count * step
-            if previous_end != expected_end:
+            if slots[-1].end != expected_end:
                 return (), "INTERVAL_COVERAGE_INCOMPLETE"
-        if all_slots[-1].end <= now:
-            return (), "INTERVAL_SOURCE_EXPIRED"
-        if all_slots[0].start > now:
-            return (), "INTERVAL_COVERAGE_INCOMPLETE"
-        return tuple(all_slots), "OK"
-    except (KeyError, IndexError, TypeError, ValueError, OverflowError):
+            return tuple(slots), "OK"
+        except (KeyError, IndexError, TypeError, ValueError, OverflowError):
+            return (), "INTERVAL_PAYLOAD_INVALID"
+
+    try:
+        if not isfinite(float(obj.state)):
+            return (), "INTERVAL_PAYLOAD_INVALID"
+    except (TypeError, ValueError, OverflowError):
         return (), "INTERVAL_PAYLOAD_INVALID"
+    today, quality = normalize_day(raw_today, local_today)
+    if quality != "OK":
+        return (), quality
+    if today[-1].end <= now:
+        return (), "INTERVAL_SOURCE_EXPIRED"
+    if today[0].start > now:
+        return (), "INTERVAL_COVERAGE_INCOMPLETE"
+    if raw_tomorrow is None or raw_tomorrow == []:
+        tomorrow, tomorrow_quality = (), "SOURCE_UNAVAILABLE"
+    else:
+        tomorrow, tomorrow_quality = normalize_day(
+            raw_tomorrow, local_today + timedelta(days=1),
+        )
+    if coverage_details is not None:
+        coverage_details["tomorrow_quality"] = tomorrow_quality
+    return today + tomorrow, "OK"
 
 
 def native_price_rows(raw, now, currency, scale, *, start="start", end="end",
@@ -531,7 +540,8 @@ def _native_explicit_prices(obj, now):
     return (), "INTERVAL_SEMANTICS_UNVERIFIED"
 
 
-def intervals(hass, entity_id: str | None, kind: str, now: datetime):
+def intervals(hass, entity_id: str | None, kind: str, now: datetime, *,
+              coverage_details=None):
     """Accept only a versioned, source-qualified series of real interval data.
 
     Expected attributes:
@@ -553,9 +563,13 @@ def intervals(hass, entity_id: str | None, kind: str, now: datetime):
         if (kind == "price" and "today" in obj.attributes
                 and obj.attributes.get("unit_of_measurement")
                     in ("EUR/kWh", "€/kWh")):
-            return _native_all_in_reference_intervals(hass, obj, now)
+            return _native_all_in_reference_intervals(
+                hass, obj, now, coverage_details=coverage_details,
+            )
         if kind == "price" and "prices_today" in obj.attributes:
-            return _native_all_in_reference_intervals(hass, obj, now, split_prices=True)
+            return _native_all_in_reference_intervals(
+                hass, obj, now, split_prices=True, coverage_details=coverage_details,
+            )
         if kind == "price" and "prices" in obj.attributes:
             return _native_timestamp_prices(hass, obj, now)
         if kind == "price" and ("data" in obj.attributes or "intervals" in obj.attributes):

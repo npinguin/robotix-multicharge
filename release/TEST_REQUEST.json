@@ -1,8 +1,8 @@
 {
   "status": "AUTHORIZED_FOR_TEST",
   "distribution": "open_source_community",
-  "expected_tag": "v0.1.17",
+  "expected_tag": "v0.1.18",
   "precompile": false,
-  "qualification_scope": "Owner-requested complete field stabilization MC-06–15: existing price shapes, nonbinding forecast, Ready By atomic Save and native parity, mobile chart/layout, diagnostics and performance. Preserve all previous journeys, IDs, configuration, and history. Exact candidate qualification required.",
-  "limitations": "TEST only; actual installed provider payload, mobile responsiveness, latency and physical readback separately reported. Immutable v0.1.16 rollback."
+  "qualification_scope": "Owner-requested continuation of MultiCharge audit: correct live import versus forecast ownership and preserve independently qualified daily reference prices with explicit tomorrow coverage; documentation continuity, no loss of existing functionality. Exact candidate qualification required.",
+  "limitations": "TEST only. Physical charging, live provider payload, Safari and full field acceptance remain separate. Immutable v0.1.17 rollback."
 }

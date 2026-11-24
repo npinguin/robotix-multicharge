@@ -8,17 +8,15 @@
 
 Robotix MultiCharge is an open-source Home Assistant integration being built to coordinate charging for electric cars, e-bikes and other compatible rechargeable assets. The goal: make smart use of electricity prices, solar energy, available power and charging deadlines—without locking you to a vehicle, charger or energy provider.
 
-> **HACS TEST candidate v0.1.15 — independent Community integration, not STABLE or field-qualified.**
+> **HACS TEST candidate v0.1.18 — independent Community integration, not STABLE or field-qualified.**
 >
-> Upgrade correction: version-addressed frontend, explicit retired Review protocol mismatch, detailed object-level validation errors, repeated existing-entry Save and native icon-based visual cues. Install only after immutable HACS publication. Actual Wessels Save and Safari acceptance remain separate.
->
-> **Previous v0.1.13 baseline:** This increment adds device-owned native Home Assistant inputs/actions automatically on the logical ChargeController, Charger and ChargeableAsset, with everyday charging controls in the integrated dashboard and **optional native Home Assistant Configure** (Charging site, Chargers, Chargeable assets, Energy & prices, Expert YAML/JSON). No mandatory wizard is needed at installation. **Inactive variable-current Chargers can be mapped without invented min/max Amps**; applicable electrical limits are required for the selected control capability. The native Expert editor retains invalid text and displays the precise rejection reason. Newly added car profiles default to an editable 80% target; recurring Ready By schedules and variable-current Charger min/max/set kW are supported where the hardware qualifies. Guided setup can select Automatic mode, but **Charger activation is explicitly selected by the user**. Actual charger operation, source quality, responsive UX and every field use-case still require acceptance. No other Robotix/RHI integration is required.
+> Corrected independent current-import and forecast price ownership, and validated each native daily price list separately so an unavailable tomorrow does not hide a complete today. Preserves the v0.1.17 charging, Ready By, indicative planning and configuration behavior. Install only after immutable HACS publication. See [releases](https://github.com/npinguin/robotix-multicharge/releases) and [Issue #1](https://github.com/npinguin/robotix-multicharge/issues/1) for actual evidence.
 
 ## Functional product authority
 
 **Start with the [Functional Specification and Use-Case Contract](docs/FUNCTIONAL_SPECIFICATION.md).** It is the **single canonical functional document** for MultiCharge: UC01–UC29, FLEX-01–20, FORECAST-01–12, UI-OWNER-01–10, desired resident/admin behavior, positive/negative test journeys, source-neutral installation, electrical safety, native owners and evidence requirements. The [RHI Platform Vision](https://github.com/npinguin/robotix-home-intelligence/blob/main/docs/ENGINEERING_PLATFORM_VISION.md) remains authoritative for platform boundaries. [Architecture](docs/ARCHITECTURE.md) and [Interfaces](docs/INTERFACES.md) describe implementation, not duplicate use-case authority.
 
-**Issues/PRs are execution evidence, not functional specifications.** [Issue #1](https://github.com/npinguin/robotix-multicharge/issues/1) tracks actual remaining gaps and blockers; [PR #20](https://github.com/npinguin/robotix-multicharge/pull/20) tracks the v0.1.15 progressive charging batch and source/browser test evidence. No UC text or UX acceptance may exist only in a PR body. Installed browser qualification, actual command/readback and a published HACS artifact have distinct statuses; a source-green branch is not Feature Complete.
+**Issues/PRs are execution evidence, not functional specifications.** [Issue #1](https://github.com/npinguin/robotix-multicharge/issues/1) tracks actual remaining gaps and blockers; [PR #23](https://github.com/npinguin/robotix-multicharge/pull/23) tracks the v0.1.18 tariff and coverage correction; [PR #22](https://github.com/npinguin/robotix-multicharge/pull/22) contains v0.1.17 evidence. No UC text or UX acceptance may exist only in a PR body. Installed browser qualification, actual command/readback and a published HACS artifact have distinct statuses; a source-green branch is not Feature Complete.
 
 ## What we're building
 
@@ -37,7 +35,7 @@ One existing **Details** disclosure on each object also shows **every persisted 
 
 **Input stability:** Every native and in-dashboard Controller, Charger, Asset, Guest, schedule, YAML textarea and activation field stays open while the user focuses or enters data. Background Home Assistant sensor updates, the source-refresh coalescer and delayed get_plan responses continue updating observations without replacing the active form, erasing unsubmitted input or dismissing an iPad keyboard. There is **no inactivity-based editor timeout**. Only explicit Save, Cancel, navigation or Refresh may repaint the user's open form; rejected Save preserves the typed value and shows an in-place error. This is covered by automated source/browser regressions; actual Wessels Safari acceptance is separate.
 
-**Release distinction:** source, isolated-HA and Chromium tests do not establish actual Safari/iPad behavior, real provider readings or physical STOP. Immutable v0.1.14 remains the rollback TEST for the v0.1.15 progressive charging and configuration batch; publishing TEST requires exact-dev, merged-main and artifact qualification.
+**Release distinction:** source, isolated-HA and Chromium tests do not establish actual Safari/iPad behavior, real provider readings or physical STOP. Immutable v0.1.17 remains the rollback TEST for the v0.1.18 corrective batch; publishing TEST requires exact-dev, merged-main and artifact qualification.
 
 ### Beginner-first UX and combined charging graph (dev)
 
@@ -125,7 +123,7 @@ no other charging integration is required, inspected or managed.
 Robotix MultiCharge is a **single MIT-licensed community integration**. It installs
 from source; no precompiled runtime, paid Robotix services or separate mirror.
 
-For a published HACS TEST candidate (v0.1.8 is the immutable rollback baseline), after its GitHub prerelease is available, open HACS in Home Assistant and add
+For a published HACS TEST candidate (v0.1.17 is the rollback for v0.1.18), after its GitHub prerelease is available, open HACS in Home Assistant and add
 `https://github.com/npinguin/robotix-multicharge` as a **custom Integration
 repository**, enable prerelease/beta versions where applicable, and install
 the published TEST prerelease. Restart Home Assistant and use the MultiCharge dashboard to configure all objects; do not create a second integration entry.

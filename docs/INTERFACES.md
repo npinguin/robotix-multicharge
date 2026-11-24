@@ -26,7 +26,7 @@ The planned 15-minute Today/Tomorrow chart needs one bounded, read-only query on
 
 Use native lightweight HA summary entities and Recorder for measured history. Do not replicate the planner or persist whole future timelines as large frequently rewritten sensor attributes.
 
-**Status:** `dev` has qualified source observations, an authenticated, bounded read-only plan/history query, source-tested 15-minute proposed/accepted/Recorder history, guarded physical switch/current commands and all six strategy execution paths, native HA Store restart intent holds, completed measured session receipts with narrowly qualified tariff costs, temporary guest expiry, native stop/sensors and an admin-validated Config Entry settings editor. This does **not** establish actual physical command outcomes, actual HA/browser/hardware acceptance, end-to-end session recovery/permissions, UC01–UC29 completion or any release gate.
+**Implemented contracts:** MultiCharge has source-tested observations, an authenticated, bounded read-only plan/history query, source-tested 15-minute proposed/accepted/Recorder history, guarded physical switch/current commands and all six strategy execution paths, native HA Store restart intent holds, completed measured session receipts with narrowly qualified tariff costs, temporary guest expiry, native stop/sensors and an admin-validated Config Entry settings editor. This does **not** establish actual physical command outcomes, full installed-browser/hardware acceptance, end-to-end session recovery/permissions or UC01–UC29 completion. Current release evidence belongs to Issue #1 and the immutable releases.
 
 ## Contract-first implementer specification — candidate, not yet public API
 
@@ -89,7 +89,7 @@ The [canonical functional specification](FUNCTIONAL_SPECIFICATION.md) owns the u
 
 **Failure/permission:** invalid/non-effective budget tariff, source gap/stale meter, missing native connected/readback, unavailable applicable limit or inactive Charger, expiry, unavailable price, unrelated EVSE STOP blocked behind another START, single-EVSE competing commands and corrupted persisted evidence all retain explicit outcomes. The physically qualified STOP fast-path for a different already-active Charger still uses the one executor, no physical success until verified independent readback.
 
-Developer and isolated-HA source tests do not establish real browser/provider/field acceptance. See [Issue #1](https://github.com/npinguin/robotix-multicharge/issues/1) and [Draft PR #9](https://github.com/npinguin/robotix-multicharge/pull/9) for exact head and remaining gates.
+Developer and isolated-HA source tests do not establish real browser/provider/field acceptance. See [Issue #1](https://github.com/npinguin/robotix-multicharge/issues/1) and [pull requests](https://github.com/npinguin/robotix-multicharge/pulls?q=is%3Apr) for exact head and remaining gates.
 
 #### Original upstream price/SoC strategy owner contract
 
