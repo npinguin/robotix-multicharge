@@ -1770,6 +1770,21 @@ async def test_expert_json_include_skips_wizard_and_reuses_entry(hass: HomeAssis
     assert entry.data["source"] == "json"
     expected = normalize_expert_json(expert)
     expected["assets"][0]["target_soc"] = 80.0
+    saved_asset = entry.data["configuration"]["assets"][0]
+    assert saved_asset["ready_by_repeat"] == "daily"
+    anchor = datetime.fromisoformat(saved_asset["ready_by"])
+    assert anchor.astimezone(ZoneInfo(hass.config.time_zone)).strftime("%H:%M") == "06:00"
+    expected["assets"][0].update(
+        ready_by=saved_asset["ready_by"], ready_by_repeat="daily",
+    )
+    assert entry.data["configuration"] == expected
+    unchanged = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_IMPORT, "expert_format": "json"},
+        data=normalize_expert_json(expert),
+    )
+    await hass.async_block_till_done()
+    assert unchanged["reason"] == "already_configured"
     assert entry.data["configuration"] == expected
     assert frontend.async_panel_exists(hass, "robotix-multicharge"), (
         "Direct JSON expert import must also create resident sidebar dashboard"
