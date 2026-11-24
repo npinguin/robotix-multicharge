@@ -616,6 +616,49 @@ async def test_variable_charger_native_power_controls_share_owning_device(hass: 
 
 
 @pytest.mark.asyncio
+async def test_v1_migration_keeps_identity_and_repairs_missing_inactive_soc_target(hass: HomeAssistant):
+    """Upgrade existing UI profiles without granting an active new charging intent."""
+    from homeassistant.helpers import entity_registry as er
+
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    cfg = validate_configuration({
+        "controller": {"id": "home", "name": "Home", "mode": "Off"},
+        "assets": [
+            {"id": "car", "name": "Car", "kind": "car", "soc_entity": "sensor.car_soc"},
+            {"id": "explicit", "name": "Explicit", "kind": "car",
+             "soc_entity": "sensor.explicit_soc", "target_soc": 65},
+            {"id": "guest", "name": "Guest", "kind": "car"},
+        ],
+        "chargers": [{"id": "socket", "name": "Socket", "kind": "on_off",
+                      "rated_power_kw": 2.0, "asset": "car",
+                      "control_owner": "external", "control_entity": "switch.socket"}],
+    })
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="MultiCharge", version=1, minor_version=1,
+        data={"source": "ui", "configuration": cfg}, unique_id=DOMAIN,
+    )
+    entry.add_to_hass(hass)
+    original_id = entry.entry_id
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+    assert entry.state.value == "loaded"
+    assert entry.entry_id == original_id and entry.minor_version == 2
+    actual = entry.data["configuration"]
+    assets = {row["id"]: row for row in actual["assets"]}
+    assert assets["car"]["target_soc"] == 80
+    assert assets["explicit"]["target_soc"] == 65
+    assert "target_soc" not in assets["guest"]
+    assert actual["chargers"] == cfg["chargers"]
+    registry = er.async_get(hass)
+    assert any(row.unique_id.endswith(":car:target_soc")
+               for row in er.async_entries_for_config_entry(registry, entry.entry_id))
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
 async def test_every_logical_device_auto_creates_own_native_inputs(hass: HomeAssistant):
     """No user-created input_number/input_select/helpers; one owned Config Entry.
 
