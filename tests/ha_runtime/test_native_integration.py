@@ -401,6 +401,42 @@ async def test_native_recorder_history_pricing_reuses_one_ha_query_without_billi
 
 
 @pytest.mark.asyncio
+async def test_native_recorder_remap_keeps_original_measured_quarters(hass: HomeAssistant, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+    from homeassistant.components import recorder
+    from custom_components.robotix_multicharge.history import (
+        read_actual_history, reconcile_power_bindings,
+    )
+
+    end = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    end = end.replace(minute=(end.minute // 15)*15)
+    start = end - timedelta(hours=1)
+    change = start + timedelta(minutes=37)
+    old = {"chargers": [{"id": "drive", "power_entity": "sensor.old"}]}
+    new = {"chargers": [{"id": "drive", "power_entity": "sensor.new"}]}
+    bindings = reconcile_power_bindings(reconcile_power_bindings(None, old, start), new, change)
+    calls = []
+
+    def samples(watts):
+        return [SimpleNamespace(state=str(watts), last_updated=start+timedelta(minutes=i),
+                                attributes={"unit_of_measurement": "W"})
+                for i in range(0, 60, 15)]
+
+    class NativeRecorder:
+        async def async_add_executor_job(self, fn, *args):
+            calls.append(args)
+            return {"sensor.old": samples(1000), "sensor.new": samples(3000)}
+
+    monkeypatch.setattr(recorder, "get_instance", lambda _hass: NativeRecorder())
+    hass.config.components.add("recorder")
+    rows, quality = await read_actual_history(hass, new, start, end, power_bindings=bindings)
+    assert [row["actual_power_kw"] for row in rows] == [1.0, 1.0, None, 3.0]
+    assert quality == "INCOMPLETE_POWER_HISTORY"
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
 async def test_direct_native_ha_electricity_price_reference_without_robotix_bridge(
     hass: HomeAssistant,
 ):

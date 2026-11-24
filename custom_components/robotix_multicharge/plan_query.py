@@ -65,10 +65,11 @@ async def websocket_get_plan(
         )
         if msg.get("include_history", True):
             actual, quality, estimates = await read_actual_history(
-                hass, runtime.configuration, start, end,
+                hass, result["configuration"], start, end,
                 charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
                 session_receipts=runtime.executor.completed_sessions(),
                 price_slots=runtime.price_slots, include_valuations=True,
+                power_bindings=runtime.power_bindings,
             )
         else:
             actual, quality, estimates = [], "NOT_REQUESTED", {}

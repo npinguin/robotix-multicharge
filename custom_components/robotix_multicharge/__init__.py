@@ -161,6 +161,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.exception("Cannot read stored MultiCharge control state; START disabled")
         saved = {"schema_major": -1}
     runtime.attach_control_store(store, saved)
+    # Only persist new/changed mapping metadata, never raw Recorder values.
+    # Do not replace an invalid physical intent snapshot with an empty one.
+    previous_bindings = saved.get("power_bindings") if isinstance(saved, dict) else None
+    if runtime.executor._persistence_verified and previous_bindings != runtime.power_bindings:
+        if not await runtime.persist_control_state():
+            runtime.executor._persistence_verified = False
     runtime.refresh()
 
     pending = None

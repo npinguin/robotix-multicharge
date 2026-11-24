@@ -20,6 +20,7 @@ from .source_evidence import (
     live_power, live_price, soc_with_health,
 )
 from .execution import NativeSwitchExecutor
+from .history import reconcile_power_bindings
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -60,6 +61,7 @@ class MultiChargeRuntime:
         self.nordpool_prices = None
         self.executor = NativeSwitchExecutor(self)
         self._control_store = None
+        self.power_bindings = reconcile_power_bindings(None, configuration, datetime.now(timezone.utc))
         self._save_lock = asyncio.Lock()
         self._settings_action = None
         self._listeners = set()
@@ -120,6 +122,14 @@ class MultiChargeRuntime:
     def attach_control_store(self, store, snapshot):
         self._control_store = store
         self.executor.restore_state(snapshot)
+        previous = snapshot.get("power_bindings") if isinstance(snapshot, dict) else None
+        try:
+            self.power_bindings = reconcile_power_bindings(
+                previous, self.configuration, datetime.now(timezone.utc))
+        except (ValueError, TypeError, KeyError, OverflowError):
+            _LOGGER.warning("Invalid stored power binding history; earlier intervals are unknown")
+            self.power_bindings = reconcile_power_bindings(
+                {}, self.configuration, datetime.now(timezone.utc))
         recorded = snapshot.get("settings_action") if isinstance(snapshot, dict) else None
         if (isinstance(recorded, dict)
                 and isinstance(recorded.get("expected_revision"), str)
@@ -162,6 +172,7 @@ class MultiChargeRuntime:
                 await self._control_store.async_save({
                     **self.executor.export_state(),
                     "settings_action": self._settings_action,
+                    "power_bindings": self.power_bindings,
                 })
             return True
         except (OSError, ValueError, RuntimeError):
@@ -921,7 +932,7 @@ class MultiChargeRuntime:
             raise ValueError("plan query must be a positive interval <=49h (two real civil days)")
         if charger_id is not None and not any(
             c["id"] == charger_id for c in self.configuration["chargers"]
-        ):
+        ) and charger_id not in self.power_bindings:
             raise ValueError("unknown charger")
         if asset_id is not None and not any(
             a["id"] == asset_id for a in self.configuration["assets"]

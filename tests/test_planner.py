@@ -119,6 +119,23 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(result.proposed_kwh["c0"], 0)
         self.assertEqual(result.reasons["c0"], "INSUFFICIENT_CAPACITY_OR_TIME")
 
+    def test_equal_priority_constrained_arrival_does_not_lose_only_slot(self):
+        ctl, chargers = build(2, limit=4)
+        due = NOW + timedelta(minutes=30)
+        first = demand(0, deadline=due)
+        second = ChargeDemand(asset_uid="a1", charger_uid="c1",
+                              remaining_grid_kwh=1, ready_by=due, priority=1,
+                              not_before=NOW+timedelta(minutes=15))
+        prices = [
+            PriceSlot(NOW, NOW+timedelta(minutes=15), 0.40, "EUR"),
+            PriceSlot(NOW+timedelta(minutes=15), due, 0.10, "EUR"),
+        ]
+        result = compile_plan(ctl, chargers, [first, second], NOW,
+                              mode="Economy", tariffs={"c0": prices, "c1": prices})
+        self.assertEqual(result.coverage, {"c0": "COMPLETE", "c1": "COMPLETE"})
+        self.assertEqual([(slot.charger_uid, slot.start) for slot in result.plan.slots],
+                         [("c0", NOW), ("c1", NOW+timedelta(minutes=15))])
+
     def test_negative_prices_choose_cheapest_real_quarters(self):
         ctl, chargers = build()
         rates = [

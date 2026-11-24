@@ -227,6 +227,7 @@ def compile_plan(
     charging_windows: Mapping[str, Mapping[str, Mapping[str, str]]] | None = None,
     site_time_zone: str | None = None,
     indicative_only: bool = False,
+    _constrained_first: bool = False,
 ) -> PlanAssessment:
     """Calculate one deterministic, bounded, non-actuating Controller proposal.
 
@@ -289,9 +290,23 @@ def compile_plan(
             if owner.circuit_id:
                 circuits = used_circuit_a.setdefault(start, {})
                 circuits[owner.circuit_id] = circuits.get(owner.circuit_id, 0.0) + current
+    def priority_deadline(demand):
+        return (-demand.priority, _utc(demand.ready_by) if demand.ready_by
+                else datetime.max.replace(tzinfo=timezone.utc))
+
+    def flexibility(demand):
+        deadline = _utc(demand.ready_by) if demand.ready_by and mode != "Force Charge" else ends
+        earliest = _utc(demand.not_before) if demand.not_before else begin
+        window = (charging_windows or {}).get(demand.charger_uid)
+        return sum(
+            earliest <= stamp and stamp + QUARTER <= deadline
+            and (not window or charging_window_allows(window, stamp, QUARTER, site_time_zone))
+            for stamp in intervals
+        )
+
     ranked = sorted(demands, key=lambda d: (
-        -d.priority, _utc(d.ready_by) if d.ready_by else datetime.max.replace(
-            tzinfo=timezone.utc), d.charger_uid or "", d.asset_uid,
+        *priority_deadline(d), flexibility(d) if _constrained_first else 0,
+        d.charger_uid or "", d.asset_uid,
     ))
     for demand in ranked:
         uid = demand.charger_uid
@@ -719,7 +734,7 @@ def compile_plan(
         ),
         slots=tuple(allocations),
     )
-    return PlanAssessment(
+    assessment = PlanAssessment(
         plan=plan,
         reasons=reasons,
         shortfall_kwh=shortfall,
@@ -727,3 +742,24 @@ def compile_plan(
         coverage=coverage,
         strategy=strategy,
     )
+    # One bounded retry with the SAME planner only when a constrained
+    # equal-priority/deadline request could benefit. Keep a previously
+    # covered goal covered; never replace it with another shortfall.
+    if not _constrained_first and any(value == "INCOMPLETE" for value in coverage.values()):
+        alternate_order = sorted(ranked, key=lambda d: (
+            *priority_deadline(d), flexibility(d), d.charger_uid or "", d.asset_uid,
+        ))
+        if alternate_order != ranked:
+            alternative = compile_plan(
+                controller, chargers, demands, now, mode=mode, tariffs=tariffs,
+                solar=solar, binding=binding, horizon_hours=horizon_hours,
+                reserved_slots=reserved_slots, charging_windows=charging_windows,
+                site_time_zone=site_time_zone, indicative_only=indicative_only,
+                _constrained_first=True,
+            )
+            covered = {uid for uid, value in coverage.items() if value == "COMPLETE"}
+            alternative_covered = {uid for uid, value in alternative.coverage.items()
+                                   if value == "COMPLETE"}
+            if covered < alternative_covered:
+                return alternative
+    return assessment
