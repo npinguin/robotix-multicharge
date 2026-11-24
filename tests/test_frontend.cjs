@@ -272,7 +272,7 @@ async function main(){
   assert.ok(vehicleFolds.every(row=>
     row.children[0]?.tag==="summary"&&row.children[1]?.className==="owner-fields"),
     "Native summary/fields semantics support keyboard and dense layout");
-  assert.ok(find(vehicle.shadowRoot,"button","Save charging goal"),
+  assert.ok(find(vehicle.shadowRoot,"button","Set charging goal"),
     "Novice Goal is not hidden in a technical fold");
   assert.ok(vehicleText.includes("binary_sensor.car_soc_stale"));
   assert.ok(vehicleText.includes("FRI: 18:00"),
@@ -380,8 +380,10 @@ async function main(){
     };
     await new Promise(resolve=>setImmediate(resolve));
     novice._tab="Chargeable Assets";novice.render();
-    assert.ok(find(novice.shadowRoot,"button","Save charging goal"),
-      "A novice must see the primary Goal control on the Asset card");
+    const goalButton=find(novice.shadowRoot,"button","Set charging goal");
+    assert.ok(goalButton,"A novice must see the primary Goal action on the Asset card");
+    assert.equal(find(novice.shadowRoot,"button","Save charging goal"),undefined);
+    goalButton.click();
     assert.ok(find(novice.shadowRoot,"button","Schedule charging"),
       "Charging days and times are one explicitly named action away");
     const choice=cardField(novice.shadowRoot,"I want to charge to");
@@ -509,13 +511,14 @@ async function main(){
     call.args.entity_id==="select.car_opportunity"&&
     call.args.option==="type1"),
     "native per-Asset opportunistic selection uses only existing settings writer");
+  find(scheduleCard.shadowRoot,"button","Schedule charging").click();
   assert.ok(content(scheduleCard.shadowRoot).includes("Specific days"),
     "Single Weekly user option replaced by Specific days");
   assert.ok(!content(scheduleCard.shadowRoot).includes("Every week"),
     "Legacy single-weekday recurring option must not appear");
   let monday;
   visit(scheduleCard.shadowRoot,node=>{
-    if(node.tag==="select"&&String(node.attributes.id||"").startsWith("multicharge-monday-"))monday=node;
+    if(node.tag==="input"&&String(node.attributes.id||"").startsWith("multicharge-monday-"))monday=node;
   });
   assert.ok(monday,"Monday has an owned native weekday picker");
   const fieldIds=[];
@@ -1432,7 +1435,7 @@ async function main(){
   find(card.shadowRoot,"button","Details").click();
   assert.ok(content(card.shadowRoot).includes("Charging limit"),
     "Asset dashboard directly presents user 80% target");
-  assert.ok(content(card.shadowRoot).includes("Charging schedule"),
+  assert.ok(find(card.shadowRoot,"button","Schedule charging"),
     "Daily/weekly recurrence is on the Asset dashboard, not Options Flow");
   assert.ok(find(card.shadowRoot,"button","Set charging deadline"),
     "HA device-owned Ready By datetime is reachable directly from dashboard");

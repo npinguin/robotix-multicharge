@@ -253,7 +253,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     quickEditable:quick.filter(x=>!x.disabled).length,
     firstFoldClosed:folds.length?folds[0].open===false:null,
     keyboardSummary:folds.every(x=>x.firstElementChild?.tagName==="SUMMARY"),
-    goalEditable:buttons.includes("Save charging goal"),
+    goalEditable:buttons.includes("Set charging goal"),
     technicalReadable:root.textContent.includes("Complete object settings & sources"),
     commandButtons:buttons.filter(x=>x==="Start charging"||x==="Stop charging").length,
     errors:root.querySelectorAll("[role=alert]").length

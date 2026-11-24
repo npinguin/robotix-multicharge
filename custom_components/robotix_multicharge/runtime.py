@@ -395,7 +395,13 @@ class MultiChargeRuntime:
                 # A measured SoC target is a live goal, not a permanently
                 # completed finite-energy receipt. A later SoC drop must
                 # appear as new remaining demand, not as a reached target.
-                if not soc_based and self.executor.intent_completed(asset, raw, deadline):
+                if self.executor.intent_completed(asset, raw, deadline):
+                    if soc_based and amount > 0:
+                        # A previously completed occurrence cannot silently
+                        # replay. Preserve measured current SoC as the truth.
+                        self.excluded[uid] = "SOC_TARGET_DROPPED_AFTER_COMPLETION"
+                        self.forecast_excluded[uid] = "SOC_TARGET_DROPPED_AFTER_COMPLETION"
+                        continue
                     if budget is not None:
                         budget = 0.0
                     else:

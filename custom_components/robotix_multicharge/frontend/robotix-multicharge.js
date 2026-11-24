@@ -170,9 +170,6 @@ const MC_DAY_NAMES={
   mon:"Monday",tue:"Tuesday",wed:"Wednesday",thu:"Thursday",
   fri:"Friday",sat:"Saturday",sun:"Sunday"
 };
-const MC_CLOCKS=Array.from({length:96},(_,index)=>
-  String(Math.floor(index/4)).padStart(2,"0")+":"+
-  String((index%4)*15).padStart(2,"0"));
 for(const [locale,terms] of Object.entries({
   nl:{"Once":"Eenmalig","Daily":"Dagelijks","Specific days":"Specifieke dagen",
     "Monday":"Maandag","Tuesday":"Dinsdag","Wednesday":"Woensdag",
@@ -211,7 +208,7 @@ const MC_STYLE = [
   ".tabs button[aria-selected=true]{color:var(--primary-color,#1976d2);border-bottom-color:var(--primary-color,#1976d2);background:transparent;font-weight:650}button.active{background:var(--primary-color,#1976d2);color:var(--text-primary-color,#fff);border-color:var(--primary-color,#1976d2)}",
   "button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid var(--primary-color,#1976d2);outline-offset:2px}",
   ".grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}",
-  ".card{border:1px solid var(--divider-color,#e1e4e8);border-radius:10px;padding:14px;min-width:0;margin:8px 0}.settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr));gap:12px;margin-top:14px}.settings-card{margin:0;min-height:72px}.settings-card.expanded{grid-column:1/-1}.settings-heading{min-width:0;flex:1}.settings-heading p{margin-top:5px}.settings-card .row{align-items:flex-start}.config-code{white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;border:1px solid var(--divider-color,#e1e4e8);border-radius:8px;background:var(--secondary-background-color,#f7f8fa);font-size:12px;line-height:1.5}",
+  ".card{border:1px solid var(--divider-color,#e1e4e8);border-radius:10px;padding:14px;min-width:0;margin:8px 0}.settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px}.settings-card{margin:0;min-height:0}.settings-card.expanded{grid-column:1/-1}.schedule-days{gap:4px}.schedule-days button{min-width:0;padding:7px 9px}.settings-heading{min-width:0;flex:1}.settings-heading p{margin-top:5px}.settings-card .row{align-items:flex-start}.config-code{white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;border:1px solid var(--divider-color,#e1e4e8);border-radius:8px;background:var(--secondary-background-color,#f7f8fa);font-size:12px;line-height:1.5}",
   ".mc-icon{--mdc-icon-size:20px;display:inline-block;vertical-align:middle;margin-right:6px;flex:none;color:var(--primary-color,#1976d2)}.mc-icon.good{color:var(--success-color,#278355)}.mc-icon.warn{color:var(--warning-color,#b57418)}.mc-icon.bad{color:var(--error-color,#d43b38)}.mc-icon.quiet{color:var(--secondary-text-color,#65717e)}.mc-icon.solar{color:var(--warning-color,#b57418)}button .mc-icon{--mdc-icon-size:18px;color:inherit}.tabs .mc-icon{color:inherit}.metric .mc-icon{--mdc-icon-size:24px}.soc-track{height:8px;border-radius:6px;background:var(--divider-color,#ddd);overflow:hidden;margin:7px 0}.soc-fill{height:100%;background:var(--primary-color,#1976d2);border-radius:6px}.message[role=alert]{color:var(--error-color,#d43b38);white-space:pre-wrap;overflow-wrap:anywhere}",
   ".metric{background:var(--secondary-background-color,#f6f8fa);border:1px solid var(--divider-color,#e1e4e8);border-radius:10px;padding:15px;min-width:0}",
   ".row{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}",
@@ -1642,54 +1639,103 @@ class RobotixMultiChargeCard extends HTMLElement {
       const day=new Intl.DateTimeFormat("en-US",{timeZone:zone,weekday:"short"}).format(new Date(asset.ready_by)).toLowerCase();
       savedDays[day]=anchor.hour+":"+anchor.minute;
     }
+    const savedTimes=Object.values(savedDays);
     const draft=this._calendarDrafts[asset.id]||{
       mode:asset.ready_by_repeat==="weekly"?"specific_days":asset.ready_by_repeat==="daily"?"daily":
         asset.ready_by_repeat==="specific_days"?"specific_days":asset.ready_by?"once":"none",
       date:anchor?anchor.year+"-"+anchor.month+"-"+anchor.day:today.year+"-"+today.month+"-"+today.day,
-      clock:anchor?anchor.hour+":"+anchor.minute:"",
-      days:savedDays
+      clock:anchor?anchor.hour+":"+anchor.minute:savedTimes[0]||"",
+      days:savedDays,overrides:new Set(savedTimes).size>1
     };
-    container.append(mcEl("h4","specific-day-calendar",mcTr("Charging days")));
-    const choice=this.field(container,mcTr("Charging schedule"),draft.mode,null,[
-      ["none",mcTr("No deadline")],["once",mcTr("Once")],["daily",mcTr("Daily")],
-      ["specific_days",mcTr("Specific days")]
-    ]);
     const remember=()=>{this._calendarDrafts[asset.id]=draft;this._unsavedInput=true;};
-    choice.addEventListener("change",()=>{draft.mode=choice.value;remember();this.render();});
-    if(draft.mode==="once"){
-      const date=this.field(container,mcTr("Date"),draft.date,"date");
-      date.addEventListener("input",()=>{draft.date=date.value;remember();});
-      date.addEventListener("change",()=>{draft.date=date.value;remember();});
+    container.append(mcEl("h4","specific-day-calendar",mcTr("Charging days")));
+    const choices=mcEl("div","chips");
+    choices.setAttribute("aria-label",mcTr("Charging schedule"));
+    for(const [mode,label] of [["once","Once"],["daily","Daily"],["specific_days","Specific days"],["none","No deadline"]]){
+      const button=mcButton(mcTr(label),()=>{
+        if(mode==="specific_days"&&draft.mode==="daily"&&!Object.keys(draft.days).length){
+          for(const day of Object.keys(MC_DAY_NAMES))draft.days[day]=draft.clock;
+        }
+        draft.mode=mode;remember();this.render();
+      },draft.mode===mode?"active":"");
+      button.setAttribute("aria-pressed",String(draft.mode===mode));choices.append(button);
     }
-    if(draft.mode==="once"||draft.mode==="daily"){
-      const clock=this.field(container,mcTr("Ready By"),draft.clock,"time");
-      clock.addEventListener("input",()=>{draft.clock=clock.value;remember();});
-      clock.addEventListener("change",()=>{draft.clock=clock.value;remember();});
-      if(draft.mode==="daily")container.append(mcEl("p","muted small",mcTr("Every day")+" · Mon Tue Wed Thu Fri Sat Sun"));
-    }
-    if(draft.mode==="specific_days"){
-      for(const [day,label] of Object.entries(MC_DAY_NAMES)){
-        const select=this.field(container,mcTr(label),draft.days[day]||"off",null,[
-          ["off",mcTr("No day selected")],...MC_CLOCKS.map(hour=>[hour,hour])]);
-        select.addEventListener("change",()=>{if(select.value==="off")delete draft.days[day];else draft.days[day]=select.value;remember();});
+    container.append(choices);
+    if(draft.mode!=="none"){
+      if(draft.mode==="specific_days"){
+        const days=mcEl("div","chips schedule-days");
+        for(const [day,label] of Object.entries(MC_DAY_NAMES)){
+          const selected=Object.prototype.hasOwnProperty.call(draft.days,day);
+          const button=mcButton(mcTr(label).slice(0,3),()=>{
+            if(selected)delete draft.days[day];else draft.days[day]=draft.clock;
+            remember();this.render();
+          },selected?"active":"");
+          button.setAttribute("aria-label",mcTr(label));button.setAttribute("aria-pressed",String(selected));days.append(button);
+        }
+        container.append(days);
+      }
+      const line=mcEl("div","goal-controls");
+      if(draft.mode==="once"){
+        const date=this.field(line,mcTr("Date"),draft.date,"date");
+        date.addEventListener("input",()=>{draft.date=date.value;remember();});
+        date.addEventListener("change",()=>{draft.date=date.value;remember();});
+      }
+      const clock=this.field(line,mcTr("Ready By"),draft.clock,"time");
+      const changeClock=()=>{
+        const previous=draft.clock;draft.clock=clock.value;
+        if(draft.mode==="specific_days"){
+          for(const day of Object.keys(draft.days)){
+            if(!draft.overrides||draft.days[day]===previous||!draft.days[day])draft.days[day]=clock.value;
+          }
+        }
+        remember();
+      };
+      clock.addEventListener("input",changeClock);clock.addEventListener("change",()=>{changeClock();this.render();});
+      container.append(line);
+      if(draft.mode==="specific_days"){
+        const toggle=mcButton(mcTr(draft.overrides?"Hide different times":"Different times per day"),()=>{
+          draft.overrides=!draft.overrides;remember();this.render();
+        });
+        toggle.setAttribute("aria-expanded",String(draft.overrides));container.append(toggle);
+        if(draft.overrides){
+          const overrides=mcEl("div","goal-controls");
+          for(const [day,label] of Object.entries(MC_DAY_NAMES)){
+            if(!Object.prototype.hasOwnProperty.call(draft.days,day))continue;
+            const time=this.field(overrides,mcTr(label),draft.days[day],"time");
+            const update=()=>{draft.days[day]=time.value;remember();};
+            time.addEventListener("input",update);time.addEventListener("change",update);
+          }
+          container.append(overrides);
+        }
       }
     }
+    const actions=mcEl("div","controls");
     const save=mcButton(mcTr("Save schedule"),async()=>{
       remember();
       let changes={ready_by_repeat:"none",ready_by:null,ready_by_weekdays:null};
+      const validClock=value=>/^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+      const reject=message=>{this._settingsFeedback={status:"rejected",message};this.showEditError(container);};
       if(draft.mode==="specific_days"){
-        if(!Object.keys(draft.days).length){this._settingsFeedback={status:"rejected",message:"Select at least one day"};this.showEditError(container);return;}
+        if(!Object.keys(draft.days).length)return reject("Select at least one day");
+        if(!Object.values(draft.days).every(validClock))return reject("Set Ready By time for selected days");
         changes.ready_by_repeat="specific_days";changes.ready_by_weekdays={...draft.days};
       }else if(draft.mode==="once"||draft.mode==="daily"){
-        if(!/^\d{2}:\d{2}$/.test(draft.clock)||!draft.date){this._settingsFeedback={status:"rejected",message:"Set Ready By time"};this.showEditError(container);return;}
+        if(!validClock(draft.clock)||!draft.date)return reject("Set Ready By time");
+        const localToday=today.year+"-"+today.month+"-"+today.day;
+        if(draft.mode==="once"&&draft.date+"T"+draft.clock<=localToday+"T"+today.hour+":"+today.minute)
+          return reject("Choose a future date and time");
         delete changes.ready_by;
         changes.ready_by_repeat=draft.mode==="daily"?"daily":"none";
-        changes.ready_by_local=(draft.mode==="daily"?today.year+"-"+today.month+"-"+today.day:draft.date)+"T"+draft.clock+":00";
+        changes.ready_by_local=(draft.mode==="daily"?localToday:draft.date)+"T"+draft.clock+":00";
       }
       const accepted=await this.saveSettings("asset",asset.id,changes);
-      if(accepted&&this._settingsFeedback?.status==="confirmed"){delete this._calendarDrafts[asset.id];this.render();}
+      if(accepted&&this._settingsFeedback?.status==="confirmed"){
+        delete this._calendarDrafts[asset.id];this._scheduleEditor="";this.render();
+      }
     });
-    save.disabled=this._settingsBusy;container.append(save);
+    save.disabled=this._settingsBusy;
+    actions.append(save,mcButton(mcTr("Cancel"),()=>{delete this._calendarDrafts[asset.id];this._scheduleEditor="";this.render();}));
+    container.append(actions);
     this.nativeChargingWindowsEditor(container,asset);
   }
   nativeChargingWindowsEditor(container,asset){
@@ -2404,11 +2450,17 @@ class RobotixMultiChargeCard extends HTMLElement {
         changes.requested_budget_amount=number;
         changes.requested_budget_currency="EUR";
       }
-      delete this._goalDrafts[asset.id];
-      void this.saveSettings("asset",asset.id,changes,"save");
+      void (async()=>{
+        const accepted=await this.saveSettings("asset",asset.id,changes,"save");
+        if(accepted&&this._settingsFeedback?.status==="confirmed"){
+          delete this._goalDrafts[asset.id];this._goalEditor="";this.render();
+        }
+      })();
     });
     action.disabled=this._settingsBusy;
-    form.append(controls,action);
+    form.append(controls,action,mcButton(mcTr("Cancel"),()=>{
+      delete this._goalDrafts[asset.id];this._goalEditor="";this.render();
+    }));
     if(draft.mode==="budget")form.append(mcEl("p","muted small",
       mcTr("Indicative energy budget, not a guaranteed electricity bill")));
     card.append(form);
@@ -2435,14 +2487,9 @@ class RobotixMultiChargeCard extends HTMLElement {
       dot.style.background=mcOwnerColor("asset",a.id,d.configuration,d.plan_palette);
       chip.append(dot,mcEl("span","muted small",mcTr("Plan color")+" · "+mcTr(a.plan_color||"blue")));
       card.append(chip);
-      const kinds={
-        car:"Car",bicycle:"Bicycle",motorcycle:"Motorcycle",scooter:"Scooter",other:"Other"
-      };
-      mcPair(card,"Asset type",mcTr(kinds[a.kind]||a.kind||"Other"));
       mcPair(card,"Battery",mcValue(obs.soc,"%"));
       mcSocBar(card,obs.soc);
       mcPair(card,"Effective charging power",mcValue(obs.effective_power_kw," kW"));
-      mcPair(card,"Target",a.target_soc===undefined?"Not set":a.target_soc+"%");
       mcPair(card,"Ready By",mcTime(obs.next_ready_by!==undefined?obs.next_ready_by:a.ready_by,d.timezone));
       mcPair(card,"Charger",charger?charger.name:"Not assigned");
       mcPair(card,mcTr("Charging goal"),mcAssetGoalText(a));
@@ -2452,21 +2499,19 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(a.maximum_price_per_kwh!==undefined)mcPair(card,
         mcTr("Price ceiling per kWh"),
         a.maximum_price_per_kwh+" "+(a.price_currency||"")+"/kWh");
-      // Novice: one complete visible goal editor on the first/focused
-      // object, the same one-click action for every other asset.
-      const goalVisible=this._goalEditor===a.id||
-        (this._goalEditor===""&&arranged[0]?.id===a.id);
+      // One explicit action opens the goal editor; the default view is a summary.
+      const goalVisible=this._goalEditor===a.id;
       if(goalVisible)this.assetGoalEditor(card,a);
       else if(this.canEditSettings())card.append(mcButton(
         mcTr("Set charging goal"),()=>{
-          this._goalEditor=a.id;this.render();
+          this._goalEditor=a.id;this._scheduleEditor="";this._assignmentEditor="";this.render();
         }));
       if(this.canEditSettings()){
         const calendar=mcButton(
           this._scheduleEditor===a.id?mcTr("Hide charging schedule"):
             mcTr("Schedule charging"),()=>{
             this._scheduleEditor=this._scheduleEditor===a.id?"":a.id;
-            this.render();
+            this._goalEditor="";this._assignmentEditor="";this.render();
           });
         calendar.disabled=this._settingsBusy;
         card.append(calendar);
@@ -2481,7 +2526,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         const change=mcButton(
           mcTr(charger?"Change charger":"Assign charger"),()=>{
             this._assignmentEditor=this._assignmentEditor===a.id?"":a.id;
-            this.render();
+            this._goalEditor="";this._scheduleEditor="";this.render();
           }
         );
         change.disabled=this._settingsBusy;
@@ -2581,7 +2626,7 @@ class RobotixMultiChargeCard extends HTMLElement {
           deadline.append(mcButton(mcTr("Set charging deadline"),()=>
             this.openNative("asset",a.id,"ready_by")));
         detail.append(deadline);
-        if(this._scheduleEditor!==a.id)this.nativeRepeatEditor(detail,a);
+        // Schedule has one resident editor; native owner fields remain in Details.
         // Native upstream price/SoC policy remains Asset-owned and one
         // Config Entry preference; this view never stores price decisions.
         mcPair(detail,mcTr("Price currency"),
@@ -3091,7 +3136,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     this.feedback(container);
     const settingsGrid=mcEl("div","settings-grid");
     for(const title of MC_SETTINGS){
-      const open=title===this._settingsOpen;
+      const primary=["Charging site","Charging strategy","Sources & bindings"].includes(title);
+      const open=primary||title===this._settingsOpen;
       const group=mcEl("section","card settings-card"+(open?" expanded":""));
       const heading=mcEl("div","settings-heading");
       heading.append(mcIconLabel(mcEl("h3","",title),title,mcIconFor(title)));
@@ -3107,7 +3153,8 @@ class RobotixMultiChargeCard extends HTMLElement {
         d.configuration_managed_by_yaml?"Legacy file source · read-only":"One dashboard-owned configuration";
       heading.append(mcEl("p","muted small",summary));
       const row=mcEl("div","row");
-      row.append(heading,mcButton(open?"Close":"Details",()=>{
+      row.append(heading);
+      if(!primary)row.append(mcButton(open?"Close":"Details",()=>{
         this._settingsOpen=open?"":title;this.render();
       }));
       group.append(row);
@@ -3194,18 +3241,18 @@ class RobotixMultiChargeCard extends HTMLElement {
             ["solar_entity","Solar intervals"],
             ["site_power_entity","Site power"],["binding_entity","Capacity"]
           ]){
-            mcPair(detail,label,ctl[field]||mcTr("Not set"));
+            const sourceRow=mcEl("div","row");
+            sourceRow.append(mcEl("span","",mcTr(label)),mcEl("span","muted small",ctl[field]||mcTr("Not set")));
             if(this.canEditSettings()){
-              const sourceEdit=mcEl("div","row");
               const key="controller:"+ctl.id+":"+field;
-              sourceEdit.append(mcEl("span","muted small",mcTr(label)+" "+mcTr("source")),
+              sourceRow.append(
                 mcButton(mcTr("Edit"),()=>{
                   this._editingField=this._editingField===key?"":key;this.render();
                 }));
-              detail.append(sourceEdit);
+              detail.append(sourceRow);
               if(this._editingField===key)
                 this.dashboardEditField(detail,"controller",ctl,field);
-            }
+            }else detail.append(sourceRow);
           }
         }else if(title==="Safety & limits"){
           mcPair(detail,"Maximum group kW",
