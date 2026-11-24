@@ -993,10 +993,12 @@ class NativeSwitchExecutor:
         minimum = charger.get("min_current_a")
         maximum = charger.get("max_current_a")
         step = charger.get("current_step_a")
-        if not all(isinstance(x, (float, int)) and x > 0
-                   for x in (minimum, maximum, step)):
+        if not all(isinstance(x, (float, int)) and isfinite(x) and x > 0
+                   for x in (minimum, maximum, step)) or maximum < minimum:
             return None
         count = floor((maximum - minimum) / step + 1e-9)
+        if count > 1000:
+            return None
         for index in range(count, -1, -1):
             candidate = round(minimum + index * step, 6)
             reason, kw = self._requested_current(charger, candidate, at)
@@ -1075,7 +1077,18 @@ class NativeSwitchExecutor:
                         sensed = number(self.runtime.hass,
                                         other.get("current_readback_entity"), "current", at)
                         if sensed.quality != "ok":
-                            if needs_amps:
+                            if target is not None and not other.get("current_readback_entity"):
+                                setting = number(self.runtime.hass, other.get("current_control_entity"),
+                                                 "current", at)
+                                if setting.quality == "ok" and abs(setting.value-target) <= max(
+                                        0.25, other.get("current_step_a", 1) / 2):
+                                    amps = target
+                                    if other.get("voltage_v") and other.get("phase_count"):
+                                        reserved_kw = max(power.value, target * other["voltage_v"]
+                                                          * other["phase_count"] / 1000)
+                                elif needs_amps:
+                                    return "OTHER_CHARGER_CURRENT_UNAVAILABLE"
+                            elif needs_amps:
                                 return "OTHER_CHARGER_CURRENT_UNAVAILABLE"
                         elif target is not None:
                             amps = max(sensed.value, target)

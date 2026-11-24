@@ -680,6 +680,11 @@ class MultiChargeRuntime:
             "connected_chargers": sum(int(e.value is True) for e in cables) if cable_ok else None,
             "charging_chargers": sum(int(e.value > 0.05) for e in powers) if power_ok else None,
             "actual_power_kw": round(sum(e.value for e in powers), 6) if power_ok else None,
+            "observed_power_subtotal_kw": (round(sum(e.value for e in powers if e is not None
+                                                       and e.quality == "ok"), 6)
+                                           if any(e is not None and e.quality == "ok" for e in powers)
+                                           else None),
+            "observed_power_chargers": sum(e is not None and e.quality == "ok" for e in powers),
             "connection_quality": "ok" if cable_ok else "unknown",
             "power_quality": "ok" if power_ok else "unknown",
             "mode": self.configuration["controller"]["mode"],

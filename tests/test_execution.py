@@ -63,6 +63,12 @@ class NativeServices:
                     round(float(data["value"]) * 230)
                 )
                 self.sources["sensor.actual_power"].last_updated = datetime.now(timezone.utc)
+            elif ("sensor.actual_power" in self.sources and
+                  self.sources["switch.evse_control"].state == "on"):
+                # Fixture models separately reported measured power from a
+                # device with native limit control but no independent amp sensor.
+                self.sources["sensor.actual_power"].state = str(round(float(data["value"]) * 230))
+                self.sources["sensor.actual_power"].last_updated = datetime.now(timezone.utc)
             return
         if self.reconcile_observations:
             entity = data["entity_id"]

@@ -213,9 +213,11 @@ def _assert_safe_yaml_ui_commit(runtime, updated):
                  and old.get("physical_commissioned") is True)
         # An assignment affects actual energy attribution, not hardware
         # certification. Keep the existing verified-idle rebind contract.
-        if (power.quality != "ok" or power.value > stop_power_limit(old)
+        if ((old.get("power_entity") and power.quality != "ok")
+                or (power.quality == "ok" and power.value > stop_power_limit(old))
                 or (switch is not None and switch.state != "off")
-                or (owned and switch is None)):
+                or (owned and switch is None)
+                or (switch is None and power.quality != "ok")):
             raise ValueError(f"charger_busy: {old['name']} ({uid}) assignment needs idle evidence")
 
 

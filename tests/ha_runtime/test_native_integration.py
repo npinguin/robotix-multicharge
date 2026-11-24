@@ -913,7 +913,10 @@ async def test_native_options_menu_expert_prefill_save_and_reject_unsafe(
                   if str(k) == "yaml_text")
     assert validate_configuration(json.loads(marker.default())) == actual
 
-    # Full-text editor never transfers physical control ownership.
+    # Explicit control intent is permitted, but not while the same endpoint
+    # is visibly energized under another owner.
+    hass.states.async_set("switch.wall", "on")
+    await hass.async_block_till_done()
     unsafe = json.loads(json.dumps(actual))
     unsafe["chargers"][0]["control_owner"] = "multicharge"
     unsafe["chargers"][0]["physical_commissioned"] = True
@@ -923,6 +926,8 @@ async def test_native_options_menu_expert_prefill_save_and_reject_unsafe(
     assert blocked["type"] == FlowResultType.FORM
     assert blocked["errors"]["base"] != "invalid_config"
     assert entry.options["configuration"] == actual
+    hass.states.async_set("switch.wall", "off")
+    await hass.async_block_till_done()
 
     # Concurrent changes cannot be overwritten by an older open form.
     hass.config_entries.async_update_entry(entry, options={
@@ -1075,6 +1080,24 @@ async def test_native_expert_save_four_external_adjustable_chargers_without_gues
     assert repeated["type"] == FlowResultType.CREATE_ENTRY, repeated.get("errors")
     await hass.async_block_till_done()
     assert entry.options["configuration"] == actual
+
+    # Reproduce the previous installed-site ownership mismatch on all four
+    # objects, retaining the legacy writer and all existing source bindings.
+    legacy = json.loads(json.dumps(actual))
+    legacy["chargers"][0].update(kind="on_off", control_owner="multicharge",
+                                  physical_commissioned=True)
+    hass.states.async_set(legacy["chargers"][0]["control_entity"], "off")
+    hass.states.async_set(legacy["chargers"][0]["power_entity"], "0",
+                          {"unit_of_measurement": "W"})
+    hass.config_entries.async_update_entry(entry, options={"configuration": validate_configuration(legacy)})
+    await hass.async_block_till_done()
+    menu = await hass.config_entries.options.async_init(entry.entry_id)
+    form = await hass.config_entries.options.async_configure(menu["flow_id"], {"next_step_id": "yaml"})
+    saved = await hass.config_entries.options.async_configure(form["flow_id"], {"yaml_text": json.dumps(config)})
+    assert saved["type"] == FlowResultType.CREATE_ENTRY, saved.get("errors")
+    await hass.async_block_till_done()
+    assert entry.options["configuration"] == actual
+    assert hass.data[DOMAIN][entry.entry_id].configuration == actual
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 
@@ -2118,14 +2141,23 @@ async def test_direct_yaml_save_native_websocket_single_entry_roundtrip(
     assert stale["success"] is False
     assert "STALE_SETTINGS_REFRESH" in stale["error"]["message"]
 
-    # Even with admin rights and a correct revision, free text cannot
-    # commission a previously external charger or switch the physical owner.
+    # Even an admin cannot acquire a visibly energized endpoint while
+    # its former owner is still using it. Explicit idle activation is valid.
+    control = changed["chargers"][0]["control_entity"]
+    hass.states.async_set(control, "on")
+    await hass.async_block_till_done()
     unsafe = json.loads(text)
     unsafe["chargers"][0]["control_owner"] = "multicharge"
     unsafe["chargers"][0]["physical_commissioned"] = True
     denied = await yaml_ws(json.dumps(unsafe), proposed)
     assert denied["success"] is False
     assert entry.options["configuration"]["chargers"][0]["control_owner"] == "external"
+    hass.states.async_set(control, "off")
+    await hass.async_block_till_done()
+    enabled = await yaml_ws(json.dumps(unsafe), proposed)
+    assert enabled["success"] is True
+    await hass.async_block_till_done()
+    assert entry.options["configuration"]["chargers"][0]["control_owner"] == "multicharge"
 
     await client.close()
     assert await hass.config_entries.async_unload(entry.entry_id)
