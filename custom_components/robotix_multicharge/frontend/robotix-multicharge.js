@@ -2590,8 +2590,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       card.append(header);
       this.vehicleSummary(card,a,charger);
       this.goalAssessment(card,a,charger);
-      if(obs.effective_power_kw?.quality==="ok"&&obs.effective_power_kw.value>0)
-        card.append(mcEl("p","small",mcTr("Effective charging power")+" · "+mcValue(obs.effective_power_kw," kW")));
+      card.append(mcEl("p","muted small",mcTr("Effective charging power")+" · "+mcValue(obs.effective_power_kw," kW")));
       // One explicit action opens the goal editor; the default view is a summary.
       const goalVisible=this._goalEditor===a.id;
       if(goalVisible)this.assetGoalEditor(card,a);
