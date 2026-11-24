@@ -1047,30 +1047,35 @@ def prepare_expert_yaml_revision(current, document, mode="merge", *, site_time_z
                         existing.update(deepcopy(supplied))
             candidate = validate_configuration(candidate)
 
-    candidate = apply_new_import_defaults(before, candidate, site_time_zone=site_time_zone,
-                                          preserve_existing=False)
+    candidate = apply_new_import_defaults(
+        before, candidate, site_time_zone=site_time_zone,
+        raw_assets=document.get("assets", []),
+    )
     if candidate["controller"]["id"] != before["controller"]["id"]:
         raise ValueError("controller ID cannot change in UI; preserve existing HA history")
     assert_expert_authority_change(before, candidate)
     return candidate
 
 
-def apply_new_import_defaults(before, candidate, *, site_time_zone="UTC", preserve_existing=True):
-    """Persist creation defaults once; an unchanged file import must be stable."""
+def apply_new_import_defaults(before, candidate, *, site_time_zone="UTC", raw_assets=()):
+    """Creation defaults once; omitted goals on repeated input retain saved values.
+
+    Explicit null target in a native expert editor is different from omission.
+    Explicit ready_by_repeat=none is the existing schedule removal contract.
+    """
     candidate = deepcopy(candidate)
     existing = {row["id"]: row for row in before.get("assets", [])}
+    clear_target = {row["id"] for row in raw_assets
+                    if isinstance(row, dict) and "id" in row
+                    and "target_soc" in row and row["target_soc"] is None}
     schedule_fields = ("ready_by", "ready_by_repeat", "ready_by_weekdays")
     for asset in candidate["assets"]:
         prior = existing.get(asset["id"])
         if prior is None:
-            if asset.get("soc_entity"):
+            if asset.get("soc_entity") and asset["id"] not in clear_target:
                 apply_new_asset_defaults(asset, site_time_zone=site_time_zone)
             continue
-        # Explicit full editor Save differs from reimporting an unchanged
-        # external source: omitted fields of existing IDs may be removed.
-        if not preserve_existing:
-            continue
-        if asset.get("soc_entity") and all(asset.get(key) is None for key in (
+        if asset["id"] not in clear_target and asset.get("soc_entity") and all(asset.get(key) is None for key in (
             "target_soc", "requested_kwh", "requested_duration_minutes",
             "requested_budget_amount",
         )) and prior.get("target_soc") is not None:

@@ -245,9 +245,10 @@ async def websocket_yaml_configuration(
 
     try:
         # Parsing and schema validation are side-effect free, and bounded.
+        document = _parse_editor_yaml(msg["yaml_text"])
         proposed = apply_new_import_defaults(
-            runtime.configuration, validate_configuration(_parse_editor_yaml(msg["yaml_text"])),
-            site_time_zone=hass.config.time_zone, preserve_existing=False,
+            runtime.configuration, validate_configuration(document),
+            site_time_zone=hass.config.time_zone, raw_assets=document.get("assets", []),
         )
         if proposed["controller"]["id"] != runtime.configuration["controller"]["id"]:
             raise ValueError("CONTROLLER_ID_IMMUTABLE")

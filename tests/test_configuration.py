@@ -313,9 +313,9 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(assets["new"]["target_soc"], 80)
         self.assertEqual(assets["old"]["target_soc"], 90)
         self.assertNotIn("target_soc", assets["guest"])
-        # Explicit editor replacement can remove a goal; defaults never
-        # turn a previously saved no-goal profile into 80% again.
-        result["assets"][0].pop("target_soc")
+        # Explicit null removes a goal; omitted fields in a repeated
+        # expert document must still retain the saved user preference.
+        result["assets"][0]["target_soc"] = None
         result["assets"][1]["ready_by_repeat"] = "none"
         result["assets"][1].pop("ready_by", None)
         updated = prepare_expert_yaml_revision(

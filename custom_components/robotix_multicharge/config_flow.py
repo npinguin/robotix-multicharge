@@ -856,9 +856,11 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         validation_error = ""
         if user_input is not None:
             try:
+                document = _parse_editor_yaml(user_input["yaml_text"])
                 proposed = apply_new_import_defaults(
-                    cfg, validate_configuration(_parse_editor_yaml(user_input["yaml_text"])),
-                    site_time_zone=self.hass.config.time_zone, preserve_existing=False,
+                    cfg, validate_configuration(document),
+                    site_time_zone=self.hass.config.time_zone,
+                    raw_assets=document.get("assets", []),
                 )
                 if proposed["controller"]["id"] != cfg["controller"]["id"]:
                     raise ValueError("CONTROLLER_ID_IMMUTABLE")
