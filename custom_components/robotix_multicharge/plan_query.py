@@ -37,8 +37,11 @@ async def websocket_get_plan(
         ), None,
     )
     if selected is None:
-        connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND,
-                              "Unknown charging Controller")
+        # A configured but unloaded/reloading controller is not an install
+        # failure. The frontend may retain its last read-only snapshot.
+        reason = ("NO_CONFIG_ENTRY" if not hass.config_entries.async_entries(DOMAIN)
+                  else "CONTROLLER_UNAVAILABLE")
+        connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND, reason)
         return
     try:
         if "day" in msg:

@@ -1010,6 +1010,9 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._tab="Overview";
     this._day="today";
     this._filter="";
+    this._preferenceKey=null;
+    this._restoredFilter=null;
+    this._noEntry=false;
     this._open="";
     this._folds={}; // disclosure-only UI state; never configuration or charging truth
     this._settingsOpen="";
@@ -1045,8 +1048,36 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._yamlBaselineRevision=null;
     this._yamlCommittedRevision=null;
   }
-  canManage(){return this._hass?.user?.is_admin===true;}
-  canEditSettings(){return this.canManage()&&!this._data?.configuration_managed_by_yaml;}
+  canManage(){return this._hass?.user?.is_admin===true&&!this._error;}
+  canEditSettings(){return this.canManage()&&Boolean(this._data)&&!this._data.configuration_managed_by_yaml;}
+  restoreViewPreferences(hass){
+    // Browser-only display choices: never persist commands, goals or sources.
+    const id=hass?.user?.id;
+    if(!id)return;
+    const key="robotix.multicharge.view.v1."+id;
+    if(key===this._preferenceKey)return;
+    this._preferenceKey=key;
+    try{
+      const saved=JSON.parse(globalThis.localStorage?.getItem(key)||"null");
+      if(["today","tomorrow","both"].includes(saved?.day))this._day=saved.day;
+      this._restoredFilter=typeof saved?.filter==="string"?saved.filter:"";
+    }catch(_error){this._restoredFilter="";}
+  }
+  rememberViewPreferences(){
+    if(!this._preferenceKey)return;
+    try{globalThis.localStorage?.setItem(this._preferenceKey,
+      JSON.stringify({day:this._day,filter:this._filter}));}catch(_error){}
+  }
+  validViewFilter(filter,configuration){
+    return !filter||(configuration?.chargers||[]).some(x=>filter==="charger:"+x.id)||
+      (configuration?.assets||[]).some(x=>filter==="asset:"+x.id);
+  }
+  selectViewRange(day,filter=this._filter){
+    this._day=day;this._filter=filter;this._restoredFilter=null;
+    this.rememberViewPreferences();
+    this._last=0;
+    if(this._loading)this._refreshPending=true;else void this.load();
+  }
   watchedEntities(){
     const data=this._data||{},cfg=data.configuration||{},refs=data.preference_entities||{};
     const ids=new Set();
@@ -1105,7 +1136,9 @@ class RobotixMultiChargeCard extends HTMLElement {
       this._refreshTimer=null;
       if(this._loading){this._refreshPending=true;return;}
       this._last=0;this.load();
-    },Math.max(350, 2500-(Date.now()-this._last)));
+    },this._error?5000:Math.max(350, 2500-(Date.now()-this._last)));
+    // Does nothing in browsers; lets the source-only Node fixture exit.
+    this._refreshTimer?.unref?.();
   }
   disconnectedCallback(){
     if(this._refreshTimer!==null)clearTimeout(this._refreshTimer);
@@ -1116,6 +1149,7 @@ class RobotixMultiChargeCard extends HTMLElement {
   set hass(value){
     const before=this._hass;
     this._hass=value;
+    this.restoreViewPreferences(value);
     if(this._pendingNative&&value?.states?.[this._pendingNative.entity]?.state===
         this._pendingNative.expected){
       this._pendingNative=null;
@@ -1130,18 +1164,33 @@ class RobotixMultiChargeCard extends HTMLElement {
   }
   async load(){
     if(!this._hass||this._loading)return;
-    this._loading=true;this._error="";if(!this._data)this.passiveRender();
+    this._loading=true;if(!this._data)this.passiveRender();
+    const requestedDay=this._day,requestedFilter=this._filter;
     try {
-      const historyKey=this._day+"|"+this._filter;
+      const historyKey=requestedDay+"|"+requestedFilter;
       const wantsHistory=["Charging Plan","Chargeable Assets","Chargers"].includes(this._tab);
       const beforeData=this._data;
-      const cmd={type:"robotix_multicharge/get_plan",day:this._day,
+      const cmd={type:"robotix_multicharge/get_plan",day:requestedDay,
         include_history:wantsHistory&&(!beforeData||this._historyKey!==historyKey||
           Date.now()-this._historyFetchedAt>=30000||
           beforeData.actual_history_quality==="NOT_REQUESTED")};
-      if(this._filter.startsWith("charger:"))cmd.charger_id=this._filter.slice(8);
-      if(this._filter.startsWith("asset:"))cmd.asset_id=this._filter.slice(6);
+      if(requestedFilter.startsWith("charger:"))cmd.charger_id=requestedFilter.slice(8);
+      if(requestedFilter.startsWith("asset:"))cmd.asset_id=requestedFilter.slice(6);
       const nextData=await this._hass.callWS(cmd);
+      if(requestedDay!==this._day||requestedFilter!==this._filter){
+        this._refreshPending=true;return;
+      }
+      this._error="";this._noEntry=false;
+      if(this._restoredFilter!==null){
+        const restored=this._restoredFilter;
+        this._restoredFilter=null;
+        if(restored&&this.validViewFilter(restored,nextData.configuration)){
+          this._filter=restored;this._refreshPending=true;
+        }
+        this.rememberViewPreferences();
+      }else if(!this.validViewFilter(this._filter,nextData.configuration)){
+        this._filter="";this.rememberViewPreferences();this._refreshPending=true;
+      }
       if(cmd.include_history){
         this._historyKey=historyKey;this._historyFetchedAt=Date.now();
       }else if(beforeData&&this._historyKey===historyKey&&
@@ -1184,8 +1233,15 @@ class RobotixMultiChargeCard extends HTMLElement {
       this._last=Date.now();
     }catch(error){
       this._error=error && (error.message||error.code) ? String(error.message||error.code) : "Read access unavailable";
-      this._data=null;
+      this._noEntry=this._error.includes("NO_CONFIG_ENTRY");
+      if(this._noEntry)this._data=null;
+      // A deleted selection can make a filtered query invalid. Retry the
+      // unfiltered snapshot, never show data from the wrong selected range.
+      if(requestedFilter&&this._error.includes("Invalid plan scope")){
+        this._filter="";this.rememberViewPreferences();this._refreshPending=true;
+      }
       this._last=Date.now();
+      if(!this._noEntry)this._refreshPending=true;
     }finally{
       this._loading=false;this.passiveRender();
       if(this._refreshPending){
@@ -1726,7 +1782,7 @@ class RobotixMultiChargeCard extends HTMLElement {
   }
   configure(container){
     // First installation only; configured runtime never navigates out for edits.
-    if(!this.canManage()||this._data)return;
+    if(this._hass?.user?.is_admin!==true||this._data||!this._noEntry)return;
     const link=mcEl("a","action",mcTr("Install MultiCharge once in Home Assistant"));
     link.href="/config/integrations/integration/robotix_multicharge";
     link.setAttribute("aria-label",mcTr("Home Assistant"));
@@ -1764,12 +1820,14 @@ class RobotixMultiChargeCard extends HTMLElement {
     shell.append(tabs);
     if(this._loading&&!this._data)this.notice(shell,"Loading",false);
     if(this._error){
-      this.notice(shell,"Unavailable",true);
-      this.configure(shell);
+      this.notice(shell,this._noEntry?mcTr("Unavailable"):
+        "Connection interrupted · "+this._error+(this._data?" · Last available data (read-only)":""),
+        true);
+      if(this._noEntry)this.configure(shell);
     }else if(!this._data&&!this._loading){
       this.notice(shell,"Unavailable",true);
-      this.configure(shell);
-    }else if(this._data){
+    }
+    if(this._data){
       if(this._tab==="Overview")this.overview(shell);
       if(this._tab==="Charging Plan")this.plan(shell);
       if(this._tab==="Chargeable Assets")this.assets(shell);
@@ -1847,8 +1905,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(a.temporary)card.append(mcEl("p","small",mcTr("Guest")+" · "+mcTime(a.expires_at,d.timezone)));
       const controls=mcEl("div","overview-actions");
       controls.append(mcButton(mcTr("Charging plan"),()=>{
-        this._filter="asset:"+a.id;
-        this._tab="Charging Plan";this._last=0;this.load();
+        this._tab="Charging Plan";this.selectViewRange(this._day,"asset:"+a.id);
       }));
       if(this.canEditSettings()){
         controls.append(mcButton(mcTr("Set charging goal"),()=>{
@@ -1924,7 +1981,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     const day=mcEl("div","controls");
     for(const chosen of ["today","tomorrow","both"]){
       const b=mcButton(chosen==="today"?"Today":chosen==="tomorrow"?"Tomorrow":"48h",()=>{
-        this._day=chosen;this._last=0;this.load();
+        this.selectViewRange(chosen);
       },this._day===chosen?"active":"");
       day.append(b);
     }
@@ -1937,7 +1994,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       o.selected=this._filter===value;filter.append(o);
     }
     filter.value=this._filter;
-    filter.addEventListener("change",()=>{this._filter=filter.value;this._last=0;this.load();});
+    filter.addEventListener("change",()=>{this.selectViewRange(this._day,filter.value);});
     day.append(filter);container.append(day);
     const selectors=mcEl("div","controls");
     const option=(title,setting,value,variants)=>{

@@ -781,6 +781,35 @@ async function main(){
   assert.ok(Number.isFinite(Date.parse(create.changes.expires_at)),
     "Guest expiry is a real timestamp derived from selected duration");
 
+  // MC-18: view preferences survive remount; never store control settings.
+  const displayStore=new Map();
+  global.localStorage={getItem:key=>displayStore.get(key)||null,
+    setItem:(key,value)=>displayStore.set(key,value)};
+  const viewCard=new Card();
+  viewCard.hass={user:{id:"view-user",is_admin:true},states:{},callWS:async()=>fixture};
+  await new Promise(resolve=>setImmediate(resolve));
+  viewCard.selectViewRange("both","charger:drive");
+  await new Promise(resolve=>setImmediate(resolve));
+  const reopened=new Card();
+  const viewCalls=[];
+  reopened.hass={user:{id:"view-user",is_admin:true},states:{},
+    callWS:async msg=>{viewCalls.push(msg);return fixture;}};
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(reopened._day,"both");
+  assert.equal(reopened._filter,"charger:drive");
+  assert.equal(viewCalls[0].day,"both");
+  assert.ok(!viewCalls[0].charger_id,"restored filter is validated against current configuration");
+  reopened.disconnectedCallback();
+  const retained=viewCard._data;
+  viewCard._hass={...viewCard._hass,callWS:async()=>{throw Error("timeout");}};
+  await viewCard.load();
+  assert.equal(viewCard._data,retained);
+  assert.equal(viewCard.canManage(),false);
+  assert.ok(content(viewCard.shadowRoot).includes("Last available data"));
+  assert.ok(!content(viewCard.shadowRoot).includes("Install MultiCharge once"));
+  viewCard.disconnectedCallback();
+  delete global.localStorage;
+
   // A structural/config revision ends a pending local draft. It is never a
   // second persisted charge-request store or a physical session.
   minimalData.configuration_revision="minimal-rev-b";
