@@ -932,6 +932,13 @@ class RobotixMultiChargeCard extends HTMLElement {
   constructor(){
     super();
     this.attachShadow({mode:"open"});
+    // User input belongs to the existing DOM until an explicit action.
+    // A HA sensor/plan refresh is never permission to unmount a text field.
+    this._unsavedInput=false;
+    this.shadowRoot.addEventListener("input",event=>{
+      const tag=String(event?.target?.tagName||"").toUpperCase();
+      if(["INPUT","SELECT","TEXTAREA"].includes(tag))this._unsavedInput=true;
+    },true);
     this._tab="Overview";
     this._day="today";
     this._filter="";
@@ -981,6 +988,24 @@ class RobotixMultiChargeCard extends HTMLElement {
         if(typeof value==="string"&&value.includes("."))ids.add(value);
     return ids;
   }
+  editingInProgress(){
+    // Covers first-click keyboard focus (before an input event), entered
+    // drafts even after blur, and editors still open without a focused field.
+    const focused=this.shadowRoot?.activeElement;
+    return Boolean(this._unsavedInput||
+      this._editingField||this._assetEditor||this._createCharger||
+      this._commissionEditor||this._assignmentEditor||
+      this._goalEditor||this._scheduleEditor||this._windowsOpen||
+      focused&&(focused.isContentEditable||
+        ["INPUT","SELECT","TEXTAREA"].includes(
+          String(focused.tagName||"").toUpperCase())));
+  }
+  passiveRender(){
+    // Never rebuild shadowRoot on external HA state changes or late plan
+    // responses while a human is editing. _data remains fresh in memory.
+    if(this.editingInProgress())return;
+    this.render();
+  }
   scheduleSourceRefresh(){
     if(this._refreshTimer!==null)return;
     this._refreshTimer=setTimeout(()=>{
@@ -993,7 +1018,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     if(this._refreshTimer!==null)clearTimeout(this._refreshTimer);
     this._refreshTimer=null;
   }
-  setConfig(config){this._cardConfig=config||{};this.render();}
+  setConfig(config){this._cardConfig=config||{};this.passiveRender();}
   getCardSize(){return 10;}
   set hass(value){
     const before=this._hass;
@@ -1008,11 +1033,11 @@ class RobotixMultiChargeCard extends HTMLElement {
     );
     if(changed)this.scheduleSourceRefresh();
     else if(!this._loading&&(!this._last||Date.now()-this._last>60000))this.load();
-    else if(this._data)this.render();
+    else if(this._data)this.passiveRender();
   }
   async load(){
     if(!this._hass||this._loading)return;
-    this._loading=true;this._error="";this.render();
+    this._loading=true;this._error="";this.passiveRender();
     try {
       const cmd={type:"robotix_multicharge/get_plan",day:this._day};
       if(this._filter.startsWith("charger:"))cmd.charger_id=this._filter.slice(8);
@@ -1036,7 +1061,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       this._data=null;
       this._last=Date.now();
     }finally{
-      this._loading=false;this.render();
+      this._loading=false;this.passiveRender();
       if(this._refreshPending){
         this._refreshPending=false;this.scheduleSourceRefresh();
       }
@@ -1637,6 +1662,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     container.append(link);
   }
   render(){
+    // Explicit Save/Cancel/navigation may repaint; passive refresh may not.
+    this._unsavedInput=false;
     mcLanguage=String(this._hass?.locale?.language||this._hass?.language||"en").slice(0,2).toLowerCase();
     if(!this.shadowRoot)return;
     const root=this.shadowRoot;
