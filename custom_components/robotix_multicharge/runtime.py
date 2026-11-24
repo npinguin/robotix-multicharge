@@ -628,9 +628,13 @@ class MultiChargeRuntime:
                 binding=external_binding,
                 charging_windows=active_windows, site_time_zone=site_zone,
             )
-            if indicative_demands:
-                # The real plan is complete FIRST; forecast slots only consume
-                # leftover group, phase, circuit and parallel capacity.
+        except (ValueError, TypeError, OverflowError) as exc:
+            _LOGGER.warning("MultiCharge proposal unavailable: %s", exc)
+            self.assessment = None
+            self.excluded["controller"] = "INVALID_PLANNING_INPUT"
+        if indicative_demands and self.assessment is not None:
+            try:
+                # A failed optional preview cannot erase the real plan.
                 self.forecast_assessment = compile_plan(
                     controller, chargers, indicative_demands, at,
                     mode=setting["mode"],
@@ -640,12 +644,9 @@ class MultiChargeRuntime:
                     charging_windows=active_windows, site_time_zone=site_zone,
                     indicative_only=True,
                 )
-        except (ValueError, TypeError, OverflowError) as exc:
-            _LOGGER.warning("MultiCharge proposal unavailable: %s", exc)
-            self.assessment = None
-            self.forecast_assessment = None
-            self.forecast_excluded["controller"] = "INVALID_PLANNING_INPUT"
-            self.excluded["controller"] = "INVALID_PLANNING_INPUT"
+            except (ValueError, TypeError, OverflowError) as exc:
+                _LOGGER.warning("MultiCharge indicative proposal unavailable: %s", exc)
+                self.forecast_excluded["controller"] = "INVALID_PLANNING_INPUT"
         # Project the SAME planner result, before any chart-range filtering.
         # The forecast visibility preference is presentation, not goal truth.
         self.goal_assessments = {}

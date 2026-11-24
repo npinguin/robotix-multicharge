@@ -1230,8 +1230,21 @@ class RobotixMultiChargeCard extends HTMLElement {
       }
       if(this._pendingSettings&&
          this._data.configuration_revision===this._pendingSettings.expected_revision){
+        const pending=this._pendingSettings;
         this._settingsFeedback={status:"confirmed",message:"Saved"};
         this._pendingSettings=null;
+        if(pending.scope==="asset"){
+          const id=pending.targetId,fields=pending.fields||[];
+          if(fields.includes("capacity_kwh")&&fields.includes("charge_efficiency")){
+            delete this._batteryDrafts[id];if(this._batteryEditor===id)this._batteryEditor="";
+          }
+          if(fields.includes("ready_by_repeat")){
+            delete this._calendarDrafts[id];if(this._scheduleEditor===id)this._scheduleEditor="";
+          }
+          if(fields.includes("requested_kwh")&&fields.includes("requested_duration_minutes")){
+            delete this._goalDrafts[id];if(this._goalEditor===id)this._goalEditor="";
+          }
+        }
       }
       this._last=Date.now();
     }catch(error){
@@ -1297,7 +1310,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       });
       if(receipt.status!=="accepted_unconfirmed"||!receipt.expected_revision)
         throw new Error("Settings change was not admitted");
-      this._pendingSettings={expected_revision:receipt.expected_revision};
+      this._pendingSettings={expected_revision:receipt.expected_revision,scope,targetId,fields:Object.keys(changes)};
       this._settingsFeedback={status:"accepted_unconfirmed",message:"Pending"};
       this._last=0;
       admitted=true;
@@ -1862,7 +1875,9 @@ class RobotixMultiChargeCard extends HTMLElement {
         this._yamlEditorOpen=false;
         this._yamlCommittedRevision=null;
         this.render();
-        if(["Charging Plan","Chargeable Assets","Chargers"].includes(item)&&this._data?.actual_history_quality==="NOT_REQUESTED"){
+        const scope=item==="Charging Plan"?this._filter:"";
+        if(this._data?.actual_history_quality==="NOT_REQUESTED"||
+            this._historyKey!==this._day+"|"+scope){
           if(this._loading)this._refreshPending=true;else{this._last=0;this.load();}
         }
       });

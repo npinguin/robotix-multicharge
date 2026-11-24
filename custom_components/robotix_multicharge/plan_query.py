@@ -99,7 +99,9 @@ async def websocket_get_plan(
             )
         def native_select(kind, uid, field):
             return native_entity("select", kind, uid, field)
-        cfg = runtime.configuration
+        # Use the same configuration snapshot as the response, even if an
+        # asynchronous Recorder query overlapped a settings update.
+        cfg = result["configuration"]
         result["preference_entities"] = {
             "controller": {
                 field: native_select("controller", cfg["controller"]["id"], field)

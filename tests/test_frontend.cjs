@@ -552,7 +552,7 @@ async function main(){
   // Daily -> weekday chips -> individual override, without implicit Save.
   asset.ready_by_repeat="daily";asset.ready_by="2026-11-25T06:00:00+01:00";
   delete asset.ready_by_weekdays;
-  scheduleCard._scheduleEditor="car";scheduleCard._calendarDrafts={};scheduleCard.render();
+  scheduleCard._scheduleEditor="car";scheduleCard._windowsOpen="";scheduleCard._calendarDrafts={};scheduleCard.render();
   const priorSaves=scheduleCalls.filter(x=>x.type==="robotix_multicharge/update_settings").length;
   find(scheduleCard.shadowRoot,"button","Specific days").click();
   const dayButton=label=>{
