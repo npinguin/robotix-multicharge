@@ -117,14 +117,6 @@
         "data": {
           "yaml_text": "Plak de volledige MultiCharge-configuratie als JSON (controller/assets/chargers)"
         }
-      },
-      "expert_review": {
-        "title": "Volledige configuratie controleren",
-        "description": "{summary} Bevestig pas na controle van de volledige configuratie.",
-        "data": {
-          "confirm": "Ik heb de volledige configuratie gecontroleerd",
-          "edit_again": "Terug naar JSON-editor"
-        }
       }
     },
     "abort": {
@@ -145,9 +137,11 @@
           "asset": "Chargeable assets",
           "charger": "Chargers",
           "display": "Dashboard card",
-          "yaml": "Volledige JSON bewerken (eerst controleren)",
+          "yaml": "Volledige configuratie bewerken (JSON / YAML)",
           "commission": "Laadpaal in bedrijf stellen",
-          "energy": "Energie en tarieven"
+          "energy": "Energie en tarieven",
+          "charger_pick": "Kies een laadpunt",
+          "asset_pick": "Kies een voertuig of ander laadbaar object"
         },
         "title": "Instellingen"
       },
@@ -159,7 +153,10 @@
           "solar_entity": "Zonne-energie (optioneel)",
           "binding_entity": "Vermogen (optioneel)",
           "phase_limits_a": "Fasen (optioneel)",
-          "site_power_entity": "Vermogen (optioneel)"
+          "site_power_entity": "Vermogen (optioneel)",
+          "mode": "Laadmodus",
+          "max_parallel": "Maximum gelijktijdige laadpunten",
+          "max_power_kw": "Vermogenslimiet laadlocatie (kW)"
         }
       },
       "asset": {
@@ -174,7 +171,8 @@
           "capacity_kwh": "Batterij",
           "vehicle_control_entity": "Schakelaar voertuigsturing (bron)",
           "vehicle_current_entity": "Voertuigstroominstelling (bron)",
-          "soc_stale_entity": "OEM-gegevens verouderd (binary sensor: aan = verouderd)"
+          "soc_stale_entity": "OEM-gegevens verouderd (binary sensor: aan = verouderd)",
+          "target_soc": "Gewenst laadniveau (%)"
         }
       },
       "charger": {
@@ -214,19 +212,10 @@
         }
       },
       "yaml": {
-        "title": "MultiCharge — JSON-configuratie",
-        "description": "Bewerk de volledige configuratie of pas onderdelen aan. Eerst valideren en beoordelen; geen fysieke laadcommando's. {note}",
+        "title": "Volledige configuratie bewerken (JSON / YAML)",
+        "description": "Bewerk de bestaande configuratie en klik op Opslaan. Eén Home Assistant-configuratie, geen fysieke laadopdracht. {note}",
         "data": {
-          "mode": "Bijwerkmodus",
-          "yaml_text": "MultiCharge-configuratie (JSON, veilige YAML ook ondersteund)"
-        }
-      },
-      "yaml_review": {
-        "title": "JSON-wijzigingen controleren",
-        "description": "{summary}\nControleer alle wijzigingen voordat je bevestigt.",
-        "data": {
-          "confirm": "Deze gecontroleerde wijzigingen toepassen",
-          "edit_again": "Terug naar JSON-editor"
+          "yaml_text": "Volledige configuratie bewerken (JSON / YAML)"
         }
       },
       "commission": {
@@ -254,6 +243,18 @@
           "solar_source_kind": "Bron voor zonne-laadregeling",
           "grid_power_direction": "Richting van de netmeter",
           "use_energy_dashboard": "Gebruik bestaande bronnen uit het Energie-dashboard"
+        }
+      },
+      "charger_pick": {
+        "title": "Kies een laadpunt",
+        "data": {
+          "selected": "Nieuw toevoegen of bestaand kiezen"
+        }
+      },
+      "asset_pick": {
+        "title": "Kies een voertuig of ander laadbaar object",
+        "data": {
+          "selected": "Nieuw toevoegen of bestaand kiezen"
         }
       }
     },

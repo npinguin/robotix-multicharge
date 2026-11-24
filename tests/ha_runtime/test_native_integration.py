@@ -782,9 +782,15 @@ async def test_dashboard_created_charger_auto_registers_device_owned_controls(
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 @pytest.mark.asyncio
-async def test_options_flow_is_not_a_yaml_or_configuration_surface(hass: HomeAssistant):
-    """Owner requirement: HA Options is retired; dashboard owns runtime editing."""
-    source = (Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN)
+async def test_native_options_menu_expert_prefill_save_and_reject_unsafe(
+    hass: HomeAssistant,
+):
+    """Real HA Options, one Config Entry, no mandatory install wizard."""
+    from custom_components.robotix_multicharge.configuration import (
+        configuration_revision,
+    )
+
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
     installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
     if not installed.exists():
         shutil.copytree(source, installed)
@@ -792,7 +798,12 @@ async def test_options_flow_is_not_a_yaml_or_configuration_surface(hass: HomeAss
         "controller": {"id": "site", "name": "Independent home",
                        "mode": "Automatic", "max_parallel": 1},
         "assets": [{"id": "car", "name": "Car", "kind": "car"}],
-        "chargers": [],
+        "chargers": [{
+            "id": "wall", "name": "Wall",
+            "kind": "on_off", "rated_power_kw": 3.6,
+            "control_entity": "switch.wall", "control_owner": "external",
+            "physical_commissioned": False,
+        }],
     })
     entry = MockConfigEntry(
         domain=DOMAIN, title="Standalone MultiCharge",
@@ -801,11 +812,243 @@ async def test_options_flow_is_not_a_yaml_or_configuration_surface(hass: HomeAss
     entry.add_to_hass(hass)
     assert await async_setup_component(hass, DOMAIN, {})
     await hass.async_block_till_done()
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    assert result["type"] == FlowResultType.ABORT
-    assert result["reason"] == "dashboard_only"
-    assert not entry.options.get("configuration")
-    assert entry.data["configuration"] == cfg
+    menu = await hass.config_entries.options.async_init(entry.entry_id)
+    assert menu["type"] == FlowResultType.MENU
+    assert set(("controller", "charger_pick", "asset_pick",
+                "energy", "yaml")).issubset(menu["menu_options"])
+
+    editor = await hass.config_entries.options.async_configure(
+        menu["flow_id"], {"next_step_id": "yaml"},
+    )
+    assert editor["type"] == FlowResultType.FORM
+    assert editor["step_id"] == "yaml"
+    marker = next(k for k in editor["data_schema"].schema
+                  if str(k) == "yaml_text")
+    prefilled = json.loads(marker.default())
+    assert prefilled == cfg, "Expert editor must prefill the actual Config Entry"
+
+    invalid = await hass.config_entries.options.async_configure(
+        editor["flow_id"], {"yaml_text": 'controller: {}\\ncontroller: {}'},
+    )
+    assert invalid["type"] == FlowResultType.FORM
+    assert invalid["errors"]["base"] == "invalid_config"
+    assert entry.options.get("configuration") is None
+
+    changed = json.loads(json.dumps(cfg))
+    changed["controller"]["name"] = "Native Configured home"
+    changed["chargers"][0]["connected_entity"] = "binary_sensor.wall_plugged"
+    saved = await hass.config_entries.options.async_configure(
+        editor["flow_id"], {"yaml_text": json.dumps(changed)},
+    )
+    assert saved["type"] == FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert len(hass.config_entries.async_entries(DOMAIN)) == 1
+    actual = entry.options["configuration"]
+    assert actual["controller"]["name"] == "Native Configured home"
+    assert actual["chargers"][0]["connected_entity"] == "binary_sensor.wall_plugged"
+    assert actual["chargers"][0]["control_owner"] == "external"
+    assert actual["chargers"][0]["physical_commissioned"] is False
+
+    # A separate Options visit must show current readback, not a stale template.
+    again = await hass.config_entries.options.async_init(entry.entry_id)
+    screen = await hass.config_entries.options.async_configure(
+        again["flow_id"], {"next_step_id": "yaml"},
+    )
+    marker = next(k for k in screen["data_schema"].schema
+                  if str(k) == "yaml_text")
+    assert json.loads(marker.default()) == actual
+
+    # Full-text editor never transfers physical control ownership.
+    unsafe = json.loads(json.dumps(actual))
+    unsafe["chargers"][0]["control_owner"] = "multicharge"
+    unsafe["chargers"][0]["physical_commissioned"] = True
+    blocked = await hass.config_entries.options.async_configure(
+        screen["flow_id"], {"yaml_text": json.dumps(unsafe)},
+    )
+    assert blocked["type"] == FlowResultType.FORM
+    assert blocked["errors"]["base"] == "invalid_config"
+    assert entry.options["configuration"] == actual
+
+    # Concurrent changes cannot be overwritten by an older open form.
+    hass.config_entries.async_update_entry(entry, options={
+        **entry.options,
+        "configuration": validate_configuration({
+            **actual, "controller": {**actual["controller"],
+                                     "name": "Concurrent native user"},
+        }),
+    })
+    await hass.async_block_till_done()
+    stale = await hass.config_entries.options.async_configure(
+        screen["flow_id"], {"yaml_text": json.dumps(actual)},
+    )
+    assert stale["type"] == FlowResultType.FORM
+    assert stale["errors"]["base"] == "selection_changed"
+    assert entry.options["configuration"]["controller"]["name"] == "Concurrent native user"
+    assert configuration_revision(entry.options["configuration"]) != configuration_revision(actual)
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
+async def test_optional_one_click_install_and_native_guided_configure(
+    hass: HomeAssistant,
+):
+    """Real HA: install without a wizard, configure real objects afterwards."""
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    assert await async_setup_component(hass, DOMAIN, {})
+    installed_entry = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER},
+    )
+    assert installed_entry["type"] == FlowResultType.CREATE_ENTRY
+    entries = hass.config_entries.async_entries(DOMAIN)
+    assert len(entries) == 1
+    entry = entries[0]
+    initial = entry.data["configuration"]
+    assert initial["assets"] == []
+    assert initial["chargers"] == []
+    await hass.async_block_till_done()
+
+    async def menu_step(step_id):
+        menu = await hass.config_entries.options.async_init(entry.entry_id)
+        assert menu["type"] == FlowResultType.MENU
+        assert step_id in menu["menu_options"]
+        return await hass.config_entries.options.async_configure(
+            menu["flow_id"], {"next_step_id": step_id},
+        )
+
+    site = await menu_step("controller")
+    assert site["type"] == FlowResultType.FORM
+    assert site["step_id"] == "controller"
+    result = await hass.config_entries.options.async_configure(
+        site["flow_id"], {
+            "name": "Configured Home", "mode": "Automatic",
+            "max_parallel": 2, "max_power_kw": 7.2,
+        },
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY, result.get("errors")
+    await hass.async_block_till_done()
+    assert entry.options["configuration"]["controller"]["name"] == "Configured Home"
+    assert entry.options["configuration"]["controller"]["max_parallel"] == 2
+
+    choose_charger = await menu_step("charger_pick")
+    assert choose_charger["step_id"] == "charger_pick"
+    new_charger = await hass.config_entries.options.async_configure(
+        choose_charger["flow_id"], {"selected": "__new__"},
+    )
+    assert new_charger["step_id"] == "charger"
+    charger = await hass.config_entries.options.async_configure(
+        new_charger["flow_id"], {
+            "action": "save", "id": "garage_white", "name": "Garage White",
+            "kind": "on_off", "rated_power_kw": 3.6,
+            "control_entity": "switch.wallbox_test",
+            "power_entity": "sensor.wallbox_test_power",
+        },
+    )
+    assert charger["type"] == FlowResultType.CREATE_ENTRY, charger.get("errors")
+    await hass.async_block_till_done()
+    assert entry.options["configuration"]["chargers"][0]["id"] == "garage_white"
+    assert entry.options["configuration"]["chargers"][0]["control_owner"] == "external"
+
+    choose_existing = await menu_step("charger_pick")
+    assert choose_existing["data_schema"].schema
+    edit_charger = await hass.config_entries.options.async_configure(
+        choose_existing["flow_id"], {"selected": "garage_white"},
+    )
+    assert edit_charger["step_id"] == "charger"
+    name_marker = next(k for k in edit_charger["data_schema"].schema
+                       if str(k) == "name")
+    assert name_marker.default() == "Garage White"
+    edited_charger = await hass.config_entries.options.async_configure(
+        edit_charger["flow_id"], {"action": "save", "name": "White Wallbox",
+                                 "kind": "on_off", "rated_power_kw": 3.6},
+    )
+    assert edited_charger["type"] == FlowResultType.CREATE_ENTRY, edited_charger.get("errors")
+    await hass.async_block_till_done()
+    saved_charger = entry.options["configuration"]["chargers"][0]
+    assert saved_charger["id"] == "garage_white"
+    assert saved_charger["name"] == "White Wallbox"
+    assert saved_charger["control_entity"] == "switch.wallbox_test"
+
+    choose_asset = await menu_step("asset_pick")
+    new_asset = await hass.config_entries.options.async_configure(
+        choose_asset["flow_id"], {"selected": "__new__"},
+    )
+    saved_asset = await hass.config_entries.options.async_configure(
+        new_asset["flow_id"], {
+            "action": "save", "id": "audi_q8", "name": "Audi Q8",
+            "kind": "car", "soc_entity": "sensor.audi_oem_soc",
+            "target_soc": 80,
+        },
+    )
+    assert saved_asset["type"] == FlowResultType.CREATE_ENTRY, saved_asset.get("errors")
+    await hass.async_block_till_done()
+    assert entry.options["configuration"]["assets"][0]["id"] == "audi_q8"
+    assert entry.options["configuration"]["assets"][0]["soc_entity"] == "sensor.audi_oem_soc"
+
+    source_form = await menu_step("energy")
+    assert source_form["step_id"] == "energy"
+    energy = await hass.config_entries.options.async_configure(
+        source_form["flow_id"], {
+            "use_energy_dashboard": False, "solar_source_kind": "none",
+            "grid_power_direction": "import_positive",
+            "current_price_entity": "sensor.energy_current_price",
+            "solar_power_entity": "sensor.energy_solar_power",
+        },
+    )
+    assert energy["type"] == FlowResultType.CREATE_ENTRY, energy.get("errors")
+    await hass.async_block_till_done()
+    final = entry.options["configuration"]
+    assert final["controller"]["current_price_entity"] == "sensor.energy_current_price"
+    assert final["controller"]["solar_power_entity"] == "sensor.energy_solar_power"
+    assert final["assets"][0]["id"] == "audi_q8"
+    assert final["chargers"][0]["id"] == "garage_white"
+
+    choose_current_asset = await menu_step("asset_pick")
+    edit_asset = await hass.config_entries.options.async_configure(
+        choose_current_asset["flow_id"], {"selected": "audi_q8"},
+    )
+    soc_marker = next(k for k in edit_asset["data_schema"].schema
+                      if str(k) == "soc_entity")
+    assert soc_marker.default() == "sensor.audi_oem_soc"
+    update_asset = await hass.config_entries.options.async_configure(
+        edit_asset["flow_id"], {
+            "action": "save", "name": "Audi Q8", "kind": "car",
+            "target_soc": 85,
+        },
+    )
+    assert update_asset["type"] == FlowResultType.CREATE_ENTRY, update_asset.get("errors")
+    await hass.async_block_till_done()
+    assert entry.options["configuration"]["assets"][0]["target_soc"] == 85
+    assert entry.options["configuration"]["assets"][0]["soc_entity"] == (
+        "sensor.audi_oem_soc"
+    )
+
+    choose_current_charger = await menu_step("charger_pick")
+    delete_form = await hass.config_entries.options.async_configure(
+        choose_current_charger["flow_id"], {"selected": "garage_white"},
+    )
+    deleted = await hass.config_entries.options.async_configure(
+        delete_form["flow_id"], {"action": "delete", "name": "White Wallbox",
+                                 "kind": "on_off", "rated_power_kw": 3.6},
+    )
+    assert deleted["type"] == FlowResultType.CREATE_ENTRY, deleted.get("errors")
+    await hass.async_block_till_done()
+    assert entry.options["configuration"]["chargers"] == []
+
+    choose_current_asset = await menu_step("asset_pick")
+    delete_asset = await hass.config_entries.options.async_configure(
+        choose_current_asset["flow_id"], {"selected": "audi_q8"},
+    )
+    deleted_asset = await hass.config_entries.options.async_configure(
+        delete_asset["flow_id"], {"action": "delete", "name": "Audi Q8",
+                                  "kind": "car"},
+    )
+    assert deleted_asset["type"] == FlowResultType.CREATE_ENTRY, deleted_asset.get("errors")
+    await hass.async_block_till_done()
+    assert entry.options["configuration"]["assets"] == []
+    assert entry.options["configuration"]["controller"]["name"] == "Configured Home"
     assert len(hass.config_entries.async_entries(DOMAIN)) == 1
     assert await hass.config_entries.async_unload(entry.entry_id)
 
@@ -834,7 +1077,7 @@ async def test_unconfigured_energy_dashboard_does_not_initialize_component(
 async def test_dashboard_native_energy_source_mapping_no_shadow_settings(
     hass: HomeAssistant,
 ):
-    """One dashboard source selection, no templating or Options flow."""
+    """One native source owner, no templates or shadow Options settings."""
     from custom_components.robotix_multicharge.command_query import (
         apply_native_preference,
     )
@@ -881,8 +1124,8 @@ async def test_dashboard_native_energy_source_mapping_no_shadow_settings(
     assert stored["solar_source_kind"] == "grid_export"
     assert len(hass.config_entries.async_entries(DOMAIN)) == 1
     menu = await hass.config_entries.options.async_init(entry.entry_id)
-    assert menu["type"] == FlowResultType.ABORT
-    assert menu["reason"] == "dashboard_only"
+    assert menu["type"] == FlowResultType.MENU
+    assert "energy" in menu["menu_options"]
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 @pytest.mark.asyncio
@@ -1183,8 +1426,8 @@ async def test_new_install_dashboard_typed_four_chargers_four_assets(
         (DOMAIN, "asset/audi"), entry.entry_id,
     )
     opts = await hass.config_entries.options.async_init(entry.entry_id)
-    assert opts["type"] == FlowResultType.ABORT
-    assert opts["reason"] == "dashboard_only"
+    assert opts["type"] == FlowResultType.MENU
+    assert {"charger_pick", "asset_pick", "yaml"}.issubset(opts["menu_options"])
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 

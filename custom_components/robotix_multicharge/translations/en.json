@@ -117,14 +117,6 @@
         "data": {
           "yaml_text": "Paste complete MultiCharge configuration as JSON (controller/assets/chargers)"
         }
-      },
-      "expert_review": {
-        "title": "Review complete site configuration",
-        "description": "{summary} Confirm only after reviewing all logical devices and settings.",
-        "data": {
-          "confirm": "I have reviewed the complete configuration",
-          "edit_again": "Back to JSON editor"
-        }
       }
     },
     "abort": {
@@ -145,9 +137,11 @@
           "asset": "Chargeable assets",
           "charger": "Chargers",
           "display": "Dashboard card",
-          "yaml": "Edit full JSON (review before save)",
+          "yaml": "Edit complete configuration (JSON / YAML)",
           "commission": "Commission Charger",
-          "energy": "Energy & prices"
+          "energy": "Energy & prices",
+          "charger_pick": "Choose a charging point",
+          "asset_pick": "Choose a chargeable asset"
         }
       },
       "controller": {
@@ -158,7 +152,10 @@
           "solar_entity": "Qualified solar available-power interval source (optional)",
           "binding_entity": "Optional binding power envelope (fail closed if unavailable) (optional)",
           "phase_limits_a": "Verified phase limits, e.g. L1:16,L2:16,L3:16 (A) (optional)",
-          "site_power_entity": "Optional binding power envelope (fail closed if unavailable) (optional)"
+          "site_power_entity": "Optional binding power envelope (fail closed if unavailable) (optional)",
+          "mode": "Charging mode",
+          "max_parallel": "Maximum parallel chargers",
+          "max_power_kw": "Site power limit (kW)"
         }
       },
       "asset": {
@@ -173,7 +170,8 @@
           "capacity_kwh": "Battery capacity (kWh)",
           "vehicle_control_entity": "Vehicle native control switch (source binding)",
           "vehicle_current_entity": "Vehicle native current number (source binding)",
-          "soc_stale_entity": "OEM data-stale binary sensor (on = stale)"
+          "soc_stale_entity": "OEM data-stale binary sensor (on = stale)",
+          "target_soc": "Target charge (%)"
         }
       },
       "charger": {
@@ -213,19 +211,10 @@
         }
       },
       "yaml": {
-        "title": "MultiCharge — JSON configuration",
-        "description": "Edit all current settings or submit scoped changes. All changes are validated before review; no physical controls are activated. {note}",
+        "title": "Edit complete configuration (JSON / YAML)",
+        "description": "Edit the existing full configuration and press Save. One Home Assistant Config Entry, no physical charging command. {note}",
         "data": {
-          "mode": "Update mode",
-          "yaml_text": "MultiCharge configuration (JSON, safe YAML also accepted)"
-        }
-      },
-      "yaml_review": {
-        "title": "Review JSON changes",
-        "description": "{summary}\nConfirm only after checking the complete impact. No charger command is sent by this operation.",
-        "data": {
-          "confirm": "Apply these reviewed configuration changes",
-          "edit_again": "Back to JSON editor"
+          "yaml_text": "Edit complete configuration (JSON / YAML)"
         }
       },
       "commission": {
@@ -253,6 +242,18 @@
           "solar_source_kind": "Solar control source",
           "grid_power_direction": "Grid meter sign",
           "use_energy_dashboard": "Use configured Energy Dashboard sources"
+        }
+      },
+      "charger_pick": {
+        "title": "Choose a charging point",
+        "data": {
+          "selected": "Add new or select existing"
+        }
+      },
+      "asset_pick": {
+        "title": "Choose a chargeable asset",
+        "data": {
+          "selected": "Add new or select existing"
         }
       }
     },

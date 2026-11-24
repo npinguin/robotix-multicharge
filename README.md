@@ -8,7 +8,7 @@
 
 Robotix MultiCharge is an open-source Home Assistant integration being built to coordinate charging for electric cars, e-bikes and other compatible rechargeable assets. The goal: make smart use of electricity prices, solar energy, available power and charging deadlines—without locking you to a vehicle, charger or energy provider.
 
-> **HACS TEST v0.1.11 — independent Community integration, not STABLE or field-qualified.** This increment adds device-owned native Home Assistant inputs/actions automatically on the logical ChargeController, Charger and ChargeableAsset, with everyday charging controls in the integrated dashboard instead of the Options Flow. Newly added car profiles default to an editable 80% target; recurring Ready By schedules and variable-current Charger min/max/set kW are supported where the hardware qualifies. Guided setup can select Automatic mode, but **real Charger ownership remains external until explicit qualified commissioning**. Never run two physical writers on the same charger. Actual charger operation, source quality, responsive UX and every field use-case still require acceptance. No other Robotix/RHI integration is required.
+> **HACS TEST v0.1.12 — independent Community integration, not STABLE or field-qualified.** This increment adds device-owned native Home Assistant inputs/actions automatically on the logical ChargeController, Charger and ChargeableAsset, with everyday charging controls in the integrated dashboard and **optional native Home Assistant Configure** (Charging site, Chargers, Chargeable assets, Energy & prices, Expert YAML/JSON). No mandatory wizard is needed at installation. Newly added car profiles default to an editable 80% target; recurring Ready By schedules and variable-current Charger min/max/set kW are supported where the hardware qualifies. Guided setup can select Automatic mode, but **real Charger ownership remains external until explicit qualified commissioning**. Never run two physical writers on the same charger. Actual charger operation, source quality, responsive UX and every field use-case still require acceptance. No other Robotix/RHI integration is required.
 
 ## Functional product authority
 
@@ -33,7 +33,7 @@ One existing **Details** disclosure on each object also shows **every persisted 
 
 **Input stability:** Every native and in-dashboard Controller, Charger, Asset, Guest, schedule, YAML textarea and commissioning field stays open while the user focuses or enters data. Background Home Assistant sensor updates, the source-refresh coalescer and delayed get_plan responses continue updating observations without replacing the active form, erasing unsubmitted input or dismissing an iPad keyboard. There is **no inactivity-based editor timeout**. Only explicit Save, Cancel, navigation or Refresh may repaint the user's open form; rejected Save preserves the typed value and shows an in-place error. This is covered by automated source/browser regressions; actual Wessels Safari acceptance is separate.
 
-**Release distinction:** source, isolated-HA and Chromium tests do not establish real Wessels Safari/iPad behavior, real provider readings, owner handoff or physical STOP. Immutable v0.1.10 remains the rollback TEST for the v0.1.11 direct-Save correction; publishing TEST requires exact-dev, merged-main and artifact qualification.
+**Release distinction:** source, isolated-HA and Chromium tests do not establish real Wessels Safari/iPad behavior, real provider readings, owner handoff or physical STOP. Immutable v0.1.11 remains the rollback TEST for the v0.1.12 native Options recovery; publishing TEST requires exact-dev, merged-main and artifact qualification.
 
 ### Beginner-first UX and combined charging graph (dev)
 
@@ -51,22 +51,31 @@ In the current independently distributed integration, the existing one-controlle
 
 For full positive/negative and original upstream EV Smart Charging v2.6.1 parity requirements, see the [one canonical Functional Specification](docs/FUNCTIONAL_SPECIFICATION.md); implementation and remaining gates are recorded only in [Issue #1](https://github.com/npinguin/robotix-multicharge/issues/1) and the existing [Draft PR #9](https://github.com/npinguin/robotix-multicharge/pull/9).
 
-## Configure everything in the MultiCharge dashboard
+## Optional setup — Home Assistant Configure or MultiCharge dashboard
 
-**One installation, one configuration authority.** Add the Robotix MultiCharge
-integration once under Home Assistant **Settings → Devices & services** to
-create its empty Config Entry. From then on, use only the bundled
-**MultiCharge dashboard** for all configuration and charging actions. No
-external YAML/JSON files, manual templates, `/config/packages`, Home Assistant
-Options screens, helper entities, or separate Lovelace chart card are required.
-All supported configuration remains editable through typed fields inside the
-same five-tab dashboard. In **Settings → Edit YAML**, users can open and edit the **complete current configuration**
-in one large multiline JSON/YAML text area and press **Save** once (or **Cancel**).
-The backend performs administrator authorization and validation, checks the
-original revision and safe physical-writer ownership boundaries, and commits only
-to the **same Home Assistant Config Entry**. It does not create a second YAML
-configuration file, open Home Assistant Options Flow, issue a charging command,
-or transfer physical ownership. Imported file-owned configurations are read-only.
+**One-click installation, one Config Entry.** Add the Robotix MultiCharge
+integration once under Home Assistant **Settings → Devices & services**. No
+Charger, vehicle, price sensor, PV sensor or multi-step wizard is required at
+installation. A valid empty charging site is immediately available.
+
+When you want to configure it, open **Settings → Devices & services →
+Robotix MultiCharge → Configure**. The native Home Assistant menu offers
+**Charging site**, **Chargers**, **Chargeable assets**, **Energy & prices**,
+**Edit complete configuration (JSON/YAML)** and the existing display/physical
+commissioning options. The guided routes select existing Charger/Asset records
+by name or add new ones, prefill saved values, and use native HA entity selectors.
+The expert form shows the **complete actual Config Entry** as one large editable
+JSON/YAML text area with a single **Save**. There is no Review wizard or
+separate JSON/YAML file. Closing a form without saving leaves the entry intact.
+
+The bundled **MultiCharge dashboard** remains an equally valid configuration
+route with typed object-level editing and **Settings → Edit YAML → Save**.
+Both surfaces write to the **same validated Home Assistant Config Entry**;
+nothing is imported into `configuration.yaml`, `/config/packages`, templates,
+a second planner or a parallel settings store. Home Assistant authorization,
+schema validation, stale-revision detection and physical ownership protection
+remain server-side. Configuring sources does **not** commission or command
+hardware. Existing imported file-owned configurations remain read-only.
 
 The automatic sidebar at `/robotix-multicharge` uses the same five
 tabs for novice and expert use:
