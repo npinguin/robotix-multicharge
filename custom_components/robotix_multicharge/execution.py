@@ -1,8 +1,7 @@
 """Single native HA switch/current executor, strict admission and physical readback.
 
-Only explicitly selected switch entities can be controlled. External EVSC
-ownership remains the default. Hardware cutover and commissioning are not
-implied by passing software tests.
+Only user-selected and activated switch entities can be controlled.
+MultiCharge owns its own commands and reports capability-appropriate readback.
 """
 from __future__ import annotations
 
@@ -1048,11 +1047,11 @@ class NativeSwitchExecutor:
             if power.quality != "ok":
                 power = Evidence(other["rated_power_kw"] if state is None or state.state == "on" else 0.0,
                                  "estimated", None, "DECLARED_CAPACITY_RESERVATION")
-            # A third-party Charger need not expose its writer switch.
+            # An inactive configured Charger need not expose a control switch.
             # Both a fresh physical disconnect AND zero measured power prove
             # this *present* plug cannot energize; do not reserve a phantom
             # parallel slot. Connected, stale or unknown physical state still
-            # reserves full rated capacity, since another writer can start.
+            # reserves declared capacity where required by configured shared limits.
             unknown_external_state = (
                 state is None
                 and other.get("control_owner") != "multicharge"
@@ -1511,7 +1510,7 @@ class NativeSwitchExecutor:
                 if switch.state == "on":
                     if self._sessions.get(uid, {}).get("manual_mode") == mode:
                         continue  # finite manual timer owns this session, not a quarter plan
-                    # Never adopt an unowned session after restart or handover.
+                    # Never adopt an unconfirmed session after restart.
                     session = self._sessions.get(uid)
                     if session is None or uid not in self._accepted:
                         await self.execute(uid, "stop")
@@ -1646,7 +1645,7 @@ class NativeSwitchExecutor:
                 session_reason = self._session_stop_reason(charger, at)
                 accepted = self._accepted.get(uid)
                 is_auto = mode in ("Automatic", "Solar", "Economy", "Ready By")
-                # Give a pending quarter callback a brief handover window.
+                # Give a pending quarter callback a brief scheduling grace period.
                 in_grace = (at - datetime.fromtimestamp(
                     int(at.timestamp()) // 900 * 900, timezone.utc
                 )).total_seconds() < 10
