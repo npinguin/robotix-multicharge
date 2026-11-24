@@ -48,7 +48,7 @@ for(let index=0;index<scopeList.length;index++){
 }
 
 class Element {
-  constructor(tag){this.tag=tag;this.tagName=tag.toUpperCase();this.children=[];this.attributes={};this.events={};this.style={};this.textContent="";this.value="";}
+  constructor(tag){this.tag=tag;this.tagName=String(tag||"").toUpperCase();this.children=[];this.attributes={};this.events={};this.style={};this.textContent="";this.value="";}
   append(...items){this.children.push(...items);}
   replaceChildren(...items){this.children=[...items];}
   setAttribute(k,v){this.attributes[k]=v;}
