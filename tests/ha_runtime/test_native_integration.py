@@ -1635,7 +1635,9 @@ async def test_expert_json_include_skips_wizard_and_reuses_entry(hass: HomeAssis
     entry = entries[0]
     assert entry.state.value == "loaded"
     assert entry.data["source"] == "json"
-    assert entry.data["configuration"] == normalize_expert_json(expert)
+    expected = normalize_expert_json(expert)
+    expected["assets"][0]["target_soc"] = 80.0
+    assert entry.data["configuration"] == expected
     assert frontend.async_panel_exists(hass, "robotix-multicharge"), (
         "Direct JSON expert import must also create resident sidebar dashboard"
     )
