@@ -1035,10 +1035,19 @@ def prepare_expert_yaml_revision(current, document, mode="merge"):
 def apply_new_import_defaults(before, candidate):
     """Default only new SoC-capable imported profiles; preserve explicit goals."""
     candidate = deepcopy(candidate)
-    existing_ids = {row["id"] for row in before.get("assets", [])}
+    existing = {row["id"]: row for row in before.get("assets", [])}
     for asset in candidate["assets"]:
-        if asset["id"] not in existing_ids and asset.get("soc_entity"):
+        if not asset.get("soc_entity") or any(asset.get(key) is not None for key in (
+            "target_soc", "requested_kwh", "requested_duration_minutes", "requested_budget_amount"
+        )):
+            continue
+        prior = existing.get(asset["id"])
+        if prior is None:
             apply_new_asset_defaults(asset)
+        elif prior.get("target_soc") is not None:
+            # A repeated import of the original input retains its persisted
+            # target rather than silently removing the default or user preference.
+            asset["target_soc"] = prior["target_soc"]
     return validate_configuration(candidate)
 
 
