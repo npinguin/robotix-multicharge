@@ -691,8 +691,8 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                  if ceiling is not None else "Group power ceiling not yet configured")
         return {"summary": (
             f"{len(cfg['chargers'])} charging points, {len(cfg['assets'])} assets. "
-            f"{limit}. Physical controls can be commissioned from "
-            "Home Assistant Options > Commission, using independent native "
+            f"{limit}. Select Active in Charger settings when desired. Use "
+            "relevant native "
             "sensor and safe-idle readback. No RHI modules are required."
         )}
 
@@ -820,68 +820,10 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             self._last_config_error = str(exc)
             return None
 
-    async def async_step_commission(self, user_input=None):
-        """Opt-in standalone physical ownership with source-qualified idle gate.
-
-        A deliberate operator assertion is required because Home Assistant
-        cannot inspect hidden provider automations for competing EVSE writes.
-        No device command is issued by this flow.
-        """
-        current = self._current()
-        if not current["chargers"]:
-            return self.async_abort(reason="no_chargers")
-        errors = {}
-        if user_input is not None:
-            charger_id = user_input.get("charger_id")
-            desired = bool(user_input.get("commission"))
-            if (not charger_id
-                    or (desired and not user_input.get("exclusive_writer_confirmed"))
-                    or (desired and not user_input.get("electrical_limits_confirmed"))):
-                errors["base"] = "invalid_config"
-            else:
-                trial = deepcopy(current)
-                selected = next(
-                    (row for row in trial["chargers"] if row["id"] == charger_id),
-                    None,
-                )
-                if selected is None:
-                    errors["base"] = "invalid_config"
-                else:
-                    selected["control_owner"] = (
-                        "multicharge" if desired else "external"
-                    )
-                    selected["physical_commissioned"] = desired
-                    result = await self._safe_structural_save(trial)
-                    if result is not None:
-                        return result
-                    errors["base"] = "invalid_config"
-        choices = {row["id"]: row["name"] for row in current["chargers"]}
-        return self.async_show_form(
-            step_id="commission", errors=errors,
-            data_schema=vol.Schema({
-                vol.Required("charger_id"): vol.In(choices),
-                vol.Required("commission", default=True): bool,
-                vol.Required("exclusive_writer_confirmed", default=False): bool,
-                vol.Required("electrical_limits_confirmed", default=False): bool,
-            }),
-            description_placeholders={
-                "note": (
-                    "Stand-alone Home Assistant ownership. Before enabling, "
-                    "stop or disable every other controller/automation for "
-                    "this exact physical Charger, verify its circuit and "
-                    "hardware limits, and configure independent live "
-                    "connection, switch and power readback. The Charger must "
-                    "be observed OFF with near-zero power; active/unknown "
-                    "control states, unavailable sources and unresolved "
-                    "commands are rejected. No RHI integration is required."
-                ),
-            },
-        )
-
     async def async_step_yaml(self, user_input=None):
         """Edit the complete current Config Entry with one native Save.
 
-        Physical owner changes belong to Commission, not free-text edits.
+        Explicit activation changes use the same validated Config Entry.
         """
         cfg = self._current()
         if not hasattr(self, "_form_baseline_revision"):
