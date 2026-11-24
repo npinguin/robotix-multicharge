@@ -92,12 +92,22 @@ def _assert_safe_expert_import(runtime, updated, *, source_changed=False):
             updated == current
             or is_plan_presentation_only_change(current, updated))):
         return
+    before = {item["id"]: item for item in current["chargers"]}
+    after = {item["id"]: item for item in updated["chargers"]}
+    # The reconciliation gate protects physical writers, not harmless edits
+    # to a monitoring-only site. No Charger is commissioned by editing a
+    # name, price source or uncommissioned external Charger mapping.
+    physical_writer = any(
+        row.get("control_owner") == "multicharge"
+        and row.get("physical_commissioned") is True
+        for row in [*before.values(), *after.values()]
+    )
+    if not physical_writer:
+        return
     executor = runtime.executor
     if (not executor._persistence_verified or executor._inflight
             or executor._start_pending or executor._quarantine):
         raise ValueError("EXPERT_IMPORT_REQUIRES_RECONCILED_CONTROL_STATE")
-    before = {item["id"]: item for item in current["chargers"]}
-    after = {item["id"]: item for item in updated["chargers"]}
     now = datetime.now(timezone.utc)
     for uid in before.keys() | after.keys():
         old = before.get(uid)
