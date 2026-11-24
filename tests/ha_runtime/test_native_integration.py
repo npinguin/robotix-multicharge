@@ -621,7 +621,7 @@ async def test_native_nordpool_action_resolves_selected_registry_area(hass: Home
     from datetime import datetime, timedelta, timezone
     from homeassistant.core import SupportsResponse
     from homeassistant.helpers import entity_registry as er
-    from custom_components.robotix_multicharge import _async_native_nordpool_prices
+    from custom_components.robotix_multicharge.source_evidence import async_native_nordpool_prices
 
     provider = MockConfigEntry(domain="nordpool", title="Selected market",
                                data={"areas": ["BE", "NL"], "currency": "EUR"})
@@ -642,14 +642,14 @@ async def test_native_nordpool_action_resolves_selected_registry_area(hass: Home
 
     hass.services.async_register("nordpool", "get_prices_for_date",
                                  price_service, supports_response=SupportsResponse.ONLY)
-    slots, status = await _async_native_nordpool_prices(hass, selected.entity_id, at)
+    slots, status = await async_native_nordpool_prices(hass, selected.entity_id, at)
     assert status == "OK" and len(slots) == 1
     assert slots[0].effective_price_per_kwh == -0.025
     assert slots[0].basis == "spot"
     assert [c["date"] for c in calls] == ["2026-11-24", "2026-11-25"]
     assert all(c["areas"] == ["BE"] and c["config_entry"] == provider.entry_id
                and c["currency"] == "EUR" for c in calls)
-    assert await _async_native_nordpool_prices(hass, "sensor.unrelated", at) is None
+    assert await async_native_nordpool_prices(hass, "sensor.unrelated", at) is None
 
 
 @pytest.mark.asyncio

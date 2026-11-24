@@ -217,6 +217,10 @@ class PackageTest(unittest.TestCase):
                      "command_query.py"):
             source = (COMPONENT / name).read_text(encoding="utf8")
             self.assertNotIn("services.async_call(", source)
+        evidence = (COMPONENT / "source_evidence.py").read_text(encoding="utf8")
+        self.assertEqual(evidence.count("services.async_call("), 1)
+        self.assertIn('"nordpool", "get_prices_for_date",', evidence)
+        self.assertIn("blocking=True, return_response=True", evidence)
         executor = (COMPONENT / "execution.py").read_text(encoding="utf8")
         self.assertIn("services.async_call(", executor)
         self.assertIn('"switch", "turn_on" if action == "start" else "turn_off"', executor)

@@ -5,14 +5,10 @@ Native source/planning lifecycle and a physically guarded single charging writer
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from zoneinfo import ZoneInfo
 from datetime import datetime as utc_datetime, timedelta, timezone
 
 from homeassistant.core import callback
-from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.event import (
     async_track_time_interval, async_track_state_change_event,
@@ -31,7 +27,7 @@ from .configuration import (
 )
 from .const import DOMAIN
 from .runtime import MultiChargeRuntime
-from .source_evidence import native_price_rows
+from .source_evidence import async_native_nordpool_prices
 from .plan_query import register_plan_query
 from .command_query import register_command_query, register_settings_query
 from .frontend import (
@@ -146,49 +142,6 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-async def _async_native_nordpool_prices(hass, source, now):
-    """Read the official Nord Pool action through the selected HA entity."""
-    entity = er.async_get(hass).async_get(source)
-    if (entity is None or entity.platform != "nordpool"
-            or not entity.unique_id.endswith("-current_price")
-            or not entity.config_entry_id):
-        return None
-    provider = hass.config_entries.async_get_entry(entity.config_entry_id)
-    if provider is None or provider.domain != "nordpool":
-        return None
-    area = entity.unique_id.removesuffix("-current_price")
-    currency = provider.data.get("currency")
-    if (area not in provider.data.get("areas", []) or not isinstance(currency, str)
-            or len(currency) != 3 or not currency.isascii() or not currency.isupper()
-            or not currency.isalpha()):
-        return (), "NORDPOOL_SELECTION_UNVERIFIED"
-    if not hass.services.has_service("nordpool", "get_prices_for_date"):
-        return (), "NORDPOOL_ACTION_UNAVAILABLE"
-    market_day = now.astimezone(ZoneInfo("Europe/Oslo")).date()
-    rows = []
-    for day in (market_day, market_day + timedelta(days=1)):
-        try:
-            async with asyncio.timeout(10):
-                response = await hass.services.async_call(
-                    "nordpool", "get_prices_for_date",
-                    {"config_entry": provider.entry_id, "date": day.isoformat(),
-                     "areas": [area], "currency": currency},
-                    blocking=True, return_response=True,
-                )
-            data = response.get(area, []) if isinstance(response, dict) else []
-            if data:
-                slots, quality = native_price_rows(data, now, currency, 0.001, basis="spot")
-                if quality == "OK":
-                    rows.extend(slots)
-        except (HomeAssistantError, TimeoutError, ValueError, TypeError, KeyError):
-            # Tomorrow may be unpublished; keep today's validated curve.
-            continue
-    rows.sort(key=lambda row: row.start)
-    if not rows or any(a.end > b.start for a, b in zip(rows, rows[1:])):
-        return (), "NORDPOOL_FORECAST_UNAVAILABLE"
-    return tuple(rows), "OK"
-
-
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Expose only truthful configuration-status entities in this bootstrap."""
     if (entry.data.get("source") in ("yaml", "json")
@@ -224,7 +177,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await runtime.executor.supervise()
 
     async def fetch_price():
-        result = await _async_native_nordpool_prices(hass, price_source, utc_datetime.now(timezone.utc))
+        result = await async_native_nordpool_prices(hass, price_source, utc_datetime.now(timezone.utc))
         if result is not None and runtime.active:
             slots, quality = result
             runtime.nordpool_prices = (price_source, slots, quality, utc_datetime.now(timezone.utc))

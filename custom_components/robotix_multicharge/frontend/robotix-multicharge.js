@@ -2959,6 +2959,12 @@ class RobotixMultiChargeCard extends HTMLElement {
           if(!this.canEditSettings())mcPair(detail,"Charging mode",ctl.mode||"Unknown");
         }else if(title==="Sources & bindings"){
           detail.append(mcEl("h4","",mcTr("Site energy configuration")));
+          detail.append(mcEl("p","muted small",mcTr("Select your import price sensor. Forecast intervals are detected automatically; use a separate forecast source only when needed.")));
+          const price=d.observations?.sources||{};
+          mcPair(detail,"Forecast source",price.tariff_source||mcTr("Not set"));
+          mcPair(detail,"Forecast intervals",price.tariff_slot_count??0);
+          mcPair(detail,"Prices available until",price.tariff_coverage_until?mcTime(price.tariff_coverage_until,d.timezone):mcTr("Unknown"));
+          mcPair(detail,"Tariff",mcReason(price.tariff_quality));
           const solarMode=ctl.solar_source_kind||
             (ctl.solar_entity?"intervals":"none");
           mcPair(detail,mcTr("Solar source type"),mcTr(solarMode));
@@ -3000,8 +3006,8 @@ class RobotixMultiChargeCard extends HTMLElement {
             ["home_power_entity","Home consumption"],
             ["grid_power_entity","Grid power"],
             ["solar_surplus_entity","Solar surplus"],
-            ["price_entity","Future tariff intervals"],
             ["current_price_entity","Current import price"],
+            ["price_entity","Future tariff intervals"],
             ["export_price_entity","Current export price"],
             ["solar_entity","Solar intervals"],
             ["site_power_entity","Site power"],["binding_entity","Capacity"]
