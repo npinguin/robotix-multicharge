@@ -148,29 +148,6 @@ def _parse_editor_yaml(text):
     return document
 
 
-def _yaml_review_summary(old, new):
-    lines = []
-    fields = sorted(key for key in set(old["controller"]) | set(new["controller"])
-                    if old["controller"].get(key) != new["controller"].get(key))
-    lines.append("Site settings: " + (", ".join(fields) if fields else "unchanged"))
-    for category in ("chargers", "assets"):
-        prior = {row["id"]: row for row in old[category]}
-        current = {row["id"]: row for row in new[category]}
-        adds = sorted(current.keys() - prior.keys())
-        removes = sorted(prior.keys() - current.keys())
-        updates = sorted(key for key in current.keys() & prior.keys()
-                         if current[key] != prior[key])
-        lines.append(f"{category.title()}: {len(current)} total")
-        for label, keys in (("Add", adds), ("Modify", updates), ("Remove", removes)):
-            if keys:
-                lines.append(f"  {label}: {', '.join(keys)}")
-    lines.extend((
-        "Physical charger control owner: unchanged",
-        "Commissioning: unchanged; this edit sends no charging command.",
-    ))
-    return "\n".join(lines)
-
-
 def _assert_safe_yaml_ui_commit(runtime, updated):
     """Recheck source and safety immediately before native Options Save."""
     _assert_safe_expert_import(runtime, updated)
@@ -190,6 +167,12 @@ def _assert_safe_yaml_ui_commit(runtime, updated):
         if (uid in runtime.executor._sessions or
                 uid in runtime.executor._start_pending):
             raise ValueError("YAML_UPDATE_CHARGER_BUSY")
+        # Read-only external hardware can be mapped without asserting idle:
+        # MultiCharge has no physical command authority over this charger.
+        # Active or commissioned MultiCharge writers retain full idle checks.
+        if (previous.get("control_owner") != "multicharge"
+                and previous.get("physical_commissioned") is not True):
+            continue
         if previous.get("power_entity"):
             observed = number(
                 runtime.hass, previous["power_entity"], "power",
