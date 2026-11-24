@@ -616,6 +616,43 @@ async def test_variable_charger_native_power_controls_share_owning_device(hass: 
 
 
 @pytest.mark.asyncio
+async def test_native_nordpool_action_resolves_selected_registry_area(hass: HomeAssistant):
+    """Real HA registry and response-service contract; fixture market values."""
+    from datetime import datetime, timedelta, timezone
+    from homeassistant.core import SupportsResponse
+    from homeassistant.helpers import entity_registry as er
+    from custom_components.robotix_multicharge import _async_native_nordpool_prices
+
+    provider = MockConfigEntry(domain="nordpool", title="Selected market",
+                               data={"areas": ["BE", "NL"], "currency": "EUR"})
+    provider.add_to_hass(hass)
+    selected = er.async_get(hass).async_get_or_create(
+        "sensor", "nordpool", "BE-current_price", config_entry=provider,
+        suggested_object_id="renamed_price_sensor")
+    at = datetime(2026, 11, 24, 12, tzinfo=timezone.utc)
+    calls = []
+
+    async def price_service(call):
+        calls.append(dict(call.data))
+        if len(calls) == 2:
+            return {"BE": []}  # tomorrow not published
+        return {"BE": [{"start": at.isoformat(),
+                        "end": (at + timedelta(minutes=15)).isoformat(),
+                        "price": -25.0}]}
+
+    hass.services.async_register("nordpool", "get_prices_for_date",
+                                 price_service, supports_response=SupportsResponse.ONLY)
+    slots, status = await _async_native_nordpool_prices(hass, selected.entity_id, at)
+    assert status == "OK" and len(slots) == 1
+    assert slots[0].effective_price_per_kwh == -0.025
+    assert slots[0].basis == "spot"
+    assert [c["date"] for c in calls] == ["2026-11-24", "2026-11-25"]
+    assert all(c["areas"] == ["BE"] and c["config_entry"] == provider.entry_id
+               and c["currency"] == "EUR" for c in calls)
+    assert await _async_native_nordpool_prices(hass, "sensor.unrelated", at) is None
+
+
+@pytest.mark.asyncio
 async def test_v1_migration_keeps_identity_and_repairs_missing_inactive_soc_target(hass: HomeAssistant):
     """Upgrade existing UI profiles without granting an active new charging intent."""
     from homeassistant.helpers import entity_registry as er
