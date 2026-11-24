@@ -794,7 +794,8 @@ class NativeSwitchExecutor:
                 if progress["duration_minutes"] is None:
                     return "ASSET_DURATION_PROGRESS_UNAVAILABLE"
                 duration = max(0, duration - progress["duration_minutes"])
-        if charger.get("phase_count") not in (1, 2, 3):
+        if (charger["kind"] == "variable_current" or ctl.get("phase_limits_a")
+                or charger.get("circuit_id")) and charger.get("phase_count") not in (1, 2, 3):
             return "PHYSICAL_PHASES_UNVERIFIED"
         requested_kw = charger["rated_power_kw"]
         if charger["kind"] == "variable_current":
@@ -1005,29 +1006,44 @@ class NativeSwitchExecutor:
             if is_active:
                 occupied += 1
                 amps = other.get("fixed_current_a")
+                shared_circuit = (charger.get("circuit_id")
+                                  and other.get("circuit_id") == charger.get("circuit_id"))
+                phase_limits = bool(ctl.get("phase_limits_a"))
+                needs_amps = phase_limits or shared_circuit
+                reserved_kw = max(power.value, other["rated_power_kw"])
                 if other["kind"] == "variable_current":
-                    sensed = number(self.runtime.hass,
-                                    other.get("current_readback_entity"), "current", at)
-                    if sensed.quality != "ok":
-                        return "OTHER_CHARGER_CURRENT_UNAVAILABLE"
                     session = self._sessions.get(other["id"])
-                    if session and session.get("target_current_a") is not None:
-                        amps = max(sensed.value, session["target_current_a"])
-                        reserved += max(power.value, amps * other["voltage_v"]
-                                        * len(other["phase_ids"]) / 1000)
-                    else:
-                        amps = other["max_current_a"]
-                        reserved += max(power.value, other["rated_power_kw"])
-                else:
-                    reserved += max(power.value, other["rated_power_kw"])
-                if ctl.get("phase_limits_a") or other.get("circuit_id"):
-                    if amps is None or not other.get("phase_ids"):
+                    target = session.get("target_current_a") if session else None
+                    if needs_amps or target is not None:
+                        sensed = number(self.runtime.hass,
+                                        other.get("current_readback_entity"), "current", at)
+                        if sensed.quality != "ok":
+                            if needs_amps:
+                                return "OTHER_CHARGER_CURRENT_UNAVAILABLE"
+                        elif target is not None:
+                            amps = max(sensed.value, target)
+                            if other.get("voltage_v") and other.get("phase_ids"):
+                                reserved_kw = max(power.value, amps * other["voltage_v"]
+                                                  * len(other["phase_ids"]) / 1000)
+                        else:
+                            # External adjustable load can increase within
+                            # its declared envelope; reserve that envelope
+                            # where a configured ampere constraint depends on it.
+                            limit = other.get("max_current_a")
+                            if limit is None:
+                                return "OTHER_CHARGER_CURRENT_RANGE_UNAVAILABLE"
+                            amps = max(sensed.value, limit)
+                reserved += reserved_kw
+                if needs_amps and amps is None:
+                    return "OTHER_CHARGER_CURRENT_UNAVAILABLE"
+                if phase_limits:
+                    if not other.get("phase_ids"):
                         return "OTHER_CHARGER_PHASES_UNVERIFIED"
                     for phase in other["phase_ids"]:
                         phase_totals[phase] = phase_totals.get(phase, 0) + amps
-                    if other.get("circuit_id"):
-                        key = other["circuit_id"]
-                        circuits[key] = circuits.get(key, 0) + amps
+                if shared_circuit:
+                    key = other["circuit_id"]
+                    circuits[key] = circuits.get(key, 0) + amps
             elif power.value > stop_power_limit(other):
                 return "OTHER_CHARGER_POWER_WITH_SWITCH_OFF"
         if occupied >= ctl["max_parallel"]:
@@ -1137,15 +1153,23 @@ class NativeSwitchExecutor:
                 return "REQUESTED_DURATION_COMPLETE"
         if session["starting_energy_kwh"] is not None:
             obs = number(self.runtime.hass, charger.get("energy_entity"), "energy", now)
-            if obs.quality != "ok":
-                return "SESSION_ENERGY_METER_UNAVAILABLE"
-            delivered = obs.value - session["starting_energy_kwh"]
-            if delivered < -0.00001:
-                return "SESSION_ENERGY_METER_RESET"
-            session["actual_energy_kwh"] = round(max(0, delivered), 6)
-            if (session["requested_kwh"] is not None
-                    and delivered >= session["requested_kwh"]):
-                return "REQUESTED_ENERGY_COMPLETE"
+            required = (session["requested_kwh"] is not None
+                        or session.get("requested_budget_amount") is not None)
+            delivered = (obs.value - session["starting_energy_kwh"]
+                         if obs.quality == "ok" else None)
+            if delivered is None or delivered < -0.00001:
+                if required:
+                    return ("SESSION_ENERGY_METER_UNAVAILABLE" if delivered is None
+                            else "SESSION_ENERGY_METER_RESET")
+                # A missing optional meter affects accounting, not a finite
+                # duration or SoC target. Do not reconstruct the lost baseline.
+                session["starting_energy_kwh"] = None
+                session["actual_energy_kwh"] = None
+            else:
+                session["actual_energy_kwh"] = round(max(0, delivered), 6)
+                if (session["requested_kwh"] is not None
+                        and delivered >= session["requested_kwh"]):
+                    return "REQUESTED_ENERGY_COMPLETE"
         if session.get("requested_budget_amount") is not None:
             # Physical metering is the source of progress. Price intervals
             # must cover each actually observed meter increment completely.

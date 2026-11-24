@@ -161,7 +161,7 @@ async def websocket_update_settings(
             "charger_busy": "CHARGER_BUSY_STOP_FIRST",
             "charger_occupied": "CHARGER_HAS_OTHER_ASSET",
             "stale_settings": "STALE_SETTINGS_REFRESH",
-        }.get(str(exc), "SETTINGS_REJECTED")
+        }.get(str(exc).split(":", 1)[0], "SETTINGS_REJECTED")
         runtime.record_settings_action(
             msg["scope"], msg["target_id"], msg.get("action", "save"),
             msg["changes"], configuration_revision(runtime.configuration),

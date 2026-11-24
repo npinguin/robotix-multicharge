@@ -612,6 +612,43 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(receipt["actual_energy_kwh"])
         self.assertEqual(receipt["energy_quality"], "unknown")
 
+    async def test_optional_energy_meter_loss_does_not_stop_duration(self):
+        rt, sources, services = rig()
+        rt.configuration["chargers"][0].pop("asset")
+        started = await rt.executor.execute(
+            "evse", "start", manual_request={"duration_minutes": 30}
+        )
+        self.assertEqual(started["status"], "confirmed")
+        sources["sensor.meter"].state = "unavailable"
+        await rt.executor.supervise()
+        self.assertEqual([call[1] for call in services.calls], ["turn_on"])
+        self.assertIsNone(rt.executor.session_snapshot()["evse"]["actual_energy_kwh"])
+        rt.executor._sessions["evse"]["started_at"] -= timedelta(minutes=31)
+        await rt.executor.supervise()
+        self.assertEqual([call[1] for call in services.calls], ["turn_on", "turn_off"])
+        self.assertIsNone(rt.executor.completed_sessions()[0]["actual_energy_kwh"])
+
+    async def test_external_adjustable_kw_only_does_not_require_amp_readback(self):
+        rt, sources, services = rig(group_kw=5)
+        rt.configuration["controller"]["max_parallel"] = 2
+        rt.configuration["chargers"].append({
+            "id": "other", "name": "External EVSE",
+            "kind": "variable_current", "rated_power_kw": 2,
+            "power_entity": "sensor.other_power",
+            "control_owner": "external", "physical_commissioned": False,
+        })
+        sources["sensor.other_power"] = state(1500, "W")
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"],
+                         "confirmed")
+        self.assertEqual([call[1] for call in services.calls], ["turn_on"])
+        self.assertEqual((await rt.executor.execute("evse", "stop"))["status"],
+                         "confirmed")
+        # A configured aggregate phase limit genuinely needs amp evidence.
+        rt.configuration["controller"]["phase_limits_a"] = {"L1": 32}
+        self.assertEqual(rt.executor._physical_budget(
+            rt.configuration["chargers"][0], datetime.now(timezone.utc), 2, 10
+        ), "OTHER_CHARGER_CURRENT_UNAVAILABLE")
+
     async def test_charger_only_rejects_unbounded_invalid_or_assigned_requests(self):
         rt, _, services = rig()
         refused = await rt.executor.execute(
@@ -1753,7 +1790,7 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcome["reason"], "MAX_PARALLEL_REACHED")
         self.assertEqual(services.calls, [])
 
-    async def test_explicit_zero_demand_or_unverified_phases_blocks_real_start(self):
+    async def test_zero_demand_and_only_relevant_phase_constraints_block_start(self):
         rt, _, services = rig()
         rt.configuration["assets"][0]["requested_kwh"] = 0
         self.assertEqual(
@@ -1762,11 +1799,17 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         )
         rt, _, services = rig()
         rt.configuration["chargers"][0].pop("phase_count")
+        rt.configuration["controller"]["phase_limits_a"] = {"L1": 16}
         self.assertEqual(
             (await rt.executor.execute("evse", "start"))["reason"],
             "PHYSICAL_PHASES_UNVERIFIED",
         )
         self.assertFalse(services.calls)
+        rt.configuration["controller"].pop("phase_limits_a")
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"],
+                         "confirmed")
+        self.assertEqual((await rt.executor.execute("evse", "stop"))["status"],
+                         "confirmed")
 
     async def test_mode_off_physically_stops_a_qualified_active_switch(self):
         rt, states, services = rig(mode="Off")
