@@ -2808,6 +2808,10 @@ class RobotixMultiChargeCard extends HTMLElement {
     const notice=mcEl("p","message");
     notice.setAttribute("role","status");
     const buttons=mcEl("div","yaml-actions");
+    editor.addEventListener("input",()=>{
+      notice.textContent="";
+      notice.setAttribute("role","status");
+    });
     const save=mcButton("Save",async ()=>{
       if(this._settingsBusy)return;
       this._settingsBusy=true;
