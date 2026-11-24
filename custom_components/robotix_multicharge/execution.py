@@ -825,6 +825,8 @@ class NativeSwitchExecutor:
                 if progress["duration_minutes"] is None:
                     return "ASSET_DURATION_PROGRESS_UNAVAILABLE"
                 duration = max(0, duration - progress["duration_minutes"])
+                if duration <= 0:
+                    return "TARGET_ALREADY_MET"
         if (charger["kind"] == "variable_current" or ctl.get("phase_limits_a")
                 or charger.get("circuit_id")) and charger.get("phase_count") not in (1, 2, 3):
             return "PHYSICAL_PHASES_UNVERIFIED"
@@ -1741,8 +1743,15 @@ class NativeSwitchExecutor:
                 return False
             power = number(self.runtime.hass, charger.get("power_entity"),
                            "power", datetime.now(timezone.utc))
-            if (state.state == "off" and (not charger.get("power_entity")
-                    or (power.quality == "ok" and power.value <= stop_power_limit(charger)))):
+            uid = charger["id"]
+            pending = (uid in self._sessions or uid in self._start_pending
+                       or uid in self._quarantine or f"charger:{uid}" in self._inflight
+                       or (charger.get("asset") is not None and charger["asset"] in self._inflight))
+            if state.state == "off" and (
+                    (power.quality == "ok" and power.value <= stop_power_limit(charger))
+                    or (not pending and power.quality != "ok")):
+                # An idle output with no owned operation to reconcile need
+                # not prove an unrelated meter to permit unload.
                 continue
             outcome = await self.execute(charger["id"], "stop")
             if outcome["status"] != "confirmed":

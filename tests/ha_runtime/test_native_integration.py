@@ -306,8 +306,12 @@ async def test_clean_ha_minimal_unassigned_charger_has_finite_manual_hold(
     assert started["reason"] == "NATIVE_SWITCH_STATE"
     assert started["measured_power_kw"] is None
     assert runtime.charger_states()["plug"]["charging_session"] == "unknown"
+    await hass.async_block_till_done()
+    assert hass.states.get("switch.suitable_plug").state == "on"
+    assert not runtime.executor._supervising
     runtime.executor._sessions["plug"]["started_at"] -= timedelta(minutes=11)
     await runtime.executor.supervise()
+    await hass.async_block_till_done()
     assert issued == ["turn_on", "turn_off"]
     assert hass.states.get("switch.suitable_plug").state == "off"
     receipt = runtime.executor.completed_sessions()[-1]
