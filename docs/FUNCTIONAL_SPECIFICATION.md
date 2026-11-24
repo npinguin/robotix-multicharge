@@ -234,6 +234,8 @@
 **Bewijs:** Command outcomes, retained pause state, physical STOP/readback and restart.
 
 ### UC11 — Qualified on/off switching for suitable equipment
+
+**Proportional capability correction:** A fixed on/off load does not need phase count/wiring facts when the user has not selected any phase/circuit constraint. The configured nominal kW and selected group constraints remain binding; phase/circuit rules apply when configured. No invented electrical facts.
 **Persona / eigenaar:** Engineer / MultiCharge  
 **GIVEN — beginsituatie:** Een native on/off Charger, waaronder een *elektrisch geschikte en correct beoordeelde* slimme stekker/relay voor het bedoelde laadapparaat, met native switch en onafhankelijk gemeten vermogen; de eenvoudige route heeft mogelijk geen OEM-SoC of laadpaal-kabelsensor.  
 **WHEN — handelingen:** Commission exclusivity, START, reject/timeout and STOP.  
@@ -289,6 +291,8 @@
 **Bewijs:** Registry IDs, auth tests, independent state timestamps and ≤2s projection measurement.
 
 ### UC17 — Optional, source-neutral Home Assistant inputs and power limits
+
+**Proportional capability correction:** A duration- or SoC-controlled session with an optional energy meter that fails or resets must continue subject to its own duration/SoC and power safeguards, while energy/cost accounting becomes unknown. An energy- or money-controlled session still stops on loss of required metering. An independently observed external adjustable Charger consumes the configured aggregate kW/parallel budget using its measured and declared rated power; missing amps/phase inputs affect only relevant configured phase/circuit constraints, never unrelated kW-only operation.
 **Persona / eigenaar:** Engineer / MultiCharge  
 **GIVEN — beginsituatie:** Schone HA met nul, één of meerdere native Charger-/voertuig-/PV-/grid-/prijsproviders. Geen enkele optionele gegevensfamilie is verplicht om een lege site of een Guest-profiel te configureren.  
 **WHEN — handelingen:** Configure source selectors on a fresh site and remove a source.  
