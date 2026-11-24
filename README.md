@@ -51,22 +51,31 @@ In the current independently distributed integration, the existing one-controlle
 
 For full positive/negative and original upstream EV Smart Charging v2.6.1 parity requirements, see the [one canonical Functional Specification](docs/FUNCTIONAL_SPECIFICATION.md); implementation and remaining gates are recorded only in [Issue #1](https://github.com/npinguin/robotix-multicharge/issues/1) and the existing [Draft PR #9](https://github.com/npinguin/robotix-multicharge/pull/9).
 
-## Configure everything in the MultiCharge dashboard
+## Optional setup — Home Assistant Configure or MultiCharge dashboard
 
-**One installation, one configuration authority.** Add the Robotix MultiCharge
-integration once under Home Assistant **Settings → Devices & services** to
-create its empty Config Entry. From then on, use only the bundled
-**MultiCharge dashboard** for all configuration and charging actions. No
-external YAML/JSON files, manual templates, `/config/packages`, Home Assistant
-Options screens, helper entities, or separate Lovelace chart card are required.
-All supported configuration remains editable through typed fields inside the
-same five-tab dashboard. In **Settings → Edit YAML**, users can open and edit the **complete current configuration**
-in one large multiline JSON/YAML text area and press **Save** once (or **Cancel**).
-The backend performs administrator authorization and validation, checks the
-original revision and safe physical-writer ownership boundaries, and commits only
-to the **same Home Assistant Config Entry**. It does not create a second YAML
-configuration file, open Home Assistant Options Flow, issue a charging command,
-or transfer physical ownership. Imported file-owned configurations are read-only.
+**One-click installation, one Config Entry.** Add the Robotix MultiCharge
+integration once under Home Assistant **Settings → Devices & services**. No
+Charger, vehicle, price sensor, PV sensor or multi-step wizard is required at
+installation. A valid empty charging site is immediately available.
+
+When you want to configure it, open **Settings → Devices & services →
+Robotix MultiCharge → Configure**. The native Home Assistant menu offers
+**Charging site**, **Chargers**, **Chargeable assets**, **Energy & prices**,
+**Edit complete configuration (JSON/YAML)** and the existing display/physical
+commissioning options. The guided routes select existing Charger/Asset records
+by name or add new ones, prefill saved values, and use native HA entity selectors.
+The expert form shows the **complete actual Config Entry** as one large editable
+JSON/YAML text area with a single **Save**. There is no Review wizard or
+separate JSON/YAML file. Closing a form without saving leaves the entry intact.
+
+The bundled **MultiCharge dashboard** remains an equally valid configuration
+route with typed object-level editing and **Settings → Edit YAML → Save**.
+Both surfaces write to the **same validated Home Assistant Config Entry**;
+nothing is imported into `configuration.yaml`, `/config/packages`, templates,
+a second planner or a parallel settings store. Home Assistant authorization,
+schema validation, stale-revision detection and physical ownership protection
+remain server-side. Configuring sources does **not** commission or command
+hardware. Existing imported file-owned configurations remain read-only.
 
 The automatic sidebar at `/robotix-multicharge` uses the same five
 tabs for novice and expert use:
