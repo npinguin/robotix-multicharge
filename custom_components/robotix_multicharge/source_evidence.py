@@ -199,7 +199,7 @@ def connection(hass, entity_id: str | None, now: datetime, *,
     domain = entity_id.split(".", 1)[0]
     allowed = (
         {"on": True, "off": False} if domain == "binary_sensor"
-        else {"connected": True, "disconnected": False} if domain == "sensor"
+        else {"connected": True, "disconnected": False, "manual_confirmed": True} if domain == "sensor"
         else {}
     )
     if connected_states is not None or disconnected_states is not None:
@@ -216,10 +216,14 @@ def connection(hass, entity_id: str | None, now: datetime, *,
                             "CONNECTION_MAPPING_AMBIGUOUS")
         allowed = {**dict.fromkeys(positive, True),
                    **dict.fromkeys(negative, False)}
-    value = allowed.get(str(obj.state).strip().casefold())
+    raw = str(obj.state).strip().casefold()
+    if raw in ("fault", "faulted", "error", "reserved"):
+        return Evidence(None, "invalid", evidence.observed_at, "CONNECTION_PROVIDER_BLOCKED")
+    value = allowed.get(raw)
     if value is None:
         return Evidence(None, "invalid", evidence.observed_at, "CONNECTION_AMBIGUOUS")
-    return Evidence(value, "ok", evidence.observed_at, "OK")
+    return Evidence(value, "ok", evidence.observed_at,
+                    "USER_CONFIRMED_CONNECTION" if raw == "manual_confirmed" and value else "OK")
 
 
 

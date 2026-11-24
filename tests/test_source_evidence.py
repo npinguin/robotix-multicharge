@@ -228,6 +228,14 @@ class EvidenceTests(unittest.TestCase):
         )
         self.assertEqual(overlap.reason, "CONNECTION_MAPPING_AMBIGUOUS")
 
+    def test_manual_connection_is_explicit_user_evidence_not_hardware_detection(self):
+        obj = hass({"sensor.manual": state("manual_confirmed"),
+                    "sensor.fault": state("fault")})
+        reading = connection(obj, "sensor.manual", NOW)
+        self.assertIs(reading.value, True)
+        self.assertEqual(reading.reason, "USER_CONFIRMED_CONNECTION")
+        self.assertEqual(connection(obj, "sensor.fault", NOW).reason, "CONNECTION_PROVIDER_BLOCKED")
+
     def test_session_status_is_only_read_only_source_evidence(self):
         obj = hass({
             "sensor.session": state("Charging"),

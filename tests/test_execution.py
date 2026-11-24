@@ -618,6 +618,23 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(receipt["actual_energy_kwh"])
         self.assertEqual(receipt["energy_quality"], "unknown")
 
+    async def test_utility_guest_duration_with_unknown_manual_connection_source(self):
+        rt, sources, services = rig()
+        charger = rt.configuration["chargers"][0]
+        charger.pop("asset")
+        charger["connected_entity"] = "sensor.manual_cable"
+        sources["sensor.manual_cable"] = state("unknown")
+        rt.refresh()
+        outcome = await rt.executor.execute("evse", "start", manual_request={"duration_minutes": 10})
+        self.assertEqual(outcome["status"], "confirmed")
+        self.assertEqual(rt.charger_states()["evse"]["connection_state"], "unknown")
+        await rt.executor.supervise()
+        self.assertEqual(sources["switch.evse_control"].state, "on")
+        sources["sensor.manual_cable"] = state("fault")
+        await rt.executor.supervise()
+        self.assertEqual(sources["switch.evse_control"].state, "off")
+        self.assertEqual([c[1] for c in services.calls], ["turn_on", "turn_off"])
+
     async def test_assigned_guest_duration_without_optional_connection_or_meter(self):
         rt, sources, services = rig()
         charger = rt.configuration["chargers"][0]

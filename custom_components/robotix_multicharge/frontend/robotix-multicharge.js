@@ -2659,7 +2659,8 @@ class RobotixMultiChargeCard extends HTMLElement {
       card.append(chip);
       const states=(d.charger_states||{})[c.id]||{};
       const activation=c.control_owner==="multicharge"&&c.physical_commissioned!==false?"Active":"Inactive";
-      const connection=states.connection_state==="asset_connected"?"Asset connected":
+      const connection=states.connection_state==="asset_connected"?
+        (states.connection_basis==="user_confirmed"?"Asset connected (user confirmed)":"Asset connected"):
         states.connection_state==="no_asset_connected"?"No asset connected":"Unknown";
       const activity={charging:"Charging",paused:"Paused",stopped:"Stopped"}[states.charging_session]||"Unknown";
       const readiness={ready:"Ready",waiting:"Waiting",error:"Error",unavailable:"Unavailable"}[states.charging_state]||"Unknown";

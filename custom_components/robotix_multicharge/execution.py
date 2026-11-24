@@ -74,6 +74,15 @@ class NativeSwitchExecutor:
             disconnected_states=charger.get("disconnected_states"),
         )
 
+    @staticmethod
+    def duration_connection_allowed(observed):
+        """An explicit finite switch request need not prove optional cable data."""
+        if observed.quality == "ok":
+            return observed.value is True
+        return observed.reason in (
+            "SOURCE_NOT_SELECTED", "SOURCE_MISSING", "SOURCE_UNAVAILABLE", "SOURCE_STALE",
+        )
+
     def observe_connection_event(self, charger, old_state, new_state):
         """Track ordered native HA state transitions before refresh coalescing.
 
@@ -606,7 +615,7 @@ class NativeSwitchExecutor:
                         and receipt.get("asset_id") == session.get("asset_id")
                         and receipt.get("intent_key") == expected
                         and (receipt.get("physical_stop_confirmed") is True
-                             or (session.get("switch_only") and receipt.get("switch_stop_confirmed")))
+                             or (session.get("duration_without_connection") and receipt.get("switch_stop_confirmed")))
                         and (session.get("requested_kwh") is None
                              or receipt.get("actual_energy_kwh") is not None)):
                     self._inflight.pop(hold_key, None)
@@ -773,8 +782,8 @@ class NativeSwitchExecutor:
         # unrelated missing energy-meter progress from a completed session.
         cable = self._connection(charger, at)
         bounded_switch = charger["kind"] == "on_off" and duration is not None
-        if (not bounded_switch or charger.get("connected_entity")) and (
-                cable.quality != "ok" or cable.value is not True):
+        if (not (bounded_switch and self.duration_connection_allowed(cable))
+                and (cable.quality != "ok" or cable.value is not True)):
             return "PHYSICAL_CONNECTION_UNVERIFIED"
         if asset is not None and asset.get("charging_windows"):
             if not charging_window_allows(
@@ -890,11 +899,11 @@ class NativeSwitchExecutor:
                     return "READY_BY_EXPIRED"
             except ValueError:
                 return "READY_BY_INVALID"
-        if (manual_request is None and not (bounded_switch and not charger.get("connected_entity"))
+        if (manual_request is None and not bounded_switch
                 and self.connection_confirmation(charger, at) is None):
             return "CURRENT_PLUG_ASSET_UNCONFIRMED"
         this_power = number(self.runtime.hass, charger.get("power_entity"), "power", at)
-        if this_power.quality != "ok" and (not bounded_switch or charger.get("power_entity")):
+        if this_power.quality != "ok" and not bounded_switch:
             return "INDEPENDENT_POWER_UNAVAILABLE"
         if this_power.quality == "ok" and this_power.value > start_power_limit(charger):
             return "POWER_ALREADY_PRESENT_WITHOUT_CONFIRMED_OWNER"
@@ -1210,7 +1219,7 @@ class NativeSwitchExecutor:
         else:
             if asset is None or charger.get("asset") != session["asset_id"]:
                 return "ACTIVE_SESSION_ASSIGNMENT_CHANGED"
-            if (not (session.get("duration_without_connection") and not charger.get("connected_entity"))
+            if (not session.get("duration_without_connection")
                     and self.connection_confirmation(charger, now) is None):
                 return "CURRENT_PLUG_ASSET_UNCONFIRMED"
             if (asset.get("temporary")
@@ -1426,8 +1435,7 @@ class NativeSwitchExecutor:
             "asset_id": asset["id"] if asset is not None else None,
             "intent_key": intent_key,
             "manual_duration": manual_request is not None and duration is not None,
-            "duration_without_connection": (charger["kind"] == "on_off" and duration is not None
-                                            and not charger.get("connected_entity")),
+            "duration_without_connection": charger["kind"] == "on_off" and duration is not None,
             "manual_mode": (self.runtime.configuration["controller"]["mode"]
                             if manual_request is not None else None),
             "switch_only": observed.reason == "NATIVE_SWITCH_STATE",
@@ -1657,9 +1665,9 @@ class NativeSwitchExecutor:
                     wrong_mode = True
                 unsafe = (
                     uid in self._paused or wrong_mode
-                    or ((not duration_without_connection or charger.get("connected_entity"))
+                    or ((not duration_without_connection or not self.duration_connection_allowed(cable))
                         and (cable.quality != "ok" or cable.value is not True))
-                    or ((not switch_only or charger.get("power_entity")) and power.quality != "ok")
+                    or ((not switch_only and not duration_without_connection) and power.quality != "ok")
                     or (power.quality == "ok" and power.value > charger["rated_power_kw"] * 1.10)
                     or session_reason is not None
                 )
@@ -1765,17 +1773,19 @@ class NativeSwitchExecutor:
                 return False
         return True
 
-    def _readback(self, charger, action, requested_at):
+    def _readback(self, charger, action, requested_at, *, bounded_switch=False):
         switch = self._switch(self.runtime.hass, charger["control_entity"])
         if switch is None or switch.state != ("on" if action == "start" else "off"):
             return None
-        if charger["kind"] == "on_off" and not charger.get("power_entity"):
+        power = number(self.runtime.hass, charger.get("power_entity"), "power",
+                       datetime.now(timezone.utc))
+        if charger["kind"] == "on_off" and (not charger.get("power_entity") or (
+                bounded_switch and (power.quality != "ok" or (
+                    action == "start" and power.value <= start_power_limit(charger))))):
             observed_at = getattr(switch, "last_updated", None)
             if observed_at is None or observed_at < requested_at:
                 return None
             return Evidence(None, "ok", observed_at, "NATIVE_SWITCH_STATE")
-        power = number(self.runtime.hass, charger.get("power_entity"), "power",
-                       datetime.now(timezone.utc))
         if power.quality != "ok" or power.observed_at is None:
             return None
         if power.observed_at < requested_at:
@@ -2022,6 +2032,11 @@ class NativeSwitchExecutor:
                     if not await self.runtime.persist_control_state():
                         self._persistence_verified = False
                     return outcome
+            bounded_switch = charger["kind"] == "on_off" and (
+                (manual_request is not None and manual_request.get("duration_minutes") is not None)
+                or (action == "start" and any(a["id"] == charger.get("asset")
+                    and a.get("requested_duration_minutes") is not None for a in cfg["assets"]))
+                or self._sessions.get(charger_id, {}).get("duration_without_connection", False))
             if action == "start":
                 self._start_pending.add(charger_id)
             self._publish(charger_id, request_id, action, "requested",
@@ -2059,7 +2074,7 @@ class NativeSwitchExecutor:
                     self._start_pending.discard(charger_id)
                     return result("execution_unknown", "INTEGRATION_UNLOADED_PENDING",
                                   service_sent=True)
-                observed = self._readback(charger, action, at)
+                observed = self._readback(charger, action, at, bounded_switch=bounded_switch)
                 if (observed is not None and action == "start"
                         and charger["kind"] == "variable_current"
                         and not self._current_confirmed(charger, current_a, at)):

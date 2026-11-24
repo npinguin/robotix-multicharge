@@ -250,8 +250,8 @@ class MultiChargeRuntime:
             }
             asset = assets.get(raw.get("asset"))
             duration_without_connection = (raw["kind"] == "on_off"
-                and not raw.get("connected_entity") and asset is not None
-                and asset.get("requested_duration_minutes") is not None)
+                and asset is not None and asset.get("requested_duration_minutes") is not None
+                and self.executor.duration_connection_allowed(cable))
             if not duration_without_connection and (
                     cable.value not in (True, False) or cable.quality != "ok"):
                 self.excluded[uid] = "CONNECTION_UNCONFIRMED"
@@ -638,6 +638,9 @@ class MultiChargeRuntime:
                 "activation": activation,
                 "connection_state": ("asset_connected" if connected is True else
                                      "no_asset_connected" if connected is False else "unknown"),
+                "connection_basis": ("user_confirmed" if cable is not None
+                                     and cable.reason == "USER_CONFIRMED_CONNECTION"
+                                     else "source_observed" if connected is not None else "unknown"),
                 "charging_session": activity,
                 "charging_state": readiness,
                 "reason": reason,
