@@ -434,6 +434,7 @@ async function main(){
 
   // SCHEDULE-06 owner-native Specific days and time windows.
   const scheduleData=JSON.parse(JSON.stringify(fixture));
+  scheduleData.configuration_revision="before-schedule";
   const asset=scheduleData.configuration.assets[0];
   asset.ready_by_repeat="specific_days";
   asset.ready_by_weekdays={mon:"06:45",wed:"08:30"};
