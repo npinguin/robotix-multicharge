@@ -656,6 +656,7 @@ class _AssetIntentSensor(_NativeMultiChargeSensor):
             "temporary": current.get("temporary", False),
             "expires_at": current.get("expires_at"),
             "connection_verified": False,  # saved assignment is not plug identity
+            "goal_assessment": self.runtime.goal_assessments.get(assigned),
         }
 
 

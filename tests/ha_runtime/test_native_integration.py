@@ -2041,6 +2041,16 @@ async def test_native_state_events_invalidate_identity_on_fast_replug(hass: Home
     assert runtime.executor.connection_confirmation(charger, datetime.now(timezone.utc))
     original_epoch = confirmed["connected_at"]
 
+    # Actual HA timer callback: the helper advances HA scheduled time, not
+    # a fabricated state_changed Event. No automatic command for Inactive.
+    from datetime import timedelta
+    from pytest_homeassistant.common import async_fire_time_changed
+    from unittest.mock import patch
+    with patch.object(runtime, "refresh", wraps=runtime.refresh) as refresh:
+        async_fire_time_changed(hass, datetime.now(timezone.utc)+timedelta(minutes=1, seconds=2))
+        await hass.async_block_till_done()
+        assert refresh.call_count >= 1
+
     # Mapped connected substate transition preserves the same physical plug,
     # but does not bypass actual writer ownership or issue a command.
     hass.states.async_set("sensor.real_status", "Charging")

@@ -132,6 +132,10 @@ def build_diagnostics(runtime, entry, captured_at=None):
             "forecast_reasons": _by_id(forecast.reasons) if forecast else {},
             "forecast_coverage": _by_id(forecast.coverage) if forecast else {},
             "forecast_shortfall_kwh": _by_id(forecast.shortfall_kwh) if forecast else {},
+            "goal_assessments": {
+                _alias(uid): {**goal, "asset_id": _alias(goal["asset_id"])}
+                for uid, goal in runtime.goal_assessments.items()
+            },
             "reasons": _by_id(planning.reasons) if planning else {},
             "coverage": _by_id(planning.coverage) if planning else {},
             "shortfall_kwh": _by_id(planning.shortfall_kwh) if planning else {},

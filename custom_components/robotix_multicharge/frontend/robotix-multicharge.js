@@ -1039,6 +1039,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._refreshPending=false;
     this._historyFetchedAt=0;
     this._historyKey="";
+    this._queryScope="";
+    this._snapshotDay=null;
     this._pendingNative=null;
     this._editingField="";
     this._confirmDelete="";
@@ -1179,8 +1181,8 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(queryFilter.startsWith("charger:"))cmd.charger_id=queryFilter.slice(8);
       if(queryFilter.startsWith("asset:"))cmd.asset_id=queryFilter.slice(6);
       const nextData=await this._hass.callWS(cmd);
-      if(requestedDay!==this._day||requestedFilter!==this._filter||
-          requestedTab!==this._tab){
+      if(requestedDay!==this._day||
+          queryFilter!==(this._tab==="Charging Plan"?this._filter:"")){
         this._refreshPending=true;return;
       }
       this._error="";this._noEntry=false;
@@ -1220,6 +1222,8 @@ class RobotixMultiChargeCard extends HTMLElement {
       for(const id of Object.keys(this._manualDrafts))
         if(!chargerIds.has(id))delete this._manualDrafts[id];
       this._data=nextData;
+      this._queryScope=queryFilter;
+      this._snapshotDay=requestedDay;
       if(this._yamlCommittedRevision&&
          this._data.configuration_revision===this._yamlCommittedRevision){
         this._yamlEditorOpen=false;
@@ -1876,8 +1880,9 @@ class RobotixMultiChargeCard extends HTMLElement {
         this._yamlCommittedRevision=null;
         this.render();
         const scope=item==="Charging Plan"?this._filter:"";
-        if(this._data?.actual_history_quality==="NOT_REQUESTED"||
-            this._historyKey!==this._day+"|"+scope){
+        if(this._queryScope!==scope||
+            (["Charging Plan","Chargeable Assets","Chargers"].includes(item)&&
+             this._data?.actual_history_quality==="NOT_REQUESTED")){
           if(this._loading)this._refreshPending=true;else{this._last=0;this.load();}
         }
       });
