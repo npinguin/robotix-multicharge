@@ -821,12 +821,58 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         )
 
     async def async_step_yaml(self, user_input=None):
-        """Retired Options YAML route; only dashboard owns runtime editing."""
-        return self.async_abort(reason="yaml_editor_in_dashboard")
+        """Edit the complete current Config Entry with one native Save.
 
-    async def async_step_yaml_review(self, user_input=None):
-        """No stale review can mutate a Config Entry through old Options URLs."""
-        return self.async_abort(reason="yaml_editor_in_dashboard")
+        Physical owner changes belong to Commission, not free-text edits.
+        """
+        cfg = self._current()
+        if not hasattr(self, "_form_baseline_revision"):
+            self._form_baseline_revision = configuration_revision(cfg)
+        errors = {}
+        if user_input is not None:
+            try:
+                proposed = validate_configuration(_parse_editor_yaml(user_input["yaml_text"]))
+                if proposed["controller"]["id"] != cfg["controller"]["id"]:
+                    raise ValueError("CONTROLLER_ID_IMMUTABLE")
+                old = {row["id"]: row for row in cfg["chargers"]}
+                new = {row["id"]: row for row in proposed["chargers"]}
+                for uid, existing in old.items():
+                    if uid not in new and (
+                        existing.get("control_owner") == "multicharge"
+                        or existing.get("physical_commissioned") is True
+                    ):
+                        raise ValueError("COMMISSIONING_ONLY_IN_NATIVE_FLOW")
+                for row in proposed["chargers"]:
+                    existing = old.get(row["id"], {})
+                    if (
+                        row.get("control_owner", "external")
+                        != existing.get("control_owner", "external")
+                        or row.get("physical_commissioned", False)
+                        != existing.get("physical_commissioned", False)
+                    ):
+                        raise ValueError("COMMISSIONING_ONLY_IN_NATIVE_FLOW")
+                result = await self._safe_structural_save(proposed)
+                if result is not None:
+                    return result
+                errors["base"] = (
+                    "selection_changed"
+                    if configuration_revision(self._current())
+                    != self._form_baseline_revision else "invalid_config"
+                )
+            except (KeyError, ValueError, TypeError):
+                errors["base"] = "invalid_config"
+        return self.async_show_form(
+            step_id="yaml", errors=errors,
+            data_schema=vol.Schema({
+                vol.Required("yaml_text", default=(user_input or {}).get(
+                    "yaml_text", json.dumps(cfg, indent=2),
+                )): selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
+            }),
+            description_placeholders={
+                "note": "Edit the existing Controller, Chargers, Assets, energy and prices. "
+                        "Save updates this same Config Entry; hardware ownership is separate.",
+            },
+        )
 
     async def async_step_init(self, user_input=None):
         """Configure is optional after zero-source, one-click installation."""
