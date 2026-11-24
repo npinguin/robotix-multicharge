@@ -1,8 +1,8 @@
 {
   "status": "AUTHORIZED_FOR_TEST",
   "distribution": "open_source_community",
-  "expected_tag": "v0.1.15",
+  "expected_tag": "v0.1.16",
   "precompile": false,
-  "qualification_scope": "Owner-requested full progressive-context charging batch: one explicit Active/Inactive setting, four independent charger states, ordinary configuration Save, bounded guest duration and measured kWh/budget goals, integrated SoC/Ready By, native adjustable setpoint and applicable configured constraints, mixed four-charger/four-asset upgrade, degraded optional sources, command feedback and recovery. Preserve existing architecture, identities, settings/history and all unchanged functionality. Exact candidate dev/main, installed HA, browser and artifact gates.",
-  "limitations": "Actual installed HA source availability, Safari/iPad and device readback are separate from TEST publication. Actual private site values for charging objectives, phase/voltage conversion and usable battery capacity/efficiency must be supplied where needed; do not guess. No STABLE or full field acceptance; immutable v0.1.14 is rollback."
+  "qualification_scope": "Owner-requested stabilization and feature closure MC-06–MC-14: active planning, cumulative budget, intent reconciliation, native capability, consistent readiness, performance, defaults, tariff/chart and native HA UX. Preserve existing scope and IDs, configuration/history. Exact-dev/main, installed HA, Chromium, artifact qualification before TEST publication.",
+  "limitations": "TEST only; actual user-installed performance, Safari/iPad, provider/physical command verification separate. No site-specific gate. Immutable v0.1.15 rollback."
 }

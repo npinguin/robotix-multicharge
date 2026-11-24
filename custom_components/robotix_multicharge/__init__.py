@@ -21,7 +21,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .configuration import (
-    effective_configuration, normalize_expert_json,
+    effective_configuration, normalize_expert_json, apply_new_asset_defaults,
     is_plan_presentation_only_change,
     is_in_place_runtime_preference_change,
 )
@@ -111,6 +111,33 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                  "expert_format": "json" if direct_json else "yaml"},
         data=checked,
     ))
+    return True
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Repair missing targets once; never implicitly authorize Active charging."""
+    if entry.version != 1:
+        return False
+    if entry.minor_version >= 2:
+        return True
+    if entry.data.get("source") in ("yaml", "json"):
+        hass.config_entries.async_update_entry(entry, minor_version=2)
+        return True
+    try:
+        cfg = effective_configuration(entry)
+    except (KeyError, ValueError, TypeError):
+        return False
+    active_assets = {c.get("asset") for c in cfg["chargers"]
+                     if c.get("control_owner") == "multicharge"}
+    for asset in cfg["assets"]:
+        if asset.get("soc_entity") and asset["id"] not in active_assets:
+            apply_new_asset_defaults(asset)
+    if "configuration" in entry.options:
+        hass.config_entries.async_update_entry(
+            entry, options={**entry.options, "configuration": cfg}, minor_version=2)
+    else:
+        hass.config_entries.async_update_entry(
+            entry, data={**entry.data, "configuration": cfg}, minor_version=2)
     return True
 
 

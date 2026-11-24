@@ -371,6 +371,7 @@ function mcMountApex(plot,options){
   plot.setAttribute("role","img");
   plot.setAttribute("aria-label",options.chart?.id||"MultiCharge power timeline");
   plot.setAttribute("data-chart-engine","apexcharts-3.49.1");
+  plot._mcSignature=JSON.stringify(options, (key,value)=>typeof value==="function"?String(value):value);
   // Node-only DOM checks cannot assert that a browser rendered a graph:
   // real Chromium tests below inspect the Apex-generated SVG and tooltips.
   if(typeof window==="undefined"||typeof document==="undefined"||!document.head)
@@ -402,7 +403,7 @@ function mcApexCommon(from,until,height,title,withPrice=false){
       window.matchMedia?.("(prefers-color-scheme: dark)")?.matches)?"dark":"light"},
     colors,
     stroke:{curve:"straight",width:[2,2,2.8,1.8],dashArray:[5,2,0,5]},
-    fill:{opacity:[0.07,1,0.15,1]},
+    fill:{type:"solid",opacity:1},
     dataLabels:{enabled:false},
     markers:{size:0,hover:{size:5}},
     grid:{strokeDashArray:3,borderColor:"#8b97a62b",padding:{left:3,right:8}},
@@ -470,8 +471,7 @@ function mcApexLane(data,charger,rows,actuals,forecast){
   options.stroke={curve:"stepline",
     width:available.map(({index})=>[1.8,2,3,1.6][index]),
     dashArray:available.map(({index})=>[5,0,0,7][index])};
-  options.fill={opacity:available.map(({index})=>
-    [0.06,1,0.18,0.05][index])};
+  options.fill={type:"solid",opacity:1};
   mcMountApex(plot,options);
   return plot;
 }
@@ -523,14 +523,13 @@ function mcCombinedChargingChart(data, visibleChargers, slots, actuals){
   const powerNames=["Proposed","Accepted","Measured"];
   const sources=["proposed","accepted","measured"];
   const series=powerNames.map((name,i)=>({
-    name,data:buckets.filter(q=>q[sources[i]]!==null)
-      .map(q=>({x:q.at,y:q[sources[i]]}))
+    name,data:buckets.some(q=>q[sources[i]]!==null)?buckets.map(q=>({x:q.at,y:q[sources[i]]})):[]
   }));
   const validPrice=priceReady&&buckets.some(x=>x.price!==null);
   // Apex secondary axis only when source basis and currency genuinely align.
   if(validPrice)series.push({
     name:"Reference price (EUR/kWh)",
-    data:buckets.filter(x=>x.price!==null).map(q=>({x:q.at,y:q.price}))
+    data:buckets.map(q=>({x:q.at,y:q.price}))
   });
   const plot=mcEl("div","chart");
   const options=mcApexCommon(from,until,310,"MultiCharge combined power and price",validPrice);
@@ -1677,11 +1676,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     mcLanguage=String(this._hass?.locale?.language||this._hass?.language||"en").slice(0,2).toLowerCase();
     if(!this.shadowRoot)return;
     const root=this.shadowRoot;
-    if(typeof root.querySelectorAll==="function")
-      for(const chart of root.querySelectorAll(".mc-apex")){
-        try{chart._mcApex?.destroy();}catch(_){}
-        chart._mcApex=null;
-      }
+    const previousCharts=typeof root.querySelectorAll==="function"?[...root.querySelectorAll(".mc-apex")]:[];
     root.replaceChildren();
     this._fieldSequence=0;
     const style=mcEl("style");style.textContent=MC_STYLE;root.append(style);
@@ -1721,6 +1716,16 @@ class RobotixMultiChargeCard extends HTMLElement {
 
     }
     root.append(shell);
+    if(typeof root.querySelectorAll==="function"){
+      for(const plot of root.querySelectorAll(".mc-apex")){
+        const existing=previousCharts.find(old=>old._mcApex&&old._mcSignature===plot._mcSignature&&typeof plot.replaceWith==="function");
+        if(existing){
+          previousCharts.splice(previousCharts.indexOf(existing),1);
+          plot.replaceWith(existing);
+        }
+      }
+    }
+    for(const old of previousCharts){try{old._mcApex?.destroy();}catch(_){}old._mcApex=null;}
   }
   overview(container){
     const d=this._data,c=d.configuration||{},assets=c.assets||[],chargers=c.chargers||[];
@@ -1994,7 +1999,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         this._filter==="asset:"+meta.asset_id));
     if(groups.length){
       const forecastInfo=mcEl("div","card");
-      forecastInfo.append(mcEl("h3","",mcTr("Indicative")+" · "+mcTr("Disconnected")));
+      forecastInfo.append(mcEl("h3","",mcTr("Indicative")+" · "+mcTr("Not reserved")));
       for(const [chargerId,meta] of groups){
         const obj=chargers.find(c=>c.id===chargerId);
         const car=cars.find(a=>a.id===meta.asset_id);

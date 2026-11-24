@@ -386,6 +386,7 @@ class _LogicalSessionEnergySensor(_NativeMultiChargeSensor):
             "quality": "measured" if (
                 session is not None and session["actual_energy_kwh"] is not None
             ) else "unknown",
+            "reason": "NO_ACTIVE_SESSION" if session is None else ("METER_UNAVAILABLE" if session["actual_energy_kwh"] is None else "OK"),
             "asset_id": session["asset_id"] if session else None,
             "started_at": session["started_at"] if session else None,
             "meter_source": self.data.get("energy_entity"),
@@ -433,7 +434,8 @@ class _LastSessionEnergySensor(_NativeMultiChargeSensor):
         last = rows[-1] if rows else None
         self._attr_native_value = last["actual_energy_kwh"] if last else None
         self._attr_extra_state_attributes = {
-            "quality": last["energy_quality"] if last else "unknown",
+            "quality": last["energy_quality"] if last else "not_applicable",
+            "reason": "NO_PREVIOUS_SESSION" if last is None else ("METER_UNAVAILABLE" if last["actual_energy_kwh"] is None else "OK"),
             "asset_id": last["asset_id"] if last else None,
             "ended_at": last["ended_at"] if last else None,
             "cost": last["cost"] if last else None,
@@ -694,6 +696,7 @@ class _ChargerCurrentSensor(_NativeMultiChargeSensor):
             else actual.value if actual.quality == "ok" else None
         )
         self._attr_extra_state_attributes = {
+            "reason": ("NO_ACTIVE_SESSION" if self.metric == "setpoint" and session is None else actual.reason if self.metric == "actual" else "OK"),
             "confirmed_setpoint_a": setpoint,
             "physical_current_a": actual.value if actual.quality == "ok" else None,
             "readback_quality": actual.quality,

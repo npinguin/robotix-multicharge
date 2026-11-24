@@ -15,7 +15,7 @@ from homeassistant.helpers import selector
 
 from .configuration import (
     default_configuration, is_plan_presentation_only_change,
-    validate_configuration, configuration_revision, effective_configuration,
+    validate_configuration, configuration_revision,
     apply_new_asset_defaults, apply_new_import_defaults, energy_dashboard_suggestions,
     assert_expert_authority_change, is_in_place_runtime_preference_change,
 )
@@ -238,6 +238,7 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Native beginner wizard; the resulting Config Entry remains sole authority."""
 
     VERSION = 1
+    MINOR_VERSION = 2
 
     @staticmethod
     def async_get_options_flow(config_entry):

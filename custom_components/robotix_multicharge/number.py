@@ -228,12 +228,13 @@ class _ChargerPowerNumber(NumberEntity):
                     "max_current_a", "current_step_a")
         if (charger.get("kind") != "variable_current"
                 or any(not charger.get(key) for key in required)):
-            self._attr_available = False
-            self._attr_native_value = None
+            self._attr_available = self.field != "set_charging_power_kw"
+            self._attr_native_value = charger.get(self.field) if self._attr_available else None
             self._attr_native_min_value = 0.01
             self._attr_native_max_value = max(0.01, charger["rated_power_kw"])
             self._attr_extra_state_attributes = {
-                "reason": "CHARGER_CURRENT_CAPABILITY_NOT_VERIFIED"
+                "reason": ("USER_LIMIT_ONLY_CONVERSION_NOT_CONFIGURED" if self._attr_available
+                           else "CHARGER_CURRENT_CAPABILITY_NOT_VERIFIED")
             }
             return
         self._attr_extra_state_attributes = {}

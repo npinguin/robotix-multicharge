@@ -5,6 +5,7 @@ are returned as unknown and never coerced into zero delivered energy.
 """
 from __future__ import annotations
 
+from bisect import bisect_left, bisect_right
 from datetime import datetime, timedelta, timezone
 from math import isfinite
 
@@ -38,15 +39,16 @@ def _quarter_actuals(states, first, last, now):
     """Integrate timestamped actual power, without inventing uncovered spans."""
     observations = sorted((value for row in states if (value := _sample(row))),
                           key=lambda row: row[0])
+    stamps = [value[0] for value in observations]
     series = []
     slot = datetime.fromtimestamp(
         (int(first.timestamp()) + 899) // 900 * 900, timezone.utc
     )
     while slot + QUARTER <= min(last, now):
         finish = slot + QUARTER
-        earlier = [o for o in observations if o[0] <= slot]
-        active = earlier[-1] if earlier else None
-        events = [o for o in observations if slot < o[0] < finish]
+        first_event = bisect_right(stamps, slot)
+        active = observations[first_event - 1] if first_event else None
+        events = observations[first_event:bisect_left(stamps, finish)]
         cursor = slot
         energy = 0.0
         valid = active is not None

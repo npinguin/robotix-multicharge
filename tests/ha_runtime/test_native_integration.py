@@ -539,6 +539,9 @@ async def test_native_setup_registry_diagnostics_and_unload(hass: HomeAssistant)
             (DOMAIN, f"{kind}/{uid}"), entry.entry_id
         )
         assert registry.async_get(entity_id).device_id == owning.id
+    named = [registry.async_get_entity_id("sensor", DOMAIN, f"{DOMAIN}:charger:charger:{field}") for field in ("power", "readiness", "command_status", "selected_vehicle")]
+    names = [registry.async_get(entity_id).original_name for entity_id in named]
+    assert all(names) and len(set(names)) == len(names), names
     diagnostic = await async_get_config_entry_diagnostics(hass, entry)
     assert diagnostic["schema_major"] == 1
     assert len(diagnostic["chargers"]) == 1
@@ -683,14 +686,14 @@ async def test_every_logical_device_auto_creates_own_native_inputs(hass: HomeAss
                      "charging_window_sun"),
         },
         ("charger", "socket"): {
-            "select": ("plan_color", "asset"),
+            "select": ("plan_color", "asset", "control_owner"),
             "text": ("name",),
             "button": ("confirm_connection", "stop", "pause", "resume"),
         },
         ("charger", "smart"): {
             "number": ("min_charging_power_kw", "max_charging_power_kw",
                        "set_charging_power_kw"),
-            "select": ("plan_color", "asset"),
+            "select": ("plan_color", "asset", "control_owner"),
             "text": ("name",),
             "button": ("confirm_connection", "stop", "pause", "resume"),
         },
@@ -712,7 +715,8 @@ async def test_every_logical_device_auto_creates_own_native_inputs(hass: HomeAss
                   "set_charging_power_kw"):
         uid = f"{DOMAIN}:charger:smart:{field}"
         entity_id = registry.async_get_entity_id("number", DOMAIN, uid)
-        assert hass.states.get(entity_id).state == "unavailable", field
+        expected_state = "unavailable" if field == "set_charging_power_kw" else "unknown"
+        assert hass.states.get(entity_id).state == expected_state, field
         # Fixed on/off equipment cannot advertise fake current modulation.
         assert registry.async_get_entity_id(
             "number", DOMAIN, f"{DOMAIN}:charger:socket:{field}"

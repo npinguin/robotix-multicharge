@@ -999,6 +999,9 @@ class NativeSwitchExecutor:
             return "ABOVE_USER_CHARGING_POWER_MAXIMUM", None
         if kw > charger["rated_power_kw"] + 1e-9:
             return "RATED_CHARGER_POWER_EXCEEDED", None
+        asset = next((a for a in self.runtime.configuration["assets"] if a["id"] == charger.get("asset")), None)
+        if asset and asset.get("max_charge_kw") is not None and kw > asset["max_charge_kw"] + 1e-9:
+            return "ASSET_POWER_CAP_REQUIRES_MODULATION", None
         return None, round(kw, 6)
 
 
@@ -1707,6 +1710,8 @@ class NativeSwitchExecutor:
                                if charger["kind"] == "on_off"
                                else session["target_current_a"])
                     limit_reason = self._physical_budget(charger, at, kw, current)
+                    if charger["kind"] == "variable_current":
+                        limit_reason = self._requested_current(charger, current, at)[0] or limit_reason
                     if limit_reason is not None:
                         if not await self._reduce_current(charger, at):
                             unsafe = True
