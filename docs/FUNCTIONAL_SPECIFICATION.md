@@ -1,5 +1,23 @@
 # Robotix MultiCharge — functionele productspecificatie en use-casecontract
 
+## Approved functional baseline — 24 November 2026
+
+MultiCharge charges a battery optimally using the supplied context, from a suitable on/off device and a finite guest duration to integrated SoC, adjustable current, solar, tariffs and multiple chargers. These are combinations of capabilities, not tiers or mandatory maturity stages. Keep one Controller, Charger and Chargeable Asset model, one Config Entry, one planner and one executor. This approved section supersedes earlier commissioning/certification and mandatory-context language where inconsistent; all unrelated functionality and acceptance obligations remain.
+
+| User-facing property | Values | Authority |
+|---|---|---|
+| Activation | Active / Inactive | Explicit user intent; existing control_owner (multicharge / external) |
+| Connection state | Asset connected / No asset connected / Unknown | Actual selected connection evidence; assignment is not connection |
+| Charging session | Charging / Paused / Stopped / Unknown | Actual session/source evidence; switch ON alone is not charging |
+| Charging state | Ready / Waiting / Error / Unavailable / Unknown | Existing runtime equipment/goal assessment, with reason and source quality |
+
+Inactive retains bindings, intent, history and monitoring. Commissioning means initial configuration, not a separate verification state. Legacy physical_commissioned is a derived compatibility projection; old uncommissioned control never silently activates. Pause/Resume is an independent charger admission hold, not automatically a paused session. Existing physical source statuses, suspension/completion reasons, lifecycle/history, assignment, goal, strategy, plan, command outcome, quality and measured facts retain their meaning. Do not rename existing public identifiers or redefine Premium asset lifecycle. No new state engine/store or OCPP dependency.
+
+Own what MultiCharge controls: explicit authorization, applicable constraints, commands, persistence/reconciliation, truthful feedback. User supplies suitable hardware, mappings and limits; hardware retains electrical protection. No certification of external controllers. A finite duration request using a suitable switch works without invented cable/SoC/power/energy/phase/tariff inputs; switch readback confirms output only. Selected physical fault/disconnect and relevant constraints still matter. kWh, budget, SoC and adjustable-current goals use the evidence actually necessary for that goal. No silent fallback of an explicit objective. Inactive does not send new commands after safe reconciliation. Existing Basic EVSC and Premium Mobility writers and Energy/Finance ownership are unchanged; never compete for the same endpoint.
+
+Proof: successful new minimal guest, measured kWh, integrated Ready By, adjustable-current, mixed installation with optional sources, exact existing four-charger configuration/upgrade and recovery, failed command and actual negative constraint scenarios. Source tests, isolated HA, real installed browser, field evidence and release gates remain distinct. No claim of standards certification.
+
+
 **Status:** normatief functioneel doel- en acceptatiecontract; geen implementatie- of releasestatus. **Basisdatum:** 23 november 2026. **Reikwijdte:** UC01–UC29 + FLEX-01–21 + FORECAST-01–12 + UI-OWNER-01–10. Productgeneriek; Wessels is uitsluitend een concreet sitekwalificatieprofiel.
 
 > **Dit is de enige functionele bron van waarheid voor MultiCharge.** De [RHI-platformvisie](https://github.com/npinguin/robotix-home-intelligence/blob/main/docs/ENGINEERING_PLATFORM_VISION.md) blijft hiërarchisch hoger voor platformeigenaarschap. [`ARCHITECTURE.md`](ARCHITECTURE.md) en [`INTERFACES.md`](INTERFACES.md) beschrijven implementatie en technische contracten, niet een tweede use-casebacklog. [Issue #1](https://github.com/npinguin/robotix-multicharge/issues/1), [Draft PR #9](https://github.com/npinguin/robotix-multicharge/pull/9), source-tests en exacte CI bewijzen alleen hun eigen status. Wijzig geen UC-scope uitsluitend in een PR-body; werk deze specificatie eerst bij en verwijs daarna naar gewijzigde UC-ID's.
