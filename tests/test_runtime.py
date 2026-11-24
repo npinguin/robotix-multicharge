@@ -62,7 +62,7 @@ def sample():
     cfg["chargers"] = [{
         "id": "drive", "name": "Drive", "kind": "on_off", "rated_power_kw": 4,
         "asset": "car", "connected_entity": "binary_sensor.cable",
-        "power_entity": "sensor.power",
+        "power_entity": "sensor.power", "control_owner": "multicharge",
     }]
     return validate_configuration(cfg)
 
@@ -91,6 +91,23 @@ class RuntimeTests(unittest.TestCase):
         rt.refresh(NOW + timedelta(seconds=3))
         self.assertFalse(rt.assessment.plan.slots)
         self.assertEqual(rt.excluded["drive"], "CURRENT_PLUG_ASSET_UNCONFIRMED")
+
+    def test_inactive_demand_never_displaces_active_charger(self):
+        cfg = sample()
+        cfg["controller"]["max_parallel"] = 1
+        cfg["assets"].append({**cfg["assets"][0], "id": "other", "name": "Other", "priority": 100})
+        cfg["chargers"].append({**cfg["chargers"][0], "id": "inactive", "name": "Inactive",
+                                "asset": "other", "control_owner": "external",
+                                "physical_commissioned": False, "connected_entity": "binary_sensor.other",
+                                "power_entity": "sensor.other_power"})
+        data = {"sensor.soc": state("65", "%"), "sensor.power": state("0", "W"),
+                "sensor.other_power": state("0", "W"), "binary_sensor.cable": state("on"),
+                "binary_sensor.other": state("on")}
+        rt = MultiChargeRuntime(SimpleNamespace(states=SimpleNamespace(get=data.get)), cfg)
+        rt.refresh(NOW)
+        self.assertTrue(rt.assessment.plan.slots)
+        self.assertEqual({slot.charger_uid for slot in rt.assessment.plan.slots}, {"drive"})
+        self.assertEqual(rt.excluded["inactive"], "CHARGER_INACTIVE")
 
     def test_native_diagnostics_capture_errors_without_leaking_names(self):
         import json
@@ -502,6 +519,7 @@ class RuntimeTests(unittest.TestCase):
         cfg["chargers"] = [{
             "id": "plug", "name": "Plug", "kind": "on_off", "rated_power_kw": 2,
             "asset": "bike", "connected_entity": "sensor.plug_connected",
+            "control_owner": "multicharge",
         }]
         data = {"sensor.plug_connected": state("connected")}
         rt = MultiChargeRuntime(

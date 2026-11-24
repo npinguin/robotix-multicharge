@@ -24,8 +24,10 @@ const MC_REASONS={
   DEMAND_UNKNOWN:"No charging goal",INSUFFICIENT_CAPACITY_OR_TIME:"Limited power",
   SOURCE_NOT_SELECTED:"No source",BINDING_CAPACITY_UNAVAILABLE:"No capacity",
   PHASE_WIRING_UNVERIFIED:"Wiring unknown",NO_ASSIGNED_ASSET:"No vehicle",
-  EXTERNAL_WRITER_OWNS_CHARGER:"External charging controller",
-  PHYSICAL_COMMISSIONING_REQUIRED:"Verify charger safety",
+  EXTERNAL_WRITER_OWNS_CHARGER:"Inactive",
+  CHARGER_INACTIVE:"Inactive",
+  PHYSICAL_COMMISSIONING_REQUIRED:"Inactive",
+  NATIVE_CURRENT_UNIT_UNSUPPORTED:"Current control must use A",
   PHYSICAL_CONNECTION_UNVERIFIED:"Connection not verified",
   INDEPENDENT_POWER_UNAVAILABLE:"Power measurement missing",
   NATIVE_SWITCH_REQUIRED:"Charger control missing",
@@ -1081,7 +1083,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       this._refreshTimer=null;
       if(this._loading){this._refreshPending=true;return;}
       this._last=0;this.load();
-    },350);
+    },Math.max(350, 2500-(Date.now()-this._last)));
   }
   disconnectedCallback(){
     if(this._refreshTimer!==null)clearTimeout(this._refreshTimer);
@@ -1102,13 +1104,14 @@ class RobotixMultiChargeCard extends HTMLElement {
     );
     if(changed)this.scheduleSourceRefresh();
     else if(!this._loading&&(!this._last||Date.now()-this._last>60000))this.load();
-    else if(this._data)this.passiveRender();
+    else if(this._data && before?.locale?.language!==value?.locale?.language)this.passiveRender();
   }
   async load(){
     if(!this._hass||this._loading)return;
-    this._loading=true;this._error="";this.passiveRender();
+    this._loading=true;this._error="";if(!this._data)this.passiveRender();
     try {
-      const cmd={type:"robotix_multicharge/get_plan",day:this._day};
+      const cmd={type:"robotix_multicharge/get_plan",day:this._day,
+        include_history:["Charging Plan","Chargeable Assets","Chargers"].includes(this._tab)};
       if(this._filter.startsWith("charger:"))cmd.charger_id=this._filter.slice(8);
       if(this._filter.startsWith("asset:"))cmd.asset_id=this._filter.slice(6);
       const nextData=await this._hass.callWS(cmd);
@@ -1694,6 +1697,9 @@ class RobotixMultiChargeCard extends HTMLElement {
         this._yamlEditorOpen=false;
         this._yamlCommittedRevision=null;
         this.render();
+        if(["Charging Plan","Chargeable Assets","Chargers"].includes(item)&&this._data?.actual_history_quality==="NOT_REQUESTED"){
+          if(this._loading)this._refreshPending=true;else{this._last=0;this.load();}
+        }
       });
       btn.setAttribute("aria-selected",String(this._tab===item));
       tabs.append(btn);
@@ -1731,9 +1737,10 @@ class RobotixMultiChargeCard extends HTMLElement {
     const powers=chargers.map(x=>(observations[x.id]||{}).power_kw);
     const complete=powers.length>0&&powers.every(x=>x&&x.quality==="ok"&&typeof x.value==="number");
     const active=powers.filter(x=>x&&x.quality==="ok"&&x.value>0).length;
+    const activated=chargers.filter(x=>x.control_owner==="multicharge"&&x.physical_commissioned===true).length;
     const metrics=mcEl("div","grid");
     for(const [key,value] of [
-      ["Active chargers",!chargers.length?"0":complete?String(active):"Unknown"],
+      ["Active chargers",String(activated)],
       ["Actual power",complete?(powers.reduce((sum,x)=>sum+x.value,0).toFixed(2)+" kW"):"Unknown"],
       [priceKind,priceLabel],
       ["Solar production",mcValue(sources.solar_power," kW")],
@@ -1969,7 +1976,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(assumptions[charger.id]&&forecastVisible){
         const item=assumptions[charger.id];
         card.append(mcEl("p","plan-caution",mcTr("Indicative")+" · "+
-          (item.assumption==="IF_CONNECTED_NOW"?mcTr("If connected now"):
+          (item.assumption==="IF_ACTIVATED"?mcTr("If activated"):item.assumption==="IF_CONNECTED_NOW"?mcTr("If connected now"):
             mcTr("Expected")+" "+mcTime(item.assumed_connection_at,d.timezone))+
           " · "+mcTr("Not reserved")));
       }

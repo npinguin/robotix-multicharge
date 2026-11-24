@@ -22,6 +22,7 @@ from .history import read_actual_history
     vol.Optional("day"): vol.In(("today", "tomorrow", "both")),
     vol.Optional("charger_id"): str,
     vol.Optional("asset_id"): str,
+    vol.Optional("include_history", default=True): bool,
 })
 @websocket_api.async_response
 async def websocket_get_plan(
@@ -59,12 +60,15 @@ async def websocket_get_plan(
             start, end,
             charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
         )
-        actual, quality, estimates = await read_actual_history(
-            hass, runtime.configuration, start, end,
-            charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
-            session_receipts=runtime.executor.completed_sessions(),
-            price_slots=runtime.price_slots, include_valuations=True,
-        )
+        if msg.get("include_history", True):
+            actual, quality, estimates = await read_actual_history(
+                hass, runtime.configuration, start, end,
+                charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
+                session_receipts=runtime.executor.completed_sessions(),
+                price_slots=runtime.price_slots, include_valuations=True,
+            )
+        else:
+            actual, quality, estimates = [], "NOT_REQUESTED", {}
         # A Recorder-based *indicative* variable component belongs in the
         # read-only view only. Never mutate persisted session receipts or
         # convert a power integration into an authoritative billed cost.
@@ -156,7 +160,7 @@ async def websocket_get_plan(
                     "name": native_entity("text", "charger", row["id"], "name"),
                     **{
                         field: native_select("charger", row["id"], field)
-                        for field in ("plan_color", "asset")
+                        for field in ("plan_color", "asset", "control_owner")
                     },
                     **{
                         field: native_entity("number", "charger", row["id"], field)

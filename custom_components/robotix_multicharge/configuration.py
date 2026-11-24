@@ -113,8 +113,8 @@ def _charging_windows(source, field="asset.charging_windows"):
 def apply_new_asset_defaults(row):
     """80% is an editable starting *target*, never an OEM hardware limit.
 
-    Only newly created normal car profiles receive this default; expert
-    imports and existing persisted vehicle targets are never rewritten.
+    New car profiles receive this default. Existing persisted vehicle targets
+    are never rewritten by validation.
     A percentage without a qualified SoC does not authorize charging.
     """
     if (row.get("kind", "car") == "car"
@@ -874,6 +874,8 @@ def apply_dashboard_structure(configuration, scope, target_id, changes, action="
                 or changes.get("requested_duration_minutes") is not None):
             target.pop("requested_budget_amount", None)
             target.pop("requested_budget_currency", None)
+        if scope == "asset" and action == "create":
+            apply_new_asset_defaults(target)
     return validate_configuration(cfg)
 
 
@@ -1019,15 +1021,21 @@ def prepare_expert_yaml_revision(current, document, mode="merge"):
                         existing.update(deepcopy(supplied))
             candidate = validate_configuration(candidate)
 
-    existing_ids = {row["id"] for row in before["assets"]}
-    for asset in candidate["assets"]:
-        if asset["id"] not in existing_ids and asset.get("soc_entity"):
-            apply_new_asset_defaults(asset)
-    candidate = validate_configuration(candidate)
+    candidate = apply_new_import_defaults(before, candidate)
     if candidate["controller"]["id"] != before["controller"]["id"]:
         raise ValueError("controller ID cannot change in UI; preserve existing HA history")
     assert_expert_authority_change(before, candidate)
     return candidate
+
+
+def apply_new_import_defaults(before, candidate):
+    """Default only new SoC-capable imported profiles; preserve explicit goals."""
+    candidate = deepcopy(candidate)
+    existing_ids = {row["id"] for row in before.get("assets", [])}
+    for asset in candidate["assets"]:
+        if asset["id"] not in existing_ids and asset.get("soc_entity"):
+            apply_new_asset_defaults(asset)
+    return validate_configuration(candidate)
 
 
 # Expert JSON is only an adapter to the existing canonical Config Entry validator.

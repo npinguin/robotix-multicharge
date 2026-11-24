@@ -1398,6 +1398,29 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         rt.configuration["chargers"][0]["asset"] = None
         self.assertEqual(rt.executor.completed_sessions()[0]["asset_id"], "car")
 
+    async def test_partial_budget_resume_only_grants_remaining_amount(self):
+        rt, states, _ = rig()
+        asset = rt.configuration["assets"][0]
+        asset.pop("requested_kwh")
+        asset.update(requested_budget_amount=10.0, requested_budget_currency="EUR")
+        now = datetime.now(timezone.utc)
+        provider = state("ready")
+        provider.attributes = {"kind": "effective_price_kwh", "currency": "EUR",
+            "valid_until": (now + timedelta(hours=3)).isoformat(),
+            "intervals": [{"start": (now - timedelta(hours=1)).isoformat(),
+                           "end": (now + timedelta(hours=3)).isoformat(), "value": 4.0}]}
+        states["sensor.price"] = provider
+        rt.configuration["controller"]["price_entity"] = "sensor.price"
+        rt.refresh()
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"], "confirmed")
+        states["sensor.meter"].state = "6"
+        states["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        self.assertEqual((await rt.executor.execute("evse", "stop"))["status"], "confirmed")
+        self.assertAlmostEqual(rt.executor.completed_sessions()[0]["budget_accrued_cost"], 4.0)
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"], "confirmed")
+        self.assertAlmostEqual(rt.executor.session_snapshot()["evse"]["requested_budget_amount"], 6.0)
+        self.assertEqual((await rt.executor.execute("evse", "stop"))["status"], "confirmed")
+
     async def test_money_meter_delta_across_dynamic_price_boundary_is_upper_bound(self):
         from multicharge_physical_execution_test.contracts import PriceSlot
         rt, sources, _ = rig()

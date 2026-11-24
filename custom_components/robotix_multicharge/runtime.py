@@ -163,8 +163,19 @@ class MultiChargeRuntime:
         return lambda: self._listeners.discard(callback)
 
     def notify(self):
-        for listener in tuple(self._listeners):
-            listener()
+        # Native entity listeners share one projection during this synchronous dispatch.
+        self._notification_capabilities = self.executor.capabilities() if self._listeners else None
+        self._notification_live = self.live_state() if self._listeners else None
+        try:
+            for listener in tuple(self._listeners):
+                listener()
+        finally:
+            self._notification_capabilities = None
+            self._notification_live = None
+
+    def projected_capabilities(self):
+        cached = getattr(self, "_notification_capabilities", None)
+        return cached if cached is not None else self.executor.capabilities()
 
     def stop(self):
         self.active = False
@@ -589,7 +600,7 @@ class MultiChargeRuntime:
     def charger_states(self, capabilities=None):
         """Four read-only projections of the existing source and control truth."""
         if capabilities is None:
-            capabilities = self.executor.capabilities()
+            capabilities = self.projected_capabilities()
         states = {}
         for charger in self.configuration["chargers"]:
             uid = charger["id"]
@@ -622,6 +633,8 @@ class MultiChargeRuntime:
                 readiness, reason = "error", "CHARGER_REPORTED_FAULT"
             elif reported == "unavailable" or (charger.get("control_entity") and switch is None and activation == "active"):
                 readiness, reason = "unavailable", "CHARGER_SOURCE_UNAVAILABLE"
+            elif activation == "inactive":
+                readiness, reason = "waiting", "CHARGER_INACTIVE"
             elif activation == "active" and capability.get("paused"):
                 readiness, reason = "waiting", "USER_PAUSED"
             elif activation == "active" and goal_reason in ("CONTROL_STATE_UNVERIFIED", "PREVIOUS_COMMAND_UNCONFIRMED"):
@@ -635,6 +648,8 @@ class MultiChargeRuntime:
                     "CHARGING_WINDOW_CLOSED", "EARLIEST_START_NOT_REACHED",
                     "NATIVE_SOLAR_SURPLUS_INSUFFICIENT", "AUTOMATIC_MODE_NOT_ENABLED",
                 ) and goal_reason != "TARGET_ALREADY_MET":
+                    readiness, reason = "waiting", goal_reason
+                elif goal_reason not in (None, "READY", "MANUAL_START_REQUIRES_FORCE_CHARGE", "SWITCH_ALREADY_ON"):
                     readiness, reason = "waiting", goal_reason
                 else:
                     readiness, reason = "ready", "EQUIPMENT_OBSERVED"
@@ -661,6 +676,9 @@ class MultiChargeRuntime:
         All counts are unknown if any required physical source is unavailable.
         Never count an unknown or unplugged charger as zero measured power.
         """
+        cached = getattr(self, "_notification_live", None)
+        if cached is not None:
+            return cached
         chargers = self.configuration["chargers"]
         observations = self.observations.get("chargers", {})
         cables = [observations.get(c["id"], {}).get("connected") for c in chargers]
@@ -740,7 +758,7 @@ class MultiChargeRuntime:
             "read_only": True,
             "physical_actuation_authorized": any(
                 x["start_allowed"] or x["stop_allowed"]
-                for x in self.executor.capabilities().values()
+                for x in self.projected_capabilities().values()
             ),
             "command_outcomes": self.executor.snapshot(),
             "active_sessions": self.executor.session_snapshot(),
@@ -944,6 +962,6 @@ class MultiChargeRuntime:
             "read_only": True,
             "physical_actuation_authorized": any(
                 x["start_allowed"] or x["stop_allowed"]
-                for x in self.executor.capabilities().values()
+                for x in self.projected_capabilities().values()
             ),
         }

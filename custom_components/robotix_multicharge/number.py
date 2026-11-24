@@ -5,6 +5,7 @@ from __future__ import annotations
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.const import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .command_query import apply_native_preference, require_native_admin
@@ -65,6 +66,8 @@ class _AssetNumber(NumberEntity):
         self._attr_native_unit_of_measurement = unit
         self._attr_unique_id = f"{DOMAIN}:asset:{self.uid}:{field}"
         self._attr_translation_key = field
+        if field in ("capacity_kwh", "charge_efficiency", "minimum_soc_pct", "maximum_price_per_kwh", "low_price_trigger_per_kwh", "low_soc_trigger_pct", "opportunistic_level_pct", "max_charge_kw"):
+            self._attr_entity_category = EntityCategory.CONFIG
         self._attr_device_info = {
             "identifiers": {(DOMAIN, f"asset/{self.uid}")},
             "name": asset["name"], "manufacturer": "Robotix",
@@ -202,7 +205,7 @@ class _ChargerPowerNumber(NumberEntity):
         self.uid, self.field = charger["id"], field
         self._attr_unique_id = f"{DOMAIN}:charger:{self.uid}:{field}"
         self._attr_translation_key = field
-        self._attr_entity_category = None
+        self._attr_entity_category = (None if field == "set_charging_power_kw" else EntityCategory.CONFIG)
         self._attr_device_info = {
             "identifiers": {(DOMAIN, f"charger/{self.uid}")},
             "name": charger["name"], "manufacturer": "Robotix",

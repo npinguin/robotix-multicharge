@@ -16,7 +16,7 @@ from homeassistant.helpers import selector
 from .configuration import (
     default_configuration, is_plan_presentation_only_change,
     validate_configuration, configuration_revision,
-    apply_new_asset_defaults, energy_dashboard_suggestions,
+    apply_new_asset_defaults, apply_new_import_defaults, energy_dashboard_suggestions,
     assert_expert_authority_change, is_in_place_runtime_preference_change,
 )
 from .source_evidence import number
@@ -304,7 +304,7 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
         if user_input is not None:
             try:
-                cfg = validate_configuration(_parse_editor_yaml(user_input["yaml_text"]))
+                cfg = apply_new_import_defaults({"assets": []}, validate_configuration(_parse_editor_yaml(user_input["yaml_text"])))
                 if any(row.get("control_owner") != "external"
                        or row.get("physical_commissioned") is True
                        for row in cfg["chargers"]):
@@ -717,6 +717,8 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if expert_format not in ("yaml", "json"):
             raise ValueError("Unsupported expert configuration format")
         entries = self._async_current_entries()
+        prior = effective_configuration(entries[0]) if entries else {"assets": []}
+        cfg = apply_new_import_defaults(prior, cfg)
         if entries:
             # An existing setup can adopt expert YAML without deleting/readding
             # the HA Config Entry: this preserves its entry ID, logical devices,
@@ -845,7 +847,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         validation_error = ""
         if user_input is not None:
             try:
-                proposed = validate_configuration(_parse_editor_yaml(user_input["yaml_text"]))
+                proposed = apply_new_import_defaults(cfg, validate_configuration(_parse_editor_yaml(user_input["yaml_text"])))
                 if proposed["controller"]["id"] != cfg["controller"]["id"]:
                     raise ValueError("CONTROLLER_ID_IMMUTABLE")
                 assert_expert_authority_change(cfg, proposed)

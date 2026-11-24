@@ -82,7 +82,7 @@ class _OwnedSelect(SelectEntity):
         if field == "control_owner":
             self._attr_name = "Activation"
             self._attr_translation_key = None
-        if field in ("control_owner", "mode", "ready_by_repeat", "asset", "plan_color", "continuous_charging", "opportunistic_kind") or field.startswith("ready_day_"):
+        if field in ("control_owner", "mode", "ready_by_repeat", "asset", "continuous_charging"):
             self._attr_entity_category = None
         self._attr_device_info = {
             "identifiers": {(DOMAIN, f"{kind}/{self.uid}")},

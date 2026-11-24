@@ -74,7 +74,8 @@ async def async_setup_entry(
         key = names.get(entity.unique_id.rsplit(":", 1)[-1])
         if key is not None:
             entity._attr_translation_key = key
-            entity._attr_name = None
+            # Keep a functional fallback if HA cannot resolve the translation key.
+            # Registry identity and user overrides remain untouched.
     async_add_entities(entities)
 
 
@@ -130,7 +131,7 @@ class _OwnerConfigurationSensor(_NativeMultiChargeSensor):
 
     def __init__(self, kind: str, data: dict, runtime) -> None:
         super().__init__(kind, data, runtime)
-        self._attr_name = "Configuration"
+        self._attr_name = "Configuration revision"
         self._attr_unique_id = f"{DOMAIN}:{kind}:{data['id']}:configuration"
         self._revision = None
         self._update_value()
@@ -168,28 +169,18 @@ class _LogicalReadinessSensor(_NativeMultiChargeSensor):
 
     def _update_value(self):
         outcomes = self.runtime.executor.snapshot()
-        caps = self.runtime.executor.capabilities()
+        caps = self.runtime.projected_capabilities()
         active = [
             uid for uid, cap in caps.items()
             if cap["start_allowed"] or cap["stop_allowed"]
         ]
-        confirmed = outcomes.get(self.data["id"], {}).get("status") == "confirmed"
         if self.kind == "controller":
             status = "manual_controls_available" if active else "not_commissioned"
             operational = any(row.get("status") == "confirmed" for row in outcomes.values())
         elif self.kind == "charger":
-            cap = caps.get(self.data["id"], {})
-            if confirmed:
-                obs = self.runtime.observations.get("chargers", {}).get(self.data["id"], {})
-                power = obs.get("power_kw")
-                operational = bool(power is not None and power.quality == "ok")
-                status = "physical_readback_confirmed" if operational else "readback_stale"
-            elif cap.get("start_allowed") or cap.get("stop_allowed"):
-                status = "manual_controls_available"
-                operational = False
-            else:
-                status = "not_commissioned" if self.data.get("physical_commissioned") is not True else "unavailable"
-                operational = False
+            projection = self.runtime.charger_states(caps).get(self.data["id"], {})
+            status = projection.get("charging_state", "unknown")
+            operational = status == "ready"
         else:
             obs = self.runtime.observations.get("assets", {}).get(self.data["id"], {})
             soc = obs.get("soc")
@@ -198,6 +189,7 @@ class _LogicalReadinessSensor(_NativeMultiChargeSensor):
                 else "demand_configured" if (
                     self.data.get("requested_kwh") is not None
                     or self.data.get("requested_duration_minutes") is not None
+                    or self.data.get("requested_budget_amount") is not None
                 )
                 else "needs_input"
             )
