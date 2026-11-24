@@ -1,21 +1,9 @@
 # Community contracts — development candidate
 
-## Governing functional baseline — 24 November 2026
+## Governing functional baseline
 
-MultiCharge charges a battery optimally using the supplied context, from a suitable on/off device and a finite guest duration to integrated SoC, adjustable current, solar, tariffs and multiple chargers. These are combinations of capabilities, not tiers or mandatory maturity stages. Keep one Controller, Charger and Chargeable Asset model, one Config Entry, one planner and one executor. This approved section supersedes earlier commissioning/certification and mandatory-context language where inconsistent; all unrelated functionality and acceptance obligations remain.
+The [approved functional baseline](FUNCTIONAL_SPECIFICATION.md#approved-functional-baseline--24-november-2026) is authoritative for the four Charger projections, activation, progressive context and ownership. It supersedes older commissioning/certification requirements below where inconsistent. Preserve existing native contracts and derive states in the existing runtime, not in a second model/store.
 
-| User-facing property | Values | Authority |
-|---|---|---|
-| Activation | Active / Inactive | Explicit user intent; existing control_owner (multicharge / external) |
-| Connection state | Asset connected / No asset connected / Unknown | Actual selected connection evidence; assignment is not connection |
-| Charging session | Charging / Paused / Stopped / Unknown | Actual session/source evidence; switch ON alone is not charging |
-| Charging state | Ready / Waiting / Error / Unavailable / Unknown | Existing runtime equipment/goal assessment, with reason and source quality |
-
-Inactive retains bindings, intent, history and monitoring. Commissioning means initial configuration, not a separate verification state. Legacy physical_commissioned is a derived compatibility projection; old uncommissioned control never silently activates. Pause/Resume is an independent charger admission hold, not automatically a paused session. Existing physical source statuses, suspension/completion reasons, lifecycle/history, assignment, goal, strategy, plan, command outcome, quality and measured facts retain their meaning. Do not rename existing public identifiers or redefine Premium asset lifecycle. No new state engine/store or OCPP dependency.
-
-Own what MultiCharge controls: explicit authorization, applicable constraints, commands, persistence/reconciliation, truthful feedback. User supplies suitable hardware, mappings and limits; hardware retains electrical protection. No certification of external controllers. A finite duration request using a suitable switch works without invented cable/SoC/power/energy/phase/tariff inputs; switch readback confirms output only. Selected physical fault/disconnect and relevant constraints still matter. kWh, budget, SoC and adjustable-current goals use the evidence actually necessary for that goal. No silent fallback of an explicit objective. Inactive does not send new commands after safe reconciliation. Existing Basic EVSC and Premium Mobility writers and Energy/Finance ownership are unchanged; never compete for the same endpoint.
-
-Qualification: successful new minimal guest, measured kWh, integrated Ready By, adjustable-current, mixed installation with optional sources, exact existing four-charger configuration/upgrade and recovery, failed command and actual negative constraint scenarios. Source tests, isolated HA, real installed browser, field evidence and release gates remain distinct. No claim of standards certification.
 
 
 > **Functional authority:** [FUNCTIONAL_SPECIFICATION.md](FUNCTIONAL_SPECIFICATION.md) defines the UC01–UC29, FLEX/FORECAST/UI-OWNER required user journeys and positive/negative acceptance. This document owns only implementation-facing interface constraints and candidate HA API contracts, never an independent functional backlog. Current gaps/CI/field status belong in [Issue #1](https://github.com/npinguin/robotix-multicharge/issues/1) and the existing PR/release workflow.

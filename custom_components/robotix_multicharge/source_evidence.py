@@ -241,7 +241,11 @@ def session_status(hass, entity_id: str | None, now: datetime) -> Evidence:
             "charging": "charging", "active": "active",
             "paused": "paused", "idle": "idle",
             "stopped": "stopped", "completed": "completed",
-            "inactive": "inactive",
+            "inactive": "inactive", "running": "charging",
+            "suspended": "paused", "suspended_ev": "paused", "suspendedev": "paused",
+            "suspended_evse": "paused", "suspendedevse": "paused",
+            "finishing": "stopped", "fault": "fault", "faulted": "fault", "error": "fault",
+            "reserved": "unavailable",
         }
     else:
         labels = {}

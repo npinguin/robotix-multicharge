@@ -291,7 +291,7 @@ async function main(){
                       "Native Charger control switch","Circuit breaker limit",
                       "Cumulative Charger energy meter",
                       "Original vehicle at session time",
-                      "historical_guest","External control (monitor only)"]){
+                      "historical_guest","Activation","Charging session","Charging state"]){
     assert.ok(evseText.includes(label),"Charger owner must expose "+label);
   }
   const chargerFolds=[];

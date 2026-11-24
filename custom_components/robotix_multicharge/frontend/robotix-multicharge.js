@@ -873,7 +873,7 @@ const MC_OWNER_NAMES = {
   capacity_kwh:"Usable battery capacity",
   max_charge_kw:"Vehicle charging limit",
   charge_efficiency:"Charging efficiency",
-  control_owner:"Control mode",
+  control_owner:"Activation",
   physical_commissioned:"Physical commissioning",
   control_entity:"Native Charger control switch",
   connected_entity:"Cable/connection sensor",
@@ -1290,7 +1290,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     else options=MC_EDIT_ENUM[field]||null;
     if(MC_EDIT_BOOLEAN.has(field))options=["true","false"];
     if(options){
-      const pairs=options.map(key=>[key,field==="control_owner"?(key==="multicharge"?"MultiCharge manages charging":"Monitor only"):key||mcTr("No vehicle")]);
+      const pairs=options.map(key=>[key,field==="control_owner"?(key==="multicharge"?mcTr("Active"):mcTr("Inactive")):key||mcTr("No vehicle")]);
       if(prior!==undefined&&!pairs.some(x=>x[0]===String(prior)))
         pairs.unshift([String(prior),String(prior)]);
       const choice=this.field(container,MC_OWNER_NAMES[field]||field,
@@ -2202,7 +2202,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     }
     // A newly supported source key may never disappear during a version
     // upgrade just because the bundled frontend is older than the backend.
-    const extra=Object.keys(record).filter(key=>!covered.has(key));
+    const extra=Object.keys(record).filter(key=>!covered.has(key)&&!(scope==="charger"&&key==="physical_commissioned"));
     if(extra.length)fold("Additional owner settings",extra,
       scope+":"+record.id+":additional");
     wrapper.append(mcEl("p","muted small",
@@ -2586,14 +2586,14 @@ class RobotixMultiChargeCard extends HTMLElement {
     box.append(mcEl("h3","",mcTr("Add charger")+" · "+
       mcTr("configured entirely in MultiCharge")));
     box.append(mcEl("p","muted small",
-      "Select monitor only or allow MultiCharge to control the configured switch. No charging command is sent by Save."));
+      "Active allows MultiCharge control. Inactive retains monitoring. Save sends no charging command."));
     const id=this.field(box,mcTr("Stable charger ID"),"","text");
     const name=this.field(box,mcTr("Charger name"),"","text");
     const kind=this.field(box,mcTr("Control type"),"on_off",null,[
       ["on_off",mcTr("On/off")],["variable_current",mcTr("Variable current")]
     ]);
-    const owner=this.field(box,"Control mode","external",null,[
-      ["external","Monitor only"],["multicharge","MultiCharge manages charging"]
+    const owner=this.field(box,mcTr("Activation"),"external",null,[
+      ["external",mcTr("Inactive")],["multicharge",mcTr("Active")]
     ]);
     const readSwitch=this.dashboardFieldControl(box,"charger",{id:"new_charger"},"control_entity");
     const power=this.field(box,mcTr("Rated power (kW)"),"","number");
@@ -2656,19 +2656,24 @@ class RobotixMultiChargeCard extends HTMLElement {
       dot.style.background=mcOwnerColor("charger",c.id,d.configuration,d.plan_palette);
       chip.append(dot,mcEl("span","muted small",mcTr("Plan color")+" · "+mcTr(c.plan_color||"blue")));
       card.append(chip);
-      mcPair(card,"Connection",mcValue(obs.connected));
-      const status=obs.connected?.quality==="ok"&&obs.connected.value===true&&
-        obs.power_kw?.quality==="ok"&&typeof obs.power_kw.value==="number"&&obs.power_kw.value>0?"Charging":
-        obs.connected?.quality==="ok"?(obs.connected.value===true?"Connected":"Disconnected"):"Unknown";
-      const statusIcon=status==="Charging"?"lightning-bolt":status==="Connected"?"connection":status==="Disconnected"?"power-plug-off-outline":"help-circle-outline";
-      card.append(mcIconLabel(mcEl("p","small",status),status,statusIcon,status==="Charging"?"good":"quiet"));
+      const states=(d.charger_states||{})[c.id]||{};
+      const activation=c.control_owner==="multicharge"&&c.physical_commissioned!==false?"Active":"Inactive";
+      const connection=states.connection_state==="asset_connected"?"Asset connected":
+        states.connection_state==="no_asset_connected"?"No asset connected":"Unknown";
+      const activity={charging:"Charging",paused:"Paused",stopped:"Stopped"}[states.charging_session]||"Unknown";
+      const readiness={ready:"Ready",waiting:"Waiting",error:"Error",unavailable:"Unavailable"}[states.charging_state]||"Unknown";
+      mcPair(card,mcTr("Activation"),mcTr(activation));
+      mcPair(card,mcTr("Connection state"),mcTr(connection));
+      mcPair(card,mcTr("Charging session"),mcTr(activity));
+      mcPair(card,mcTr("Charging state"),mcTr(readiness));
+      if(states.reason&&states.charging_state!=="ready")
+        card.append(mcEl("p","muted small",mcReason(states.reason)));
+      if(states.switch_state==="on"&&activity==="Unknown")
+        card.append(mcEl("p","muted small",mcTr("Switch on · charging not measured")));
       mcPair(card,"Effective charging power",mcValue(obs.power_kw," kW"));
       mcPair(card,"Control type",c.kind==="on_off"?"On/off":"Variable current");
-      mcPair(card,mcTr("Physical control owner"),
-        c.control_owner==="multicharge"?mcTr("MultiCharge"):
-        mcTr("External control (monitor only)"));
       if(this.canEditSettings())card.append(mcButton(
-        "Change control mode",()=>this.openNative("charger",c.id,"control_owner")
+        mcTr("Change activation"),()=>this.openNative("charger",c.id,"control_owner")
       ));
       const session=(d.active_sessions||{})[c.id];
       if(session){
@@ -2818,12 +2823,16 @@ class RobotixMultiChargeCard extends HTMLElement {
             time?{duration_minutes:Number(time)}:
             {cost_amount:Number(money),currency:"EUR"});
         });
-        submit.disabled=this._commandBusy||!capability.manual_one_off_allowed;
-        oneOff.append(submit);
-        if(!capability.manual_one_off_allowed)
-          oneOff.append(mcEl("p","muted small",
-            mcTr("Start unavailable")+" · "+
-            mcReason(capability.manual_one_off_reason||"SOURCE_NOT_SELECTED")));
+        const availability=mcEl("p","muted small");
+        const updateGoal=()=>{
+          const kind=energy.value.trim()?"energy":budget.value.trim()?"budget":"duration";
+          const reason=capability.manual_goal_reasons?.[kind]||capability.manual_one_off_reason||"SOURCE_NOT_SELECTED";
+          submit.disabled=this._commandBusy||reason!=="READY";
+          availability.textContent=reason==="READY"?"":mcTr("Start unavailable")+" · "+mcReason(reason);
+        };
+        for(const input of [energy,minutes,budget])input.addEventListener("input",updateGoal);
+        updateGoal();
+        oneOff.append(submit,availability);
         this.disclosure(card,"charger:"+c.id+":oneoff",
           "Manual one-off charge",oneOff,
           capability.manual_one_off_allowed?"":
@@ -2834,9 +2843,10 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(outcome){
         const bad=outcome.status==="rejected"||outcome.status==="execution_unknown";
         const label=bad?mcReason(outcome.reason):outcome.status==="confirmed"?
-          (outcome.action==="stop"?"Stopped":
+          (outcome.reason==="NATIVE_SWITCH_STATE"?(outcome.action==="start"?mcTr("Switch on · charging not measured"):mcTr("Switch off · charging not measured")):
+           outcome.action==="stop"?"Stopped":
            outcome.action==="pause"?mcTr("Paused"):
-           outcome.action==="resume"?mcTr("Ready for next plan"):"Charging"):"Pending";
+           outcome.action==="resume"?mcTr("Ready for next plan"):"Command confirmed"):"Pending";
         const status=mcEl("p","small"+(bad?" error":""),label);
         status.setAttribute("role",bad?"alert":"status");
         card.append(status);

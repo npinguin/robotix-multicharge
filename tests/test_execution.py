@@ -624,6 +624,11 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first["reason"], "NATIVE_SWITCH_STATE")
         self.assertIsNone(first["measured_power_kw"])
         self.assertIsNone(rt.live_state()["actual_power_kw"])
+        states = rt.charger_states()["evse"]
+        self.assertEqual(states["activation"], "active")
+        self.assertEqual(states["connection_state"], "unknown")
+        self.assertEqual(states["charging_session"], "unknown")
+        self.assertEqual(states["switch_state"], "on")
         self.assertTrue(rt.executor.session_snapshot()["evse"]["switch_only"])
         await rt.executor.supervise()
         self.assertEqual([c[1] for c in services.calls], ["turn_on"])

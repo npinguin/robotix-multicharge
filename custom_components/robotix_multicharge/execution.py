@@ -536,7 +536,28 @@ class NativeSwitchExecutor:
                 )
             if manual_reason is None and uid in self._quarantine:
                 manual_reason = "PREVIOUS_COMMAND_UNCONFIRMED"
+            # Shared actual admission checks, evaluated for each finite goal.
+            # A duration-only guest must not borrow the readiness of a meter goal.
+            goals = {"duration": manual_reason or "READY"}
+            for goal, request in (
+                ("energy", {"energy_kwh": 1}),
+                ("budget", {"cost_amount": 1, "currency": "EUR"}),
+            ):
+                if manual_reason not in (None, "PHYSICAL_CONNECTION_UNVERIFIED",
+                                         "INDEPENDENT_POWER_UNAVAILABLE"):
+                    goal_reason = manual_reason
+                else:
+                    goal_reason = self._admit_start(
+                        charger, at, target_current=(
+                            charger.get("min_current_a")
+                            if charger["kind"] == "variable_current" else None
+                        ), manual_request=request,
+                    )
+                if goal_reason is None and uid in self._quarantine:
+                    goal_reason = "PREVIOUS_COMMAND_UNCONFIRMED"
+                goals[goal] = goal_reason or "READY"
             result[uid] = {
+                "manual_goal_reasons": goals,
                 "paused": uid in self._paused,
                 "pause_allowed": stop_allowed and uid not in self._paused
                     and self._persistence_verified,
