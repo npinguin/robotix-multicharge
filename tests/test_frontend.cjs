@@ -1382,8 +1382,8 @@ async function main(){
     assert.ok(content(card.shadowRoot).includes(name),name);
   }
 
-  assert.ok(!content(card.shadowRoot).includes("YAML configuration"));
-  assert.ok(!find(card.shadowRoot,"button","Edit YAML"));
+  assert.ok(find(card.shadowRoot,"button","Edit YAML"),
+    "Admin Settings must expose complete YAML editor next to typed fields");
   assert.ok(!content(card.shadowRoot).includes("/config/packages/multicharge.yaml"),
     "No YAML package is required to configure standalone MultiCharge");
   card._settingsOpen="Sources & bindings";card.render();
