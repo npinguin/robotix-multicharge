@@ -837,8 +837,9 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             return self._saved(updated)
         try:
             async with runtime.executor._lock:
-                if not same_version():
-                    self._last_config_error = "Configuration was changed after opening the editor. Reopen the current configuration."
+                if (not same_version() or not runtime.active
+                        or self._current() != runtime.configuration):
+                    self._last_config_error = "Configuration changed or is still being applied. Reopen the current configuration."
                     return None
                 _assert_safe_yaml_ui_commit(runtime, updated)
                 return self._saved(updated)

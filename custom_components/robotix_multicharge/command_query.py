@@ -13,7 +13,7 @@ import voluptuous as vol
 
 from .configuration import (
     apply_settings_change, apply_dashboard_structure, configuration_revision,
-    assert_expert_authority_change, validate_configuration,
+    assert_expert_authority_change, validate_configuration, effective_configuration,
 )
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
@@ -93,8 +93,10 @@ async def apply_native_preference(hass, entry, runtime, scope, target_id, change
             or entry.data.get("source") in ("yaml", "json")):
         raise ValueError("readonly_import_configuration")
     async with runtime.executor._lock:
-        if expected_revision is not None and (
-                expected_revision != configuration_revision(runtime.configuration)):
+        committed = effective_configuration(entry)
+        if (not runtime.active or committed != runtime.configuration
+                or (expected_revision is not None and
+                    expected_revision != configuration_revision(committed))):
             raise ValueError("stale_settings")
         if "ready_by_local" in changes:
             # Transport-only wall clock; persist the existing aware anchor.
@@ -248,7 +250,9 @@ async def websocket_yaml_configuration(
         # No review token or second UI step: validate once, then commit
         # under the original executor lock and authoritative revision.
         async with runtime.executor._lock:
-            if configuration_revision(runtime.configuration) != msg["expected_revision"]:
+            committed = effective_configuration(entry)
+            if (not runtime.active or committed != runtime.configuration
+                    or configuration_revision(committed) != msg["expected_revision"]):
                 raise ValueError("STALE_SETTINGS_REFRESH")
             _assert_safe_yaml_ui_commit(runtime, proposed)
             desired_revision = configuration_revision(proposed)
