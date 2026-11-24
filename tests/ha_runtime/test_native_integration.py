@@ -1726,6 +1726,8 @@ async def test_minimal_native_setup_then_yaml_takes_over_same_entry(hass: HomeAs
 @pytest.mark.asyncio
 async def test_expert_json_include_skips_wizard_and_reuses_entry(hass: HomeAssistant):
     """Real HA 2026.11.2: JSON file via one !include, no five-step flow."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
     source = (Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN)
     installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
     if not installed.exists():
