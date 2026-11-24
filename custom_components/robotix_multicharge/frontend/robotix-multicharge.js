@@ -1017,7 +1017,6 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._editingField="";
     this._confirmDelete="";
     this._createCharger=false;
-    this._commissionEditor=null;
     this._yamlEditorOpen=false;
     this._yamlBaselineRevision=null;
     this._yamlCommittedRevision=null;
@@ -1046,7 +1045,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       tab==="Settings"&&this._editingField.startsWith("controller:")||
       tab==="Chargeable Assets"&&this._editingField.startsWith("asset:")||
       tab==="Chargers"&&this._editingField.startsWith("charger:")));
-    return Boolean(this._unsavedInput||scopedEdit||this._yamlEditorOpen||this._commissionEditor||
+    return Boolean(this._unsavedInput||scopedEdit||this._yamlEditorOpen||
       tab==="Chargeable Assets"&&(
         this._assetEditor||this._assignmentEditor||
         this._goalEditor||this._scheduleEditor||this._windowsOpen)||
@@ -1647,86 +1646,6 @@ class RobotixMultiChargeCard extends HTMLElement {
     wrapper.append(label,input);container.append(wrapper);
     return input;
   }
-  openCommissionEditor(charger){
-    if(!this.canEditSettings())return;
-    this._commissionEditor={
-      charger_id:charger.id,name:charger.name,
-      enable:charger.control_owner!=="multicharge",
-      busy:false,error:""
-    };
-    this.render();
-  }
-  async applyCommission(exclusive,electrical){
-    const editor=this._commissionEditor;
-    if(!editor||editor.busy||!this.canEditSettings())return;
-    editor.busy=true;editor.error="";
-    try{
-      const response=await this._hass.callWS({
-        type:"robotix_multicharge/dashboard_config",
-        operation:"commission",
-        expected_revision:this._data.configuration_revision,
-        charger_id:editor.charger_id,
-        commission:editor.enable,
-        exclusive_writer_confirmed:exclusive,
-        electrical_limits_confirmed:electrical
-      });
-      if(response.status!=="accepted_unconfirmed"||!response.expected_revision)
-        throw Error("Commissioning not authorized");
-      this._pendingSettings={expected_revision:response.expected_revision};
-      this._settingsFeedback={status:"accepted_unconfirmed",
-        message:"Commissioning accepted; waiting HA Config Entry readback"};
-      this._last=0;await this.load();
-      if(this._data?.configuration_revision===response.expected_revision){
-        this._commissionEditor=null;
-        this._settingsFeedback={status:"confirmed",message:"Saved"};
-      }else editor.error="HA runtime readback pending; refresh";
-    }catch(error){
-      editor.error=String(error?.message||error?.code||"Physical commissioning rejected").slice(0,250);
-    }finally{
-      editor.busy=false;
-      if(editor.error){
-        this._settingsFeedback={status:"rejected",message:editor.error};
-        this.showEditError();
-      }else this.render();
-    }
-  }
-  commissionEditor(container){
-    const editor=this._commissionEditor;
-    if(!editor||!this.canEditSettings())return;
-    const card=mcEl("section","card dashboard-editor");
-    card.setAttribute("data-dashboard-commission",editor.charger_id);
-    const header=mcEl("div","row");
-    header.append(mcEl("h3","",
-      (editor.enable?"Commission":"Return to monitoring")+
-      " · "+editor.name),
-      mcButton(mcTr("Close"),()=>{
-        this._commissionEditor=null;this.render();
-      }));
-    card.append(header);
-    card.append(mcEl("p","message error",
-      "Physical hardware ownership can only change with "+
-      "an exclusive writer, verified electrical limits, OFF switch and "+
-      "independently measured zero power. No START/STOP command is issued here."));
-    const check=(label)=>{
-      const row=mcEl("label","dashboard-confirm");
-      const input=mcEl("input");input.setAttribute("type","checkbox");
-      row.append(input,mcEl("span","",label));
-      card.append(row);return input;
-    };
-    const exclusive=check("I verified no EV Smart Charging or other controller still writes to this charger");
-    const electrical=check("I verified the physical circuit/phase/current limits and source readback");
-    const save=mcButton(
-      editor.enable?"Enable MultiCharge physical ownership":"Disable MultiCharge physical ownership",
-      ()=>this.applyCommission(exclusive.checked,electrical.checked)
-    );
-    save.disabled=editor.busy;
-    card.append(save);
-    if(editor.error){
-      const p=mcEl("p","message error",editor.error);p.setAttribute("role","alert");
-      card.append(p);
-    }
-    container.append(card);
-  }
   feedback(container){
     if(!this._settingsFeedback)return;
     const result=this._settingsFeedback;
@@ -1780,7 +1699,6 @@ class RobotixMultiChargeCard extends HTMLElement {
       tabs.append(btn);
     }
     shell.append(tabs);
-    if(this.canEditSettings()&&this._commissionEditor)this.commissionEditor(shell);
     if(this._loading&&!this._data)this.notice(shell,"Loading",false);
     if(this._error){
       this.notice(shell,"Unavailable",true);
