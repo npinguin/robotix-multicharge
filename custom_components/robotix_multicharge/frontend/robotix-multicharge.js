@@ -6,7 +6,7 @@ function mcTr(value){
   return MC_TEXT[mcLanguage]?.[raw]||raw;
 }
 function mcOwnerColor(kind,id,configuration,palette){
-  const rows=kind==="charger"?configuration.chargers:configuration.assets;
+  const rows=kind==="charger"?configuration?.chargers:configuration?.assets;
   const found=(rows||[]).find(x=>x.id===id);
   return found?.plan_color&&palette?.[found.plan_color]||
     "var(--secondary-text-color,#757d87)";
@@ -371,6 +371,8 @@ function mcMountApex(plot,options){
   plot.setAttribute("role","img");
   plot.setAttribute("aria-label",options.chart?.id||"MultiCharge power timeline");
   plot.setAttribute("data-chart-engine","apexcharts-3.49.1");
+  plot.setAttribute("data-range-start",String(options.xaxis.min));
+  plot.setAttribute("data-range-end",String(options.xaxis.max));
   plot._mcSignature=JSON.stringify(options, (key,value)=>typeof value==="function"?String(value):value);
   const key=mcEl("div","legend");
   for(const [i,series] of (options.series||[]).entries()){
@@ -439,49 +441,82 @@ function mcApexCommon(from,until,height,title,withPrice=false){
     noData:{text:"No qualified measurements / schedule for this period"}
   };
 }
-function mcSeriesFromRows(rows,key,from,until,owner){
-  // Source rows remain independently qualified, no interpolation or fake zeros.
-  return rows.filter(item=>
-    (!owner||item.charger_id===owner)&&
-    typeof item[key]==="number"&&Number.isFinite(item[key])&&
-    item[key]>=0&&Date.parse(item.start)>=from&&Date.parse(item.end)<=until&&
-    Date.parse(item.end)>Date.parse(item.start))
-    .map(item=>({x:Date.parse(item.start),y:item[key]}))
-    .sort((a,b)=>a.x-b.x);
+// Shared interval projection for both chart levels. Endpoints keep a single
+// quarter visible; null breaks separate genuinely missing intervals.
+function mcPlanSeries(data,visibleChargers,rows,actuals,forecast){
+  const from=Date.parse(data.start),until=Date.parse(data.end);
+  const visible=new Set(visibleChargers.map(c=>c.id));
+  const config=data.configuration||{};
+  const byCharger=config.controller?.plan_color_by==="charger";
+  const labels=config.controller?.plan_label_mode||"both";
+  const groups=new Map();
+  for(const [source,key,status,index] of [
+    [rows,"proposed_power_kw","Proposed",0],
+    [rows,"accepted_power_kw","Accepted",1],
+    [actuals,"actual_power_kw","Measured",2],
+    [forecast,"indicative_power_kw","Indicative · not reserved",3]
+  ]){
+    for(const row of source){
+      if(!visible.has(row.charger_id)||typeof row[key]!=="number"||
+          !Number.isFinite(row[key])||row[key]<0)continue;
+      const a=Date.parse(row.start),b=Date.parse(row.end);
+      if(!Number.isFinite(a)||!Number.isFinite(b)||b<=a||b<=from||a>=until)continue;
+      const assetId=index===2&&row.asset_provenance!=="confirmed_closed_session"?null:row.asset_id;
+      const ownerId=byCharger?row.charger_id:assetId;
+      const ownerColor=mcOwnerColor(byCharger?"charger":"asset",ownerId,config,data.plan_palette);
+      const color=ownerColor.startsWith("var(")?"#757d87":ownerColor;
+      const label=mcPlanName({...row,asset_id:assetId},config,labels);
+      const id=JSON.stringify([index,row.charger_id,assetId]);
+      if(!groups.has(id))groups.set(id,{name:status+" · "+label,color,index,intervals:new Map()});
+      const g=groups.get(id);
+      const x=Math.max(a,from),y=Math.min(b,until);
+      if(!g.intervals.has(x))g.intervals.set(x,{start:x,end:y,power:row[key]});
+    }
+  }
+  return [...groups.values()].map(g=>{
+    const intervals=[...g.intervals.values()].sort((a,b)=>a.start-b.start);
+    const points=[];
+    for(let i=0;i<intervals.length;i++){
+      const q=intervals[i];
+      points.push({x:q.start,y:q.power},{x:q.end-1,y:q.power});
+      if(intervals[i+1]?.start!==q.end)points.push({x:q.end,y:null});
+    }
+    return {name:g.name,data:points,type:g.index===0||g.index===3?"area":"line",
+      color:g.color,index:g.index};
+  });
+}
+function mcPlanChartOptions(data,series,height,title,price=null){
+  const from=Date.parse(data.start),until=Date.parse(data.end);
+  const options=mcApexCommon(from,until,height,title,!!price);
+  options.series=[...series,...(price?[price]:[])].map(({name,data,type})=>({name,data,type}));
+  const all=[...series,...(price?[price]:[])];
+  options.colors=all.map(s=>s.color);
+  options.stroke={curve:"stepline",width:all.map(s=>[2,3,3,2,1.8][s.index]),
+    dashArray:all.map(s=>[0,0,0,5,0][s.index])};
+  options.fill={type:"solid",opacity:all.map(s=>[.32,1,1,.15,1][s.index])};
+  options.yaxis[0].title.text="Charging power · kW";
+  if(price){
+    options.yaxis[0].seriesName=series.map(s=>s.name);
+    options.yaxis[1].seriesName=price.name;
+    options.yaxis[1].title.text="Price · "+price.currency+"/kWh";
+    if(!series.length)options.yaxis=[options.yaxis[1]];
+  }
+  options.tooltip.shared=false;options.tooltip.intersect=false;
+  options.tooltip.y.formatter=(v,{seriesIndex})=>v===null||v===undefined?"Not measured":
+    Number(v).toFixed(all[seriesIndex]?.index===4?4:2)+
+      (all[seriesIndex]?.index===4?" "+price.currency+"/kWh":" kW");
+  options.annotations={xaxis:Date.now()>=from&&Date.now()<until?
+    [{x:Math.floor(Date.now()/60000)*60000,borderColor:"#b86a44",label:{text:"Now"}}]:[]};
+  return options;
 }
 function mcApexLane(data,charger,rows,actuals,forecast){
-  const from=Date.parse(data.start),until=Date.parse(data.end);
   const plot=mcEl("div","chart");
-  if(!Number.isFinite(from)||!Number.isFinite(until)||until<=from)return plot;
-  const fields=[
-    ["Proposed","proposed_power_kw",rows],
-    ["Accepted","accepted_power_kw",rows],
-    ["Measured · physical","actual_power_kw",actuals],
-    ["Indicative · not reserved","indicative_power_kw",forecast]
-  ];
-  const available=fields.map(([name,key,source],index)=>({
-    index,name,data:mcSeriesFromRows(source,key,from,until,charger.id)
-  })).filter(row=>row.data.length);
-  // Old ApexCharts may reject zero-length subordinate series in a stacked
-  // multi-lane Shadow DOM; absent evidence is an absent series, never a 0.
-  // An owner with no measured/planned/indicative source has no series.
-  // Apex 3.x cannot build its Y-axis mapping for an empty series array.
-  // Do not render a fake zero line to work around this vendor limitation.
-  if(!available.length){
-    plot.append(mcEl("p","muted small",
-      mcTr("No qualified physical or planned power in this period")));
+  const series=mcPlanSeries(data,[charger],rows,actuals,forecast);
+  if(!series.length){
+    plot.append(mcEl("p","muted small",mcTr("No qualified physical or planned power in this period")));
     return plot;
   }
-  const options=mcApexCommon(from,until,190,"Charger "+charger.id);
-  options.chart.type="line";
-  options.series=available.map(({name,data})=>({name,data}));
-  options.colors=available.map(({index})=>
-    ["#7890aa","#478ab8","#18856d","#b78330"][index]);
-  options.stroke={curve:"stepline",
-    width:available.map(({index})=>[1.8,2,3,1.6][index]),
-    dashArray:available.map(({index})=>[5,0,0,7][index])};
-  options.fill={type:"solid",opacity:1};
-  mcMountApex(plot,options);
+  mcMountApex(plot,mcPlanChartOptions(data,series,190,"Charger "+charger.id));
   const lane=mcEl("div");lane.append(plot);if(plot._mcLegend)lane.append(plot._mcLegend);return lane;
 }
 function mcCombinedChargingChart(data, visibleChargers, slots, actuals, forecast=[]){
@@ -496,29 +531,8 @@ function mcCombinedChargingChart(data, visibleChargers, slots, actuals, forecast
   const count=Math.ceil((until-from)/900000);
   if(count>200||count<1){wrapper.append(mcEl("p","muted",mcTr("Unavailable")));return wrapper;}
   const visible=new Set(visibleChargers.map(c=>c.id));
-  const buckets=Array.from({length:count},(_,i)=>({
-    at:from+i*900000,proposed:null,accepted:null,measured:null,price:null,indicative:null
-  }));
-  for(const [source,key,bucket] of [
-    [slots,"proposed_power_kw","proposed"],
-    [slots,"accepted_power_kw","accepted"],
-    [actuals,"actual_power_kw","measured"],
-    [forecast,"indicative_power_kw","indicative"]
-  ]){
-    const seen=new Set();
-    for(const item of source){
-      if(!visible.has(item.charger_id)||typeof item[key]!=="number"||
-         !Number.isFinite(item[key])||item[key]<0)continue;
-      const start=Date.parse(item.start),end=Date.parse(item.end);
-      const ix=Math.round((start-from)/900000);
-      if(ix<0||ix>=count||!Number.isFinite(start)||
-         Math.abs(start-buckets[ix].at)>50||end-start!==900000)continue;
-      const identity=item.charger_id+"|"+ix;
-      if(seen.has(identity))continue;
-      seen.add(identity);
-      buckets[ix][bucket]=(buckets[ix][bucket]??0)+item[key];
-    }
-  }
+  const buckets=Array.from({length:count},(_,i)=>({at:from+i*900000,price:null}));
+  const series=mcPlanSeries(data,visibleChargers,slots,actuals,forecast);
   const quotes=(data.price_slots||[]).filter(x=>
     typeof x.price_per_kwh==="number"&&Number.isFinite(x.price_per_kwh)&&
     /^[A-Z]{3}$/.test(x.currency||""));
@@ -530,32 +544,13 @@ function mcCombinedChargingChart(data, visibleChargers, slots, actuals, forecast
       Date.parse(q.end)>=item.at+900000);
     if(matched.length===1)item.price=matched[0].price_per_kwh;
   }
-  const powerNames=["Proposed","Accepted","Measured"];
-  const sources=["proposed","accepted","measured"];
-  const series=powerNames.map((name,i)=>({
-    name,data:buckets.some(q=>q[sources[i]]!==null)?buckets.map(q=>({x:q.at,y:q[sources[i]]})):[]
-  }));
   const validPrice=priceReady&&buckets.some(x=>x.price!==null);
-  // Apex secondary axis only when source basis and currency genuinely align.
-  if(validPrice)series.push({
-    name:"Reference price ("+currency[0]+"/kWh)",
-    data:buckets.map(q=>({x:q.at,y:q.price}))
-  });
+  const price=validPrice?{name:"Reference price ("+currency[0]+"/kWh)",index:4,
+    color:"#626c7d",type:"line",currency:currency[0],
+    data:buckets.flatMap(q=>[{x:q.at,y:q.price},{x:Math.min(q.at+900000,until)-1,y:q.price}])}:null;
   const plot=mcEl("div","chart");
-  const options=mcApexCommon(from,until,310,"MultiCharge combined power and price",validPrice);
-  if(validPrice){options.yaxis[1].seriesName=series.at(-1).name;options.yaxis[1].title.text="Price · "+currency[0]+"/kWh";}
-  if(buckets.some(q=>q.indicative!==null)){
-    series.push({name:"Indicative · not reserved",data:buckets.map(q=>({x:q.at,y:q.indicative}))});
-    options.colors=validPrice?[...options.colors,"#b78330"]:[...options.colors.slice(0,3),"#b78330"];
-    options.stroke.width=[2,2,2.8,...(validPrice?[1.8]:[]),1.8];
-    options.stroke.dashArray=[5,2,0,...(validPrice?[0]:[]),7];
-    if(validPrice)options.yaxis[0].seriesName.push("Indicative · not reserved");
-  }
-  options.tooltip.y.formatter=(v,{seriesIndex})=>v===null||v===undefined?"Not measured":Number(v).toFixed(validPrice&&seriesIndex===3?4:2)+(validPrice&&seriesIndex===3?" "+currency[0]+"/kWh":" kW");
-  options.series=series;
-  options.annotations={xaxis:Date.now()>=from&&Date.now()<until?
-    [{x:Math.floor(Date.now()/60000)*60000,borderColor:"#b86a44",label:{text:"Now"}}]:[]};
-  if(series.some(item=>item.data.length))mcMountApex(plot,options);
+  if(series.length||price)mcMountApex(plot,mcPlanChartOptions(data,series,310,
+    "MultiCharge combined power and price",price));
   else plot.append(mcEl("p","muted small",
     mcTr("No qualified physical or planned power in this period")));
   wrapper.append(plot);if(plot._mcLegend)wrapper.append(plot._mcLegend);
@@ -578,9 +573,7 @@ function mcCombinedChargingChart(data, visibleChargers, slots, actuals, forecast
       new Set(future.map(x=>x.charger_id)).size+" "+
       mcTr("chargers")));
   }
-  if(!series.some(item=>item.data.length))
-    wrapper.append(mcEl("p","muted small",
-      mcTr("No qualified physical or planned power in this period")));
+
   return wrapper;
 }
 
@@ -2375,16 +2368,13 @@ class RobotixMultiChargeCard extends HTMLElement {
   }
   goalTimeline(container,goal,color){
     const windows=goal.timeline_windows||[];
-    const start=Date.parse(goal.timeline_start),horizon=Date.parse(goal.timeline_end);
-    if(!windows.length||!Number.isFinite(start)||!Number.isFinite(horizon)||horizon<=start)return;
-    const finish=Date.parse(goal.planned_finish_at),deadline=Date.parse(goal.deadline);
-    // Crop to relevant future interval without inventing a deadline/slot.
-    const end=Math.min(horizon,Math.max(start+3600000,
-      Number.isFinite(finish)?finish:start,Number.isFinite(deadline)?deadline+3600000:start));
-    if(end<=start)return;
+    const start=Date.parse(this._data.start),end=Date.parse(this._data.end);
+    const deadline=Date.parse(goal.deadline);
+    if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start)return;
     const pos=value=>Math.max(0,Math.min(100,100*(value-start)/(end-start)));
     const block=mcEl("div","goal-timeline");
     block.setAttribute("aria-label",mcTr(goal.conditional?"Indicative charging plan":"Charging plan"));
+    block.setAttribute("data-range-start",String(start));block.setAttribute("data-range-end",String(end));
     block.append(mcEl("div","muted small",mcTr(goal.conditional?"Indicative charging plan":"Charging plan")));
     const track=mcEl("div","goal-track");
     for(const item of windows){
@@ -2402,8 +2392,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     }
     block.append(track);
     const labels=mcEl("div","row goal-ticks muted small");
-    const middle=Math.round((start+(end-start)/2)/3600000)*3600000;
-    for(const t of [start,...(middle>start&&middle<end?[middle]:[]),end]){
+    for(const t of [start,start+(end-start)/4,start+(end-start)/2,start+(end-start)*3/4,end]){
       const tick=mcEl("span","",new Date(t).toLocaleString(undefined,{
         timeZone:this._data.timezone||"UTC",day:"numeric",hour:"2-digit",minute:"2-digit",hourCycle:"h23"
       }));
@@ -2438,7 +2427,10 @@ class RobotixMultiChargeCard extends HTMLElement {
     }
     result.append(metrics);
     if(!goal.conditional||this._data.configuration?.controller?.show_indicative_forecast!==false)
-      this.goalTimeline(result,goal,mcOwnerColor("asset",asset.id,this._data.configuration,this._data.plan_palette));
+      this.goalTimeline(result,goal,mcOwnerColor(
+        this._data.configuration?.controller?.plan_color_by==="charger"?"charger":"asset",
+        this._data.configuration?.controller?.plan_color_by==="charger"?charger.id:asset.id,
+        this._data.configuration,this._data.plan_palette));
     if(goal.next_charge_at)result.append(mcEl("p","small",
       mcTr("Next charge")+" · "+mcTime(goal.next_charge_at,this._data.timezone)));
     if(goal.planned_finish_at)result.append(mcEl("p","small",
