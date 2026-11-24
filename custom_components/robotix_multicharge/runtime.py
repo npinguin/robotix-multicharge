@@ -248,11 +248,16 @@ class MultiChargeRuntime:
             self.observations["chargers"][uid] = {
                 "connected": cable, "power_kw": power, "session": session,
             }
-            if cable.value is not True and cable.value is not False or cable.quality != "ok":
+            asset = assets.get(raw.get("asset"))
+            duration_without_connection = (raw["kind"] == "on_off"
+                and not raw.get("connected_entity") and asset is not None
+                and asset.get("requested_duration_minutes") is not None)
+            if not duration_without_connection and (
+                    cable.value not in (True, False) or cable.quality != "ok"):
                 self.excluded[uid] = "CONNECTION_UNCONFIRMED"
                 self.forecast_excluded[uid] = "CONNECTION_UNCONFIRMED"
                 continue
-            disconnected = cable.value is False
+            disconnected = cable.quality == "ok" and cable.value is False
             if uid in self.executor._paused:
                 self.excluded[uid] = "USER_PAUSED"
                 self.forecast_excluded[uid] = "USER_PAUSED"
@@ -413,7 +418,7 @@ class MultiChargeRuntime:
                     "reserves_capacity": False,
                 }
             else:
-                if self.executor.connection_confirmation(raw, at) is None:
+                if not duration_without_connection and self.executor.connection_confirmation(raw, at) is None:
                     self.excluded[uid] = "CURRENT_PLUG_ASSET_UNCONFIRMED"
                     continue
                 demands.append(request)

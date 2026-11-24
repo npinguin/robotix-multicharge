@@ -618,6 +618,29 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(receipt["actual_energy_kwh"])
         self.assertEqual(receipt["energy_quality"], "unknown")
 
+    async def test_assigned_guest_duration_without_optional_connection_or_meter(self):
+        rt, sources, services = rig()
+        charger = rt.configuration["chargers"][0]
+        asset = rt.configuration["assets"][0]
+        asset.pop("requested_kwh")
+        asset["requested_duration_minutes"] = 20
+        for field in ("connected_entity", "power_entity", "energy_entity"):
+            charger.pop(field, None)
+        rt.refresh()
+        outcome = await rt.executor.execute("evse", "start")
+        self.assertEqual(outcome["status"], "confirmed")
+        self.assertEqual(rt.charger_states()["evse"]["connection_state"], "unknown")
+        self.assertEqual(rt.charger_states()["evse"]["charging_session"], "unknown")
+        await rt.executor.supervise()
+        self.assertEqual(sources["switch.evse_control"].state, "on")
+        rt.executor._sessions["evse"]["started_at"] -= timedelta(minutes=21)
+        await rt.executor.supervise()
+        self.assertEqual(sources["switch.evse_control"].state, "off")
+        self.assertEqual([c[1] for c in services.calls], ["turn_on", "turn_off"])
+        self.assertIsNone(rt.executor.completed_sessions()[-1]["actual_energy_kwh"])
+        self.assertGreaterEqual(rt.executor.measured_intent_usage(asset, charger, None)["duration_minutes"], 20)
+        self.assertEqual((await rt.executor.execute("evse", "start"))["reason"], "TARGET_ALREADY_MET")
+
     async def test_guest_switch_only_automatic_bounded_duration_and_truthful_receipt(self):
         rt, sources, services = rig(mode="Automatic")
         charger = rt.configuration["chargers"][0]

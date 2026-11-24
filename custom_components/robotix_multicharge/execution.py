@@ -231,7 +231,9 @@ class NativeSwitchExecutor:
             if (receipt.get("intent_key") != key
                     or receipt.get("asset_id") != asset["id"]):
                 continue
-            if receipt.get("physical_stop_confirmed") is not True:
+            if receipt.get("physical_stop_confirmed") is not True and not (
+                    asset.get("requested_duration_minutes") is not None
+                    and receipt.get("switch_stop_confirmed") is True):
                 return {"energy_kwh": None, "duration_minutes": None,
                         "budget_amount": None}
             if money_requested:
@@ -770,8 +772,7 @@ class NativeSwitchExecutor:
         # a confirmed disconnect must report the physical blocker, not an
         # unrelated missing energy-meter progress from a completed session.
         cable = self._connection(charger, at)
-        bounded_switch = (charger["kind"] == "on_off" and manual_request is not None
-                          and duration is not None and not planned)
+        bounded_switch = charger["kind"] == "on_off" and duration is not None
         if (not bounded_switch or charger.get("connected_entity")) and (
                 cable.quality != "ok" or cable.value is not True):
             return "PHYSICAL_CONNECTION_UNVERIFIED"
@@ -856,9 +857,9 @@ class NativeSwitchExecutor:
             if self._qualified_budget_price(at, currency) is None:
                 return "BUDGET_EFFECTIVE_TARIFF_UNAVAILABLE"
         if manual_request is None and duration is None and amount is None and money is None:
-            if not all(k in asset for k in (
-                "soc_entity", "capacity_kwh", "target_soc", "charge_efficiency"
-            )):
+            if not all(k in asset for k in ("soc_entity", "target_soc")):
+                return "ASSET_DEMAND_UNVERIFIED"
+            if planned and not all(k in asset for k in ("capacity_kwh", "charge_efficiency")):
                 return "ASSET_DEMAND_UNVERIFIED"
             soc = soc_with_health(
                     self.runtime.hass, asset["soc_entity"],
@@ -887,7 +888,8 @@ class NativeSwitchExecutor:
                     return "READY_BY_EXPIRED"
             except ValueError:
                 return "READY_BY_INVALID"
-        if manual_request is None and self.connection_confirmation(charger, at) is None:
+        if (manual_request is None and not (bounded_switch and not charger.get("connected_entity"))
+                and self.connection_confirmation(charger, at) is None):
             return "CURRENT_PLUG_ASSET_UNCONFIRMED"
         this_power = number(self.runtime.hass, charger.get("power_entity"), "power", at)
         if this_power.quality != "ok" and (not bounded_switch or charger.get("power_entity")):
@@ -1207,7 +1209,8 @@ class NativeSwitchExecutor:
         else:
             if asset is None or charger.get("asset") != session["asset_id"]:
                 return "ACTIVE_SESSION_ASSIGNMENT_CHANGED"
-            if self.connection_confirmation(charger, now) is None:
+            if (not (session.get("duration_without_connection") and not charger.get("connected_entity"))
+                    and self.connection_confirmation(charger, now) is None):
                 return "CURRENT_PLUG_ASSET_UNCONFIRMED"
             if (asset.get("temporary")
                     and datetime.fromisoformat(asset["expires_at"]) <= now):
@@ -1422,6 +1425,8 @@ class NativeSwitchExecutor:
             "asset_id": asset["id"] if asset is not None else None,
             "intent_key": intent_key,
             "manual_duration": manual_request is not None and duration is not None,
+            "duration_without_connection": (charger["kind"] == "on_off" and duration is not None
+                                            and not charger.get("connected_entity")),
             "manual_mode": (self.runtime.configuration["controller"]["mode"]
                             if manual_request is not None else None),
             "switch_only": observed.reason == "NATIVE_SWITCH_STATE",
@@ -1634,7 +1639,7 @@ class NativeSwitchExecutor:
                     accepted is None or accepted["end"] <= at and not in_grace
                 )
                 unowned = is_auto and accepted is None
-                manual_duration = self._sessions.get(uid, {}).get("manual_duration", False)
+                duration_without_connection = self._sessions.get(uid, {}).get("duration_without_connection", False)
                 switch_only = self._sessions.get(uid, {}).get("switch_only", False)
                 manual_mode = self._sessions.get(uid, {}).get("manual_mode")
                 wrong_mode = mode == "Off" or (is_auto and (no_plan or unowned)
@@ -1645,7 +1650,7 @@ class NativeSwitchExecutor:
                     wrong_mode = True
                 unsafe = (
                     uid in self._paused or wrong_mode
-                    or ((not manual_duration or charger.get("connected_entity"))
+                    or ((not duration_without_connection or charger.get("connected_entity"))
                         and (cable.quality != "ok" or cable.value is not True))
                     or ((not switch_only or charger.get("power_entity")) and power.quality != "ok")
                     or (power.quality == "ok" and power.value > charger["rated_power_kw"] * 1.10)
