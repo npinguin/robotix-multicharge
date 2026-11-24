@@ -1113,7 +1113,7 @@ class ConfigurationTests(unittest.TestCase):
 
 
 class YamlEditorConfigurationTests(unittest.TestCase):
-    """Same canonical schema for native reviewed YAML and ordinary settings."""
+    """Same canonical schema for native direct-Save YAML and ordinary settings."""
 
     @staticmethod
     def configured_site():
