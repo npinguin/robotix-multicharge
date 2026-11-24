@@ -80,6 +80,18 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
         raise AssertionError(f"{label}: horizontal page overflow: {row}")
     if row["viewport"] != size:
         raise AssertionError(f"{label}: requested width not actually honored: {row}")
+    if view == "edit":
+        required = ("focused", "inputRetained", "backgroundSaved",
+                    "dirtyRetained", "rejectedRetained", "explicitRepaint")
+        if not all(row.get(key) is True for key in required):
+            raise AssertionError(f"{label}: an edit was auto-closed or lost: {row}")
+        if row.get("backendResponses", 0) < 2:
+            raise AssertionError(f"{label}: 350ms background update not exercised: {row}")
+        if not screenshot.is_file() or screenshot.stat().st_size < 2000:
+            raise AssertionError(f"{label}: browser edit screenshot missing")
+        print(f"BROWSER PASS {label}: active and dirty input survives HA + "
+              "late source requests, rejected save, 350ms refresh")
+        return
     if view in ("asset", "charger"):
         if row["cards"] != count:
             raise AssertionError(f"{label}: object count drift: {row}")
@@ -128,11 +140,15 @@ def main():
         base = f"http://127.0.0.1:{server.server_port}"
         for case in CASES:
             run_case(chrome, base, *case)
+        # Same real bundled JS/Shadow DOM as production, three viewports.
+        # These flows prove slow users can type through sensor refreshes.
+        for width in (390, 1024, 1600):
+            run_case(chrome, base, width, 1, "admin", "edit", False)
     finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
-    print(f"Real Chromium responsive source-UX PASS: {len(CASES)} cases "
+    print(f"Real Chromium responsive source-UX PASS: {len(CASES) + 3} cases "
           "(simulated HA input; installed target HA and real EVSE separately unqualified)")
 
 

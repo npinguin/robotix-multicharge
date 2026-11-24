@@ -48,7 +48,7 @@ for(let index=0;index<scopeList.length;index++){
 }
 
 class Element {
-  constructor(tag){this.tag=tag;this.children=[];this.attributes={};this.events={};this.style={};this.textContent="";this.value="";}
+  constructor(tag){this.tag=tag;this.tagName=String(tag||"").toUpperCase();this.children=[];this.attributes={};this.events={};this.style={};this.textContent="";this.value="";}
   append(...items){this.children.push(...items);}
   replaceChildren(...items){this.children=[...items];}
   setAttribute(k,v){this.attributes[k]=v;}
@@ -975,6 +975,130 @@ async function main(){
     String(x.type).includes("yaml_configuration")||
     String(x.type).includes("options/flow")),
     "Dashboard typed controls must not open free-text editor services");
+
+  // UC14-UX-INPUT-PERSISTENCE-01: passive HA/Sensor refresh must never
+  // unmount an editor or discard a typed field, even after input blur.
+  const typingData=JSON.parse(JSON.stringify(fixture));
+  typingData.configuration_revision="typed-1";
+  typingData.configuration.controller.solar_power_entity="sensor.first";
+  const typingCard=new Card();
+  let received=typingData;
+  let reads=0;
+  const makeHass=power=>({
+    user:{is_admin:true},
+    states:{"sensor.first":{state:String(power)}},
+    callWS:async message=>{
+      assert.equal(message.type,"robotix_multicharge/get_plan");
+      reads++;return received;
+    }
+  });
+  typingCard.hass=makeHass(1);
+  await new Promise(resolve=>setImmediate(resolve));
+  typingCard._tab="Settings";
+  typingCard._settingsOpen="Sources & bindings";
+  typingCard._editingField="controller:site:solar_power_entity";
+  typingCard.render();
+  let inputPanel=null;
+  visit(typingCard.shadowRoot,node=>{
+    if(node.className==="dashboard-field-edit")inputPanel=node;
+  });
+  assert.ok(inputPanel,"Settings must show typed dashboard edit field");
+  const typedDraft=find(inputPanel,"input");
+  assert.ok(typedDraft);
+  typedDraft.value="sensor.user_is_typing_slowly";
+  typingCard.shadowRoot.activeElement=typedDraft;
+  const originalNodes=typingCard.shadowRoot.children;
+  received={...typingData,observations:{
+    ...typingData.observations,sources:{tariff_quality:"SOURCE_LATE"}
+  }};
+  const before=reads;
+  typingCard.hass=makeHass(2);
+  await typingCard.load();
+  assert.ok(reads>before,"A source refresh still fetches new real data");
+  assert.equal(typingCard._data.observations.sources.tariff_quality,"SOURCE_LATE");
+  assert.equal(typingCard.shadowRoot.children,originalNodes,
+    "Focus must retain the exact DOM and keyboard during background source refresh");
+  assert.equal(typedDraft.value,"sensor.user_is_typing_slowly");
+  assert.equal(typingCard._editingField,"controller:site:solar_power_entity",
+    "The open editor never auto closes");
+  typingCard.shadowRoot.activeElement=null;
+  typingCard.shadowRoot.events.input({target:{tagName:"INPUT"}});
+  await typingCard.load();
+  assert.equal(typingCard.shadowRoot.children,originalNodes,
+    "Dirty data remains mounted even after the keyboard loses focus");
+  // The actual 350ms coalescing timer must not cause a redraw either.
+  typingCard.scheduleSourceRefresh();
+  await new Promise(resolve=>setTimeout(resolve,420));
+  assert.equal(typingCard.shadowRoot.children,originalNodes);
+  assert.equal(typedDraft.value,"sensor.user_is_typing_slowly");
+  // A user-initiated Cancel or navigation is the only exit from an edit.
+  typingCard._editingField="";
+  typingCard.render();
+  assert.notEqual(typingCard.shadowRoot.children,originalNodes,
+    "Explicit Cancel allows a fresh paint");
+  assert.equal(typingCard._unsavedInput,false);
+  // Every form family uses the same source-safe repaint path, including
+  // always-visible native Number fields and new Guest/Charger forms.
+  typingCard._settingsOpen="Charging site";
+  typingCard.render();
+  let nativeNumberInput;
+  visit(typingCard.shadowRoot,node=>{
+    if(node.tag==="input"&&node.attributes["aria-label"]==="Parallel chargers")
+      nativeNumberInput=node;
+  });
+  assert.ok(nativeNumberInput,"Native site number exists without a popup");
+  nativeNumberInput.value="9";
+  typingCard.shadowRoot.activeElement=nativeNumberInput;
+  const numberNodes=typingCard.shadowRoot.children;
+  await typingCard.load();
+  assert.equal(typingCard.shadowRoot.children,numberNodes,
+    "A focused native number survives source-only updates");
+  typingCard.shadowRoot.events.input({target:{tagName:"INPUT"}});
+  typingCard.shadowRoot.activeElement=null;
+  await typingCard.load();
+  assert.equal(nativeNumberInput.value,"9",
+    "A blurred but dirty native number is never reset by passive refresh");
+
+  typingCard._tab="Chargeable Assets";
+  typingCard._assetEditor="new";
+  typingCard.render();
+  let guestForm;
+  visit(typingCard.shadowRoot,node=>{
+    if(node.tag==="form"&&content(node).includes("Add a chargeable asset"))
+      guestForm=node;
+  });
+  assert.ok(guestForm);
+  const pendingGuestName=find(guestForm,"input");
+  pendingGuestName.value="A slow guest name";
+  const guestNodes=typingCard.shadowRoot.children;
+  await typingCard.load();
+  assert.equal(typingCard.shadowRoot.children,guestNodes,
+    "New Guest form must stay mounted with an unsubmitted name");
+  assert.equal(pendingGuestName.value,"A slow guest name");
+
+  typingCard._tab="Chargers";
+  typingCard._createCharger=true;
+  typingCard.render();
+  let chargerForm;
+  visit(typingCard.shadowRoot,node=>{
+    if(node.className==="card dashboard-create")chargerForm=node;
+  });
+  assert.ok(chargerForm);
+  const chargerName=find(chargerForm,"input");
+  chargerName.value="My new charger";
+  const chargerNodes=typingCard.shadowRoot.children;
+  await typingCard.load();
+  assert.equal(typingCard.shadowRoot.children,chargerNodes,
+    "New Charger form must stay mounted during sensor refresh");
+  assert.equal(chargerName.value,"My new charger");
+
+  typingCard._createCharger=false;
+  typingCard.render();
+  const normalNodes=typingCard.shadowRoot.children;
+  await typingCard.load();
+  assert.notEqual(typingCard.shadowRoot.children,normalNodes,
+    "After explicit form close, idle tab source refresh must resume");
+  typingCard.disconnectedCallback();
 
   // The native sidebar forwards HA's authenticated hass object to the
   // same canonical card and exposes all five tabs to a non-admin resident.

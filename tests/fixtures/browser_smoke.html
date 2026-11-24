@@ -88,6 +88,71 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
             view==="charger"?"Chargers":
             view==="plan"?"Charging Plan":"Overview";
   card.render();
+  if(view==="edit"){
+    // REAL Chromium/iPad-class regression: while a user types, HA sensor
+    // updates and a late get_plan result must not unmount inputs, blur the
+    // keyboard or silently discard unsaved values.
+    data.configuration.controller.solar_power_entity="sensor.energy_solar_power";
+    card._tab="Settings";
+    card._settingsOpen="Sources & bindings";
+    card._editingField="controller:home:solar_power_entity";
+    card.render();
+    const root=card.shadowRoot;
+    const field=root.querySelector(".dashboard-field-edit input");
+    if(!field)throw Error("Typed Controller source field absent");
+    field.focus();
+    field.value="sensor.user_is_still_typing";
+    field.dispatchEvent(new Event("input",{bubbles:true,composed:true}));
+    const originalRoot=root.querySelector(".root");
+    let backendResponses=0;
+    const updated={...data,observations:{
+      ...data.observations,sources:{tariff_quality:"SOURCE_CHANGED_DURING_TYPING"}
+    }};
+    let releaseLate;
+    const late=new Promise(resolve=>{releaseLate=resolve;});
+    card.hass={user:{is_admin:true},language:"en",
+      states:{"sensor.energy_solar_power":{state:"2",last_changed:new Date().toISOString()}},
+      callWS:async request=>{
+        if(request.type==="robotix_multicharge/update_settings")
+          throw Error("SETTINGS_REJECTED");
+        backendResponses++;
+        if(backendResponses===1)return late;
+        return updated;
+      },
+      callService:async()=>{}
+    };
+    // Both HA updates and in-flight async response occur after edit starts.
+    const pending=card.load();
+    releaseLate(updated);
+    await pending;
+    await new Promise(resolve=>setTimeout(resolve,480));
+    const focused=root.activeElement===field;
+    const backgroundSaved=card._data?.observations?.sources?.tariff_quality===
+      "SOURCE_CHANGED_DURING_TYPING";
+    const inputRetained=field.isConnected&&field.value==="sensor.user_is_still_typing"&&
+      root.querySelector(".root")===originalRoot;
+    field.blur();
+    await card.load();
+    const dirtyRetained=field.isConnected&&field.value==="sensor.user_is_still_typing";
+    const save=root.querySelector(".dashboard-field-edit button");
+    if(!save)throw Error("Typed source Save missing");
+    save.click();
+    await new Promise(resolve=>setTimeout(resolve,90));
+    const rejectedRetained=field.isConnected&&field.value==="sensor.user_is_still_typing"&&
+      !!root.querySelector("[data-mc-edit-error]");
+    // Explicit Cancel/view navigation may repaint; no hidden timeout may.
+    card._editingField="";
+    card.render();
+    const explicitRepaint=!field.isConnected&&root.querySelector(".root")!==originalRoot;
+    const report={view,count,role,viewport:innerWidth,
+      render:!!root.querySelector(".root"),
+      documentWidth:document.documentElement.scrollWidth,
+      tabs:[...root.querySelectorAll(".tabs button")].map(b=>b.textContent),
+      focused,inputRetained,backgroundSaved,dirtyRetained,rejectedRetained,
+      explicitRepaint,backendResponses};
+    document.getElementById("smoke-result").textContent=JSON.stringify(report);
+    return;
+  }
   if(view==="asset"||view==="charger"){
     const details=[...card.shadowRoot.querySelectorAll("button")].find(
       b=>b.textContent==="Details");
