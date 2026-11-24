@@ -600,7 +600,9 @@ async function main(){
     }
   };
   await new Promise(resolve=>setImmediate(resolve));
-  find(assignCard.shadowRoot,"button","Chargeable Assets").click();
+  assignCard._tab="Overview";assignCard.render();
+  assert.ok(content(assignCard.shadowRoot).indexOf("Charging site")<content(assignCard.shadowRoot).indexOf("Other car"));
+  assert.ok(!content(assignCard.shadowRoot).includes("Quick charger assignment"));
   const changeCharger=find(assignCard.shadowRoot,"button","Change charger");
   assert.ok(changeCharger,
     "Asset offers a direct Charger assignment action on its normal card");
@@ -665,6 +667,8 @@ async function main(){
     user:{is_admin:false},states:{},callWS:async()=>assignData
   };
   await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(find(readonlyAssign.shadowRoot,"button","Change charger"),undefined,
+    "Overview read-only resident cannot edit Charger assignment");
   find(readonlyAssign.shadowRoot,"button","Chargeable Assets").click();
   assert.equal(find(readonlyAssign.shadowRoot,"button","Change charger"),undefined,
     "Resident may view assignment but may not edit Charger-owned relation");
@@ -1448,8 +1452,65 @@ async function main(){
     "Disconnected asset is visible as explicitly hypothetical forecasting");
   assert.ok(content(card.shadowRoot).includes("Not reserved"),
     "Forecast must never imply a power reservation");
+  const planHosts=[];
+  visit(card.shadowRoot,node=>{if(node.attributes?.["data-chart-engine"])planHosts.push(node);});
+  assert.equal(planHosts.length,2,"Combined and individual interval plots");
+  for(const host of planHosts){
+    const options=JSON.parse(host._mcSignature);
+    assert.equal(options.xaxis.min,Date.parse(fixture.start));
+    assert.equal(options.xaxis.max,Date.parse(fixture.end));
+    const ix=options.series.findIndex(s=>s.name.includes("Indicative"));
+    assert.ok(ix>=0);
+    assert.equal(options.colors[ix],"#B05D81");
+    const points=options.series[ix].data.filter(p=>p.y===3.6);
+    assert.equal(points.length,2);
+    assert.equal(points[1].x-points[0].x,899999,"Single quarter has real width");
+  }
   assert.ok(!content(card.shadowRoot).includes("3.6 kW actually charged"),
     "Disconnection forecast must not become measured charging");
+  // All graphs share backend-selected civil-day bounds, even if goal
+  // horizons/deadlines differ. Verify cross-midnight, DST and charger color.
+  const originalRange=[fixture.start,fixture.end], originalForecast=fixture.forecast_slots;
+  const previousGoals=fixture.goal_assessments;
+  const previousColor=fixture.configuration.controller.plan_color_by;
+  for(const [start,end,slotStart,slotEnd] of [
+    ["2026-11-22T00:00:00+01:00","2026-11-24T00:00:00+01:00",
+     "2026-11-23T00:00:00+01:00","2026-11-23T00:15:00+01:00"],
+    ["2026-10-25T00:00:00+02:00","2026-10-26T00:00:00+01:00",
+     "2026-10-25T02:00:00+01:00","2026-10-25T02:15:00+01:00"],
+    ["2026-03-29T00:00:00+01:00","2026-03-30T00:00:00+02:00",
+     "2026-03-29T03:00:00+02:00","2026-03-29T03:15:00+02:00"]
+  ]){
+    fixture.start=start;fixture.end=end;
+    fixture.configuration.controller.plan_color_by="charger";
+    fixture.forecast_slots=[{charger_id:"drive",asset_id:"car",start:slotStart,end:slotEnd,
+      indicative_power_kw:3.6,may_execute:false,reserves_capacity:false}];
+    fixture.goal_assessments={drive:{asset_id:"car",status:"achievable",conditional:true,
+      timeline_start:slotStart,timeline_end:slotEnd,deadline:slotEnd,
+      timeline_windows:[{start:slotStart,end:slotEnd}]}};
+    card.render();
+    const ranges=[], bars=[];
+    visit(card.shadowRoot,node=>{
+      if(node.attributes?.["data-range-start"])ranges.push(node);
+      if(String(node.className||"").startsWith("goal-window"))bars.push(node);
+    });
+    assert.equal(ranges.length,3,"Combined, lane and bar all share one range");
+    assert.ok(ranges.every(node=>node.attributes["data-range-start"]===String(Date.parse(start))&&
+      node.attributes["data-range-end"]===String(Date.parse(end))));
+    assert.equal(bars.length,1);
+    assert.equal(bars[0].style.background,"#32816E");
+    const width=parseFloat(bars[0].style.width);
+    assert.ok(Math.abs(width-100*900000/(Date.parse(end)-Date.parse(start)))<1e-8);
+    for(const host of ranges.filter(n=>n._mcSignature)){
+      const opts=JSON.parse(host._mcSignature);
+      assert.equal(opts.colors[opts.series.findIndex(s=>s.name.includes("Indicative"))],"#32816E");
+      assert.equal(opts.chart.zoom.enabled,false);
+      assert.equal(opts.xaxis.tickAmount,4);
+    }
+  }
+  [fixture.start,fixture.end]=originalRange;
+  fixture.configuration.controller.plan_color_by=previousColor;
+  fixture.goal_assessments=previousGoals;fixture.forecast_slots=originalForecast;
   fixture.slots=firm;
   fixture.forecast_slots=[];
   fixture.forecast_assumptions={};
@@ -1601,12 +1662,20 @@ async function main(){
     if(node.tag==="select"&&node.attributes?.["data-quick-assignment"]==="drive")
       overviewQuicks.push(node);
   });
-  assert.equal(overviewQuicks.length,1,
-    "Overview exposes native selected-vehicle Quick Action without technical Details");
-  overviewQuicks[0].value="Family car";overviewQuicks[0].events.change();
+  assert.equal(overviewQuicks.length,0,
+    "Overview no longer duplicates Charger-first assignment");
+  assert.ok(find(card.shadowRoot,"button","Assign charger"),
+    "Unassigned asset offers assignment directly on Overview");
+  // Preserve the independent native Charger-side workflow.
+  card._tab="Chargers";card._open="";card.render();
+  const nativeQuick=[];
+  visit(card.shadowRoot,node=>{
+    if(node.tag==="select"&&node.attributes?.["data-quick-assignment"]==="drive")nativeQuick.push(node);
+  });
+  nativeQuick[0].value="Family car";nativeQuick[0].events.change();
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(fixture.configuration.chargers[0].asset,"car",
-    "Quick selection persists in the canonical object rather than frontend-only state");
+    "Native Charger selection persists in the canonical object");
   card._tab="Chargers";card._open="";card.render();
   find(card.shadowRoot,"button","Details").click();
   assert.ok(content(card.shadowRoot).includes("Plan color"));

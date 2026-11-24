@@ -1,8 +1,8 @@
 {
   "status": "AUTHORIZED_FOR_TEST",
   "distribution": "open_source_community",
-  "expected_tag": "v0.1.19",
+  "expected_tag": "v0.1.20",
   "precompile": false,
-  "qualification_scope": "Owner-requested HACS release after PR #24: complete MC-16–22 resident charging outcome, compact schedule/settings, creation-only defaults and persistent Config Entry preferences, conditional preview, runtime reconciliation, stale queries, history/source provenance and constrained allocation corrections. Exact candidate qualification required.",
-  "limitations": "TEST only, not STABLE or field acceptance. Actual site Safari, latency, native providers and EVSE physical readback remain separate. Immutable v0.1.18 rollback."
+  "qualification_scope": "Owner-authorized HACS TEST after PR #25: site-first overview, asset-side charger assignment and explicit connected vehicle confirmation; shared owner-colored combined/detail charging intervals and goal bars on the selected local civil-day range, isolated quarter visibility, separate price/conditional semantics and retained qualified site totals. Exact candidate qualification required.",
+  "limitations": "TEST only, not STABLE or field acceptance. Actual site Safari, latency, native providers and EVSE physical readback remain separate. Immutable v0.1.19 rollback."
 }
