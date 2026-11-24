@@ -1106,6 +1106,107 @@ async def test_native_expert_save_four_external_adjustable_chargers_without_gues
 
 
 @pytest.mark.asyncio
+async def test_mixed_four_charger_site_native_integrated_soc_and_adjustable_readback(hass: HomeAssistant):
+    """Installed HA, actual service APIs, representative sources, not hardware proof."""
+    from datetime import datetime, timedelta, timezone
+
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    cfg = validate_configuration({
+        "controller": {"id": "home", "name": "Mixed site", "mode": "Force Charge",
+                       "max_parallel": 1, "max_power_kw": 3.6},
+        "assets": [
+            {"id": "car_a", "name": "Car A", "kind": "car", "soc_entity": "sensor.car_a_soc"},
+            {"id": "car_b", "name": "Car B", "kind": "car", "soc_entity": "sensor.car_b_soc",
+             "target_soc": 80, "capacity_kwh": 60, "charge_efficiency": 0.9},
+            {"id": "guest_1", "name": "Guest 1", "kind": "car", "requested_duration_minutes": 30},
+            {"id": "guest_2", "name": "Guest 2", "kind": "car", "requested_kwh": 2},
+        ],
+        "chargers": [{
+            "id": uid, "name": uid, "kind": "variable_current",
+            "rated_power_kw": 3.6, "control_entity": f"switch.{uid}",
+            "current_control_entity": f"number.{uid}_limit",
+            "connected_entity": f"sensor.{uid}_connected", "power_entity": f"sensor.{uid}_power",
+            "energy_entity": f"sensor.{uid}_energy", "control_owner": "external",
+            **({"asset": "car_b", "phase_count": 1, "voltage_v": 230}
+               if uid == "outside" else {"current_readback_entity": f"sensor.{uid}_amps"}),
+        } for uid in ("wall_a", "wall_b", "outside")] + [{
+            "id": "utility", "name": "Utility", "kind": "on_off", "rated_power_kw": 2,
+            "control_entity": "switch.utility", "connected_entity": "sensor.utility_connection",
+            "power_entity": "sensor.utility_power", "energy_entity": "sensor.utility_energy",
+            "control_owner": "external",
+        }],
+    })
+    for uid in ("wall_a", "wall_b", "outside", "utility"):
+        hass.states.async_set(f"switch.{uid}", "off")
+        hass.states.async_set(f"sensor.{uid}_power", "0", {"unit_of_measurement": "W"})
+    hass.states.async_set("sensor.outside_connected", "connected")
+    hass.states.async_set("sensor.outside_energy", "10", {"unit_of_measurement": "kWh"})
+    hass.states.async_set("sensor.car_b_soc", "50", {"unit_of_measurement": "%"})
+    hass.states.async_set("number.outside_limit", "6",
+                          {"unit_of_measurement": "A", "min": 6, "max": 16, "step": 1})
+    entry = MockConfigEntry(domain=DOMAIN, title="Mixed MultiCharge",
+                            data={"source": "ui", "configuration": cfg}, unique_id=DOMAIN)
+    entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    from custom_components.robotix_multicharge.command_query import apply_native_preference
+    await apply_native_preference(hass, entry, runtime, "charger", "outside",
+                                  {"control_owner": "multicharge"}, structural=True)
+    await hass.async_block_till_done()
+    assert hass.data[DOMAIN][entry.entry_id] is runtime
+    assert runtime.executor.confirm_current_connection("outside")["status"] == "confirmed"
+
+    commands = []
+    async def set_current(call):
+        commands.append(("set_value", call.data["value"]))
+        hass.states.async_set("number.outside_limit", str(call.data["value"]),
+                              {"unit_of_measurement": "A", "min": 6, "max": 16, "step": 1})
+    async def start(call):
+        commands.append(("turn_on", call.data["entity_id"]))
+        hass.states.async_set("switch.outside", "on")
+        hass.states.async_set("sensor.outside_power", "1600", {"unit_of_measurement": "W"})
+    async def stop(call):
+        commands.append(("turn_off", call.data["entity_id"]))
+        hass.states.async_set("switch.outside", "off")
+        hass.states.async_set("sensor.outside_power", "0", {"unit_of_measurement": "W"})
+    hass.services.async_register("number", "set_value", set_current)
+    hass.services.async_register("switch", "turn_on", start)
+    hass.services.async_register("switch", "turn_off", stop)
+    result = await runtime.executor.execute("outside", "start")
+    assert result["status"] == "confirmed", result
+    assert commands[:2] == [("set_value", 15.0), ("turn_on", "switch.outside")]
+    await hass.async_block_till_done()
+    assert hass.states.get("switch.outside").state == "on"
+    assert runtime.charger_states()["outside"]["charging_session"] == "charging"
+    assert runtime.executor.session_snapshot()["outside"]["target_current_a"] == 15
+    hass.states.async_set("sensor.car_b_soc", "80", {"unit_of_measurement": "%"})
+    hass.states.async_set("sensor.outside_energy", "11", {"unit_of_measurement": "kWh"})
+    await hass.async_block_till_done()
+    await runtime.executor.supervise()
+    await hass.async_block_till_done()
+    assert commands[-1] == ("turn_off", "switch.outside")
+    assert runtime.executor.completed_sessions()[-1]["asset_id"] == "car_b"
+    assert all(c["control_owner"] == "external" for c in runtime.configuration["chargers"] if c["id"] != "outside")
+    # Reuse the same native sources in a real Ready By proposal; no fictitious tariff.
+    hass.states.async_set("sensor.car_b_soc", "50", {"unit_of_measurement": "%"})
+    await hass.async_block_till_done()
+    deadline = (datetime.now(timezone.utc) + timedelta(hours=12)).isoformat()
+    await apply_native_preference(hass, entry, runtime, "asset", "car_b", {"ready_by": deadline})
+    await hass.async_block_till_done()
+    await apply_native_preference(hass, entry, runtime, "controller", "home", {"mode": "Ready By"})
+    await hass.async_block_till_done()
+    runtime.refresh()
+    assert runtime.assessment is not None
+    assert any(slot.charger_uid == "outside" for slot in runtime.assessment.plan.slots)
+    assert len(runtime.configuration["chargers"]) == len(runtime.configuration["assets"]) == 4
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
 async def test_native_expert_can_relinquish_existing_idle_owner_in_one_save(hass: HomeAssistant):
     """Existing Config Entry, explicit monitoring intent, not physical certification."""
     source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN

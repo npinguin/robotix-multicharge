@@ -212,7 +212,7 @@ class EvidenceTests(unittest.TestCase):
             connected_states=selected, disconnected_states=empty,
         )
         self.assertIsNone(unknown.value)
-        self.assertEqual(unknown.reason, "CONNECTION_AMBIGUOUS")
+        self.assertEqual(unknown.reason, "CONNECTION_PROVIDER_BLOCKED")
         self.assertEqual(connection(
             observations, "sensor.stale", NOW,
             connected_states=selected, disconnected_states=empty,

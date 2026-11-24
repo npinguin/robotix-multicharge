@@ -1091,23 +1091,21 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
                          "PHYSICAL_COMMISSIONING_REQUIRED")
 
         charger["physical_commissioned"] = True
-        sources.pop("binary_sensor.cable")
+        sources["binary_sensor.cable"] = state("off")
         cap = rt.executor.capabilities()["evse"]
-        self.assertEqual(cap["manual_one_off_reason"],
-                         "PHYSICAL_CONNECTION_UNVERIFIED")
+        self.assertEqual(cap["manual_one_off_reason"], "PHYSICAL_CONNECTION_UNVERIFIED")
         denied = await rt.executor.execute(
             "evse", "start", manual_request={"duration_minutes": 15},
         )
         self.assertEqual(denied["status"], "rejected")
-        self.assertEqual(denied["reason"], "PHYSICAL_CONNECTION_UNVERIFIED")
-        self.assertEqual(services.calls, [], "Switch-only can never prove a cable")
+        self.assertEqual(services.calls, [], "Observed disconnect still prevents START")
 
-        # With independently observed native connection and physical meter,
-        # the same already-existing bounded executor becomes available.
-        sources["binary_sensor.cable"] = state("on")
+        # A missing optional cable source is not a physical disconnect.
+        sources.pop("binary_sensor.cable")
         cap = rt.executor.capabilities()["evse"]
         self.assertTrue(cap["manual_one_off_allowed"])
         self.assertEqual(cap["manual_one_off_reason"], "READY")
+        self.assertEqual(cap["manual_goal_reasons"]["energy"], "PHYSICAL_CONNECTION_UNVERIFIED")
         outcome = await rt.executor.execute(
             "evse", "start", manual_request={"duration_minutes": 15},
         )
