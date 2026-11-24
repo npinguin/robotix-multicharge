@@ -953,6 +953,7 @@ function mcAssetGoalText(a){
   return mcTr("Not set");
 }
 function mcOwnerReadValue(value,field,timeZone){
+  if(field==="control_owner")return mcTr(value==="multicharge"?"Active":"Inactive");
   if(value===undefined||value===null||value==="")return mcTr("Not configured");
   if(typeof value==="boolean")return mcTr(value?"Yes":"No");
   if(Array.isArray(value))return value.length?value.join(", "):mcTr("Not configured");
@@ -2803,9 +2804,6 @@ class RobotixMultiChargeCard extends HTMLElement {
         const energy=this.field(oneOff,mcTr("Energy limit (kWh)"),draft.energy,"number");
         const minutes=this.field(oneOff,mcTr("Time limit (minutes)"),draft.minutes,"number");
         const budget=this.field(oneOff,mcTr("Budget limit (€)"),draft.budget,"number");
-        energy.addEventListener("input",()=>{draft.energy=energy.value;});
-        minutes.addEventListener("input",()=>{draft.minutes=minutes.value;});
-        budget.addEventListener("input",()=>{draft.budget=budget.value;});
         const submit=mcButton(mcTr("Start bounded session"),()=>{
           const amount=energy.value.trim(),time=minutes.value.trim(),
                 money=budget.value.trim();
@@ -2830,7 +2828,8 @@ class RobotixMultiChargeCard extends HTMLElement {
           submit.disabled=this._commandBusy||reason!=="READY";
           availability.textContent=reason==="READY"?"":mcTr("Start unavailable")+" · "+mcReason(reason);
         };
-        for(const input of [energy,minutes,budget])input.addEventListener("input",updateGoal);
+        for(const [input,key] of [[energy,"energy"],[minutes,"minutes"],[budget,"budget"]])
+          input.addEventListener("input",()=>{draft[key]=input.value;updateGoal();});
         updateGoal();
         oneOff.append(submit,availability);
         this.disclosure(card,"charger:"+c.id+":oneoff",
