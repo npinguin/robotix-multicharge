@@ -1546,3 +1546,105 @@ async def test_gui_managed_setup_does_not_register_rejected_yaml_editor(hass: Ho
         (DOMAIN, "controller/home"), entry.entry_id,
     ) is not None
     assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
+async def test_reviewed_yaml_editor_native_websocket_single_entry_roundtrip(
+    hass: HomeAssistant, hass_ws_client,
+):
+    """Real HA WS: JSON/YAML Review, guarded Save and authoritative readback.
+
+    This does not simulate physical device or site commissioning.
+    """
+    from custom_components.robotix_multicharge.configuration import (
+        configuration_revision,
+    )
+
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    cfg = validate_configuration({
+        "controller": {"id": "home", "name": "Existing site",
+                       "mode": "Off", "max_parallel": 1},
+        "assets": [], "chargers": [{
+            "id": "plug", "name": "External EVSE",
+            "kind": "on_off", "rated_power_kw": 3.6,
+            "control_entity": "switch.test_plug",
+            "control_owner": "external", "physical_commissioned": False,
+        }],
+    })
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="MultiCharge Community",
+        data={"source": "ui", "configuration": cfg},
+        unique_id=DOMAIN,
+    )
+    entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+    client = await hass_ws_client(hass)
+    request_id = 200
+
+    async def yaml_ws(operation, text, baseline, reviewed_revision=None):
+        nonlocal request_id
+        request_id += 1
+        msg = {
+            "id": request_id,
+            "type": "robotix_multicharge/yaml_configuration",
+            "operation": operation,
+            "yaml_text": text,
+            "expected_revision": baseline,
+        }
+        if reviewed_revision is not None:
+            msg["reviewed_revision"] = reviewed_revision
+        await client.send_json(msg)
+        result = await client.receive_json()
+        assert result["id"] == request_id
+        return result
+
+    initial = configuration_revision(cfg)
+    changed = json.loads(json.dumps(cfg))
+    changed["controller"]["name"] = "Reviewed name"
+    text = json.dumps(changed, indent=2)
+
+    bad = await yaml_ws("review", 'controller: {}\\ncontroller: {}', initial)
+    assert bad["success"] is False
+    assert entry.options.get("configuration") is None
+
+    preview = await yaml_ws("review", text, initial)
+    assert preview["success"] is True
+    assert preview["result"]["status"] == "reviewed"
+    assert "Site settings: name" in preview["result"]["summary"]
+    assert entry.options.get("configuration") is None
+    proposed = preview["result"]["proposed_revision"]
+
+    no_review = await yaml_ws("save", text, initial, "not-reviewed")
+    assert no_review["success"] is False
+    assert entry.options.get("configuration") is None
+
+    updated = await yaml_ws("save", text, initial, proposed)
+    assert updated["success"] is True
+    assert updated["result"]["status"] == "accepted_unconfirmed"
+    assert updated["result"]["expected_revision"] == proposed
+    await hass.async_block_till_done()
+    assert len(hass.config_entries.async_entries(DOMAIN)) == 1
+    assert entry.options["configuration"]["controller"]["name"] == "Reviewed name"
+    assert entry.options["configuration"]["chargers"][0]["control_owner"] == "external"
+    assert entry.options["configuration"]["chargers"][0]["physical_commissioned"] is False
+    assert configuration_revision(entry.options["configuration"]) == proposed
+
+    stale = await yaml_ws("review", text, initial)
+    assert stale["success"] is False
+    assert "STALE_SETTINGS_REFRESH" in stale["error"]["message"]
+
+    # Even with admin rights and a correct revision, free text cannot
+    # commission a previously external charger or switch the physical owner.
+    unsafe = json.loads(text)
+    unsafe["chargers"][0]["control_owner"] = "multicharge"
+    unsafe["chargers"][0]["physical_commissioned"] = True
+    denied = await yaml_ws("review", json.dumps(unsafe), proposed)
+    assert denied["success"] is False
+    assert entry.options["configuration"]["chargers"][0]["control_owner"] == "external"
+
+    await client.close()
+    assert await hass.config_entries.async_unload(entry.entry_id)

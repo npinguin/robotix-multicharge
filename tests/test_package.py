@@ -96,9 +96,10 @@ class PackageTest(unittest.TestCase):
         self.assertIn('"robotix_multicharge/get_plan"', read)
         self.assertNotIn("@websocket_api.require_admin", read)
         self.assertIn('@websocket_api.websocket_command({', read)
-        self.assertEqual(writes.count("@websocket_api.require_admin"), 3)
+        self.assertEqual(writes.count("@websocket_api.require_admin"), 4)
         self.assertNotIn("websocket_dashboard_yaml_configuration", writes)
-        self.assertNotIn('"robotix_multicharge/yaml_configuration"', writes)
+        self.assertIn('"robotix_multicharge/yaml_configuration"', writes)
+        self.assertIn("websocket_yaml_configuration", writes)
         self.assertIn("websocket_dashboard_config", writes)
 
 

@@ -92,6 +92,18 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
         print(f"BROWSER PASS {label}: active and dirty input survives HA + "
               "late source requests, rejected save, 350ms refresh")
         return
+    if view == "yaml":
+        required = ("textareaOpen", "reviewBlockedBefore", "draftRetained",
+                    "reviewEnabled", "savedConfirmed", "cancelled")
+        if not all(row.get(key) is True for key in required):
+            raise AssertionError(f"{label}: YAML review/save/regression failed: {row}")
+        if row.get("backendResponses", 0) < 2:
+            raise AssertionError(f"{label}: HA refresh did not occur: {row}")
+        if not screenshot.is_file() or screenshot.stat().st_size < 2000:
+            raise AssertionError(f"{label}: YAML screenshot missing")
+        print(f"BROWSER PASS {label}: reviewed YAML textarea, Save readback, "
+              "350ms refresh and explicit Cancel")
+        return
     if view in ("asset", "charger"):
         if row["cards"] != count:
             raise AssertionError(f"{label}: object count drift: {row}")
@@ -144,11 +156,13 @@ def main():
         # These flows prove slow users can type through sensor refreshes.
         for width in (390, 1024, 1600):
             run_case(chrome, base, width, 1, "admin", "edit", False)
+        for width in (390, 1024, 1600):
+            run_case(chrome, base, width, 4, "admin", "yaml", False)
     finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
-    print(f"Real Chromium responsive source-UX PASS: {len(CASES) + 3} cases "
+    print(f"Real Chromium responsive source-UX PASS: {len(CASES) + 6} cases "
           "(simulated HA input; installed target HA and real EVSE separately unqualified)")
 
 

@@ -153,6 +153,80 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     document.getElementById("smoke-result").textContent=JSON.stringify(report);
     return;
   }
+  if(view==="yaml"){
+    // Real Chromium: administrator gets a large multiline review/save editor
+    // with no focus/keyboard loss while HA refreshes behind an unsaved draft.
+    card._tab="Settings";card.render();
+    const root=card.shadowRoot;
+    const edit=[...root.querySelectorAll("button")].find(b=>b.textContent==="Edit YAML");
+    if(!edit)throw Error("Admin Edit YAML button missing");
+    edit.click();
+    const textarea=root.querySelector(".yaml-editor textarea");
+    if(!textarea)throw Error("Large YAML textarea missing");
+    const textareaOpen=textarea.rows>=20&&textarea.value.includes('"controller"');
+    textarea.focus();
+    const draft=JSON.parse(textarea.value);
+    draft.controller.name="Browser-reviewed complete configuration";
+    textarea.value=JSON.stringify(draft,null,2);
+    textarea.dispatchEvent(new Event("input",{bubbles:true,composed:true}));
+    const review=[...root.querySelectorAll("button")].find(b=>b.textContent==="Review changes");
+    const save=[...root.querySelectorAll("button")].find(
+      b=>b.textContent==="Save reviewed configuration");
+    const reviewBlockedBefore=save.disabled;
+    const originalRoot=root.querySelector(".root");
+    let backendResponses=0;
+    card.hass={user:{is_admin:true},language:"en",states:{
+      "sensor.any_live_source":{state:"3"}
+    },callWS:async request=>{
+      if(request.type==="robotix_multicharge/yaml_configuration"){
+        if(request.operation==="review"){
+          return {status:"reviewed",expected_revision:request.expected_revision,
+            proposed_revision:"browser-reviewed-2",summary:"Site settings: name"};
+        }
+        if(request.operation==="save"){
+          if(request.reviewed_revision!=="browser-reviewed-2")
+            throw Error("REVIEW_REQUIRED");
+          data.configuration=JSON.parse(request.yaml_text);
+          data.configuration_revision="browser-reviewed-2";
+          return {status:"accepted_unconfirmed",expected_revision:"browser-reviewed-2"};
+        }
+      }
+      backendResponses++;
+      return data;
+    },callService:async()=>{}};
+    await card.load();
+    await new Promise(resolve=>setTimeout(resolve,480));
+    const draftRetained=textarea.isConnected&&root.activeElement===textarea&&
+      textarea.value===JSON.stringify(draft,null,2)&&
+      originalRoot===root.querySelector(".root");
+    review.click();
+    await new Promise(resolve=>setTimeout(resolve,100));
+    const reviewEnabled=save.disabled===false&&root.textContent.includes("Site settings: name");
+    save.click();
+    await new Promise(resolve=>setTimeout(resolve,140));
+    const savedConfirmed=data.configuration.controller.name===
+      "Browser-reviewed complete configuration"&&
+      !textarea.isConnected&&root.textContent.includes("Saved");
+    const reopen=[...root.querySelectorAll("button")].find(b=>b.textContent==="Edit YAML");
+    if(!reopen)throw Error("Editor did not close after readback");
+    reopen.click();
+    const second=root.querySelector(".yaml-editor textarea");
+    second.value="draft that should be abandoned";
+    second.dispatchEvent(new Event("input",{bubbles:true,composed:true}));
+    const cancel=[...root.querySelectorAll("button")].find(b=>b.textContent==="Cancel");
+    cancel.click();
+    const cancelled=!second.isConnected&&data.configuration.controller.name===
+      "Browser-reviewed complete configuration";
+    const report={
+      count,role,view,viewport:innerWidth,render:!!root.querySelector(".root"),
+      documentWidth:document.documentElement.scrollWidth,
+      tabs:[...root.querySelectorAll(".tabs button")].map(b=>b.textContent),
+      textareaOpen,reviewBlockedBefore,draftRetained,reviewEnabled,
+      savedConfirmed,cancelled,backendResponses
+    };
+    document.getElementById("smoke-result").textContent=JSON.stringify(report);
+    return;
+  }
   if(view==="asset"||view==="charger"){
     const details=[...card.shadowRoot.querySelectorAll("button")].find(
       b=>b.textContent==="Details");
