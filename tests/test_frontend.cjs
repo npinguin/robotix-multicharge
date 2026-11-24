@@ -1452,6 +1452,20 @@ async function main(){
     "Disconnected asset is visible as explicitly hypothetical forecasting");
   assert.ok(content(card.shadowRoot).includes("Not reserved"),
     "Forecast must never imply a power reservation");
+  const planHosts=[];
+  visit(card.shadowRoot,node=>{if(node.attributes?.["data-chart-engine"])planHosts.push(node);});
+  assert.equal(planHosts.length,2,"Combined and individual interval plots");
+  for(const host of planHosts){
+    const options=JSON.parse(host._mcSignature);
+    assert.equal(options.xaxis.min,Date.parse(fixture.start));
+    assert.equal(options.xaxis.max,Date.parse(fixture.end));
+    const ix=options.series.findIndex(s=>s.name.includes("Indicative"));
+    assert.ok(ix>=0);
+    assert.equal(options.colors[ix],"#B05D81");
+    const points=options.series[ix].data.filter(p=>p.y===3.6);
+    assert.equal(points.length,2);
+    assert.equal(points[1].x-points[0].x,899999,"Single quarter has real width");
+  }
   assert.ok(!content(card.shadowRoot).includes("3.6 kW actually charged"),
     "Disconnection forecast must not become measured charging");
   fixture.slots=firm;
