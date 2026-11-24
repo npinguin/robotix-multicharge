@@ -889,6 +889,133 @@ async def test_native_options_menu_expert_prefill_save_and_reject_unsafe(
 
 
 @pytest.mark.asyncio
+async def test_native_expert_save_four_external_adjustable_chargers_without_guessed_amps(
+    hass: HomeAssistant,
+):
+    """Pinned real Home Assistant Options Flow, not a substitute data writer.
+
+    Representative four-Charger/four-Asset source shape from a real reported
+    Save failure, with generic IDs so private site bindings remain site-owned.
+    """
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    starting = validate_configuration({
+        "controller": {"id": "home", "name": "Existing site",
+                       "mode": "Automatic", "max_parallel": 1},
+        "assets": [], "chargers": [],
+    })
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="MultiCharge Community",
+        data={"source": "ui", "configuration": starting}, unique_id=DOMAIN,
+    )
+    entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+
+    menu = await hass.config_entries.options.async_init(entry.entry_id)
+    assert menu["type"] == FlowResultType.MENU
+    editor = await hass.config_entries.options.async_configure(
+        menu["flow_id"], {"next_step_id": "yaml"},
+    )
+    assert editor["step_id"] == "yaml"
+    config = {
+        "controller": {
+            "id": "home", "name": "Example Home", "mode": "Automatic",
+            "max_parallel": 1, "max_power_kw": 3.6,
+            "plan_label_mode": "both", "plan_color_by": "vehicle",
+            "show_indicative_forecast": True,
+            "solar_power_entity": "sensor.energy_solar_power",
+            "home_power_entity": "sensor.energy_home_power",
+            "grid_power_entity": "sensor.energy_grid_power",
+            "solar_surplus_entity": "sensor.energy_surplus_power",
+            "current_price_entity": "sensor.energy_current_price",
+            "solar_source_kind": "direct_surplus",
+            "grid_power_direction": "import_positive",
+        },
+        "assets": [
+            {"id": "car_a", "name": "Car A", "kind": "car",
+             "soc_entity": "sensor.car_a_soc"},
+            {"id": "car_b", "name": "Car B", "kind": "car",
+             "soc_entity": "sensor.car_b_soc"},
+            {"id": "guest_1", "name": "Guest 1", "kind": "car"},
+            {"id": "guest_2", "name": "Guest 2", "kind": "car"},
+        ],
+        "chargers": [{
+            "id": uid, "name": label, "kind": "variable_current",
+            "rated_power_kw": 3.6,
+            "control_entity": f"switch.{uid}_charge",
+            "current_control_entity": f"number.{uid}_current",
+            "connected_entity": f"sensor.{uid}_connected",
+            "power_entity": f"sensor.{uid}_power",
+            "energy_entity": f"sensor.{uid}_session_energy",
+            "control_owner": "external", "physical_commissioned": False,
+            **({"current_readback_entity": f"sensor.{uid}_current_actual"}
+               if n < 2 else {}),
+        } for n, (uid, label) in enumerate((
+            ("wall_a", "Wall A"), ("wall_b", "Wall B"),
+            ("outside", "Outside"),
+        ))] + [{
+            "id": "utility_plug", "name": "Utility Plug",
+            "kind": "on_off", "rated_power_kw": 2,
+            "control_entity": "switch.utility_plug",
+            "connected_entity": "sensor.utility_connected",
+            "power_entity": "sensor.utility_power",
+            "energy_entity": "sensor.utility_session_energy",
+            "control_owner": "external", "physical_commissioned": False,
+        }],
+    }
+
+    # A partially invented physical envelope is rejected, with the *reason*
+    # visibly available through Home Assistant's form placeholders.
+    unsafe = json.loads(json.dumps(config))
+    unsafe["chargers"][0]["min_current_a"] = 6
+    invalid = await hass.config_entries.options.async_configure(
+        editor["flow_id"], {"yaml_text": json.dumps(unsafe)},
+    )
+    assert invalid["type"] == FlowResultType.FORM
+    assert invalid["errors"]["base"] == "invalid_config"
+    assert "min_current_a" in invalid["description_placeholders"]["validation_error"]
+    assert "max_current_a" in invalid["description_placeholders"]["validation_error"]
+    assert entry.options.get("configuration") is None
+    marker = next(k for k in invalid["data_schema"].schema
+                  if str(k) == "yaml_text")
+    assert json.loads(marker.default()) == unsafe, "Rejected text must remain editable"
+
+    # Now save the complete externally-owned configuration in one HA Options
+    # transaction. No physical control, commission or invented Amp limits.
+    saved = await hass.config_entries.options.async_configure(
+        editor["flow_id"], {"yaml_text": json.dumps(config)},
+    )
+    assert saved["type"] == FlowResultType.CREATE_ENTRY, saved.get("errors")
+    await hass.async_block_till_done()
+    assert len(hass.config_entries.async_entries(DOMAIN)) == 1
+    actual = entry.options["configuration"]
+    assert len(actual["assets"]) == len(actual["chargers"]) == 4
+    assert actual["controller"]["solar_source_kind"] == "direct_surplus"
+    assert actual["controller"]["current_price_entity"] == "sensor.energy_current_price"
+    assert [c["kind"] for c in actual["chargers"]] == (
+        ["variable_current"] * 3 + ["on_off"]
+    )
+    assert all(c["control_owner"] == "external"
+               and c["physical_commissioned"] is False
+               for c in actual["chargers"])
+    assert all("min_current_a" not in c and "max_current_a" not in c
+               for c in actual["chargers"])
+
+    # Reopen the actual Home Assistant Config Entry: no second store.
+    reopened = await hass.config_entries.options.async_init(entry.entry_id)
+    again = await hass.config_entries.options.async_configure(
+        reopened["flow_id"], {"next_step_id": "yaml"},
+    )
+    marker = next(k for k in again["data_schema"].schema
+                  if str(k) == "yaml_text")
+    assert json.loads(marker.default()) == actual
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
 async def test_optional_one_click_install_and_native_guided_configure(
     hass: HomeAssistant,
 ):
