@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 from datetime import datetime, timezone
 from re import sub
 
@@ -13,7 +14,7 @@ from homeassistant.helpers import selector
 
 from .configuration import (
     default_configuration, is_plan_presentation_only_change,
-    validate_configuration,
+    validate_configuration, configuration_revision,
     apply_new_asset_defaults, energy_dashboard_suggestions,
 )
 from .source_evidence import number
@@ -253,12 +254,29 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_expert(self, user_input=None):
-        """Retired text editor: setup and all settings are dashboard-only."""
-        return self.async_abort(reason="dashboard_only")
-
-    async def async_step_expert_review(self, user_input=None):
-        """No dormant first-install JSON editor may write the Config Entry."""
-        return self.async_abort(reason="dashboard_only")
+        """Optional expert first-install path; default install stays one-click."""
+        if self._async_current_entries():
+            return self.async_abort(reason="already_configured")
+        errors = {}
+        if user_input is not None:
+            try:
+                cfg = validate_configuration(_parse_editor_yaml(user_input["yaml_text"]))
+                await self.async_set_unique_id(DOMAIN)
+                self._abort_if_unique_id_configured()
+                return self.async_create_entry(
+                    title=NAME, data={"source": "ui", "configuration": cfg},
+                )
+            except (ValueError, KeyError, TypeError):
+                errors["base"] = "invalid_config"
+        return self.async_show_form(
+            step_id="expert", errors=errors,
+            data_schema=vol.Schema({
+                vol.Required("yaml_text", default=(user_input or {}).get(
+                    "yaml_text", json.dumps(default_configuration(), indent=2),
+                )): selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
+            }),
+            description_placeholders={"note": "Optional complete configuration; one Config Entry."},
+        )
 
     def _site_schema(suggestions=None):
         suggestions = suggestions or {}
@@ -811,8 +829,15 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         return self.async_abort(reason="yaml_editor_in_dashboard")
 
     async def async_step_init(self, user_input=None):
-        """Existing Config Entry stays owned by dashboard, never HA Options."""
-        return self.async_abort(reason="dashboard_only")
+        """Configure is optional after zero-source, one-click installation."""
+        if self.config_entry.data.get("source") in ("yaml", "json"):
+            return self.async_abort(reason="yaml_managed")
+        self._form_baseline_revision = configuration_revision(self._current())
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=["controller", "charger", "asset", "energy",
+                          "yaml", "display", "commission"],
+        )
 
     async def async_step_energy(self, user_input=None):
         """Optional HA-standard source choices; Energy Dashboard is read-only.
