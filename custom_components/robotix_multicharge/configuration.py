@@ -983,7 +983,7 @@ def assert_expert_authority_change(before, after):
 
 
 
-def prepare_expert_yaml_revision(current, document, mode="merge"):
+def prepare_expert_yaml_revision(current, document, mode="merge", *, site_time_zone="UTC"):
     """Prepare one YAML/JSON editor draft for the existing native Config Entry.
 
     Merge patches only provided logical IDs and leaves every other source and
@@ -1047,14 +1047,15 @@ def prepare_expert_yaml_revision(current, document, mode="merge"):
                         existing.update(deepcopy(supplied))
             candidate = validate_configuration(candidate)
 
-    candidate = apply_new_import_defaults(before, candidate)
+    candidate = apply_new_import_defaults(before, candidate, site_time_zone=site_time_zone,
+                                          preserve_existing=False)
     if candidate["controller"]["id"] != before["controller"]["id"]:
         raise ValueError("controller ID cannot change in UI; preserve existing HA history")
     assert_expert_authority_change(before, candidate)
     return candidate
 
 
-def apply_new_import_defaults(before, candidate, *, site_time_zone="UTC"):
+def apply_new_import_defaults(before, candidate, *, site_time_zone="UTC", preserve_existing=True):
     """Persist creation defaults once; an unchanged file import must be stable."""
     candidate = deepcopy(candidate)
     existing = {row["id"]: row for row in before.get("assets", [])}
@@ -1064,6 +1065,10 @@ def apply_new_import_defaults(before, candidate, *, site_time_zone="UTC"):
         if prior is None:
             if asset.get("soc_entity"):
                 apply_new_asset_defaults(asset, site_time_zone=site_time_zone)
+            continue
+        # Explicit full editor Save differs from reimporting an unchanged
+        # external source: omitted fields of existing IDs may be removed.
+        if not preserve_existing:
             continue
         if asset.get("soc_entity") and all(asset.get(key) is None for key in (
             "target_soc", "requested_kwh", "requested_duration_minutes",

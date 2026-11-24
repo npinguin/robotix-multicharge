@@ -14,6 +14,7 @@ import voluptuous as vol
 from .configuration import (
     apply_settings_change, apply_dashboard_structure, configuration_revision,
     assert_expert_authority_change, validate_configuration, effective_configuration,
+    apply_new_import_defaults,
 )
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
@@ -244,7 +245,10 @@ async def websocket_yaml_configuration(
 
     try:
         # Parsing and schema validation are side-effect free, and bounded.
-        proposed = validate_configuration(_parse_editor_yaml(msg["yaml_text"]))
+        proposed = apply_new_import_defaults(
+            runtime.configuration, validate_configuration(_parse_editor_yaml(msg["yaml_text"])),
+            site_time_zone=hass.config.time_zone, preserve_existing=False,
+        )
         if proposed["controller"]["id"] != runtime.configuration["controller"]["id"]:
             raise ValueError("CONTROLLER_ID_IMMUTABLE")
         assert_expert_authority_change(runtime.configuration, proposed)

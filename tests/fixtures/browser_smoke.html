@@ -99,6 +99,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     observations.assets[a.id].soc.value=88;
     observations.assets[a.id].next_ready_by=a.ready_by;
     c.name="Garage Black";
+    data.configuration.controller.mode="Automatic";
     data.goal_assessments={[c.id]:{asset_id:a.id,status:"achievable",conditional:true,
       assumption:"IF_ACTIVATED",reason:"PROPOSED",deadline:a.ready_by,
       required_grid_kwh:1.56,planned_grid_kwh:1.8,shortfall_grid_kwh:0,

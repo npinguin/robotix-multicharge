@@ -858,7 +858,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             try:
                 proposed = apply_new_import_defaults(
                     cfg, validate_configuration(_parse_editor_yaml(user_input["yaml_text"])),
-                    site_time_zone=self.hass.config.time_zone,
+                    site_time_zone=self.hass.config.time_zone, preserve_existing=False,
                 )
                 if proposed["controller"]["id"] != cfg["controller"]["id"]:
                     raise ValueError("CONTROLLER_ID_IMMUTABLE")

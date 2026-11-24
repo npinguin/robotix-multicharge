@@ -1956,7 +1956,6 @@ class RobotixMultiChargeCard extends HTMLElement {
       }
       metrics.append(el);
     }
-    container.append(metrics);
     const mode=(c.controller||{}).mode||"Off";
     const chips=mcEl("div","chips");chips.append(mcEl("p","muted",mcTr("Charging mode")+" · "+mode));
     for(const item of this.canEditSettings()?MC_MODES:[]){
@@ -1966,7 +1965,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(item===mode)button.className="active";
       chips.append(button);
     }
-    container.append(chips);
+    // Goal cards first; site-wide context remains directly below them.
     this.feedback(container);
     for(const a of assets){
       const card=mcEl("div","card");
@@ -2005,6 +2004,8 @@ class RobotixMultiChargeCard extends HTMLElement {
       card.append(controls);
       container.append(card);
     }
+    const site=mcEl("section","card");
+    site.append(mcEl("h3","",mcTr("Charging site")),metrics,chips);container.append(site);
     if(chargers.length){
       const quick=mcEl("section","card quick-owner-panel");
       quick.append(mcEl("h3","",mcTr("Quick charger assignment")));
@@ -2197,6 +2198,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         card.append(mcEl("p","plan-caution",mcTr("Indicative")+" · "+
           (item.assumption==="IF_ACTIVATED"?mcTr("If activated"):item.assumption==="IF_CONNECTED_NOW"?mcTr("If connected now"):
             item.assumption==="IF_SELECTED_VEHICLE_CONFIRMED"?mcTr("If selected vehicle is confirmed"):
+            item.assumption==="IF_CAPABILITY_VERIFIED"?mcTr("If charger capability is verified"):
             mcTr("Expected")+" "+mcTime(item.assumed_connection_at,d.timezone))+
           " · "+mcTr("Not reserved")));
       }
@@ -2391,7 +2393,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     const finish=Date.parse(goal.planned_finish_at),deadline=Date.parse(goal.deadline);
     // Crop to relevant future interval without inventing a deadline/slot.
     const end=Math.min(horizon,Math.max(start+3600000,
-      Number.isFinite(finish)?finish:start,Number.isFinite(deadline)?deadline:start));
+      Number.isFinite(finish)?finish:start,Number.isFinite(deadline)?deadline+3600000:start));
     if(end<=start)return;
     const pos=value=>Math.max(0,Math.min(100,100*(value-start)/(end-start)));
     const block=mcEl("div","goal-timeline");
@@ -2413,10 +2415,12 @@ class RobotixMultiChargeCard extends HTMLElement {
     }
     block.append(track);
     const labels=mcEl("div","row goal-ticks muted small");
-    for(const t of [start,start+(end-start)/2,end]){
-      labels.append(mcEl("span","",new Date(t).toLocaleString(undefined,{
-        timeZone:this._data.timezone||"UTC",day:"numeric",hour:"2-digit",minute:"2-digit"
-      })));
+    const middle=Math.round((start+(end-start)/2)/3600000)*3600000;
+    for(const t of [start,...(middle>start&&middle<end?[middle]:[]),end]){
+      const tick=mcEl("span","",new Date(t).toLocaleString(undefined,{
+        timeZone:this._data.timezone||"UTC",day:"numeric",hour:"2-digit",minute:"2-digit",hourCycle:"h23"
+      }));
+      labels.append(tick);
     }
     block.append(labels);
     if(Number.isFinite(deadline)&&deadline>=start&&deadline<=end)
@@ -2452,7 +2456,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       mcTr("Planned finish")+" · "+mcTime(goal.planned_finish_at,this._data.timezone)));
     if(goal.conditional){
       const assumption={IF_ACTIVATED:"If activated",IF_CONNECTED_NOW:"If connected now",
-        IF_SELECTED_VEHICLE_CONFIRMED:"If selected vehicle is confirmed",USER_EXPECTED_CONNECTION_TIME:"Expected connection"};
+        IF_SELECTED_VEHICLE_CONFIRMED:"If selected vehicle is confirmed",IF_CAPABILITY_VERIFIED:"If charger capability is verified",USER_EXPECTED_CONNECTION_TIME:"Expected connection"};
       result.append(mcEl("p","muted small",mcTr("Indicative")+" · "+
         (assumption[goal.assumption]?mcTr(assumption[goal.assumption])+" · ":"")+mcTr("Not reserved")));
     }

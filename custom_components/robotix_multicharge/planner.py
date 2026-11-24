@@ -202,6 +202,16 @@ class PlanAssessment:
     strategy: Mapping[str, str]
 
 
+def missing_current_conversion(charger: Charger) -> bool:
+    """Electrical conversion evidence shared by active and indicative planning."""
+    return charger.control_kind == "variable_current" and any(
+        value is None for value in (
+            charger.phase_count, charger.voltage_v, charger.current_step_a,
+            charger.min_current_a, charger.max_current_a,
+        )
+    )
+
+
 def compile_plan(
     controller: ChargeController,
     chargers: Mapping[str, Charger],
@@ -350,11 +360,7 @@ def compile_plan(
         # A verified adjustable charger can propose stepped current, never a
         # fictitious fractional on/off switch. Unknown wiring remains unavailable.
         adjustable = charger.control_kind == "variable_current"
-        incomplete_current = adjustable and (
-            charger.phase_count is None or charger.voltage_v is None
-            or charger.current_step_a is None or charger.min_current_a is None
-            or charger.max_current_a is None
-        )
+        incomplete_current = missing_current_conversion(charger)
         # Only nonbinding previews may use rated/user-limited kW without
         # conversion, where no declared phase/circuit constraint requires A.
         estimate_kw = bool(indicative_only and incomplete_current

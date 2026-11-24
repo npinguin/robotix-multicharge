@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from .contracts import ChargeDemand, PowerEnvelope, PowerLimitSlot
 from .configuration import configuration_revision, PLAN_COLORS
 from .domain import ChargeController, Charger
-from .planner import compile_plan, resolve_recurring_ready_by
+from .planner import compile_plan, missing_current_conversion, resolve_recurring_ready_by
 from .source_evidence import (
     Evidence, binding, connection, intervals, number, session_status,
     live_power, live_price, soc_with_health,
@@ -449,12 +449,16 @@ class MultiChargeRuntime:
                 not disconnected and not inactive and not duration_without_connection
                 and self.executor.connection_confirmation(raw, at) is None
             )
-            if disconnected or inactive or identity_unconfirmed:
+            # An Active, confirmed charger without electrical conversion
+            # can still show a rated-kW preview, never a guessed current.
+            capability_unverified = missing_current_conversion(chargers[uid])
+            if disconnected or inactive or identity_unconfirmed or capability_unverified:
                 if disconnected:
                     self.executor.connection_confirmation(raw, at)
                 self.excluded[uid] = (
                     "DISCONNECTED" if disconnected else "CHARGER_INACTIVE" if inactive
-                    else "CURRENT_PLUG_ASSET_UNCONFIRMED"
+                    else "CURRENT_PLUG_ASSET_UNCONFIRMED" if identity_unconfirmed
+                    else "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED"
                 )
                 indicative_demands.append(request)
                 self.forecast_assumptions[uid] = {
@@ -462,7 +466,8 @@ class MultiChargeRuntime:
                     "assumption": (
                         "USER_EXPECTED_CONNECTION_TIME" if assumed_arrival
                         else "IF_CONNECTED_NOW" if disconnected else "IF_ACTIVATED" if inactive
-                        else "IF_SELECTED_VEHICLE_CONFIRMED"
+                        else "IF_SELECTED_VEHICLE_CONFIRMED" if identity_unconfirmed
+                        else "IF_CAPABILITY_VERIFIED"
                     ),
                     "assumed_connection_at": (
                         max(at, assumed_arrival).isoformat()

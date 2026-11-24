@@ -115,6 +115,25 @@ class RuntimeTests(unittest.TestCase):
         self.assertIsNone(rt.forecast_assessment)
         self.assertEqual(rt.forecast_excluded["drive"], "BATTERY_CAPACITY_NOT_CONFIGURED")
 
+    def test_active_confirmed_variable_charger_retains_nonbinding_kw_preview(self):
+        cfg = sample()
+        cfg["controller"]["mode"] = "Automatic"
+        cfg["chargers"][0].update(kind="variable_current", rated_power_kw=3.6)
+        data = {"sensor.soc": state("65", "%"), "sensor.power": state("0", "W"),
+                "binary_sensor.cable": state("on")}
+        rt = MultiChargeRuntime(SimpleNamespace(states=SimpleNamespace(get=data.get)), cfg)
+        rt.refresh(NOW)
+        self.assertEqual(rt.excluded["drive"], "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED")
+        self.assertFalse(rt.assessment.plan.slots)
+        self.assertTrue(rt.forecast_assessment.plan.slots)
+        self.assertEqual(rt.goal_assessments["drive"]["status"], "achievable")
+        self.assertEqual(rt.goal_assessments["drive"]["assumption"], "IF_CAPABILITY_VERIFIED")
+        self.assertTrue(all(slot.current_a is None for slot in rt.forecast_assessment.plan.slots))
+        cfg["controller"]["phase_limits_a"] = {"L1": 16}
+        rt.refresh(NOW)
+        self.assertFalse(rt.forecast_assessment.plan.slots)
+        self.assertEqual(rt.goal_assessments["drive"]["status"], "cannot_assess")
+
     def test_goal_feasibility_uses_full_plan_not_chart_visibility(self):
         cfg = sample()
         cfg["controller"].update(mode="Automatic", max_power_kw=3.6,

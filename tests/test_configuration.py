@@ -313,6 +313,16 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(assets["new"]["target_soc"], 80)
         self.assertEqual(assets["old"]["target_soc"], 90)
         self.assertNotIn("target_soc", assets["guest"])
+        # Explicit editor replacement can remove a goal; defaults never
+        # turn a previously saved no-goal profile into 80% again.
+        result["assets"][0].pop("target_soc")
+        result["assets"][1]["ready_by_repeat"] = "none"
+        result["assets"][1].pop("ready_by", None)
+        updated = prepare_expert_yaml_revision(
+            base, result, "replace", site_time_zone="Europe/Brussels",
+        )
+        self.assertNotIn("target_soc", updated["assets"][0])
+        self.assertEqual(updated["assets"][1]["ready_by_repeat"], "none")
 
     def test_charger_user_power_envelope_is_hardware_bounded_and_native_editable(self):
         from multicharge_configuration_tests.configuration import (
