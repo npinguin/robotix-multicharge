@@ -227,6 +227,7 @@ const MC_STYLE = [
   ".owner-inventory{margin-top:14px;border-top:1px solid var(--divider-color,#bbb);padding-top:12px}.owner-inventory>h4{font-size:15px;margin:0 0 9px}.owner-group{margin:7px 0 12px;padding:8px 10px;border:1px solid var(--divider-color,#ccc);border-radius:8px;min-width:0}.owner-group h4{font-size:13px;margin:0 0 8px}.owner-group .pair{word-break:break-word}.owner-configure{margin-top:8px}.owner-configure a{display:inline-block;margin-top:4px}.owner-hint{font-size:12px}.owner-inventory .row{flex-wrap:wrap}",
   ".combined-plan{margin:12px 0 18px}.combined-plan svg{display:block;width:100%;height:auto;min-width:0}.combined-plan .chart{overflow:hidden}.lane-summary{overflow-wrap:anywhere}.quick-goal{margin:10px 0;padding:10px;border:1px solid var(--divider-color,#ddd);border-radius:9px;background:var(--secondary-background-color,#f6f8fa)}.quick-goal h4{font-size:14px;margin:0 0 6px}.goal-controls{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(90px,1fr);gap:10px}.quick-goal button{margin-top:6px}.schedule-editor{margin:8px 0}.overview-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}",
   "@media(max-width:600px){.goal-controls{grid-template-columns:1fr}.quick-goal{padding:9px}.combined-plan svg text{font-size:10px}.plan-lane{padding:8px}}",
+  ".vehicle-summary{margin:8px 0}.vehicle-target{display:flex;align-items:baseline;gap:6px}.vehicle-soc{font-size:26px;line-height:1.2}.vehicle-state{text-align:right}.vehicle-deadline{font-size:13px}.goal-outcome{border-top:1px solid var(--divider-color,#ddd);padding-top:9px;margin:9px 0}.goal-status{display:block;font-size:14px}.goal-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0}.goal-metric{display:flex;flex-direction:column;gap:2px;overflow-wrap:anywhere}.goal-metric strong{font-size:15px}.goal-track{position:relative;height:28px;margin:8px 3px 5px;background:var(--secondary-background-color,#eaecef);border-radius:5px}.goal-window{position:absolute;top:5px;bottom:5px;border-radius:3px;box-sizing:border-box}.goal-window.conditional{opacity:.65;border:1px dashed currentColor}.goal-deadline-marker{position:absolute;top:-3px;bottom:-3px;border-left:2px dashed var(--primary-text-color,#222)}.goal-ticks{gap:2px;font-size:10px}.schedule-days button{border-radius:20px}.goal-timeline{margin:9px 0}",
   ".plan-key{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:6px 0;font-size:12px}",
   ".plan-swatch{width:12px;height:12px;border-radius:3px;display:inline-block;margin-right:4px}",
   ".plan-caution{font-size:12px;color:var(--secondary-text-color,#65717e);line-height:1.5}",
@@ -287,13 +288,13 @@ function mcAssetIcon(a){
   return a.temporary?"account-clock-outline":({car:"car-electric-outline",bicycle:"bicycle",
     motorcycle:"motorbike",scooter:"scooter-electric",other:"battery-outline"}[a.kind]||"battery-outline");
 }
-function mcSocBar(container,observation){
+function mcSocBar(container,observation,color){
   if(observation?.quality!=="ok"||typeof observation.value!=="number"||
       !Number.isFinite(observation.value)||observation.value<0||observation.value>100)return;
   const track=mcEl("div","soc-track");track.setAttribute("role","progressbar");
   track.setAttribute("aria-label",mcTr("Battery"));track.setAttribute("aria-valuemin","0");
   track.setAttribute("aria-valuemax","100");track.setAttribute("aria-valuenow",String(observation.value));
-  const fill=mcEl("div","soc-fill");fill.style.width=observation.value+"%";track.append(fill);container.append(track);
+  const fill=mcEl("div","soc-fill");fill.style.width=observation.value+"%";if(color)fill.style.background=color;track.append(fill);container.append(track);
 }
 function mcButton(text, action, css) {
   const node = mcEl("button", css || "", text);
@@ -1967,13 +1968,10 @@ class RobotixMultiChargeCard extends HTMLElement {
     container.append(chips);
     this.feedback(container);
     for(const a of assets){
-      const card=mcEl("div","card");const observed=((d.observations||{}).assets||{})[a.id]||{};
+      const card=mcEl("div","card");
       const charger=chargers.find(x=>x.asset===a.id);
-      card.append(mcIconLabel(mcEl("h3","",a.name),a.name,mcAssetIcon(a)),mcEl("p","muted",
-        mcTr("Battery")+" "+mcValue(observed.soc,"%")+" · "+
-        mcTr("Charging goal")+" "+mcAssetGoalText(a)));
-      mcSocBar(card,observed.soc);
-      card.append(mcEl("p","small",mcTr("Ready By")+" "+mcTime(observed.next_ready_by??a.ready_by,d.timezone)+" · "+(charger?charger.name:mcTr("No charger assigned"))));
+      card.append(mcIconLabel(mcEl("h3","",a.name),a.name,mcAssetIcon(a)));
+      this.vehicleSummary(card,a,charger);
       this.goalAssessment(card,a,charger);
       if(a.temporary)card.append(mcEl("p","small",mcTr("Guest")+" · "+mcTime(a.expires_at,d.timezone)));
       const controls=mcEl("div","overview-actions");
@@ -2173,8 +2171,8 @@ class RobotixMultiChargeCard extends HTMLElement {
         mcTime(readback.next_ready_by??selected?.ready_by,d.timezone)+
         (next?" · "+mcTr("Next charge")+" "+
           mcTime(next.start,d.timezone)+" · "+next.proposed_power_kw+" kW":""));
-      card.append(summary);
-      if(!pastOnly&&selected)this.goalAssessment(card,selected,charger);
+      if(!pastOnly&&selected){this.vehicleSummary(card,selected,charger);this.goalAssessment(card,selected,charger);}
+      else card.append(summary);
       if(typeof shortfall==="number"&&shortfall>0&&!d.goal_assessments?.[charger.id])
         card.append(mcEl("p","plan-caution",mcTr("Shortfall")+" · "+
           shortfall.toFixed(2)+" kWh"));
@@ -2300,7 +2298,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     container.append(fold);
     return fold;
   }
-  ownerFacts(container,scope,record){
+  ownerFacts(container,scope,record,primaryFields=[]){
     // Every accepted persisted field appears under the one owning Device.
     // Details are compact by default and fold independently by stable ID.
     const groups=MC_OWNER_GROUPS[scope]||[];
@@ -2318,13 +2316,16 @@ class RobotixMultiChargeCard extends HTMLElement {
       const key=scope+":"+record.id+":"+field;
       if(this.canEditSettings()&&!["id","physical_commissioned"].includes(field)){
         const edit=mcButton(mcTr("Edit"),()=>{
+          if(primaryFields.includes(field)){
+            this._settingsOpen=field==="phase_limits_a"?"Safety & limits":"Sources & bindings";
+          }
           this._editingField=this._editingField===key?"":key;this.render();
         });
         edit.setAttribute("aria-label",mcTr("Edit")+" "+mcTr(label)+" · "+record.name);
         line.append(edit);
       }
       parent.append(line);
-      if(this.canEditSettings()&&this._editingField===key)
+      if(this.canEditSettings()&&this._editingField===key&&!primaryFields.includes(field))
         this.dashboardEditField(parent,scope,record,field);
     };
     const fold=(title,fields,key)=>{
@@ -2359,25 +2360,97 @@ class RobotixMultiChargeCard extends HTMLElement {
     if(this.canEditSettings())this.dashboardDelete(wrapper,scope,record);
     container.append(wrapper);
   }
+  vehicleSummary(card,asset,charger){
+    const d=this._data,obs=d.observations?.assets?.[asset.id]||{};
+    const connected=d.observations?.chargers?.[charger?.id]?.connected;
+    const connection=charger?(connected?.quality==="ok"?
+      (connected.value===true?mcTr("Connected"):mcTr("Disconnected")):mcTr("Connection unknown")):mcTr("Not assigned");
+    const activation=charger?mcTr(charger.control_owner==="multicharge"&&charger.physical_commissioned===true?"Active":"Inactive"):"";
+    const color=mcOwnerColor("asset",asset.id,d.configuration,d.plan_palette);
+    const summary=mcEl("div","vehicle-summary");
+    const row=mcEl("div","row");
+    const goal=mcEl("div","vehicle-target");
+    goal.append(mcEl("strong","vehicle-soc",mcValue(obs.soc,"%")),
+      mcEl("span","muted small"," → "+mcAssetGoalText(asset)));
+    const state=mcEl("div","vehicle-state muted small");
+    state.append(mcEl("div","",connection+(activation?" · "+activation:"")),
+      mcEl("div","",charger?.name||mcTr("No charger assigned")));
+    row.append(goal,state);summary.append(row);mcSocBar(summary,obs.soc,color);
+    const due=obs.next_ready_by!==undefined?obs.next_ready_by:asset.ready_by;
+    const schedule=mcEl("div","row vehicle-deadline");
+    const repeat=asset.ready_by_repeat==="daily"?mcTr("Daily"):
+      ["weekly","specific_days"].includes(asset.ready_by_repeat)?mcTr("Specific days"):due?mcTr("Once"):mcTr("No deadline");
+    schedule.append(mcEl("strong","",repeat),mcEl("span","",due?mcTr("Ready By")+" · "+mcTime(due,d.timezone):""));
+    summary.append(schedule);card.append(summary);
+  }
+  goalTimeline(container,goal,color){
+    const windows=goal.timeline_windows||[];
+    const start=Date.parse(goal.timeline_start),horizon=Date.parse(goal.timeline_end);
+    if(!windows.length||!Number.isFinite(start)||!Number.isFinite(horizon)||horizon<=start)return;
+    const finish=Date.parse(goal.planned_finish_at),deadline=Date.parse(goal.deadline);
+    // Crop to relevant future interval without inventing a deadline/slot.
+    const end=Math.min(horizon,Math.max(start+3600000,
+      Number.isFinite(finish)?finish:start,Number.isFinite(deadline)?deadline:start));
+    if(end<=start)return;
+    const pos=value=>Math.max(0,Math.min(100,100*(value-start)/(end-start)));
+    const block=mcEl("div","goal-timeline");
+    block.setAttribute("aria-label",mcTr(goal.conditional?"Indicative charging plan":"Charging plan"));
+    block.append(mcEl("div","muted small",mcTr(goal.conditional?"Indicative charging plan":"Charging plan")));
+    const track=mcEl("div","goal-track");
+    for(const item of windows){
+      const a=Date.parse(item.start),b=Date.parse(item.end);
+      if(!Number.isFinite(a)||!Number.isFinite(b)||b<=a||b<=start||a>=end)continue;
+      const slot=mcEl("span","goal-window"+(goal.conditional?" conditional":""));
+      slot.style.left=pos(a)+"%";slot.style.width=(pos(b)-pos(a))+"%";
+      slot.style.background=color;slot.title=mcTime(item.start,this._data.timezone)+" – "+mcTime(item.end,this._data.timezone);
+      track.append(slot);
+    }
+    if(Number.isFinite(deadline)&&deadline>=start&&deadline<=end){
+      const marker=mcEl("span","goal-deadline-marker");
+      marker.style.left=pos(deadline)+"%";marker.title=mcTr("Ready By")+" "+mcTime(goal.deadline,this._data.timezone);
+      marker.setAttribute("aria-label",marker.title);track.append(marker);
+    }
+    block.append(track);
+    const labels=mcEl("div","row goal-ticks muted small");
+    for(const t of [start,start+(end-start)/2,end]){
+      labels.append(mcEl("span","",new Date(t).toLocaleString(undefined,{
+        timeZone:this._data.timezone||"UTC",day:"numeric",hour:"2-digit",minute:"2-digit"
+      })));
+    }
+    block.append(labels);
+    if(Number.isFinite(deadline)&&deadline>=start&&deadline<=end)
+      block.append(mcEl("div","muted small",mcTr("Ready By")+" · "+mcTime(goal.deadline,this._data.timezone)));
+    container.append(block);
+  }
   goalAssessment(card,asset,charger){
     const goal=this._data?.goal_assessments?.[charger?.id];
     if(!goal||goal.asset_id!==asset.id)return;
     const labels={target_met:"Goal reached",achievable:"Goal achievable by deadline",
       planned:"Goal planned",shortfall:"Goal not covered by current plan",
       cannot_assess:"Cannot assess goal"};
-    const result=mcEl("div","details");
-    result.append(mcEl("strong","",mcTr(labels[goal.status]||"Cannot assess goal")));
-    if(goal.conditional)result.append(mcEl("p","muted small",
-      mcTr("Indicative")+" · "+mcTr("Not reserved")));
+    const good=["target_met","achievable"].includes(goal.status);
+    const warn=["shortfall","cannot_assess"].includes(goal.status);
+    const result=mcEl("div","goal-outcome");
+    result.setAttribute("data-goal-status",goal.status);
+    const label=mcTr(labels[goal.status]||"Cannot assess goal");
+    result.append(mcIconLabel(mcEl("strong","goal-status "+(good?"confirmed":warn?"pending":""),label),
+      label,good?"check-circle-outline":warn?"alert-circle-outline":"clock-outline",good?"good":warn?"warn":"quiet"));
+    const metrics=mcEl("div","goal-metrics");
+    for(const [field,caption] of [["required_grid_kwh","Required"],["planned_grid_kwh","Planned"],["shortfall_grid_kwh","Shortfall"]]){
+      const cell=mcEl("div","goal-metric");
+      cell.append(mcEl("span","muted small",mcTr(caption)),
+        mcEl("strong","",typeof goal[field]==="number"&&Number.isFinite(goal[field])?goal[field].toFixed(2)+" kWh":mcTr("Unknown")));
+      metrics.append(cell);
+    }
+    result.append(metrics);
+    if(!goal.conditional||this._data.configuration?.controller?.show_indicative_forecast!==false)
+      this.goalTimeline(result,goal,mcOwnerColor("asset",asset.id,this._data.configuration,this._data.plan_palette));
     if(goal.next_charge_at)result.append(mcEl("p","small",
       mcTr("Next charge")+" · "+mcTime(goal.next_charge_at,this._data.timezone)));
     if(goal.planned_finish_at)result.append(mcEl("p","small",
       mcTr("Planned finish")+" · "+mcTime(goal.planned_finish_at,this._data.timezone)));
-    const parts=[];
-    for(const [field,label] of [["required_grid_kwh","Required"],["planned_grid_kwh","Planned"],["shortfall_grid_kwh","Shortfall"]]){
-      if(typeof goal[field]==="number")parts.push(mcTr(label)+" "+goal[field].toFixed(2)+" kWh");
-    }
-    if(parts.length)result.append(mcEl("p","small",parts.join(" · ")));
+    if(goal.conditional)result.append(mcEl("p","muted small",
+      mcTr("Indicative")+" · "+mcTr("Not reserved")));
     if(goal.reason&&goal.reason!=="PROPOSED"&&goal.reason!=="TARGET_MET")
       result.append(mcEl("p","muted small",mcReason(goal.reason)));
     card.append(result);
@@ -2510,22 +2583,10 @@ class RobotixMultiChargeCard extends HTMLElement {
       const obs=((d.observations||{}).assets||{})[a.id]||{};
       const header=mcEl("div","row");header.append(mcIconLabel(mcEl("h3","",a.name),a.name,mcAssetIcon(a)),mcButton(this._open===a.id?"Hide details":"Details",()=>{this._open=this._open===a.id?"":a.id;this.render();}));
       card.append(header);
-      const chip=mcEl("div","plan-key"),dot=mcEl("span","plan-swatch");
-      dot.style.background=mcOwnerColor("asset",a.id,d.configuration,d.plan_palette);
-      chip.append(dot,mcEl("span","muted small",mcTr("Plan color")+" · "+mcTr(a.plan_color||"blue")));
-      card.append(chip);
-      mcPair(card,"Battery",mcValue(obs.soc,"%"));
-      mcSocBar(card,obs.soc);
-      mcPair(card,"Effective charging power",mcValue(obs.effective_power_kw," kW"));
-      mcPair(card,"Ready By",mcTime(obs.next_ready_by!==undefined?obs.next_ready_by:a.ready_by,d.timezone));
-      mcPair(card,"Charger",charger?charger.name:"Not assigned");
-      mcPair(card,mcTr("Charging goal"),mcAssetGoalText(a));
+      this.vehicleSummary(card,a,charger);
       this.goalAssessment(card,a,charger);
-      mcPair(card,mcTr("Charging pattern"),a.continuous_charging?
-        mcTr("One continuous charge"):mcTr("Flexible cheapest quarters"));
-      if(a.maximum_price_per_kwh!==undefined)mcPair(card,
-        mcTr("Price ceiling per kWh"),
-        a.maximum_price_per_kwh+" "+(a.price_currency||"")+"/kWh");
+      if(obs.effective_power_kw?.quality==="ok"&&obs.effective_power_kw.value>0)
+        card.append(mcEl("p","small",mcTr("Effective charging power")+" · "+mcValue(obs.effective_power_kw," kW")));
       // One explicit action opens the goal editor; the default view is a summary.
       const goalVisible=this._goalEditor===a.id;
       if(goalVisible)this.assetGoalEditor(card,a);
@@ -3200,7 +3261,11 @@ class RobotixMultiChargeCard extends HTMLElement {
             "Parallel chargers",ctl.max_parallel);
           this.nativeNumberEditor(detail,"controller",ctl.id,"max_power_kw",
             "Maximum group power",ctl.max_power_kw,"kW");
-          this.ownerFacts(detail,"controller",ctl);
+          this.ownerFacts(detail,"controller",ctl,[
+            "solar_power_entity","home_power_entity","grid_power_entity","solar_surplus_entity",
+            "current_price_entity","price_entity","export_price_entity","solar_entity",
+            "site_power_entity","binding_entity","phase_limits_a"
+          ]);
         }else if(title==="Charging strategy"){
           const options=mcEl("div","chips");
           for(const mode of this.canEditSettings()?MC_MODES:[]){

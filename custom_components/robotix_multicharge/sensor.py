@@ -656,7 +656,12 @@ class _AssetIntentSensor(_NativeMultiChargeSensor):
             "temporary": current.get("temporary", False),
             "expires_at": current.get("expires_at"),
             "connection_verified": False,  # saved assignment is not plug identity
-            "goal_assessment": self.runtime.goal_assessments.get(assigned),
+            # Native attributes stay small; the full display timeline is
+            # available through the existing read-only plan WebSocket.
+            "goal_assessment": {
+                key: value for key, value in self.runtime.goal_assessments.get(assigned, {}).items()
+                if key != "timeline_windows"
+            } or None,
         }
 
 

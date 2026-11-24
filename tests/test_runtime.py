@@ -189,6 +189,11 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(datetime.fromisoformat(goal["next_charge_at"]).astimezone(zone).hour, 2)
         self.assertLessEqual(datetime.fromisoformat(goal["planned_finish_at"]),
                              datetime.fromisoformat(goal["deadline"]))
+        self.assertTrue(goal["timeline_windows"])
+        self.assertEqual(goal["timeline_windows"][0]["start"], goal["next_charge_at"])
+        self.assertEqual(goal["timeline_windows"][-1]["end"], goal["planned_finish_at"])
+        self.assertEqual(rt.read_plan(first, first+timedelta(days=1))["goal_assessments"]["drive"]["timeline_windows"],
+                         goal["timeline_windows"])
         self.assertTrue(all(not s["may_execute"] and s["indicative_current_a"] is None
                             for s in result["forecast_slots"]))
         cfg["assets"][0]["capacity_kwh"] = 1000

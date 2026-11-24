@@ -690,7 +690,18 @@ class MultiChargeRuntime:
                 slot for slot in assessment.plan.slots
                 if slot.charger_uid == uid and slot.end > at
             ] if assessment and not measured_target_met else []
+            # Adjacent quarters form one display window; retain all gaps.
+            # The same planner slots remain authoritative for actual power.
+            windows = []
+            for slot in sorted(future, key=lambda item: item.start):
+                if windows and windows[-1]["end"] == slot.start.isoformat():
+                    windows[-1]["end"] = slot.end.isoformat()
+                else:
+                    windows.append({"start": slot.start.isoformat(), "end": slot.end.isoformat()})
             self.goal_assessments[uid] = {
+                "timeline_start": at.isoformat(),
+                "timeline_end": (at + timedelta(hours=48)).isoformat(),
+                "timeline_windows": windows,
                 "next_charge_at": min(slot.start for slot in future).isoformat() if future else None,
                 "planned_finish_at": max(slot.end for slot in future).isoformat() if future else None,
                 "asset_id": asset["id"], "status": status, "reason": reason,
