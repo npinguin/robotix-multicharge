@@ -1010,7 +1010,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     // A rejected validation/save updates feedback *in place*: never throw
     // away the value the resident just typed to explain why it was rejected.
     const target=container||this.shadowRoot?.querySelector?.(
-      ".dashboard-field-edit, .dashboard-create, .quick-goal, .dashboard-editor, .root");
+      ".dashboard-field-edit, .dashboard-create, .quick-goal, .assignment-editor, .dashboard-editor, .root")||
+      [...(this.shadowRoot?.children||[])].find(node=>node.className==="root");
     if(!target)return;
     const existing=typeof target.querySelector==="function"?
       target.querySelector("[data-mc-edit-error]"):null;
