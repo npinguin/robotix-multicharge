@@ -6,6 +6,7 @@ physical commands are exposed by this static endpoint.
 from __future__ import annotations
 
 import logging
+import json
 from pathlib import Path
 
 from aiohttp import web
@@ -17,6 +18,9 @@ from .const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 RESOURCE = "/robotix_multicharge/frontend/robotix-multicharge.js"
 SCRIPT = Path(__file__).parent / "frontend" / "robotix-multicharge.js"
+# One manifest owns the version; the stable HTTP route serves the same bytes.
+_VERSION = json.loads((Path(__file__).parent / "manifest.json").read_text())["version"]
+VERSIONED_RESOURCE = f"{RESOURCE}?v={_VERSION}"
 APEX_RESOURCE = "/robotix_multicharge/frontend/vendor/apexcharts.min.js"
 APEX_SCRIPT = Path(__file__).parent / "frontend" / "vendor" / "apexcharts.min.js"
 KEY = f"{DOMAIN}_frontend"
@@ -74,9 +78,9 @@ def reconcile_frontend(hass, entry=None):
     try:
         if enabled:
             frontend.add_extra_js_url(hass, APEX_RESOURCE)
-            frontend.add_extra_js_url(hass, RESOURCE)
+            frontend.add_extra_js_url(hass, VERSIONED_RESOURCE)
         else:
-            frontend.remove_extra_js_url(hass, RESOURCE)
+            frontend.remove_extra_js_url(hass, VERSIONED_RESOURCE)
             frontend.remove_extra_js_url(hass, APEX_RESOURCE)
     except (AttributeError, ValueError, KeyError) as exc:
         _LOGGER.warning("MultiCharge optional UI registration pending: %s", exc)
@@ -105,7 +109,7 @@ async def register_sidebar_panel(hass, entry):
         frontend_url_path=PANEL_PATH,
         sidebar_title=PANEL_TITLE,
         sidebar_icon=PANEL_ICON,
-        module_url=RESOURCE,
+        module_url=VERSIONED_RESOURCE,
         embed_iframe=False,
         require_admin=False,
     )

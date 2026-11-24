@@ -341,6 +341,10 @@ async def websocket_dashboard_config(
 @websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "robotix_multicharge/yaml_configuration",
+    # Recognize the retired Review protocol only to return explicit upgrade
+    # guidance; no legacy review or save is executed.
+    vol.Optional("operation"): str,
+    vol.Optional("reviewed_revision"): str,
     vol.Required("expected_revision"): str,
     vol.Required("yaml_text"): str,
 })
@@ -353,6 +357,13 @@ async def websocket_yaml_configuration(
     JSON (YAML-compatible) is only a transient text presentation. No file,
     separate state store, physical command or HA Options Flow is created.
     """
+    if "operation" in msg or "reviewed_revision" in msg:
+        connection.send_error(
+            msg["id"], websocket_api.ERR_INVALID_FORMAT,
+            "FRONTEND_VERSION_MISMATCH: reload Home Assistant in a new tab; "
+            "this editor uses the retired Review protocol. Your configuration is unchanged.",
+        )
+        return
     rows = tuple(hass.data.get(DOMAIN, {}).items())
     if len(rows) != 1:
         connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND,
@@ -417,7 +428,7 @@ async def websocket_yaml_configuration(
         })
     except (ValueError, TypeError, KeyError) as exc:
         connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT,
-                              str(exc)[:180])
+                              str(exc)[:4096])
 
 
 

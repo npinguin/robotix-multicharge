@@ -208,6 +208,7 @@ const MC_STYLE = [
   "button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid var(--primary-color,#1976d2);outline-offset:2px}",
   ".grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}",
   ".card{border:1px solid var(--divider-color,#e1e4e8);border-radius:10px;padding:14px;min-width:0;margin:8px 0}.settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr));gap:12px;margin-top:14px}.settings-card{margin:0;min-height:72px}.settings-card.expanded{grid-column:1/-1}.settings-heading{min-width:0;flex:1}.settings-heading p{margin-top:5px}.settings-card .row{align-items:flex-start}.config-code{white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;border:1px solid var(--divider-color,#e1e4e8);border-radius:8px;background:var(--secondary-background-color,#f7f8fa);font-size:12px;line-height:1.5}",
+  ".mc-icon{--mdc-icon-size:20px;display:inline-block;vertical-align:middle;margin-right:6px;flex:none;color:var(--primary-color,#1976d2)}.mc-icon.good{color:var(--success-color,#278355)}.mc-icon.warn{color:var(--warning-color,#b57418)}.mc-icon.bad{color:var(--error-color,#d43b38)}.mc-icon.quiet{color:var(--secondary-text-color,#65717e)}.mc-icon.solar{color:var(--warning-color,#b57418)}button .mc-icon{--mdc-icon-size:18px;color:inherit}.tabs .mc-icon{color:inherit}.metric .mc-icon{--mdc-icon-size:24px}.soc-track{height:8px;border-radius:6px;background:var(--divider-color,#ddd);overflow:hidden;margin:7px 0}.soc-fill{height:100%;background:var(--primary-color,#1976d2);border-radius:6px}.message[role=alert]{color:var(--error-color,#d43b38);white-space:pre-wrap;overflow-wrap:anywhere}",
   ".metric{background:var(--secondary-background-color,#f6f8fa);border:1px solid var(--divider-color,#e1e4e8);border-radius:10px;padding:15px;min-width:0}",
   ".row{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}",
   ".details{margin-top:10px;padding-top:9px;border-top:1px solid var(--divider-color,#ddd)}.assignment-editor{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.assignment-editor p{flex-basis:100%}.assignment-editor select{width:100%;min-width:0;max-width:100%;box-sizing:border-box}",
@@ -250,11 +251,54 @@ function mcEl(tag, css, text) {
   if (text !== undefined && text !== null) node.textContent = mcTr(text);
   return node;
 }
+const MC_ICONS={
+  "Overview":"view-dashboard-outline","Charging Plan":"calendar-clock","Charging plan":"calendar-clock",
+  "Chargeable Assets":"car-electric-outline","Chargers":"ev-station","Settings":"cog-outline",
+  "Refresh":"refresh","Automatic":"auto-fix","Solar":"solar-power","Economy":"cash","Ready By":"clock-check-outline",
+  "Force Charge":"lightning-bolt","Off":"power","Save":"content-save-outline","Cancel":"close",
+  "Edit YAML":"code-json","Close YAML editor":"close","Edit":"pencil-outline",
+  "Stop charging":"stop-circle-outline","Start charging":"play-circle-outline","Pause charging":"pause-circle-outline",
+  "Resume charging":"play-circle-outline","Schedule charging":"calendar-clock","Set charging goal":"target",
+  "Save charging goal":"content-save-outline","Add asset":"plus","Add charger":"plus",
+  "Active chargers":"ev-station","Actual power":"lightning-bolt","Effective charging power":"lightning-bolt",
+  "Current price":"currency-eur","Spot price":"currency-eur","Variable reference price":"currency-eur",
+  "Solar production":"solar-power","Solar surplus":"white-balance-sunny","Home consumption":"home-lightning-bolt-outline",
+  "Grid power":"transmission-tower","Battery":"battery-outline","Target":"target","Connection":"connection",
+  "Charger":"ev-station","Active session":"clock-outline","Measured session energy":"flash",
+  "Charging site":"home-outline","Sources & bindings":"link-variant","Charging strategy":"tune-variant",
+  "Safety & limits":"shield-check-outline","Integrations":"puzzle-outline"
+};
+function mcIconLabel(node, text, icon, tone=""){
+  if(!icon)return node;
+  const el=mcEl("ha-icon","mc-icon"+(tone?" "+tone:""));
+  el.setAttribute("icon","mdi:"+icon);
+  el.setAttribute("aria-hidden","true");
+  node.textContent=mcTr(text);
+  if(typeof node.prepend==="function")node.prepend(el);
+  else node.append(el);
+  return node;
+}
+function mcIconFor(text){
+  if(MC_ICONS[text])return MC_ICONS[text];
+  return Object.entries(MC_ICONS).find(([key])=>mcTr(key)===text)?.[1];
+}
+function mcAssetIcon(a){
+  return a.temporary?"account-clock-outline":({car:"car-electric-outline",bicycle:"bicycle",
+    motorcycle:"motorbike",scooter:"scooter-electric",other:"battery-outline"}[a.kind]||"battery-outline");
+}
+function mcSocBar(container,observation){
+  if(observation?.quality!=="ok"||typeof observation.value!=="number"||
+      !Number.isFinite(observation.value)||observation.value<0||observation.value>100)return;
+  const track=mcEl("div","soc-track");track.setAttribute("role","progressbar");
+  track.setAttribute("aria-label",mcTr("Battery"));track.setAttribute("aria-valuemin","0");
+  track.setAttribute("aria-valuemax","100");track.setAttribute("aria-valuenow",String(observation.value));
+  const fill=mcEl("div","soc-fill");fill.style.width=observation.value+"%";track.append(fill);container.append(track);
+}
 function mcButton(text, action, css) {
   const node = mcEl("button", css || "", text);
   node.type = "button";
   node.addEventListener("click", action);
-  return node;
+  return mcIconLabel(node,text,mcIconFor(text));
 }
 function mcValue(observation, suffix) {
   if (!observation || observation.quality !== "ok" || observation.value === null || observation.value === undefined) return mcTr("Unknown");
@@ -268,7 +312,7 @@ function mcTime(value, zone) {
 }
 function mcPair(target, left, right) {
   const pair=mcEl("div","pair");
-  pair.append(mcEl("span","muted",left),mcEl("span","",right));
+  pair.append(mcIconLabel(mcEl("span","muted",left),left,mcIconFor(left)),mcEl("span","",right));
   target.append(pair);
 }
 function mcSVG(tag, attrs, text) {
@@ -1684,9 +1728,8 @@ class RobotixMultiChargeCard extends HTMLElement {
   feedback(container){
     if(!this._settingsFeedback)return;
     const result=this._settingsFeedback;
-    const node=mcEl("p","message "+(result.status==="confirmed"?"confirmed":result.status==="rejected"?"error":"pending"),
-      result.status==="confirmed"?"Saved":
-      result.status==="rejected"?(result.message||"Unavailable"):"Pending");
+    const label=result.status==="confirmed"?"Saved":result.status==="rejected"?(result.message||"Unavailable"):"Pending";
+    const node=mcIconLabel(mcEl("p","message "+(result.status==="confirmed"?"confirmed":result.status==="rejected"?"error":"pending"),label),label,result.status==="confirmed"?"check-circle-outline":result.status==="rejected"?"alert-circle-outline":"clock-outline",result.status==="confirmed"?"good":result.status==="rejected"?"bad":"warn");
     node.setAttribute("role",result.status==="rejected"?"alert":"status");
     container.append(node);
   }
@@ -1694,7 +1737,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     container.append(mcEl("h2","",label));
   }
   notice(container,message,bad){
-    container.append(mcEl("div","notice"+(bad?" error":""),message));
+    container.append(mcIconLabel(mcEl("div","notice"+(bad?" error":""),message),message,bad?"alert-circle-outline":"information-outline",bad?"bad":"quiet"));
   }
   configure(container){
     // First installation only; configured runtime never navigates out for edits.
@@ -1757,7 +1800,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     const d=this._data,c=d.configuration||{},assets=c.assets||[],chargers=c.chargers||[];
     this.title(container,"Charging overview");
     const observations=(d.observations||{}).chargers||{};
-    const priced=((d.observations||{}).sources||{}).current_price||{};
+    const sources=(d.observations||{}).sources||{};
+    const priced=sources.current_price||{};
     const priceLabel=priced.quality==="ok"&&typeof priced.value==="number"&&priced.currency
       ?new Intl.NumberFormat(undefined,{style:"currency",currency:priced.currency,maximumFractionDigits:4}).format(priced.value)+"/kWh"
       :"Unavailable";
@@ -1771,8 +1815,16 @@ class RobotixMultiChargeCard extends HTMLElement {
     for(const [key,value] of [
       ["Active chargers",!chargers.length?"0":complete?String(active):"Unknown"],
       ["Actual power",complete?(powers.reduce((sum,x)=>sum+x.value,0).toFixed(2)+" kW"):"Unknown"],
-      [priceKind,priceLabel]
-    ]){const el=mcEl("div","metric");el.append(mcEl("p","muted small",mcTr(key)),mcEl("div","value",value));metrics.append(el);}
+      [priceKind,priceLabel],
+      ["Solar production",mcValue(sources.solar_power," kW")],
+      ["Home consumption",mcValue(sources.home_power," kW")],
+      ["Grid power",mcValue(sources.grid_power," kW")]
+    ]){const el=mcEl("div","metric");
+      const tone=value==="Unknown"||value==="Unavailable"?"quiet":
+        key==="Solar production"?"solar":key==="Actual power"&&active>0?"good":"";
+      el.append(mcIconLabel(mcEl("p","muted small",key),key,mcIconFor(key),tone),mcEl("div","value",value));
+      metrics.append(el);
+    }
     container.append(metrics);
     const mode=(c.controller||{}).mode||"Off";
     const chips=mcEl("div","chips");chips.append(mcEl("p","muted",mcTr("Charging mode")+" · "+mode));
@@ -1788,9 +1840,10 @@ class RobotixMultiChargeCard extends HTMLElement {
     for(const a of assets){
       const card=mcEl("div","card");const observed=((d.observations||{}).assets||{})[a.id]||{};
       const charger=chargers.find(x=>x.asset===a.id);
-      card.append(mcEl("h3","",a.name),mcEl("p","muted",
+      card.append(mcIconLabel(mcEl("h3","",a.name),a.name,mcAssetIcon(a)),mcEl("p","muted",
         mcTr("Battery")+" "+mcValue(observed.soc,"%")+" · "+
         mcTr("Charging goal")+" "+mcAssetGoalText(a)));
+      mcSocBar(card,observed.soc);
       card.append(mcEl("p","small",mcTr("Ready By")+" "+mcTime(a.ready_by,d.timezone)+" · "+(charger?charger.name:mcTr("No charger assigned"))));
       if(a.temporary)card.append(mcEl("p","small",mcTr("Guest")+" · "+mcTime(a.expires_at,d.timezone)));
       const controls=mcEl("div","overview-actions");
@@ -2236,7 +2289,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     for(const a of arranged){
       const card=mcEl("div","card object-card");const charger=chargers.find(x=>x.asset===a.id);
       const obs=((d.observations||{}).assets||{})[a.id]||{};
-      const header=mcEl("div","row");header.append(mcEl("h3","",a.name),mcButton(this._open===a.id?"Hide details":"Details",()=>{this._open=this._open===a.id?"":a.id;this.render();}));
+      const header=mcEl("div","row");header.append(mcIconLabel(mcEl("h3","",a.name),a.name,mcAssetIcon(a)),mcButton(this._open===a.id?"Hide details":"Details",()=>{this._open=this._open===a.id?"":a.id;this.render();}));
       card.append(header);
       const chip=mcEl("div","plan-key"),dot=mcEl("span","plan-swatch");
       dot.style.background=mcOwnerColor("asset",a.id,d.configuration,d.plan_palette);
@@ -2247,6 +2300,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       };
       mcPair(card,"Asset type",mcTr(kinds[a.kind]||a.kind||"Other"));
       mcPair(card,"Battery",mcValue(obs.soc,"%"));
+      mcSocBar(card,obs.soc);
       mcPair(card,"Effective charging power",mcValue(obs.effective_power_kw," kW"));
       mcPair(card,"Target",a.target_soc===undefined?"Not set":a.target_soc+"%");
       mcPair(card,"Ready By",mcTime(obs.next_ready_by!==undefined?obs.next_ready_by:a.ready_by,d.timezone));
@@ -2589,13 +2643,18 @@ class RobotixMultiChargeCard extends HTMLElement {
     for(const c of chargers){
       const obs=observations[c.id]||{};
       const card=mcEl("div","card object-card");
-      const head=mcEl("div","row");head.append(mcEl("h3","",c.name),mcButton(this._open===c.id?"Hide details":"Details",()=>{this._open=this._open===c.id?"":c.id;this.render();}));
+      const head=mcEl("div","row");head.append(mcIconLabel(mcEl("h3","",c.name),c.name,c.kind==="on_off"?"power-socket-eu":"ev-station"),mcButton(this._open===c.id?"Hide details":"Details",()=>{this._open=this._open===c.id?"":c.id;this.render();}));
       card.append(head);
       const chip=mcEl("div","plan-key"),dot=mcEl("span","plan-swatch");
       dot.style.background=mcOwnerColor("charger",c.id,d.configuration,d.plan_palette);
       chip.append(dot,mcEl("span","muted small",mcTr("Plan color")+" · "+mcTr(c.plan_color||"blue")));
       card.append(chip);
       mcPair(card,"Connection",mcValue(obs.connected));
+      const status=obs.connected?.quality==="ok"&&obs.connected.value===true&&
+        obs.power_kw?.quality==="ok"&&typeof obs.power_kw.value==="number"&&obs.power_kw.value>0?"Charging":
+        obs.connected?.quality==="ok"?(obs.connected.value===true?"Connected":"Disconnected"):"Unknown";
+      const statusIcon=status==="Charging"?"lightning-bolt":status==="Connected"?"connection":status==="Disconnected"?"power-plug-off-outline":"help-circle-outline";
+      card.append(mcIconLabel(mcEl("p","small",status),status,statusIcon,status==="Charging"?"good":"quiet"));
       mcPair(card,"Effective charging power",mcValue(obs.power_kw," kW"));
       mcPair(card,"Control type",c.kind==="on_off"?"On/off":"Variable current");
       mcPair(card,mcTr("Physical control owner"),
@@ -2837,7 +2896,8 @@ class RobotixMultiChargeCard extends HTMLElement {
         notice.textContent="Save accepted; Home Assistant readback pending. Refresh to verify.";
       }catch(error){
         this._yamlCommittedRevision=null;
-        notice.textContent="Save rejected: "+String(error?.message||error?.code||"Unavailable");
+        const reason=String(error?.message||error?.code||"Unavailable");
+        mcIconLabel(notice,"Save rejected: "+reason,"alert-circle-outline","bad");
         notice.setAttribute("role","alert");
       }finally{
         this._settingsBusy=false;
@@ -2877,7 +2937,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       const open=title===this._settingsOpen;
       const group=mcEl("section","card settings-card"+(open?" expanded":""));
       const heading=mcEl("div","settings-heading");
-      heading.append(mcEl("h3","",title));
+      heading.append(mcIconLabel(mcEl("h3","",title),title,mcIconFor(title)));
       const summary=title==="Charging site"?ctl.name||"Not set":
         title==="Sources & bindings"?[ctl.price_entity||ctl.current_price_entity?"Tariff":null,
           ctl.solar_entity||ctl.solar_power_entity||ctl.solar_surplus_entity?"Solar":null,

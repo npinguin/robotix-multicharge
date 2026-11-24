@@ -146,6 +146,13 @@ class PackageTest(unittest.TestCase):
                 {"action", "name", "control_entity", "configure_details", "add_another"}
             )
 
+    def test_frontend_registration_uses_manifest_version(self):
+        source = (COMPONENT / "frontend.py").read_text(encoding="utf8")
+        self.assertIn('manifest.json', source)
+        self.assertIn('module_url=VERSIONED_RESOURCE', source)
+        self.assertIn('add_extra_js_url(hass, VERSIONED_RESOURCE)', source)
+        self.assertIn('remove_extra_js_url(hass, VERSIONED_RESOURCE)', source)
+
     def test_manifest_is_standalone(self):
         m = json.loads((COMPONENT / "manifest.json").read_text(encoding="utf8"))
         self.assertEqual(m["domain"], "robotix_multicharge")

@@ -66,6 +66,8 @@ global.document={
   createTextNode:(text)=>{const n=new Element("#text");n.textContent=text;return n;}
 };
 require("../custom_components/robotix_multicharge/frontend/robotix-multicharge.js");
+assert.ok(uiSource.includes('mcEl("ha-icon"') && uiSource.includes("mcSocBar"),
+  "Native semantic icons and qualified battery indicator must remain available");
 assert.ok(uiSource.includes("this.dashboardEditField(parent,scope,record,field)"),
   "Every persisted owner field is edited directly inside MultiCharge");
 assert.ok(uiSource.includes("robotix_multicharge/yaml_configuration")&&
@@ -196,6 +198,15 @@ async function main(){
       siteCommands.push({domain,action,args});
     }};
   await new Promise(resolve=>setImmediate(resolve));
+  site._tab="Overview";site.render();
+  const icon=find(site.shadowRoot,"ha-icon");
+  assert.ok(icon&&icon.attributes.icon.startsWith("mdi:"),"Native visual icons must render");
+  let battery;visit(site.shadowRoot,x=>{if(x.attributes?.role==="progressbar")battery=x;});
+  assert.equal(battery?.attributes["aria-valuenow"],"20","Qualified battery is rendered");
+  owners.observations.assets.car.soc={quality:"stale",value:20};
+  site.render();battery=undefined;visit(site.shadowRoot,x=>{if(x.attributes?.role==="progressbar")battery=x;});
+  assert.equal(battery,undefined,"Do not render an unqualified battery level");
+  owners.observations.assets.car.soc={quality:"ok",value:20,reason:"OK"};
   site._tab="Settings";site._settingsOpen="Charging site";site.render();
   const siteText=content(site.shadowRoot);
   for(const label of ["Complete object settings & sources",

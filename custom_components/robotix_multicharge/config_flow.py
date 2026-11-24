@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+import logging
 from datetime import datetime, timezone
 from re import sub
 
@@ -21,6 +22,8 @@ from .source_evidence import number
 from .execution import stop_power_limit
 from .const import DOMAIN, NAME
 
+
+_LOGGER = logging.getLogger(__name__)
 
 ENERGY_ENTITY_FIELDS = (
     "solar_power_entity", "home_power_entity", "grid_power_entity",
@@ -146,14 +149,20 @@ def _parse_editor_yaml(text):
                 if not isinstance(key, (str, int, float, bool)):
                     raise ValueError("YAML mapping keys must be scalar")
                 if key in seen:
-                    raise ValueError("duplicate YAML key")
+                    raise ValueError(
+                        f"duplicate YAML key {key!r} at line {key_node.start_mark.line + 1}, "
+                        f"column {key_node.start_mark.column + 1}"
+                    )
                 seen.add(key)
             return super().construct_mapping(node, deep=deep)
 
     try:
         document = yaml.load(text, Loader=StrictSafeLoader)
     except yaml.YAMLError as exc:
-        raise ValueError("YAML syntax error or unsupported YAML tag") from exc
+        mark = getattr(exc, "problem_mark", None)
+        location = (f" at line {mark.line + 1}, column {mark.column + 1}"
+                    if mark is not None else "")
+        raise ValueError("YAML syntax error or unsupported YAML tag" + location) from exc
     if not isinstance(document, dict):
         raise ValueError("YAML root must be a mapping")
     return document
@@ -736,14 +745,16 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
     """UI-owned settings; YAML entries remain read-only until explicit migration."""
 
     def _current(self):
-        return deepcopy(self.config_entry.options.get(
-            "configuration", self.config_entry.data["configuration"]
-        ))
+        configuration = self.config_entry.options.get("configuration")
+        if configuration is None:
+            configuration = self.config_entry.data["configuration"]
+        return deepcopy(configuration)
 
     def _saved(self, config):
         try:
             result = validate_configuration(config)
-        except ValueError:
+        except ValueError as exc:
+            self._last_config_error = str(exc)
             return None
         return self.async_create_entry(
             title="", data={**self.config_entry.options, "configuration": result}
@@ -899,6 +910,13 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             except (KeyError, ValueError, TypeError) as exc:
                 errors["base"] = "invalid_config"
                 validation_error = str(exc)
+        if validation_error:
+            # HA displays the original key if there is no matching translation.
+            # Use the actual reason in the error as well as the description,
+            # so a cached translation cannot hide the failed field or guard.
+            if errors.get("base") == "invalid_config":
+                errors["base"] = validation_error[:4096]
+            _LOGGER.warning("MultiCharge expert Save rejected: %s", validation_error[:4096])
         return self.async_show_form(
             step_id="yaml", errors=errors,
             data_schema=vol.Schema({
