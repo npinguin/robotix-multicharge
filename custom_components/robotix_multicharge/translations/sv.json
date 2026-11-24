@@ -138,7 +138,6 @@
           "charger": "Chargers",
           "display": "Dashboard card",
           "yaml": "Fullständig konfiguration (JSON / YAML)",
-          "commission": "Driftsätt laddare",
           "energy": "Energi och priser",
           "charger_pick": "Välj laddpunkt",
           "asset_pick": "Välj laddningsobjekt"
@@ -177,7 +176,7 @@
       },
       "charger": {
         "title": "Laddare",
-        "description": "Konfigurera hårdvara, sensorer och kablage. Fysisk styrning aktiveras separat under Driftsättning.",
+        "description": "Konfigurera hårdvara, sensorer och tillämpliga gränser. Välj Aktiv när MultiCharge ska styra laddaren.",
         "data": {
           "action": "Åtgärd",
           "id": "Namn",
@@ -216,16 +215,6 @@
         "description": "Edit the existing full configuration and press Save. One Home Assistant Config Entry, no physical charging command. {note} {validation_error}",
         "data": {
           "yaml_text": "Fullständig konfiguration (JSON / YAML)"
-        }
-      },
-      "commission": {
-        "title": "Fysisk driftsättning",
-        "description": "Kontrollera exklusiv styrning och verifierat stillastående läge. Inget laddkommando skickas.",
-        "data": {
-          "charger_id": "Laddare",
-          "commission": "Aktivera MultiCharge-styrning",
-          "exclusive_writer_confirmed": "Andra styrsystem har släppt kontrollen över laddaren",
-          "electrical_limits_confirmed": "Elgränser, effekt och oberoende sensorer verifierade"
         }
       },
       "energy": {
