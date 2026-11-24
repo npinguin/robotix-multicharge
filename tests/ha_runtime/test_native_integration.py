@@ -927,7 +927,7 @@ async def test_optional_one_click_install_and_native_guided_configure(
             "max_parallel": 2, "max_power_kw": 7.2,
         },
     )
-    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["type"] == FlowResultType.CREATE_ENTRY, result.get("errors")
     await hass.async_block_till_done()
     assert entry.options["configuration"]["controller"]["name"] == "Configured Home"
     assert entry.options["configuration"]["controller"]["max_parallel"] == 2
@@ -946,7 +946,7 @@ async def test_optional_one_click_install_and_native_guided_configure(
             "power_entity": "sensor.wallbox_test_power",
         },
     )
-    assert charger["type"] == FlowResultType.CREATE_ENTRY
+    assert charger["type"] == FlowResultType.CREATE_ENTRY, charger.get("errors")
     await hass.async_block_till_done()
     assert entry.options["configuration"]["chargers"][0]["id"] == "garage_white"
     assert entry.options["configuration"]["chargers"][0]["control_owner"] == "external"
@@ -964,7 +964,7 @@ async def test_optional_one_click_install_and_native_guided_configure(
         edit_charger["flow_id"], {"action": "save", "name": "White Wallbox",
                                  "kind": "on_off", "rated_power_kw": 3.6},
     )
-    assert edited_charger["type"] == FlowResultType.CREATE_ENTRY
+    assert edited_charger["type"] == FlowResultType.CREATE_ENTRY, edited_charger.get("errors")
     await hass.async_block_till_done()
     saved_charger = entry.options["configuration"]["chargers"][0]
     assert saved_charger["id"] == "garage_white"
@@ -982,7 +982,7 @@ async def test_optional_one_click_install_and_native_guided_configure(
             "target_soc": 80,
         },
     )
-    assert saved_asset["type"] == FlowResultType.CREATE_ENTRY
+    assert saved_asset["type"] == FlowResultType.CREATE_ENTRY, saved_asset.get("errors")
     await hass.async_block_till_done()
     assert entry.options["configuration"]["assets"][0]["id"] == "audi_q8"
     assert entry.options["configuration"]["assets"][0]["soc_entity"] == "sensor.audi_oem_soc"
@@ -997,7 +997,7 @@ async def test_optional_one_click_install_and_native_guided_configure(
             "solar_power_entity": "sensor.energy_solar_power",
         },
     )
-    assert energy["type"] == FlowResultType.CREATE_ENTRY
+    assert energy["type"] == FlowResultType.CREATE_ENTRY, energy.get("errors")
     await hass.async_block_till_done()
     final = entry.options["configuration"]
     assert final["controller"]["current_price_entity"] == "sensor.energy_current_price"
@@ -1018,7 +1018,7 @@ async def test_optional_one_click_install_and_native_guided_configure(
             "target_soc": 85,
         },
     )
-    assert update_asset["type"] == FlowResultType.CREATE_ENTRY
+    assert update_asset["type"] == FlowResultType.CREATE_ENTRY, update_asset.get("errors")
     await hass.async_block_till_done()
     assert entry.options["configuration"]["assets"][0]["target_soc"] == 85
     assert entry.options["configuration"]["assets"][0]["soc_entity"] == (
@@ -1033,7 +1033,7 @@ async def test_optional_one_click_install_and_native_guided_configure(
         delete_form["flow_id"], {"action": "delete", "name": "White Wallbox",
                                  "kind": "on_off", "rated_power_kw": 3.6},
     )
-    assert deleted["type"] == FlowResultType.CREATE_ENTRY
+    assert deleted["type"] == FlowResultType.CREATE_ENTRY, deleted.get("errors")
     await hass.async_block_till_done()
     assert entry.options["configuration"]["chargers"] == []
 
@@ -1045,7 +1045,7 @@ async def test_optional_one_click_install_and_native_guided_configure(
         delete_asset["flow_id"], {"action": "delete", "name": "Audi Q8",
                                   "kind": "car"},
     )
-    assert deleted_asset["type"] == FlowResultType.CREATE_ENTRY
+    assert deleted_asset["type"] == FlowResultType.CREATE_ENTRY, deleted_asset.get("errors")
     await hass.async_block_till_done()
     assert entry.options["configuration"]["assets"] == []
     assert entry.options["configuration"]["controller"]["name"] == "Configured Home"
