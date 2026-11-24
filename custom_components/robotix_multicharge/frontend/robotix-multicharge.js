@@ -3042,7 +3042,12 @@ class RobotixMultiChargeCard extends HTMLElement {
               this.dashboardEditField(detail,"controller",ctl,"phase_limits_a");
           }
         }else if(title==="Integrations"){
-          mcPair(detail,"Tariff",mcReason((d.observations||{}).sources?.tariff_quality));
+          const tariff=d.observations?.sources||{};
+          mcPair(detail,"Tariff",mcReason(tariff.tariff_quality));
+          mcPair(detail,"Forecast source",tariff.tariff_source||mcTr("Not set"));
+          mcPair(detail,"Forecast intervals",tariff.tariff_slot_count??0);
+          mcPair(detail,"Forecast price basis",tariff.tariff_basis||mcTr("Unknown"));
+          mcPair(detail,"Prices available until",tariff.tariff_coverage_until?mcTime(tariff.tariff_coverage_until,d.timezone):mcTr("Unknown"));
           mcPair(detail,"Solar",mcReason((d.observations||{}).sources?.solar_quality));
           mcPair(detail,"Capacity",mcReason((d.observations||{}).sources?.binding_quality));
           for(const [field,label,unit] of [

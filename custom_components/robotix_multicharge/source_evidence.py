@@ -129,6 +129,33 @@ def live_power(hass, entity_id: str | None, now: datetime, *,
     return Evidence(round(value, 6), "ok", evidence.observed_at, "OK")
 
 
+def _price_unit(attrs):
+    """Return currency and scale to currency/kWh; no guessed currencies."""
+    unit = attrs.get("unit_of_measurement")
+    if not isinstance(unit, str) or unit.count("/") != 1:
+        return None, None
+    currency, denominator = unit.split("/", 1)
+    scale = {"Wh": 1000.0, "kWh": 1.0, "MWh": 0.001}.get(denominator)
+    if scale is None:
+        return None, None
+    if currency == "€":
+        currency = "EUR"
+    elif currency in ("cEUR", "€ct", "ct€", "c€"):
+        currency, scale = "EUR", scale / 100
+    elif currency == "c" and attrs.get("price_in_cents") is True:
+        # Nordpool HACS uses c for EUR, Øre/Öre for other currencies.
+        currency, scale = "EUR", scale / 100
+    elif currency in ("Øre", "Öre", "ct"):
+        declared = attrs.get("currency")
+        if declared not in ("DKK", "NOK", "SEK", "EUR"):
+            return None, None
+        currency, scale = declared, scale / 100
+    if (len(currency) != 3 or not currency.isascii() or not currency.isupper()
+            or not currency.isalpha() or attrs.get("currency", currency) != currency):
+        return None, None
+    return currency, scale
+
+
 def live_price(hass, entity_id: str | None, now: datetime):
     """Indicative current native HA tariff, not a future pricing schedule.
 
@@ -138,20 +165,12 @@ def live_price(hass, entity_id: str | None, now: datetime):
     obj, evidence = _state(hass, entity_id, now, timedelta(minutes=20))
     if obj is None:
         return evidence, None
-    unit = obj.attributes.get("unit_of_measurement")
-    currency, divisor = None, None
-    if isinstance(unit, str) and unit.count("/") == 1:
-        currency, denom = unit.split("/")
-        if currency == "€":
-            currency = "EUR"
-        if (len(currency) == 3 and currency.isascii()
-                and currency.isalpha() and currency.isupper()):
-            divisor = {"kWh": 1, "MWh": 1000}.get(denom)
-    if divisor is None:
+    currency, scale = _price_unit(obj.attributes)
+    if scale is None:
         return Evidence(None, "invalid", evidence.observed_at,
                         "PRICE_UNIT_UNVERIFIED"), None
     try:
-        value = float(obj.state) / divisor
+        value = float(obj.state) * scale
         if not isfinite(value):
             raise ValueError("invalid price")
     except (TypeError, ValueError, OverflowError):
@@ -269,28 +288,17 @@ def _native_spot_price_intervals(obj, now):
     Every value carries a source-declared ISO currency/energy unit.
     """
     attrs = obj.attributes
-    unit = attrs.get("unit_of_measurement")
-    if not isinstance(unit, str) or unit.count("/") != 1:
-        return (), "INTERVAL_CURRENCY_OR_UNIT_UNVERIFIED"
-    currency, denominator = unit.split("/", 1)
-    # The explicit Euro symbol is Home Assistant's native electricity-price
-    # unit on several providers; unlike $, it names exactly one ISO currency.
-    if currency == "€":
-        currency = "EUR"
-    if (len(currency) != 3 or not currency.isascii()
-            or not currency.isupper() or not currency.isalpha()
-            or denominator not in ("kWh", "MWh")
-            or attrs.get("currency", currency) != currency):
+    currency, multiplier = _price_unit(attrs)
+    if multiplier is None:
         return (), "INTERVAL_CURRENCY_OR_UNIT_UNVERIFIED"
     raw_today = attrs.get("raw_today")
     raw_tomorrow = attrs.get("raw_tomorrow")
     if not isinstance(raw_today, list) or raw_tomorrow is not None and not isinstance(
             raw_tomorrow, list):
         return (), "INTERVAL_PAYLOAD_INVALID"
-    raw = [*raw_today, *(raw_tomorrow or [])]
+    raw = [*raw_today, *((raw_tomorrow or []) if attrs.get("tomorrow_valid") is not False else [])]
     if not raw or len(raw) > 256:
         return (), "INTERVAL_PAYLOAD_INVALID"
-    multiplier = 0.001 if denominator == "MWh" else 1.0
     try:
         slots = [
             PriceSlot(
@@ -392,6 +400,89 @@ def _native_all_in_reference_intervals(hass, obj, now):
         return (), "INTERVAL_PAYLOAD_INVALID"
 
 
+def native_price_rows(raw, now, currency, scale, *, start="start", end="end",
+                      value="price", basis="variable_reference"):
+    """Normalize explicit native spans; never bridge missing intervals."""
+    if not isinstance(raw, list) or not raw or len(raw) > 400:
+        return (), "INTERVAL_PAYLOAD_INVALID"
+    try:
+        slots = sorted((PriceSlot(
+            _date(row[start]), _date(row[end]), float(row[value]) * scale,
+            currency, basis=basis,
+        ) for row in raw), key=lambda x: x.start)
+        if any(a.end > b.start for a, b in zip(slots, slots[1:])):
+            return (), "INTERVAL_OVERLAP"
+        if slots[-1].end <= now:
+            return (), "INTERVAL_SOURCE_EXPIRED"
+        return tuple(slots), "OK"
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return (), "INTERVAL_PAYLOAD_INVALID"
+
+
+def _native_timestamp_prices(hass, obj, now):
+    """ENTSO-e timestamped prices: a complete local day establishes cadence.
+
+    No interpolation or extension across missing values.
+    """
+    attrs = obj.attributes
+    currency, scale = _price_unit(attrs)
+    if scale is None:
+        return (), "INTERVAL_CURRENCY_OR_UNIT_UNVERIFIED"
+    raw = attrs.get("prices")
+    if not isinstance(raw, list) or not raw or len(raw) > 400:
+        return (), "INTERVAL_PAYLOAD_INVALID"
+    try:
+        zone = ZoneInfo(hass.config.time_zone)
+        points = sorted((_date(row["time"]), float(row["price"])) for row in raw)
+        if len({stamp for stamp, _ in points}) != len(points):
+            return (), "INTERVAL_OVERLAP"
+        by_day = {}
+        for stamp, _ in points:
+            by_day.setdefault(stamp.astimezone(zone).date(), []).append(stamp)
+        candidates = set()
+        for day, stamps in by_day.items():
+            first = datetime.combine(day, datetime.min.time(), tzinfo=zone).astimezone(timezone.utc)
+            last = datetime.combine(day + timedelta(days=1), datetime.min.time(), tzinfo=zone).astimezone(timezone.utc)
+            for minutes in (15, 60):
+                step = timedelta(minutes=minutes)
+                if (len(stamps) * step == last - first and stamps[0] == first
+                        and all(b-a == step for a,b in zip(stamps, stamps[1:]))):
+                    candidates.add(minutes)
+        if len(candidates) != 1:
+            return (), "INTERVAL_RESOLUTION_UNVERIFIED"
+        step = timedelta(minutes=candidates.pop())
+        rows = [{"start": stamp, "end": stamp + step, "price": price}
+                for stamp, price in points]
+        return native_price_rows(rows, now, currency, scale)
+    except (AttributeError, KeyError, TypeError, ValueError, OverflowError, ZoneInfoNotFoundError):
+        return (), "INTERVAL_PAYLOAD_INVALID"
+
+
+def _native_explicit_prices(obj, now):
+    """Common timestamped data, including EPEX Spot and HA action templates."""
+    attrs = obj.attributes
+    currency, scale = _price_unit(attrs)
+    if scale is None:
+        return (), "INTERVAL_CURRENCY_OR_UNIT_UNVERIFIED"
+    raw = attrs.get("data", attrs.get("intervals"))
+    if not isinstance(raw, list) or not raw or not isinstance(raw[0], dict):
+        return (), "INTERVAL_PAYLOAD_INVALID"
+    row = raw[0]
+    if {"start", "end", "price"} <= row.keys():
+        return native_price_rows(raw, now, currency, scale)
+    if {"start", "end", "value"} <= row.keys():
+        return native_price_rows(raw, now, currency, scale, value="value")
+    if {"start_time", "end_time"} <= row.keys():
+        for field, factor in ((f"price_{currency.lower()}_per_kwh", 1.0),
+                              (f"price_{currency.lower()}_per_mwh", 0.001),
+                              ("price_per_kwh", 1.0),
+                              ("price_ct_per_kwh", 0.01)):
+            if field in row:
+                return native_price_rows(raw, now, currency, factor,
+                                         start="start_time", end="end_time", value=field)
+    return (), "INTERVAL_SEMANTICS_UNVERIFIED"
+
+
 def intervals(hass, entity_id: str | None, kind: str, now: datetime):
     """Accept only a versioned, source-qualified series of real interval data.
 
@@ -415,6 +506,11 @@ def intervals(hass, entity_id: str | None, kind: str, now: datetime):
                 and obj.attributes.get("unit_of_measurement")
                     in ("EUR/kWh", "€/kWh")):
             return _native_all_in_reference_intervals(hass, obj, now)
+        if kind == "price" and "prices" in obj.attributes:
+            return _native_timestamp_prices(hass, obj, now)
+        if kind == "price" and ("data" in obj.attributes or "intervals" in obj.attributes):
+            if obj.attributes.get("kind") is None:
+                return _native_explicit_prices(obj, now)
         return (), "INTERVAL_SEMANTICS_UNVERIFIED"
     try:
         expires = _date(obj.attributes["valid_until"])

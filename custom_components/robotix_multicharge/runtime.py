@@ -45,6 +45,7 @@ class MultiChargeRuntime:
         self.observations = {"chargers": {}, "assets": {}, "sources": {}}
         self.excluded = {}
         self.price_slots = ()
+        self.nordpool_prices = None
         self.executor = NativeSwitchExecutor(self)
         self._control_store = None
         self._save_lock = asyncio.Lock()
@@ -465,13 +466,15 @@ class MultiChargeRuntime:
                 else:
                     power = source_power
             readings["effective_power_kw"] = power
-        tariff, tariff_quality = intervals(
-            self.hass, setting.get("price_entity"), "price", at
-        )
-        if not setting.get("price_entity") and setting.get("current_price_entity"):
-            candidate, quality = intervals(self.hass, setting["current_price_entity"], "price", at)
-            if quality == "OK":
-                tariff, tariff_quality = candidate, quality
+        tariff_source = setting.get("price_entity") or setting.get("current_price_entity")
+        tariff, tariff_quality = intervals(self.hass, tariff_source, "price", at)
+        if (tariff_quality != "OK" and self.nordpool_prices
+                and self.nordpool_prices[0] == tariff_source):
+            _, cached, quality, fetched_at = self.nordpool_prices
+            if at - fetched_at <= timedelta(minutes=45) and any(row.end > at for row in cached):
+                tariff, tariff_quality = cached, quality
+            elif quality != "OK":
+                tariff_quality = quality
         solar_kind = setting.get(
             "solar_source_kind", "intervals" if setting.get("solar_entity") else "none",
         )
@@ -536,6 +539,10 @@ class MultiChargeRuntime:
             }
         self.observations["sources"] = {
             "tariff_quality": tariff_quality, "solar_quality": solar_quality,
+            "tariff_source": tariff_source,
+            "tariff_basis": tariff[0].basis if tariff else None,
+            "tariff_coverage_until": tariff[-1].end.isoformat() if tariff else None,
+            "tariff_slot_count": len(tariff),
             "binding_quality": binding_quality,
             "current_price": current_price,
             "solar_power": _evidence(live_power(
