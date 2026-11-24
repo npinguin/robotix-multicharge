@@ -1068,13 +1068,13 @@ async function main(){
       guestForm=node;
   });
   assert.ok(guestForm);
-  const guestName=find(guestForm,"input");
-  guestName.value="A slow guest name";
+  const pendingGuestName=find(guestForm,"input");
+  pendingGuestName.value="A slow guest name";
   const guestNodes=typingCard.shadowRoot.children;
   await typingCard.load();
   assert.equal(typingCard.shadowRoot.children,guestNodes,
     "New Guest form must stay mounted with an unsubmitted name");
-  assert.equal(guestName.value,"A slow guest name");
+  assert.equal(pendingGuestName.value,"A slow guest name");
 
   typingCard._tab="Chargers";
   typingCard._createCharger=true;
