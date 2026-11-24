@@ -755,12 +755,16 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         The native Options flow uses the same executor lock / guards as expert
         YAML. A fresh uncommissioned setup may still be edited while offline.
         """
+        self._last_config_error = ""
         if self.config_entry.data.get("source") in ("yaml", "json"):
+            self._last_config_error = "This configuration is managed by the original YAML/JSON file"
             return None
         try:
             updated = validate_configuration(configuration)
-        except ValueError:
+        except ValueError as exc:
+            self._last_config_error = str(exc)
             return None
+
         def same_version():
             return (
                 not hasattr(self, "_form_baseline_revision")
@@ -769,6 +773,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             )
 
         if not same_version():
+            self._last_config_error = "Configuration was changed after opening the editor. Reopen the current configuration."
             return None
         runtime = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
         if runtime is None:
@@ -778,15 +783,18 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 and row.get("physical_commissioned") is True
                 for row in [*old["chargers"], *updated["chargers"]]
             ):
+                self._last_config_error = "Cannot change a commissioned physical charger while its runtime is unavailable"
                 return None
             return self._saved(updated)
         try:
             async with runtime.executor._lock:
                 if not same_version():
+                    self._last_config_error = "Configuration was changed after opening the editor. Reopen the current configuration."
                     return None
                 _assert_safe_yaml_ui_commit(runtime, updated)
                 return self._saved(updated)
-        except ValueError:
+        except ValueError as exc:
+            self._last_config_error = str(exc)
             return None
 
     async def async_step_commission(self, user_input=None):
@@ -856,6 +864,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         if not hasattr(self, "_form_baseline_revision"):
             self._form_baseline_revision = configuration_revision(cfg)
         errors = {}
+        validation_error = ""
         if user_input is not None:
             try:
                 proposed = validate_configuration(_parse_editor_yaml(user_input["yaml_text"]))
@@ -886,8 +895,10 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                     if configuration_revision(self._current())
                     != self._form_baseline_revision else "invalid_config"
                 )
-            except (KeyError, ValueError, TypeError):
+                validation_error = getattr(self, "_last_config_error", "") or "Configuration was not saved"
+            except (KeyError, ValueError, TypeError) as exc:
                 errors["base"] = "invalid_config"
+                validation_error = str(exc)
         return self.async_show_form(
             step_id="yaml", errors=errors,
             data_schema=vol.Schema({
@@ -898,6 +909,9 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             description_placeholders={
                 "note": "Edit the existing Controller, Chargers, Assets, energy and prices. "
                         "Save updates this same Config Entry; hardware ownership is separate.",
+                "validation_error": (
+                    "Save failed: " + validation_error if validation_error else ""
+                ),
             },
         )
 

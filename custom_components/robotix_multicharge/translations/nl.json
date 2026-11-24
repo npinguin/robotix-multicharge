@@ -213,7 +213,7 @@
       },
       "yaml": {
         "title": "Volledige configuratie bewerken (JSON / YAML)",
-        "description": "Bewerk de bestaande configuratie en klik op Opslaan. Eén Home Assistant-configuratie, geen fysieke laadopdracht. {note}",
+        "description": "Bewerk de bestaande configuratie en klik op Opslaan. Eén Home Assistant-configuratie, geen fysieke laadopdracht. {note} {validation_error}",
         "data": {
           "yaml_text": "Volledige configuratie bewerken (JSON / YAML)"
         }

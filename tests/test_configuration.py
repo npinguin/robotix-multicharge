@@ -782,13 +782,95 @@ class ConfigurationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_configuration(cfg)
 
-    def test_invalid_current_capability_rejected(self):
+    def test_external_variable_current_without_guessed_limits_is_valid(self):
+        # A provider may expose adjustable-current entities while external
+        # EV Smart Charging still owns the physical writer. Such source
+        # mapping must not assert unverified min/max Amp limits.
         cfg = default_configuration()
-        cfg["chargers"] = [
-            {"id": "a", "name": "A", "kind": "variable_current", "rated_power_kw": 11}
-        ]
-        with self.assertRaises(ValueError):
+        cfg["chargers"] = [{
+            "id": "a", "name": "A", "kind": "variable_current",
+            "rated_power_kw": 11,
+            "current_control_entity": "number.native_maximum_current",
+            "control_owner": "external", "physical_commissioned": False,
+        }]
+        saved = validate_configuration(cfg)["chargers"][0]
+        self.assertEqual(saved["kind"], "variable_current")
+        self.assertNotIn("min_current_a", saved)
+        self.assertNotIn("max_current_a", saved)
+        self.assertEqual(saved["control_owner"], "external")
+        self.assertIs(saved["physical_commissioned"], False)
+        # Partial and reversed current envelopes are *never* acceptable.
+        cfg["chargers"][0]["min_current_a"] = 6
+        with self.assertRaisesRegex(ValueError, "provided together"):
             validate_configuration(cfg)
+        cfg["chargers"][0]["max_current_a"] = 5
+        with self.assertRaisesRegex(ValueError, "min_current_a"):
+            validate_configuration(cfg)
+        cfg["chargers"][0]["max_current_a"] = 16
+        self.assertEqual(validate_configuration(cfg)["chargers"][0]["max_current_a"], 16)
+
+    def test_four_external_chargers_and_four_assets_monitor_only_parity(self):
+        # Realistic full-site *shape*, deliberately with generic native source
+        # IDs: site-owned Wessels mappings must not enter this public product.
+        cfg = {
+            "controller": {
+                "id": "home", "name": "Test Home", "mode": "Automatic",
+                "max_parallel": 1, "max_power_kw": 3.6,
+                "plan_label_mode": "both", "plan_color_by": "vehicle",
+                "show_indicative_forecast": True,
+                "solar_power_entity": "sensor.energy_solar_power",
+                "home_power_entity": "sensor.energy_home_power",
+                "grid_power_entity": "sensor.energy_grid_power",
+                "solar_surplus_entity": "sensor.energy_solar_surplus",
+                "current_price_entity": "sensor.energy_current_price",
+                "solar_source_kind": "direct_surplus",
+                "grid_power_direction": "import_positive",
+            },
+            "assets": [
+                {"id": "car_a", "name": "Car A", "kind": "car",
+                 "soc_entity": "sensor.car_a_soc"},
+                {"id": "car_b", "name": "Car B", "kind": "car",
+                 "soc_entity": "sensor.car_b_soc"},
+                {"id": "guest_1", "name": "Guest 1", "kind": "car"},
+                {"id": "guest_2", "name": "Guest 2", "kind": "car"},
+            ],
+            "chargers": [
+                {
+                    "id": uid, "name": title, "kind": "variable_current",
+                    "rated_power_kw": 3.6, "control_owner": "external",
+                    "physical_commissioned": False,
+                    "control_entity": f"switch.{uid}_charge",
+                    "current_control_entity": f"number.{uid}_current",
+                    "connected_entity": f"sensor.{uid}_connection",
+                    "power_entity": f"sensor.{uid}_power",
+                    "energy_entity": f"sensor.{uid}_energy",
+                    **({"current_readback_entity": f"sensor.{uid}_amps"}
+                       if index < 2 else {}),
+                }
+                for index, (uid, title) in enumerate((
+                    ("wall_a", "Wall A"), ("wall_b", "Wall B"),
+                    ("charger_outside", "Outside charger"),
+                ))
+            ] + [{
+                "id": "utility_plug", "name": "Utility Plug", "kind": "on_off",
+                "rated_power_kw": 2,
+                "control_entity": "switch.utility_plug",
+                "connected_entity": "sensor.utility_connection",
+                "power_entity": "sensor.utility_power",
+                "energy_entity": "sensor.utility_energy",
+                "control_owner": "external", "physical_commissioned": False,
+            }],
+        }
+        saved = validate_configuration(cfg)
+        self.assertEqual(len(saved["assets"]), 4)
+        self.assertEqual(len(saved["chargers"]), 4)
+        self.assertEqual(saved["controller"]["solar_source_kind"], "direct_surplus")
+        self.assertEqual([x["kind"] for x in saved["chargers"]],
+                         ["variable_current"] * 3 + ["on_off"])
+        self.assertTrue(all(c["control_owner"] == "external" and
+                            not c["physical_commissioned"] for c in saved["chargers"]))
+        self.assertFalse(any("min_current_a" in c or "max_current_a" in c
+                             for c in saved["chargers"]))
 
     def test_unknown_and_zero_are_different(self):
         cfg = default_configuration()
