@@ -1006,6 +1006,20 @@ class RobotixMultiChargeCard extends HTMLElement {
     if(this.editingInProgress())return;
     this.render();
   }
+  showEditError(container=null){
+    // A rejected validation/save updates feedback *in place*: never throw
+    // away the value the resident just typed to explain why it was rejected.
+    const target=container||this.shadowRoot?.querySelector?.(
+      ".dashboard-field-edit, .dashboard-create, .quick-goal, .dashboard-editor, .root");
+    if(!target)return;
+    const existing=typeof target.querySelector==="function"?
+      target.querySelector("[data-mc-edit-error]"):null;
+    const message=existing||mcEl("p","message error");
+    message.setAttribute("role","alert");
+    message.setAttribute("data-mc-edit-error","");
+    message.textContent=this._settingsFeedback?.message||"Unavailable";
+    if(!existing)target.append(message);
+  }
   scheduleSourceRefresh(){
     if(this._refreshTimer!==null)return;
     this._refreshTimer=setTimeout(()=>{
@@ -1093,13 +1107,16 @@ class RobotixMultiChargeCard extends HTMLElement {
   }
   async saveSettings(scope,targetId,changes,action,structural=false){
     if(this._settingsBusy||!this._hass||!this._data||!this.canEditSettings())return;
+    const preserveDraft=this.editingInProgress();
     if(!this._data.configuration_revision){
       this._settingsFeedback={status:"rejected",message:"Unavailable"};
-      this.render();return;
+      if(preserveDraft)this.showEditError();else this.render();
+      return;
     }
     this._settingsBusy=true;
     this._settingsFeedback={status:"requested",message:"Pending"};
-    this.render();
+    if(!preserveDraft)this.render();
+    let admitted=false;
     try{
       const receipt=await this._hass.callWS({
         type:"robotix_multicharge/update_settings",
@@ -1112,6 +1129,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       this._pendingSettings={expected_revision:receipt.expected_revision};
       this._settingsFeedback={status:"accepted_unconfirmed",message:"Pending"};
       this._last=0;
+      admitted=true;
       return true;
     }catch(error){
       const detail=String(error?.message||error?.code||"");
@@ -1129,7 +1147,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     }finally{
       this._settingsBusy=false;
       if(this._pendingSettings)await this.load();
-      this.render();
+      if(!admitted&&preserveDraft)this.showEditError();
+      else this.render();
     }
   }
   dashboardFieldControl(container,scope,record,field){
@@ -1263,7 +1282,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       let value;
       try{value=read();}catch(e){
         this._settingsFeedback={status:"rejected",message:String(e.message)};
-        this.render();return;
+        this.showEditError(body);return;
       }
       const ok=await this.saveSettings(scope,record.id,{[field]:value},"save",true);
       if(ok){this._editingField="";this.render();}
@@ -1576,7 +1595,7 @@ class RobotixMultiChargeCard extends HTMLElement {
   async applyCommission(exclusive,electrical){
     const editor=this._commissionEditor;
     if(!editor||editor.busy||!this.canEditSettings())return;
-    editor.busy=true;editor.error="";this.render();
+    editor.busy=true;editor.error="";
     try{
       const response=await this._hass.callWS({
         type:"robotix_multicharge/dashboard_config",
@@ -1599,7 +1618,13 @@ class RobotixMultiChargeCard extends HTMLElement {
       }else editor.error="HA runtime readback pending; refresh";
     }catch(error){
       editor.error=String(error?.message||error?.code||"Physical commissioning rejected").slice(0,250);
-    }finally{editor.busy=false;this.render();}
+    }finally{
+      editor.busy=false;
+      if(editor.error){
+        this._settingsFeedback={status:"rejected",message:editor.error};
+        this.showEditError();
+      }else this.render();
+    }
   }
   commissionEditor(container){
     const editor=this._commissionEditor;
@@ -2455,7 +2480,7 @@ class RobotixMultiChargeCard extends HTMLElement {
           if(!Number.isFinite(value)||value<=0||
               goal.value==="duration"&&!Number.isInteger(value)){
             this._settingsFeedback={status:"rejected",message:"Invalid charging amount"};
-            this.render();return;
+            this.showEditError(form);return;
           }
           if(goal.value==="energy")changes.requested_kwh=value;
           if(goal.value==="duration")changes.requested_duration_minutes=value;
@@ -2515,7 +2540,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(!uid||!name.value.trim()||!Number.isFinite(rated)||rated<=0){
         this._settingsFeedback={status:"rejected",
           message:"Charger needs stable ID, name and positive rated kW"};
-        this.render();return;
+        this.showEditError(box);return;
       }
       const changes={name:name.value.trim(),kind:kind.value,rated_power_kw:rated};
       try{
@@ -2524,7 +2549,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         }
       }catch(error){
         this._settingsFeedback={status:"rejected",message:String(error.message)};
-        this.render();return;
+        this.showEditError(box);return;
       }
       const ok=await this.saveSettings("charger",uid,changes,"create",true);
       if(ok){this._createCharger=false;this._open=uid;this.render();}
