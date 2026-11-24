@@ -7,15 +7,11 @@ planned execution through the same serialized and physically verified writer.
 from __future__ import annotations
 
 import voluptuous as vol
-from copy import deepcopy
-from datetime import datetime, timezone
 
 from .configuration import (
     apply_settings_change, apply_dashboard_structure, configuration_revision,
     assert_expert_authority_change, validate_configuration,
 )
-from .source_evidence import number
-from .execution import stop_power_limit
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
@@ -132,7 +128,7 @@ async def apply_native_preference(hass, entry, runtime, scope, target_id, change
 async def websocket_update_settings(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
 ) -> None:
-    """Validate a narrow preference update, never a physical commissioning change.
+    """Validate an ordinary settings update, including explicit Charger activation.
 
     Config Entry reload, not this reply, is the authoritative new settings readback.
     """
@@ -177,104 +173,6 @@ async def websocket_update_settings(
         "expected_revision": next_revision,
         "reason": "Native Config Entry reload pending; refresh for verified settings",
     })
-
-
-
-@websocket_api.require_admin
-@websocket_api.websocket_command({
-    vol.Required("type"): "robotix_multicharge/dashboard_config",
-    vol.Required("operation"): vol.In(("commission",)),
-    vol.Required("expected_revision"): str,
-    vol.Required("charger_id"): str,
-    vol.Required("commission"): bool,
-    vol.Optional("exclusive_writer_confirmed", default=False): bool,
-    vol.Optional("electrical_limits_confirmed", default=False): bool,
-})
-@websocket_api.async_response
-async def websocket_dashboard_config(
-    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict,
-) -> None:
-    """Dashboard-only guarded physical commissioning, never free-text config.
-
-    All ordinary/structural object settings use update_settings above.
-    This narrowly allowed command changes ownership without issuing a physical
-    switch command and cannot run without independently observed idle proof.
-    """
-    rows = tuple(hass.data.get(DOMAIN, {}).items())
-    if len(rows) != 1:
-        connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND,
-                              "NO_ACTIVE_CHARGE_CONTROLLER")
-        return
-    entry_id, runtime = rows[0]
-    entry = hass.config_entries.async_get_entry(entry_id)
-    if (entry is None or entry.source == "import"
-            or entry.data.get("source") in ("yaml", "json")):
-        connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT,
-                              "FILE_OWNED_CONFIG_READONLY")
-        return
-    try:
-        baseline = configuration_revision(runtime.configuration)
-        if baseline != msg["expected_revision"]:
-            raise ValueError("STALE_SETTINGS_REFRESH")
-        desired = msg["commission"]
-        if desired and (msg.get("exclusive_writer_confirmed") is not True
-                        or msg.get("electrical_limits_confirmed") is not True):
-            raise ValueError("COMMISSION_CHECKLIST_REQUIRED")
-        async with runtime.executor._lock:
-            if configuration_revision(runtime.configuration) != baseline:
-                raise ValueError("STALE_SETTINGS_REFRESH")
-            updated = deepcopy(runtime.configuration)
-            charger = next(
-                (c for c in updated["chargers"] if c["id"] == msg["charger_id"]),
-                None,
-            )
-            if charger is None:
-                raise ValueError("UNKNOWN_CHARGER")
-            charger["control_owner"] = "multicharge" if desired else "external"
-            charger["physical_commissioned"] = desired
-            updated = validate_configuration(updated)
-            from .config_flow import _assert_safe_expert_import
-            _assert_safe_expert_import(runtime, updated, source_changed=True)
-            if (charger["id"] in runtime.executor._sessions
-                    or charger["id"] in runtime.executor._start_pending):
-                raise ValueError("CHARGER_BUSY_STOP_FIRST")
-            current = next(c for c in runtime.configuration["chargers"]
-                           if c["id"] == charger["id"])
-            observed = runtime.executor._switch(
-                hass, current.get("control_entity"),
-            )
-            measured = number(
-                hass, current.get("power_entity"), "power",
-                datetime.now(timezone.utc),
-            )
-            if (observed is None or observed.state != "off"
-                    or measured.quality != "ok"
-                    or measured.value > stop_power_limit(current)):
-                raise ValueError("COMMISSION_REQUIRES_VERIFIED_IDLE")
-            revision = configuration_revision(updated)
-            runtime.record_settings_action(
-                "charger", charger["id"], "dashboard_commission",
-                {"commission": desired,
-                 "exclusive_writer_confirmed": bool(
-                     msg.get("exclusive_writer_confirmed")),
-                 "electrical_limits_confirmed": bool(
-                     msg.get("electrical_limits_confirmed"))},
-                revision,
-            )
-            if not await runtime.persist_control_state():
-                raise ValueError("SETTINGS_AUDIT_PERSISTENCE_UNAVAILABLE")
-            hass.config_entries.async_update_entry(
-                entry, options={**entry.options, "configuration": updated},
-            )
-        connection.send_result(msg["id"], {
-            "status": "accepted_unconfirmed",
-            "expected_revision": revision,
-            "reason": "Read back the authoritative Config Entry after reload",
-        })
-    except (ValueError, KeyError, TypeError) as exc:
-        connection.send_error(
-            msg["id"], websocket_api.ERR_INVALID_FORMAT, str(exc)[:180],
-        )
 
 
 
@@ -359,5 +257,4 @@ async def websocket_yaml_configuration(
 
 def register_settings_query(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_update_settings)
-    websocket_api.async_register_command(hass, websocket_dashboard_config)
     websocket_api.async_register_command(hass, websocket_yaml_configuration)
