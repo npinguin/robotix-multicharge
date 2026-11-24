@@ -16,7 +16,8 @@ from homeassistant.helpers import selector
 from .configuration import (
     default_configuration, is_plan_presentation_only_change,
     validate_configuration, configuration_revision,
-    apply_new_asset_defaults, apply_new_import_defaults, energy_dashboard_suggestions,
+    apply_new_asset_defaults, apply_new_charger_defaults, apply_new_import_defaults,
+    energy_dashboard_suggestions,
     assert_expert_authority_change, is_in_place_runtime_preference_change,
 )
 from .source_evidence import number
@@ -308,7 +309,10 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
         if user_input is not None:
             try:
-                cfg = apply_new_import_defaults({"assets": []}, validate_configuration(_parse_editor_yaml(user_input["yaml_text"])))
+                cfg = apply_new_import_defaults(
+                    {"assets": []}, validate_configuration(_parse_editor_yaml(user_input["yaml_text"])),
+                    site_time_zone=self.hass.config.time_zone,
+                )
                 if any(row.get("control_owner") != "external"
                        or row.get("physical_commissioned") is True
                        for row in cfg["chargers"]):
@@ -388,7 +392,7 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     charger = {
                         "id": uid, "name": name, "kind": "on_off",
                         "rated_power_kw": 3.6, "control_entity": control,
-                        "control_owner": "external", "physical_commissioned": False,
+                        "control_owner": user_input.get("control_owner", "multicharge"),
                     }
                     trial = deepcopy(self._draft)
                     trial["chargers"].append(charger)
@@ -421,6 +425,7 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Optional("control_entity"): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="switch")
             ),
+            vol.Optional("control_owner", default="multicharge"): vol.In(["multicharge", "external"]),
             vol.Optional("configure_details", default=False): bool,
             vol.Optional("add_another", default=False): bool,
         })
@@ -585,7 +590,7 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                 "priority"):
                         if user_input.get(key) is not None:
                             asset[key] = user_input[key]
-                    apply_new_asset_defaults(asset)
+                    apply_new_asset_defaults(asset, site_time_zone=self.hass.config.time_zone)
                     trial = deepcopy(self._draft)
                     trial["assets"].append(asset)
                     validate_configuration(trial)
@@ -708,7 +713,7 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                  if ceiling is not None else "Group power ceiling not yet configured")
         return {"summary": (
             f"{len(cfg['chargers'])} charging points, {len(cfg['assets'])} assets. "
-            f"{limit}. Select Active in Charger settings when desired. Use "
+            f"{limit}. New chargers default Active; choose Inactive for monitoring. Use "
             "relevant native "
             "sensor and safe-idle readback. No RHI modules are required."
         )}
@@ -721,9 +726,10 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if expert_format not in ("yaml", "json"):
             raise ValueError("Unsupported expert configuration format")
         entries = self._async_current_entries()
-        # Declarative imports reapply the default on every read of an omitted
-        # target, so a reboot cannot remove a defaulted goal. Explicit goals win.
-        cfg = apply_new_import_defaults({"assets": []}, cfg)
+        # Reuse persisted creation preferences on unchanged file import.
+        # An existing profile is never initialized again on reboot.
+        prior = entries[0].data.get("configuration", {}) if entries else {"assets": []}
+        cfg = apply_new_import_defaults(prior, cfg, site_time_zone=self.hass.config.time_zone)
         if entries:
             # An existing setup can adopt expert YAML without deleting/readding
             # the HA Config Entry: this preserves its entry ID, logical devices,
@@ -852,7 +858,10 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         validation_error = ""
         if user_input is not None:
             try:
-                proposed = apply_new_import_defaults(cfg, validate_configuration(_parse_editor_yaml(user_input["yaml_text"])))
+                proposed = apply_new_import_defaults(
+                    cfg, validate_configuration(_parse_editor_yaml(user_input["yaml_text"])),
+                    site_time_zone=self.hass.config.time_zone,
+                )
                 if proposed["controller"]["id"] != cfg["controller"]["id"]:
                     raise ValueError("CONTROLLER_ID_IMMUTABLE")
                 assert_expert_authority_change(cfg, proposed)
@@ -1092,7 +1101,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                                     record.pop(key, None)
                         record.setdefault("kind", "car")
                         if not any(row["id"] == uid for row in trial["assets"]):
-                            apply_new_asset_defaults(record)
+                            apply_new_asset_defaults(record, site_time_zone=self.hass.config.time_zone)
                             trial["assets"].append(record)
                         else:
                             trial["assets"] = [
@@ -1177,8 +1186,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 else:
                     record = next(
                         (dict(row) for row in trial["chargers"] if row["id"] == uid),
-                        {"id": uid, "control_owner": "external",
-                         "physical_commissioned": False},
+                        {"id": uid},
                     )
                     if not user_input.get("name") and not record.get("name"):
                         errors["base"] = "invalid_config"
@@ -1199,6 +1207,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                         if "rated_power_kw" not in record:
                             errors["base"] = "invalid_config"
                         elif not any(row["id"] == uid for row in trial["chargers"]):
+                            apply_new_charger_defaults(record)
                             trial["chargers"].append(record)
                         else:
                             trial["chargers"] = [
@@ -1226,7 +1235,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                     selector.NumberSelectorConfig(
                         min=0.01, max=1000, step=0.1,
                         mode=selector.NumberSelectorMode.BOX)),
-            vol.Required("control_owner", default=original.get("control_owner", "external")):
+            vol.Required("control_owner", default=original.get("control_owner", "multicharge")):
                 vol.In(["external", "multicharge"]),
             field("control_entity"): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="switch")),

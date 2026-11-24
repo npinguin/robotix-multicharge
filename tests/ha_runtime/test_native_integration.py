@@ -860,6 +860,8 @@ async def test_new_asset_from_dashboard_gets_its_own_native_inputs(
     await hass.async_block_till_done()
     current = entry.options["configuration"]
     assert current["assets"][0]["target_soc"] == 80
+    assert current["assets"][0]["ready_by_repeat"] == "daily"
+    assert "T06:00:00" in current["assets"][0]["ready_by"]
     registry = er.async_get(hass)
     for platform, field in (
         ("number", "target_soc"),
@@ -900,6 +902,15 @@ async def test_new_asset_from_dashboard_gets_its_own_native_inputs(
     saved = entry.options["configuration"]["assets"][0]
     assert "ready_by" not in saved
     assert saved["target_soc"] == 80
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    await apply_native_preference(hass, entry, runtime, "asset", "fresh_car", {"target_soc": 95})
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    saved = hass.data[DOMAIN][entry.entry_id].configuration["assets"][0]
+    assert saved["target_soc"] == 95
+    assert saved["ready_by_repeat"] == "none"
+    assert "ready_by" not in saved
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 
@@ -1426,6 +1437,8 @@ async def test_optional_one_click_install_and_native_guided_configure(
         choose_charger["flow_id"], {"selected": "__new__"},
     )
     assert new_charger["step_id"] == "charger"
+    hass.states.async_set("switch.wallbox_test", "off")
+    hass.states.async_set("sensor.wallbox_test_power", "0", {"unit_of_measurement": "kW"})
     charger = await hass.config_entries.options.async_configure(
         new_charger["flow_id"], {
             "action": "save", "id": "garage_white", "name": "Garage White",
@@ -1437,7 +1450,7 @@ async def test_optional_one_click_install_and_native_guided_configure(
     assert charger["type"] == FlowResultType.CREATE_ENTRY, charger.get("errors")
     await hass.async_block_till_done()
     assert entry.options["configuration"]["chargers"][0]["id"] == "garage_white"
-    assert entry.options["configuration"]["chargers"][0]["control_owner"] == "external"
+    assert entry.options["configuration"]["chargers"][0]["control_owner"] == "multicharge"
 
     choose_existing = await menu_step("charger_pick")
     assert choose_existing["data_schema"].schema
@@ -1450,7 +1463,8 @@ async def test_optional_one_click_install_and_native_guided_configure(
     assert name_marker.default() == "Garage White"
     edited_charger = await hass.config_entries.options.async_configure(
         edit_charger["flow_id"], {"action": "save", "name": "White Wallbox",
-                                 "kind": "on_off", "rated_power_kw": 3.6},
+                                 "kind": "on_off", "rated_power_kw": 3.6,
+                                 "control_owner": "external"},
     )
     assert edited_charger["type"] == FlowResultType.CREATE_ENTRY, edited_charger.get("errors")
     await hass.async_block_till_done()

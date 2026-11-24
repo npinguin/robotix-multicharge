@@ -236,6 +236,8 @@ class ConfigurationTests(unittest.TestCase):
             action="create",
         )
         self.assertEqual(created["assets"][0]["target_soc"], 80)
+        self.assertEqual(created["assets"][0]["ready_by_repeat"], "daily")
+        self.assertIn("T06:00:00", created["assets"][0]["ready_by"])
         manually = apply_settings_change(
             created, "asset", "new_car", {"target_soc": 90}
         )
@@ -245,11 +247,58 @@ class ConfigurationTests(unittest.TestCase):
                                    "requested_kwh": 3.0}, action="create"
         )
         self.assertNotIn("target_soc", finite["assets"][0])
+        self.assertNotIn("ready_by", finite["assets"][0])
         bicycle = apply_new_asset_defaults({"name": "Bike", "kind": "bicycle"})
         self.assertNotIn("target_soc", bicycle)
         imported = default_configuration()
         imported["assets"] = [{"id": "legacy", "name": "Legacy car", "kind": "car"}]
         self.assertNotIn("target_soc", validate_configuration(imported)["assets"][0])
+
+    def test_creation_defaults_are_local_and_not_reapplied_after_edit(self):
+        from datetime import datetime, timezone
+        from zoneinfo import ZoneInfo
+        from types import SimpleNamespace
+        from multicharge_configuration_tests.configuration import (
+            apply_new_asset_defaults, apply_dashboard_structure, apply_settings_change,
+            effective_configuration, apply_new_import_defaults,
+        )
+        initial = apply_new_asset_defaults(
+            {"id": "car", "name": "Car", "kind": "car", "soc_entity": "sensor.soc"},
+            site_time_zone="Europe/Brussels",
+            now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+        )
+        anchor = datetime.fromisoformat(initial["ready_by"])
+        self.assertEqual(anchor.astimezone(ZoneInfo("Europe/Brussels")).hour, 6)
+        self.assertEqual(anchor.utcoffset().total_seconds(), 7200)
+        base = default_configuration()
+        base["assets"] = [initial]
+        created = apply_dashboard_structure(
+            validate_configuration(base), "charger", "evse",
+            {"name": "EVSE", "kind": "on_off", "rated_power_kw": 3.6,
+             "control_entity": "switch.evse"}, action="create",
+        )
+        self.assertEqual(created["chargers"][0]["control_owner"], "multicharge")
+        revised = apply_settings_change(created, "asset", "car", {
+            "target_soc": 95, "ready_by": None, "ready_by_repeat": "none",
+        })
+        revised = apply_dashboard_structure(revised, "charger", "evse", {
+            "control_owner": "external",
+        })
+        entry = SimpleNamespace(data={"source": "ui", "configuration": created},
+                                options={"configuration": revised})
+        reloaded = effective_configuration(entry)
+        self.assertEqual(reloaded, revised)
+        self.assertNotIn("ready_by", reloaded["assets"][0])
+        self.assertEqual(reloaded["assets"][0]["target_soc"], 95)
+        self.assertEqual(reloaded["chargers"][0]["control_owner"], "external")
+        imported = apply_new_import_defaults(
+            reloaded, validate_configuration({"controller": base["controller"],
+                "assets": [{"id": "car", "name": "Car", "kind": "car",
+                            "soc_entity": "sensor.soc"}], "chargers": []}),
+            site_time_zone="Europe/Brussels",
+        )
+        self.assertEqual(imported["assets"][0]["ready_by_repeat"], "none")
+        self.assertEqual(imported["assets"][0]["target_soc"], 95)
 
     def test_expert_editor_new_soc_car_defaults_without_rewriting_existing_targets(self):
         from multicharge_configuration_tests.configuration import prepare_expert_yaml_revision

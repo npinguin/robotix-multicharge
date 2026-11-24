@@ -2542,16 +2542,20 @@ class RobotixMultiChargeCard extends HTMLElement {
         ["motorcycle",mcTr("Motorcycle")],["scooter",mcTr("Scooter")],
         ["other",mcTr("Other")]
       ]);
-      const goal=this.field(form,mcTr("Charging goal"),"energy",null,[
-        ["energy",mcTr("Energy (kWh)")],["duration",mcTr("Duration (minutes)")],
-        ["budget",mcTr("Budget (€)")],["none",mcTr("Set later")]
+      const goal=this.field(form,mcTr("Charging goal"),"soc",null,[
+        ["soc",mcTr("Battery target (%)")],["energy",mcTr("Energy (kWh)")],
+        ["duration",mcTr("Duration (minutes)")],["budget",mcTr("Budget (€)")],
+        ["none",mcTr("Set later")]
       ]);
-      const amount=this.field(form,mcTr("Charging amount"),"","number");
+      const amount=this.field(form,mcTr("Charging amount"),"80","number");
+      form.append(mcEl("p","muted small","New permanent cars: Daily · 06:00 (local time)."));
+      kind.addEventListener("change",()=>{goal.value=kind.value==="car"?"soc":"none";amount.value=kind.value==="car"?"80":"";});
+      goal.addEventListener("change",()=>{amount.value=goal.value==="soc"?"80":"";});
       const free=(d.configuration.chargers||[]).filter(ch=>!ch.asset);
       const assigned=this.field(form,mcTr("Select free charger (optional)"),
         "none",null,[["none",mcTr("Assign later")],
                     ...free.map(ch=>[ch.id,ch.name])]);
-      const temporary=this.field(form,"Temporary guest","yes",null,
+      const temporary=this.field(form,"Temporary guest","no",null,
         [["yes","Yes — temporary guest"],["no","No — permanent asset"]]);
       const expiry=this.field(form,mcTr("Guest for"),"24",null,[
         ["4",mcTr("4 hours")],["24",mcTr("24 hours")],
@@ -2565,11 +2569,13 @@ class RobotixMultiChargeCard extends HTMLElement {
         const requested=amount.value.trim();
         if(goal.value!=="none"&&requested){
           const value=Number(requested);
-          if(!Number.isFinite(value)||value<=0||
+          if(!Number.isFinite(value)||value<0||
+              (goal.value!=="soc"&&value===0)||(goal.value==="soc"&&value>100)||
               goal.value==="duration"&&!Number.isInteger(value)){
             this._settingsFeedback={status:"rejected",message:"Invalid charging amount"};
             this.showEditError(form);return;
           }
+          if(goal.value==="soc")changes.target_soc=value;
           if(goal.value==="energy")changes.requested_kwh=value;
           if(goal.value==="duration")changes.requested_duration_minutes=value;
           if(goal.value==="budget"){
@@ -2604,7 +2610,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     const kind=this.field(box,mcTr("Control type"),"on_off",null,[
       ["on_off",mcTr("On/off")],["variable_current",mcTr("Variable current")]
     ]);
-    const owner=this.field(box,mcTr("Activation"),"external",null,[
+    const owner=this.field(box,mcTr("Activation"),"multicharge",null,[
       ["external",mcTr("Inactive")],["multicharge",mcTr("Active")]
     ]);
     const readSwitch=this.dashboardFieldControl(box,"charger",{id:"new_charger"},"control_entity");
@@ -2635,7 +2641,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         this.showEditError(box);return;
       }
       const changes={name:name.value.trim(),kind:kind.value,rated_power_kw:rated};
-      if(owner.value==="multicharge")changes.control_owner=owner.value;
+      changes.control_owner=owner.value;
       const control=readSwitch();if(control)changes.control_entity=control;
       try{
         for(const [key,read] of Object.entries(readers)){

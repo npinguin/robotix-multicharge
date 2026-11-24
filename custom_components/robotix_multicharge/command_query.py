@@ -113,8 +113,10 @@ async def apply_native_preference(hass, entry, runtime, scope, target_id, change
         updated = (
             apply_dashboard_structure(
                 runtime.configuration, scope, target_id, changes, action,
+                site_time_zone=hass.config.time_zone,
             ) if structural else apply_settings_change(
                 runtime.configuration, scope, target_id, changes, action,
+                site_time_zone=hass.config.time_zone,
             )
         )
         from .config_flow import _assert_safe_yaml_ui_commit

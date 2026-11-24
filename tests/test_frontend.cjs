@@ -765,6 +765,7 @@ async function main(){
                    ["none","guest_charger"],
                    "one-step Guest can choose only a currently unassigned EVSE");
   guestName.value="Visitor";
+  formField(guestCard,"Temporary guest").value="yes";
   guestGoal.value="budget";guestAmount.value="10";
   guestFreeCharger.value="guest_charger";
   find(guestCard.shadowRoot,"button","Create asset").click();

@@ -209,8 +209,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if pending is None or pending.done():
             pending = hass.async_create_task(reconcile())
 
+    @callback
+    def on_minute(_now):
+        # HA interval callbacks receive datetime, not a state-change Event.
+        on_source_change()
+
     runtime.set_unsubscribe(
-        async_track_time_interval(hass, on_source_change, timedelta(minutes=1))
+        async_track_time_interval(hass, on_minute, timedelta(minutes=1))
     )
     runtime.set_unsubscribe(lambda: price_pending.cancel() if price_pending is not None and not price_pending.done() else None)
 
