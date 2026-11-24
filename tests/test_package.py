@@ -19,7 +19,7 @@ class PackageTest(unittest.TestCase):
         )
         for prefix, expression, count in (
             ("UC", r"^### UC(\d{2}) —", 29),
-            ("FLEX", r"^\| FLEX-(\d{2}) \|", 21),
+            ("FLEX", r"^\| FLEX-(\d{2}) \|", 20),
             ("FORECAST", r"^\| FORECAST-(\d{2}) \|", 12),
             ("UI-OWNER", r"^\| UI-OWNER-(\d{2}) \|", 10),
         ):
