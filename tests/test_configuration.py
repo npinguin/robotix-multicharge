@@ -463,8 +463,8 @@ class ConfigurationTests(unittest.TestCase):
         from copy import deepcopy
         without_readback = deepcopy(configured)
         without_readback["Charger"].pop("Charging-current-readback-sensor")
-        with self.assertRaisesRegex(ValueError, "readback"):
-            normalize_expert_json(without_readback)
+        self.assertNotIn("current_readback_entity",
+                         normalize_expert_json(without_readback)["chargers"][0])
         duplicate_readback = deepcopy(configured)
         duplicate_readback["Charger"]["Charging-current-readback-sensor"] = (
             "number.wallbox_target"

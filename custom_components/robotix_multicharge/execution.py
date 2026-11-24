@@ -474,7 +474,8 @@ class NativeSwitchExecutor:
         """Expose exact current action eligibility; no optimistic UI guessing."""
         result = {}
         at = datetime.now(timezone.utc)
-        for charger in self.runtime.configuration["chargers"]:
+        for configured in self.runtime.configuration["chargers"]:
+            charger = self.effective_charger(configured)
             uid = charger["id"]
             if self._stopped:
                 reason = "INTEGRATION_UNLOADED"
@@ -909,6 +910,29 @@ class NativeSwitchExecutor:
         )
 
 
+    def effective_charger(self, charger):
+        """Use native number bounds when not declared; never persist guesses."""
+        if charger["kind"] != "variable_current":
+            return charger
+        if not str(charger.get("current_control_entity", "")).startswith("number."):
+            return charger
+        device = self.runtime.hass.states.get(charger["current_control_entity"])
+        if device is None or device.state in ("unknown", "unavailable"):
+            return charger
+        try:
+            attrs = device.attributes
+            lo, hi, step = (float(attrs[key]) for key in ("min", "max", "step"))
+            if (attrs.get("unit_of_measurement") != "A"
+                    or not all(isfinite(x) for x in (lo, hi, step))
+                    or lo <= 0 or hi < lo or step <= 0 or (hi-lo)/step > 1000):
+                return charger
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return charger
+        return {**charger,
+                "min_current_a": charger.get("min_current_a", lo),
+                "max_current_a": charger.get("max_current_a", hi),
+                "current_step_a": charger.get("current_step_a", step)}
+
     def _requested_current(self, charger, current, at):
         """Reject a claimed adjustable capability until native source metadata agrees."""
         if charger.get("kind") != "variable_current":
@@ -927,8 +951,10 @@ class NativeSwitchExecutor:
             return "CURRENT_STEP_UNSUPPORTED", None
         entity = charger.get("current_control_entity")
         reading = charger.get("current_readback_entity")
-        if not str(entity).startswith("number.") or not str(reading).startswith("sensor."):
+        if not str(entity).startswith("number.") or (reading and not str(reading).startswith("sensor.")):
             return "CURRENT_WRITE_OR_INDEPENDENT_READBACK_MISSING", None
+        if not reading and not charger.get("power_entity"):
+            return "CURRENT_OR_POWER_READBACK_REQUIRED", None
         device = self.runtime.hass.states.get(entity)
         if device is None or device.state in ("unavailable", "unknown"):
             return "CURRENT_CONTROL_UNAVAILABLE", None
@@ -936,7 +962,8 @@ class NativeSwitchExecutor:
             attrs = device.attributes
             hmin, hmax, hstep = (float(attrs["min"]), float(attrs["max"]),
                                  float(attrs["step"]))
-            if hstep <= 0 or current < hmin or current > hmax:
+            if (not all(isfinite(x) for x in (hmin,hmax,hstep)) or hstep <= 0
+                    or current < hmin or current > hmax):
                 return "NATIVE_CURRENT_CAPABILITY_MISMATCH", None
             if abs((current - hmin) / hstep - round((current - hmin) / hstep)) > 1e-5:
                 return "NATIVE_CURRENT_STEP_MISMATCH", None
@@ -1116,14 +1143,25 @@ class NativeSwitchExecutor:
         watts = number(self.runtime.hass, charger.get("power_entity"), "power",
                        datetime.now(timezone.utc))
         target_kw = current * charger["voltage_v"] * charger["phase_count"] / 1000
+        tolerance = max(0.25, charger.get("current_step_a", 1) / 2)
+        if not charger.get("current_readback_entity"):
+            # Native setpoint readback is not measured current. Independently
+            # observe actual power within the declared conversion envelope.
+            reading = number(self.runtime.hass, charger.get("current_control_entity"),
+                             "current", datetime.now(timezone.utc))
+            return (reading.quality == "ok" and reading.observed_at is not None
+                    and reading.observed_at >= requested_at
+                    and abs(reading.value-current) <= tolerance
+                    and watts.quality == "ok" and watts.observed_at is not None
+                    and watts.observed_at >= requested_at
+                    and 0 <= watts.value <= target_kw * 1.10 + 0.01)
         return (reading.quality == "ok" and reading.observed_at is not None
                 and reading.observed_at >= requested_at
                 and watts.quality == "ok" and watts.observed_at is not None
                 and watts.observed_at >= requested_at
                 and max(START_POWER_KW, target_kw * 0.80 - 0.01)
                     <= watts.value <= target_kw * 1.10 + 0.01
-                and abs(reading.value - current) <= max(0.25,
-                    charger.get("current_step_a", 1) / 2))
+                and abs(reading.value - current) <= tolerance)
 
     async def _protective_stop(self, charger, context):
         """Best-effort real STOP on an unconfirmed START, never claim it succeeded."""
@@ -1567,7 +1605,8 @@ class NativeSwitchExecutor:
                     continue
                 if state.state == "on":
                     active.append(c)
-            for charger in active:
+            for configured in active:
+                charger = self.effective_charger(configured)
                 uid = charger["id"]
                 cable = self._connection(charger, at)
                 power = number(self.runtime.hass, charger.get("power_entity"), "power", at)
@@ -1604,11 +1643,20 @@ class NativeSwitchExecutor:
                         charger.get("current_readback_entity"), "current", at)
                     session = self._sessions.get(uid)
                     current = session.get("target_current_a") if session else None
-                    if (amps.quality != "ok" or current is None
-                            or amps.value > current + max(
-                                0.25, charger["current_step_a"] / 2
-                            )):
+                    if current is None:
                         unsafe = True
+                    elif charger.get("current_readback_entity"):
+                        if (amps.quality != "ok" or amps.value > current + max(
+                                0.25, charger.get("current_step_a", 1) / 2)):
+                            unsafe = True
+                    else:
+                        setting = number(self.runtime.hass,
+                            charger.get("current_control_entity"), "current", at)
+                        target_kw = current * charger["voltage_v"] * charger["phase_count"] / 1000
+                        if (setting.quality != "ok" or abs(setting.value-current) >
+                                max(0.25, charger.get("current_step_a", 1) / 2)
+                                or power.quality != "ok" or power.value > target_kw * 1.10 + 0.01):
+                            unsafe = True
                 if not unsafe:
                     session = self._sessions.get(uid)
                     kw = (charger["rated_power_kw"]
@@ -1770,6 +1818,7 @@ class NativeSwitchExecutor:
                 return recorded
             if charger is None:
                 return result("rejected", "UNKNOWN_CHARGER")
+            charger = self.effective_charger(charger)
             if self._stopped:
                 return result("rejected", "INTEGRATION_UNLOADED")
             if action != "stop" and not self._persistence_verified:
@@ -1862,7 +1911,8 @@ class NativeSwitchExecutor:
                 while True:
                     if self._current_confirmed(charger, current_a, at):
                         self._sessions[charger_id]["target_current_a"] = current_a
-                        out = result("confirmed", "INDEPENDENT_CURRENT_READBACK",
+                        out = result("confirmed", ("INDEPENDENT_CURRENT_READBACK" if charger.get("current_readback_entity")
+                            else "NATIVE_SETPOINT_AND_POWER_READBACK"),
                             observed_at=datetime.now(timezone.utc),
                             measured_kw=number(self.runtime.hass,
                                 charger.get("power_entity"), "power",

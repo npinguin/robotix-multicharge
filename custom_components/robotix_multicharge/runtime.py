@@ -217,7 +217,8 @@ class MultiChargeRuntime:
                 "next_ready_by": due.isoformat() if due is not None else None,
                 "deadline_quality": reason,
             }
-        for raw in cfg["chargers"]:
+        for configured in cfg["chargers"]:
+            raw = self.executor.effective_charger(configured)
             uid = raw["id"]
             chargers[uid] = Charger(
                 uid=uid, name=raw["name"], controller_uid=controller.uid,
@@ -720,7 +721,7 @@ class MultiChargeRuntime:
             "read_only": True,
             "physical_actuation_authorized": any(
                 x["start_allowed"] or x["stop_allowed"]
-                for x in capabilities.values()
+                for x in self.executor.capabilities().values()
             ),
             "command_outcomes": self.executor.snapshot(),
             "active_sessions": self.executor.session_snapshot(),

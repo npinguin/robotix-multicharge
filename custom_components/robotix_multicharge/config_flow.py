@@ -187,6 +187,19 @@ def _assert_safe_yaml_ui_commit(runtime, updated):
     revised = {row["id"]: row for row in updated["chargers"]}
     for uid, old in existing.items():
         new = revised.get(uid)
+        if new is not None and old.get("control_owner") != new.get("control_owner"):
+            executor = runtime.executor
+            if (not executor._persistence_verified or uid in executor._sessions
+                    or uid in executor._start_pending or uid in executor._quarantine
+                    or f"charger:{uid}" in executor._inflight
+                    or (old.get("asset") is not None and old["asset"] in executor._inflight)):
+                raise ValueError(f"charger_busy: {old['name']} ({uid}) reconcile its own session first")
+            switch = executor._switch(runtime.hass, old.get("control_entity"))
+            measured = number(runtime.hass, old.get("power_entity"), "power",
+                              datetime.now(timezone.utc))
+            if (switch is not None and switch.state == "on") or (
+                    measured.quality == "ok" and measured.value > stop_power_limit(old)):
+                raise ValueError(f"charger_busy: {old['name']} ({uid}) stop before changing activation")
         # Selection/attribution is independent of names and user preferences.
         if new is None or old.get("asset") == new.get("asset"):
             continue

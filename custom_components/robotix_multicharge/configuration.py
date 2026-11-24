@@ -521,17 +521,13 @@ def validate_configuration(value):
             if source.get("circuit_id"):
                 charger["circuit_id"] = _text(source["circuit_id"], "charger.circuit_id")
             if owner == "multicharge" and source["kind"] == "variable_current":
-                if not all(key in charger for key in (
-                    "phase_count", "voltage_v", "current_step_a",
-                    "min_current_a", "max_current_a"
-                )) or not str(source.get("current_control_entity", "")).startswith("number.") or not str(
-                    source.get("current_readback_entity", "")
-                ).startswith("sensor."):
-                    raise ValueError("charger: controlled current requires phase count, voltage, supported range/step, setpoint and independent current sensor (readback)")
-                if charger.get("circuit_id") and not charger.get("circuit_limit_a"):
-                    raise ValueError("charger: selected circuit requires a current limit")
-                if charger["voltage_v"] < 200 or charger["voltage_v"] > 260:
-                    raise ValueError("charger.voltage_v: expected verified line-neutral voltage")
+                if not str(source.get("current_control_entity", "")).startswith("number."):
+                    raise ValueError("charger: variable current control requires a native number entity")
+                if source.get("current_readback_entity") and not str(
+                        source["current_readback_entity"]).startswith("sensor."):
+                    raise ValueError("charger: independent current sensor required for that readback binding")
+                if charger.get("voltage_v") is not None and not 200 <= charger["voltage_v"] <= 260:
+                    raise ValueError("charger.voltage_v: expected declared line-neutral voltage")
             if (source.get("current_readback_entity")
                     and source.get("current_readback_entity") ==
                     source.get("current_control_entity")):
@@ -937,7 +933,8 @@ def is_in_place_runtime_preference_change(before, after):
                 asset.pop(field, None)
         for charger in result["chargers"]:
             for field in ("name", "plan_color", "asset",
-                          "min_charging_power_kw", "max_charging_power_kw"):
+                          "min_charging_power_kw", "max_charging_power_kw",
+                          "control_owner", "physical_commissioned"):
                 charger.pop(field, None)
         return result
 

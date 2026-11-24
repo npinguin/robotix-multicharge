@@ -831,6 +831,26 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(services.calls[0][2]["value"], 15)
         self.assertEqual((await rt.executor.execute("evse", "stop"))["status"], "confirmed")
 
+    async def test_native_adjustable_bounds_and_setpoint_with_power_without_amp_sensor(self):
+        rt, states, services = rig(group_kw=3.6)
+        cfg = rt.configuration["chargers"][0]
+        cfg.update(kind="variable_current", rated_power_kw=3.68,
+                   voltage_v=230, current_control_entity="number.charge_limit")
+        rt.configuration = validate_configuration(rt.configuration)
+        entity = state(6, "A")
+        entity.attributes.update(min=6, max=16, step=1)
+        states["number.charge_limit"] = entity
+        rt.refresh()
+        started = await rt.executor.execute("evse", "start")
+        self.assertEqual(started["status"], "confirmed")
+        self.assertEqual(services.calls[0][2]["value"], 15)
+        self.assertNotIn("min_current_a", rt.configuration["chargers"][0])
+        self.assertEqual((await rt.executor.execute("evse", "set_current", current_a=10))["reason"],
+                         "NATIVE_SETPOINT_AND_POWER_READBACK")
+        await rt.executor.supervise()
+        self.assertEqual(states["switch.evse_control"].state, "on")
+        self.assertEqual((await rt.executor.execute("evse", "stop"))["status"], "confirmed")
+
     async def test_verified_adjustable_native_setpoint_and_physical_start(self):
         rt, states, services = rig(group_kw=7.5)
         cfg = rt.configuration["chargers"][0]
