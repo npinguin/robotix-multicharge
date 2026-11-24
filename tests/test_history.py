@@ -58,6 +58,24 @@ class NativeMeasuredHistoryTests(unittest.TestCase):
         self.assertIsNone(mod._session_asset_at_time(
             evidence, "drive", when, when+timedelta(minutes=15)))
 
+    def test_power_binding_epochs_survive_rebind_and_deletion(self):
+        cfg = {"chargers": [{"id": "drive", "power_entity": "sensor.old"}]}
+        before = mod.reconcile_power_bindings(None, cfg, NOW)
+        change = NOW + timedelta(minutes=7)
+        cfg["chargers"][0]["power_entity"] = "sensor.new"
+        after = mod.reconcile_power_bindings(before, cfg, change)
+        self.assertEqual(mod._binding_for_interval(after["drive"], NOW-timedelta(minutes=15), NOW),
+                         "sensor.old")
+        self.assertIsNone(mod._binding_for_interval(after["drive"], NOW, NOW+timedelta(minutes=15)))
+        self.assertEqual(mod._binding_for_interval(after["drive"], NOW+timedelta(minutes=15),
+                                                   NOW+timedelta(minutes=30)), "sensor.new")
+        self.assertEqual(after, mod.reconcile_power_bindings(after, cfg, NOW+timedelta(hours=1)))
+        deleted = mod.reconcile_power_bindings(after, {"chargers": []}, NOW+timedelta(hours=1))
+        self.assertIsNone(mod._binding_for_interval(deleted["drive"], NOW+timedelta(hours=1),
+                                                   NOW+timedelta(hours=2)))
+        self.assertEqual(mod._binding_for_interval(deleted["drive"], NOW-timedelta(minutes=15), NOW),
+                         "sensor.old")
+
     def test_real_meter_integrates_recorded_power_changes(self):
         start = NOW - timedelta(minutes=15)
         row = actual_quarters([

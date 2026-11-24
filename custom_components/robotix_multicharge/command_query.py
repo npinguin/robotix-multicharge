@@ -13,7 +13,8 @@ import voluptuous as vol
 
 from .configuration import (
     apply_settings_change, apply_dashboard_structure, configuration_revision,
-    assert_expert_authority_change, validate_configuration,
+    assert_expert_authority_change, validate_configuration, effective_configuration,
+    apply_new_import_defaults,
 )
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
@@ -93,8 +94,10 @@ async def apply_native_preference(hass, entry, runtime, scope, target_id, change
             or entry.data.get("source") in ("yaml", "json")):
         raise ValueError("readonly_import_configuration")
     async with runtime.executor._lock:
-        if expected_revision is not None and (
-                expected_revision != configuration_revision(runtime.configuration)):
+        committed = effective_configuration(entry)
+        if (not runtime.active or committed != runtime.configuration
+                or (expected_revision is not None and
+                    expected_revision != configuration_revision(committed))):
             raise ValueError("stale_settings")
         if "ready_by_local" in changes:
             # Transport-only wall clock; persist the existing aware anchor.
@@ -109,12 +112,16 @@ async def apply_native_preference(hass, entry, runtime, scope, target_id, change
             first, second = wall.replace(tzinfo=zone, fold=0), wall.replace(tzinfo=zone, fold=1)
             if first.utcoffset() != second.utcoffset():
                 raise ValueError("deadline_dst_unresolved")
+            if changes.get("ready_by_repeat", "none") == "none" and first <= datetime.now(zone):
+                raise ValueError("deadline_must_be_future")
             changes["ready_by"] = first.isoformat()
         updated = (
             apply_dashboard_structure(
                 runtime.configuration, scope, target_id, changes, action,
+                site_time_zone=hass.config.time_zone,
             ) if structural else apply_settings_change(
                 runtime.configuration, scope, target_id, changes, action,
+                site_time_zone=hass.config.time_zone,
             )
         )
         from .config_flow import _assert_safe_yaml_ui_commit
@@ -238,7 +245,11 @@ async def websocket_yaml_configuration(
 
     try:
         # Parsing and schema validation are side-effect free, and bounded.
-        proposed = validate_configuration(_parse_editor_yaml(msg["yaml_text"]))
+        document = _parse_editor_yaml(msg["yaml_text"])
+        proposed = apply_new_import_defaults(
+            runtime.configuration, validate_configuration(document),
+            site_time_zone=hass.config.time_zone, raw_assets=document.get("assets", []),
+        )
         if proposed["controller"]["id"] != runtime.configuration["controller"]["id"]:
             raise ValueError("CONTROLLER_ID_IMMUTABLE")
         assert_expert_authority_change(runtime.configuration, proposed)
@@ -246,7 +257,9 @@ async def websocket_yaml_configuration(
         # No review token or second UI step: validate once, then commit
         # under the original executor lock and authoritative revision.
         async with runtime.executor._lock:
-            if configuration_revision(runtime.configuration) != msg["expected_revision"]:
+            committed = effective_configuration(entry)
+            if (not runtime.active or committed != runtime.configuration
+                    or configuration_revision(committed) != msg["expected_revision"]):
                 raise ValueError("STALE_SETTINGS_REFRESH")
             _assert_safe_yaml_ui_commit(runtime, proposed)
             desired_revision = configuration_revision(proposed)

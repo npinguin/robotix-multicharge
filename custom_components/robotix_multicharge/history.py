@@ -6,11 +6,71 @@ are returned as unknown and never coerced into zero delivered energy.
 from __future__ import annotations
 
 from bisect import bisect_left, bisect_right
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from math import isfinite
 
 QUARTER = timedelta(minutes=15)
 MAX_OBSERVATION_AGE = timedelta(minutes=30)
+
+
+def reconcile_power_bindings(previous, configuration, at):
+    """Retain binding metadata, not measured values, in the existing Store.
+
+    On legacy migration the current source is the only known binding; no
+    earlier undocumented changes can be reconstructed. Later remaps start
+    at their actual runtime application time, including deletion tombstones.
+    """
+    at = at.astimezone(timezone.utc)
+    current = {c["id"]: c.get("power_entity") for c in configuration["chargers"]}
+    if previous is None:
+        return {uid: [{"start": None, "entity": entity}]
+                for uid, entity in current.items()}
+    bindings = deepcopy(previous)
+    if not isinstance(bindings, dict):
+        raise ValueError("invalid stored power bindings")
+    for uid, epochs in bindings.items():
+        if not isinstance(uid, str) or not isinstance(epochs, list) or not epochs or len(epochs) > 256:
+            raise ValueError("invalid stored power binding epochs")
+        last = None
+        for index, epoch in enumerate(epochs):
+            if not isinstance(epoch, dict) or set(epoch) != {"start", "entity"}:
+                raise ValueError("invalid power binding epoch")
+            entity = epoch["entity"]
+            if entity is not None and (not isinstance(entity, str) or "." not in entity):
+                raise ValueError("invalid power binding source")
+            stamp = epoch["start"]
+            if stamp is None and index == 0:
+                continue
+            moment = datetime.fromisoformat(stamp)
+            if moment.utcoffset() is None or (last is not None and moment <= last):
+                raise ValueError("invalid power binding timestamp")
+            if moment > at:
+                raise ValueError("future power binding timestamp")
+            last = moment
+    for uid in set(bindings) | set(current):
+        entity = current.get(uid)
+        epochs = bindings.setdefault(uid, [])
+        if not epochs or epochs[-1]["entity"] != entity:
+            change = {"start": at.isoformat(), "entity": entity}
+            if epochs and epochs[-1]["start"] == change["start"]:
+                epochs[-1] = change
+            else:
+                epochs.append(change)
+            bindings[uid] = epochs[-256:]
+    return bindings
+
+
+def _binding_for_interval(epochs, start, end):
+    """A whole interval must belong to one known native source."""
+    selected = None
+    for epoch in epochs:
+        edge = datetime.fromisoformat(epoch["start"]) if epoch["start"] else None
+        if edge is not None and start < edge < end:
+            return None
+        if edge is None or edge <= start:
+            selected = epoch["entity"]
+    return selected
 
 
 def _sample(state):
@@ -198,21 +258,27 @@ def _estimated_session_variable_cost(states, receipt, price_slots, now):
 async def read_actual_history(hass, configuration, start, end, *,
                               charger_id=None, asset_id=None,
                               session_receipts=(), price_slots=(),
-                              include_valuations=False):
+                              include_valuations=False, power_bindings=None):
     """Query the installed native Recorder once for exact configured chargers."""
     now = datetime.now(timezone.utc)
     first, last = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
+
+    bindings = (power_bindings if power_bindings is not None else
+                {c["id"]: [{"start": None, "entity": c.get("power_entity")}]
+                 for c in configuration["chargers"]})
+    selected = [c["id"] for c in configuration["chargers"]
+                if charger_id is None or c["id"] == charger_id]
+    if charger_id is not None and charger_id in bindings and not selected:
+        selected = [charger_id]
 
     def reply(rows, quality, historical=None):
         if not include_valuations:
             return rows, quality
         valued = {}
         if historical is not None and price_slots:
-            source_by_id = {c["id"]: c.get("power_entity")
-                            for c in configuration["chargers"]}
             for receipt in session_receipts:
                 charger = receipt.get("charger_id")
-                if (charger not in source_by_id
+                if (charger not in selected
                         or charger_id is not None and charger_id != charger
                         or asset_id is not None and asset_id != receipt.get("asset_id")):
                     continue
@@ -224,22 +290,28 @@ async def read_actual_history(hass, configuration, start, end, *,
                         continue
                 except (KeyError, ValueError, TypeError, OverflowError):
                     continue
+                source = _binding_for_interval(bindings.get(charger, ()), started, ended)
+                if not source:
+                    continue
                 evidence = _estimated_session_variable_cost(
-                    historical.get(source_by_id[charger], []),
-                    receipt, price_slots, now,
+                    historical.get(source, []), receipt, price_slots, now,
                 )
                 if evidence is not None:
                     valued[(charger, receipt["started_at"],
                             receipt["ended_at"])] = evidence
         return rows, quality, valued
-    selected = [
-        c for c in configuration["chargers"]
-        if charger_id is None or c["id"] == charger_id
-    ]
     if not selected:
         return reply([], "NO_MATCHING_CHARGER")
-    missing_meter = any(not c.get("power_entity") for c in selected)
-    entities = [c["power_entity"] for c in selected if c.get("power_entity")]
+    # Include only sources which were actually mapped during this request.
+    # Query the existing native Recorder once, even across a remap.
+    entities = sorted({
+        epoch["entity"] for uid in selected
+        for index, epoch in enumerate(bindings.get(uid, ()))
+        if epoch["entity"]
+        and (epoch["start"] is None or datetime.fromisoformat(epoch["start"]) < last)
+        and (index + 1 == len(bindings[uid])
+             or datetime.fromisoformat(bindings[uid][index + 1]["start"]) > first)
+    })
     if not entities:
         return reply([], "POWER_METER_NOT_CONFIGURED")
     if last <= first or last - first > timedelta(hours=49):
@@ -259,19 +331,26 @@ async def read_actual_history(hass, configuration, start, end, *,
         )
     except (ImportError, RuntimeError, ValueError, OSError, KeyError):
         return reply([], "RECORDER_UNAVAILABLE")
+    # Integrate each physical source once; only then assign the measured
+    # quarter to the logical Charger that owned that source at that time.
+    empty = _quarter_actuals([], first, last, now)
+    by_source = {
+        entity: {row["start"]: row for row in _quarter_actuals(
+            historical.get(entity, []), first, last, now)}
+        for entity in entities
+    }
     result = []
-    for charger in selected:
-        rows = _quarter_actuals(
-            historical.get(charger.get("power_entity"), []), first, last, now
-        )
-        for row in rows:
-            since = datetime.fromisoformat(row["start"])
-            until = datetime.fromisoformat(row["end"])
-            attributed = _session_asset_at_time(
-                session_receipts, charger["id"], since, until
-            )
+    for uid in selected:
+        epochs = bindings.get(uid, ())
+        for unknown in empty:
+            since = datetime.fromisoformat(unknown["start"])
+            until = datetime.fromisoformat(unknown["end"])
+            source = _binding_for_interval(epochs, since, until)
+            row = dict(by_source.get(source, {}).get(unknown["start"], unknown))
+            attributed = (_session_asset_at_time(session_receipts, uid, since, until)
+                          if source else None)
             row.update({
-                "charger_id": charger["id"], "asset_id": attributed,
+                "charger_id": uid, "asset_id": attributed,
                 "asset_provenance": (
                     "confirmed_closed_session" if attributed is not None
                     else "unattributed_charger_actual"
@@ -284,6 +363,6 @@ async def read_actual_history(hass, configuration, start, end, *,
             "NO_CONFIRMED_ASSET_HISTORY" if asset_id is not None
             else "NO_RECORDED_QUARTERS"
         ), historical)
-    if missing_meter or any(row["quality"] != "measured_power_integral" for row in result):
+    if any(row["quality"] != "measured_power_integral" for row in result):
         return reply(result, "INCOMPLETE_POWER_HISTORY", historical)
     return reply(result, "MEASURED_POWER_HISTORY", historical)

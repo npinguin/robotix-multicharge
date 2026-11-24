@@ -8,7 +8,8 @@ from __future__ import annotations
 from copy import deepcopy
 from hashlib import sha256
 from json import dumps
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from math import ceil, floor, isfinite
 from re import fullmatch
 
@@ -110,19 +111,39 @@ def _charging_windows(source, field="asset.charging_windows"):
     return normalized
 
 
-def apply_new_asset_defaults(row):
-    """80% is an editable starting *target*, never an OEM hardware limit.
+def apply_new_asset_defaults(row, *, site_time_zone=None, now=None):
+    """Creation-only preference defaults; legacy target repair has no timezone.
 
-    New car profiles receive this default. Existing persisted vehicle targets
-    are never rewritten by validation.
-    A percentage without a qualified SoC does not authorize charging.
+    No physical source, battery capacity, efficiency or command is inferred.
+    Existing persisted settings are never defaulted by validation or reload.
     """
-    if (row.get("kind", "car") == "car"
-            and row.get("target_soc") is None
-            and row.get("requested_kwh") is None
-            and row.get("requested_duration_minutes") is None
-            and row.get("requested_budget_amount") is None):
+    car_soc_goal = (
+        row.get("kind", "car") == "car"
+        and all(row.get(key) is None for key in (
+            "requested_kwh", "requested_duration_minutes", "requested_budget_amount",
+        ))
+    )
+    if car_soc_goal and row.get("target_soc") is None:
         row["target_soc"] = 80
+    if (car_soc_goal and not row.get("temporary") and site_time_zone
+            and not any(key in row for key in (
+                "ready_by", "ready_by_repeat", "ready_by_weekdays",
+            ))):
+        zone = ZoneInfo(site_time_zone)
+        local = (now or datetime.now(timezone.utc)).astimezone(zone)
+        row["ready_by"] = local.replace(
+            hour=6, minute=0, second=0, microsecond=0,
+        ).isoformat()
+        row["ready_by_repeat"] = "daily"
+    return row
+
+def apply_new_charger_defaults(row):
+    """A selected switch makes Active the default on explicit UI creation."""
+    if "control_owner" not in row:
+        row["control_owner"] = (
+            "multicharge" if str(row.get("control_entity", "")).startswith("switch.")
+            else "external"
+        )
     return row
 
 
@@ -690,7 +711,8 @@ def configuration_revision(config):
     return sha256(dumps(config, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:20]
 
 
-def apply_settings_change(configuration, scope, target_id, changes, action="save"):
+def apply_settings_change(configuration, scope, target_id, changes, action="save", *,
+                          site_time_zone="UTC"):
     """Narrow user-preference editor through the one native Config Entry authority.
 
     Physical ownership, commissioning, wiring and source device capabilities
@@ -787,7 +809,7 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
         else:
             target[name] = value
     if scope == "asset" and action == "create":
-        apply_new_asset_defaults(target)
+        apply_new_asset_defaults(target, site_time_zone=site_time_zone)
         if create_charger_id is not None:
             chosen = next((c for c in cfg["chargers"]
                            if c["id"] == create_charger_id), None)
@@ -806,7 +828,8 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
 
 
 
-def apply_dashboard_structure(configuration, scope, target_id, changes, action="save"):
+def apply_dashboard_structure(configuration, scope, target_id, changes, action="save", *,
+                              site_time_zone="UTC"):
     """Compose one object-scoped dashboard edit, then validate entire Config Entry.
 
     The UI sends individual typed fields, never a JSON document. This is an
@@ -836,9 +859,6 @@ def apply_dashboard_structure(configuration, scope, target_id, changes, action="
             if target is not None:
                 raise ValueError("dashboard identity already exists")
             target = {"id": target_id}
-            if scope == "charger":
-                target.update({"control_owner": "external",
-                               "physical_commissioned": False})
             items.append(target)
         elif target is None:
             raise ValueError("dashboard object does not exist")
@@ -879,7 +899,9 @@ def apply_dashboard_structure(configuration, scope, target_id, changes, action="
             target.pop("requested_budget_amount", None)
             target.pop("requested_budget_currency", None)
         if scope == "asset" and action == "create":
-            apply_new_asset_defaults(target)
+            apply_new_asset_defaults(target, site_time_zone=site_time_zone)
+        if scope == "charger" and action == "create":
+            apply_new_charger_defaults(target)
     return validate_configuration(cfg)
 
 
@@ -961,7 +983,7 @@ def assert_expert_authority_change(before, after):
 
 
 
-def prepare_expert_yaml_revision(current, document, mode="merge"):
+def prepare_expert_yaml_revision(current, document, mode="merge", *, site_time_zone="UTC"):
     """Prepare one YAML/JSON editor draft for the existing native Config Entry.
 
     Merge patches only provided logical IDs and leaves every other source and
@@ -1025,29 +1047,43 @@ def prepare_expert_yaml_revision(current, document, mode="merge"):
                         existing.update(deepcopy(supplied))
             candidate = validate_configuration(candidate)
 
-    candidate = apply_new_import_defaults(before, candidate)
+    candidate = apply_new_import_defaults(
+        before, candidate, site_time_zone=site_time_zone,
+        raw_assets=document.get("assets", []),
+    )
     if candidate["controller"]["id"] != before["controller"]["id"]:
         raise ValueError("controller ID cannot change in UI; preserve existing HA history")
     assert_expert_authority_change(before, candidate)
     return candidate
 
 
-def apply_new_import_defaults(before, candidate):
-    """Default only new SoC-capable imported profiles; preserve explicit goals."""
+def apply_new_import_defaults(before, candidate, *, site_time_zone="UTC", raw_assets=()):
+    """Creation defaults once; omitted goals on repeated input retain saved values.
+
+    Explicit null target in a native expert editor is different from omission.
+    Explicit ready_by_repeat=none is the existing schedule removal contract.
+    """
     candidate = deepcopy(candidate)
     existing = {row["id"]: row for row in before.get("assets", [])}
+    clear_target = {row["id"] for row in raw_assets
+                    if isinstance(row, dict) and "id" in row
+                    and "target_soc" in row and row["target_soc"] is None}
+    schedule_fields = ("ready_by", "ready_by_repeat", "ready_by_weekdays")
     for asset in candidate["assets"]:
-        if not asset.get("soc_entity") or any(asset.get(key) is not None for key in (
-            "target_soc", "requested_kwh", "requested_duration_minutes", "requested_budget_amount"
-        )):
-            continue
         prior = existing.get(asset["id"])
         if prior is None:
-            apply_new_asset_defaults(asset)
-        elif prior.get("target_soc") is not None:
-            # A repeated import of the original input retains its persisted
-            # target rather than silently removing the default or user preference.
+            if asset.get("soc_entity") and asset["id"] not in clear_target:
+                apply_new_asset_defaults(asset, site_time_zone=site_time_zone)
+            continue
+        if asset["id"] not in clear_target and asset.get("soc_entity") and all(asset.get(key) is None for key in (
+            "target_soc", "requested_kwh", "requested_duration_minutes",
+            "requested_budget_amount",
+        )) and prior.get("target_soc") is not None:
             asset["target_soc"] = prior["target_soc"]
+        if not any(key in asset for key in schedule_fields):
+            for key in schedule_fields:
+                if key in prior:
+                    asset[key] = deepcopy(prior[key])
     return validate_configuration(candidate)
 
 

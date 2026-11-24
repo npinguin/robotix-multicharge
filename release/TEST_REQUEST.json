@@ -1,8 +1,8 @@
 {
   "status": "AUTHORIZED_FOR_TEST",
   "distribution": "open_source_community",
-  "expected_tag": "v0.1.18",
+  "expected_tag": "v0.1.19",
   "precompile": false,
-  "qualification_scope": "Owner-requested continuation of MultiCharge audit: correct live import versus forecast ownership and preserve independently qualified daily reference prices with explicit tomorrow coverage; documentation continuity, no loss of existing functionality. Exact candidate qualification required.",
-  "limitations": "TEST only. Physical charging, live provider payload, Safari and full field acceptance remain separate. Immutable v0.1.17 rollback."
+  "qualification_scope": "Owner-requested HACS release after PR #24: complete MC-16–22 resident charging outcome, compact schedule/settings, creation-only defaults and persistent Config Entry preferences, conditional preview, runtime reconciliation, stale queries, history/source provenance and constrained allocation corrections. Exact candidate qualification required.",
+  "limitations": "TEST only, not STABLE or field acceptance. Actual site Safari, latency, native providers and EVSE physical readback remain separate. Immutable v0.1.18 rollback."
 }

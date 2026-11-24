@@ -11,9 +11,11 @@ from hashlib import sha256
 from json import dumps
 from math import floor, isfinite
 from datetime import datetime, timedelta, timezone
+from copy import deepcopy
 from uuid import uuid4
 
 from .source_evidence import Evidence, binding, connection, number, soc_with_health
+from .configuration import is_plan_presentation_only_change
 from .planner import (resolve_recurring_ready_by, charging_window_allows,
                       qualified_price_policy_cap)
 
@@ -54,6 +56,8 @@ class NativeSwitchExecutor:
         self._accepted = {}
         self._accepted_history = {}
         self._grants = {}
+        self._grant_configuration = None
+        self._grant_plan_revision = None
         self._last_advance = None
         self._completed = {}
         self._inflight = {}
@@ -1495,6 +1499,18 @@ class NativeSwitchExecutor:
             if old["end"] < threshold:
                 del self._accepted_history[key]
 
+    def _grant_is_current(self, slot, at):
+        """Recheck grant after waiting for the native writer lock."""
+        if (slot is None or self._grant_configuration is None
+                or self._grants.get(slot.charger_uid) != slot
+                or not slot.start <= at < slot.end):
+            return False
+        current = self.runtime.configuration
+        assessment = self.runtime.assessment
+        return bool(assessment and assessment.plan.revision == self._grant_plan_revision
+                    and (current == self._grant_configuration
+                         or is_plan_presentation_only_change(self._grant_configuration, current)))
+
     async def advance_plan(self, quarter_start):
         """Apply one qualified quarter plan through the only existing executor.
 
@@ -1517,6 +1533,8 @@ class NativeSwitchExecutor:
             if slot.start == quarter_start and slot.end == quarter_start + timedelta(minutes=15)
         }
         self._grants = dict(slots)
+        self._grant_configuration = deepcopy(self.runtime.configuration)
+        self._grant_plan_revision = assessment.plan.revision
         try:
             for charger in self.runtime.configuration["chargers"]:
                 uid = charger["id"]
@@ -1596,6 +1614,8 @@ class NativeSwitchExecutor:
                         await self.execute(uid, "stop")
         finally:
             self._grants.clear()
+            self._grant_configuration = None
+            self._grant_plan_revision = None
 
     async def _reduce_current(self, charger, at):
         """Only confirmed smaller supported setpoints may avert a safety STOP."""
@@ -1874,6 +1894,9 @@ class NativeSwitchExecutor:
                     raise ValueError("request ID used for a different command")
                 return {key: value for key, value in previous.items()
                         if key != "manual_request"}
+            # Time captured before awaiting the lock can be an expired
+            # quarter by admission time. All evidence checks use actual now.
+            at = datetime.now(timezone.utc)
             cfg = self.runtime.configuration
             charger = next((c for c in cfg["chargers"] if c["id"] == charger_id), None)
             def result(status, reason, **extras):
@@ -1957,7 +1980,7 @@ class NativeSwitchExecutor:
                     granted = self._grants.get(charger_id)
                     if (previous_current is None
                             or (current_a > previous_current + 1e-6
-                                and (granted is None or granted.current_a is None
+                                and (not self._grant_is_current(granted, at) or granted.current_a is None
                                      or current_a > granted.current_a + 1e-6))):
                         return result("rejected", "CURRENT_INCREASE_REQUIRES_ACCEPTED_SLOT")
                 cable = self._connection(charger, at)
@@ -1997,8 +2020,7 @@ class NativeSwitchExecutor:
                 if charger_id in self._quarantine:
                     return result("rejected", "PREVIOUS_COMMAND_UNCONFIRMED")
                 if plan_slot is not None:
-                    if (self._grants.get(charger_id) != plan_slot
-                            or not plan_slot.start <= at < plan_slot.end
+                    if (not self._grant_is_current(plan_slot, at)
                             or plan_slot.charger_uid != charger_id
                             or plan_slot.asset_uid != charger.get("asset")):
                         return result("rejected", "PLAN_SLOT_NOT_AUTHORIZED")

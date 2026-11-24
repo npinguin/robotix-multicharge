@@ -89,6 +89,82 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
             view==="charger"?"Chargers":
             view==="plan"?"Charging Plan":"Overview";
   card.render();
+  if(view==="goal"){
+    // Real browser interaction on a representative planner-shaped payload.
+    // Source tests separately prove the actual planner's 192-quarter result.
+    const a=assets[0],c=devices[0],start="2026-11-24T20:45:00+01:00";
+    Object.assign(a,{name:"Audi Q8",target_soc:95,capacity_kwh:20,charge_efficiency:0.9,
+      ready_by:"2026-11-25T06:00:00+01:00",ready_by_repeat:"daily",plan_color:"blue"});
+    delete a.requested_kwh;
+    observations.assets[a.id].soc.value=88;
+    observations.assets[a.id].next_ready_by=a.ready_by;
+    c.name="Garage Black";
+    data.configuration.controller.mode="Automatic";
+    data.goal_assessments={[c.id]:{asset_id:a.id,status:"achievable",conditional:true,
+      assumption:"IF_ACTIVATED",reason:"PROPOSED",deadline:a.ready_by,
+      required_grid_kwh:1.56,planned_grid_kwh:1.8,shortfall_grid_kwh:0,
+      timeline_start:start,timeline_end:"2026-11-26T20:45:00+01:00",
+      timeline_windows:[{start:"2026-11-25T02:00:00+01:00",end:"2026-11-25T02:30:00+01:00"}],
+      next_charge_at:"2026-11-25T02:00:00+01:00",planned_finish_at:"2026-11-25T02:30:00+01:00"}};
+    let writes=0;
+    card.hass={user:{id:"goal-browser",is_admin:true},states:{},language:"en",
+      callWS:async msg=>{
+        if(msg.type==="robotix_multicharge/update_settings"){
+          writes++;Object.assign(a,msg.changes);
+          data.configuration_revision="goal-saved-"+writes;
+          return {status:"accepted_unconfirmed",expected_revision:data.configuration_revision};
+        }
+        return data;
+      }};
+    card._tab="Chargeable Assets";card.render();
+    const root=card.shadowRoot;
+    const btn=name=>[...root.querySelectorAll("button")].find(x=>x.textContent===name);
+    const outcome=()=>root.querySelector('[data-goal-status]');
+    const summary=()=>root.querySelector(".vehicle-summary");
+    const initial=outcome()?.getAttribute("data-goal-status")==="achievable"&&
+      summary()?.textContent.includes("88%")&&summary()?.textContent.includes("95%")&&
+      summary()?.textContent.includes("Inactive")&&
+      !!outcome().querySelector(".goal-window")&&!!outcome().querySelector(".goal-deadline-marker")&&
+      outcome().textContent.includes("1.56 kWh")&&outcome().textContent.includes("Not reserved");
+    const compact=!!btn("Set charging goal")&&!btn("Save charging goal")&&
+      summary().getBoundingClientRect().height<135;
+    const variants={};
+    for(const status of ["target_met","shortfall","cannot_assess"]){
+      data.goal_assessments[c.id].status=status;
+      if(status==="cannot_assess"){
+        data.goal_assessments[c.id].reason="BATTERY_CAPACITY_NOT_CONFIGURED";
+        delete a.capacity_kwh;
+      }
+      card.render();
+      variants[status]=outcome()?.getAttribute("data-goal-status")===status;
+    }
+    const actionable=!!btn("Complete battery data");
+    a.capacity_kwh=20;data.goal_assessments[c.id].status="achievable";
+    data.goal_assessments[c.id].reason="PROPOSED";card.render();
+    btn("Schedule charging").click();btn("Specific days").click();
+    const day=name=>root.querySelector('button[aria-label="'+name+'"]');
+    const allDays=day("Saturday")?.getAttribute("aria-pressed")==="true";
+    day("Saturday").click();day("Sunday").click();btn("Different times per day").click();
+    const friday=[...root.querySelectorAll(".field")].find(n=>n.querySelector("label")?.textContent==="Friday")?.querySelector("input");
+    friday.value="08:00";friday.dispatchEvent(new Event("change",{bubbles:true}));
+    const noImplicitWrite=writes===0;
+    btn("Save schedule").click();
+    await new Promise(resolve=>setTimeout(resolve,150));
+    const saved=writes===1&&a.ready_by_weekdays?.fri==="08:00"&&a.ready_by_weekdays?.mon==="06:00"&&!a.ready_by_weekdays?.sat;
+    btn("Schedule charging").click();
+    const reopened=[...root.querySelectorAll(".field")].some(n=>n.querySelector("label")?.textContent==="Friday"&&n.querySelector("input")?.value==="08:00");
+    btn("Cancel").click();
+    card._tab="Overview";card.render();
+    const shared=!!outcome()?.querySelector(".goal-window")&&!!summary();
+    document.getElementById("smoke-result").textContent=JSON.stringify({
+      view,count,role,viewport:innerWidth,render:!!root.querySelector(".root"),
+      documentWidth:document.documentElement.scrollWidth,
+      tabs:[...root.querySelectorAll(".tabs button")].map(b=>b.textContent),
+      initial,compact,actionable,allDays,noImplicitWrite,saved,reopened,shared,
+      variants:Object.values(variants).every(Boolean)
+    });
+    return;
+  }
   if(view==="edit"){
     // REAL Chromium/iPad-class regression: while a user types, HA sensor
     // updates and a late get_plan result must not unmount inputs, blur the
@@ -101,6 +177,8 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     const root=card.shadowRoot;
     const field=root.querySelector(".dashboard-field-edit input");
     if(!field)throw Error("Typed Controller source field absent");
+    if(root.querySelectorAll(".dashboard-field-edit").length!==1)
+      throw Error("Duplicate source editor rendered");
     field.focus();
     field.value="sensor.user_is_still_typing";
     field.dispatchEvent(new Event("input",{bubbles:true,composed:true}));
@@ -253,7 +331,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     quickEditable:quick.filter(x=>!x.disabled).length,
     firstFoldClosed:folds.length?folds[0].open===false:null,
     keyboardSummary:folds.every(x=>x.firstElementChild?.tagName==="SUMMARY"),
-    goalEditable:buttons.includes("Save charging goal"),
+    goalEditable:buttons.includes("Set charging goal"),
     technicalReadable:root.textContent.includes("Complete object settings & sources"),
     commandButtons:buttons.filter(x=>x==="Start charging"||x==="Stop charging").length,
     errors:root.querySelectorAll("[role=alert]").length

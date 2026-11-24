@@ -401,6 +401,42 @@ async def test_native_recorder_history_pricing_reuses_one_ha_query_without_billi
 
 
 @pytest.mark.asyncio
+async def test_native_recorder_remap_keeps_original_measured_quarters(hass: HomeAssistant, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+    from homeassistant.components import recorder
+    from custom_components.robotix_multicharge.history import (
+        read_actual_history, reconcile_power_bindings,
+    )
+
+    end = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    end = end.replace(minute=(end.minute // 15)*15)
+    start = end - timedelta(hours=1)
+    change = start + timedelta(minutes=37)
+    old = {"chargers": [{"id": "drive", "power_entity": "sensor.old"}]}
+    new = {"chargers": [{"id": "drive", "power_entity": "sensor.new"}]}
+    bindings = reconcile_power_bindings(reconcile_power_bindings(None, old, start), new, change)
+    calls = []
+
+    def samples(watts):
+        return [SimpleNamespace(state=str(watts), last_updated=start+timedelta(minutes=i),
+                                attributes={"unit_of_measurement": "W"})
+                for i in range(0, 60, 15)]
+
+    class NativeRecorder:
+        async def async_add_executor_job(self, fn, *args):
+            calls.append(args)
+            return {"sensor.old": samples(1000), "sensor.new": samples(3000)}
+
+    monkeypatch.setattr(recorder, "get_instance", lambda _hass: NativeRecorder())
+    hass.config.components.add("recorder")
+    rows, quality = await read_actual_history(hass, new, start, end, power_bindings=bindings)
+    assert [row["actual_power_kw"] for row in rows] == [1.0, 1.0, None, 3.0]
+    assert quality == "INCOMPLETE_POWER_HISTORY"
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
 async def test_direct_native_ha_electricity_price_reference_without_robotix_bridge(
     hass: HomeAssistant,
 ):
@@ -860,6 +896,8 @@ async def test_new_asset_from_dashboard_gets_its_own_native_inputs(
     await hass.async_block_till_done()
     current = entry.options["configuration"]
     assert current["assets"][0]["target_soc"] == 80
+    assert current["assets"][0]["ready_by_repeat"] == "daily"
+    assert "T06:00:00" in current["assets"][0]["ready_by"]
     registry = er.async_get(hass)
     for platform, field in (
         ("number", "target_soc"),
@@ -900,6 +938,15 @@ async def test_new_asset_from_dashboard_gets_its_own_native_inputs(
     saved = entry.options["configuration"]["assets"][0]
     assert "ready_by" not in saved
     assert saved["target_soc"] == 80
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    await apply_native_preference(hass, entry, runtime, "asset", "fresh_car", {"target_soc": 95})
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    saved = hass.data[DOMAIN][entry.entry_id].configuration["assets"][0]
+    assert saved["target_soc"] == 95
+    assert saved["ready_by_repeat"] == "none"
+    assert "ready_by" not in saved
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 
@@ -1426,6 +1473,8 @@ async def test_optional_one_click_install_and_native_guided_configure(
         choose_charger["flow_id"], {"selected": "__new__"},
     )
     assert new_charger["step_id"] == "charger"
+    hass.states.async_set("switch.wallbox_test", "off")
+    hass.states.async_set("sensor.wallbox_test_power", "0", {"unit_of_measurement": "kW"})
     charger = await hass.config_entries.options.async_configure(
         new_charger["flow_id"], {
             "action": "save", "id": "garage_white", "name": "Garage White",
@@ -1437,7 +1486,7 @@ async def test_optional_one_click_install_and_native_guided_configure(
     assert charger["type"] == FlowResultType.CREATE_ENTRY, charger.get("errors")
     await hass.async_block_till_done()
     assert entry.options["configuration"]["chargers"][0]["id"] == "garage_white"
-    assert entry.options["configuration"]["chargers"][0]["control_owner"] == "external"
+    assert entry.options["configuration"]["chargers"][0]["control_owner"] == "multicharge"
 
     choose_existing = await menu_step("charger_pick")
     assert choose_existing["data_schema"].schema
@@ -1450,7 +1499,8 @@ async def test_optional_one_click_install_and_native_guided_configure(
     assert name_marker.default() == "Garage White"
     edited_charger = await hass.config_entries.options.async_configure(
         edit_charger["flow_id"], {"action": "save", "name": "White Wallbox",
-                                 "kind": "on_off", "rated_power_kw": 3.6},
+                                 "kind": "on_off", "rated_power_kw": 3.6,
+                                 "control_owner": "external"},
     )
     assert edited_charger["type"] == FlowResultType.CREATE_ENTRY, edited_charger.get("errors")
     await hass.async_block_till_done()
@@ -1712,6 +1762,8 @@ async def test_minimal_native_setup_then_yaml_takes_over_same_entry(hass: HomeAs
 @pytest.mark.asyncio
 async def test_expert_json_include_skips_wizard_and_reuses_entry(hass: HomeAssistant):
     """Real HA 2026.11.2: JSON file via one !include, no five-step flow."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
     source = (Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN)
     installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
     if not installed.exists():
@@ -1756,6 +1808,21 @@ async def test_expert_json_include_skips_wizard_and_reuses_entry(hass: HomeAssis
     assert entry.data["source"] == "json"
     expected = normalize_expert_json(expert)
     expected["assets"][0]["target_soc"] = 80.0
+    saved_asset = entry.data["configuration"]["assets"][0]
+    assert saved_asset["ready_by_repeat"] == "daily"
+    anchor = datetime.fromisoformat(saved_asset["ready_by"])
+    assert anchor.astimezone(ZoneInfo(hass.config.time_zone)).strftime("%H:%M") == "06:00"
+    expected["assets"][0].update(
+        ready_by=saved_asset["ready_by"], ready_by_repeat="daily",
+    )
+    assert entry.data["configuration"] == expected
+    unchanged = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_IMPORT, "expert_format": "json"},
+        data=normalize_expert_json(expert),
+    )
+    await hass.async_block_till_done()
+    assert unchanged["reason"] == "already_configured"
     assert entry.data["configuration"] == expected
     assert frontend.async_panel_exists(hass, "robotix-multicharge"), (
         "Direct JSON expert import must also create resident sidebar dashboard"
@@ -1891,6 +1958,12 @@ async def test_new_install_dashboard_typed_four_chargers_four_assets(
         )
         await hass.async_block_till_done()
     for key in ("white", "black", "peblar", "utility"):
+        # Active defaults still require observed idle hardware for registration.
+        hass.states.async_set("switch." + key, "off")
+        hass.states.async_set("sensor." + key + "_power", "0",
+                              {"unit_of_measurement": "W"})
+        hass.states.async_set("binary_sensor." + key + "_connected", "off")
+        await hass.async_block_till_done()
         runtime = hass.data[DOMAIN][entry.entry_id]
         await apply_native_preference(
             hass, entry, runtime, "charger", key,
@@ -1905,9 +1978,11 @@ async def test_new_install_dashboard_typed_four_chargers_four_assets(
         await hass.async_block_till_done()
     saved = entry.options["configuration"]
     assert len(saved["assets"]) == len(saved["chargers"]) == 4
-    assert all(c["control_owner"] == "external"
-               and c["physical_commissioned"] is False
+    assert all(c["control_owner"] == "multicharge"
+               and c["physical_commissioned"] is True
                for c in saved["chargers"])
+    assert all(a["target_soc"] == 80 and a["ready_by_repeat"] == "daily"
+               for a in saved["assets"])
     devices = dr.async_get(hass)
     assert devices.async_get_device_by_identifier(
         (DOMAIN, "charger/white"), entry.entry_id,
@@ -2001,6 +2076,16 @@ async def test_native_state_events_invalidate_identity_on_fast_replug(hass: Home
     assert confirmed["status"] == "confirmed"
     assert runtime.executor.connection_confirmation(charger, datetime.now(timezone.utc))
     original_epoch = confirmed["connected_at"]
+
+    # Actual HA timer callback: the helper advances HA scheduled time, not
+    # a fabricated state_changed Event. No automatic command for Inactive.
+    from datetime import timedelta
+    from pytest_homeassistant.common import async_fire_time_changed
+    from unittest.mock import patch
+    with patch.object(runtime, "refresh", wraps=runtime.refresh) as refresh:
+        async_fire_time_changed(hass, datetime.now(timezone.utc)+timedelta(minutes=1, seconds=2))
+        await hass.async_block_till_done()
+        assert refresh.call_count >= 1
 
     # Mapped connected substate transition preserves the same physical plug,
     # but does not bypass actual writer ownership or issue a command.
@@ -2120,6 +2205,30 @@ async def test_ha_idle_rebind_is_atomic_and_keeps_logical_device_ids(hass: HomeA
             hass, entry, runtime, "charger", "c1", {"asset": "a"},
             expected_revision=previous_revision,
         )
+    # A committed revision can precede the asynchronous runtime update.
+    # A second native writer without a supplied revision must not overwrite it.
+    from copy import deepcopy
+    applied = deepcopy(runtime.configuration)
+    pending = deepcopy(entry.options["configuration"])
+    pending["controller"]["name"] = "First committed edit"
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, "configuration": pending},
+    )
+    await hass.async_block_till_done()
+    # HA may dispatch the listener eagerly; explicitly reproduce the
+    # unapplied runtime snapshot rather than assuming a scheduling order.
+    runtime.configuration = applied
+    try:
+        with pytest.raises(ValueError, match="stale_settings"):
+            await apply_native_preference(
+                hass, entry, runtime, "controller", "home", {"name": "Stale edit"},
+            )
+    finally:
+        runtime.configuration = pending
+        runtime.refresh()
+    await hass.async_block_till_done()
+    assert entry.options["configuration"]["controller"]["name"] == "First committed edit"
+    assert runtime.configuration["controller"]["name"] == "First committed edit"
     assert hass.states.get("switch.c1").state == "off"
     assert hass.states.get("switch.c2").state == "off"
     assert await hass.config_entries.async_unload(entry.entry_id)

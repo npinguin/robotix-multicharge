@@ -847,6 +847,30 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         await rt.executor.supervise()
         self.assertEqual(services.calls[-1][1], "turn_off")
 
+    async def test_quarter_grant_rechecks_changed_configuration_before_start(self):
+        rt, states, services = rig(mode="Automatic")
+        at = datetime.now(timezone.utc)
+        quarter = at.replace(minute=(at.minute // 15) * 15, second=0, microsecond=0)
+        for source in states.values():
+            source.last_updated = quarter + timedelta(seconds=1)
+        rt.refresh(quarter)
+        self.assertTrue(rt.assessment.plan.slots)
+        original = rt.persist_control_state
+        changed = False
+
+        async def settings_during_commit():
+            nonlocal changed
+            if not changed:
+                changed = True
+                rt.configuration["assets"][0]["priority"] = 10
+            return await original()
+
+        rt.persist_control_state = settings_during_commit
+        await rt.executor.advance_plan(quarter)
+        self.assertEqual(services.calls, [])
+        self.assertEqual(rt.executor.snapshot()["evse"]["reason"], "PLAN_SLOT_NOT_AUTHORIZED")
+        self.assertFalse(rt.executor.accepted_slots())
+
     async def test_economy_solar_without_sources_never_auto_start(self):
         for mode in ("Economy", "Solar"):
             rt, states, services = rig(mode=mode)

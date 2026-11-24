@@ -170,9 +170,6 @@ const MC_DAY_NAMES={
   mon:"Monday",tue:"Tuesday",wed:"Wednesday",thu:"Thursday",
   fri:"Friday",sat:"Saturday",sun:"Sunday"
 };
-const MC_CLOCKS=Array.from({length:96},(_,index)=>
-  String(Math.floor(index/4)).padStart(2,"0")+":"+
-  String((index%4)*15).padStart(2,"0"));
 for(const [locale,terms] of Object.entries({
   nl:{"Once":"Eenmalig","Daily":"Dagelijks","Specific days":"Specifieke dagen",
     "Monday":"Maandag","Tuesday":"Dinsdag","Wednesday":"Woensdag",
@@ -211,7 +208,7 @@ const MC_STYLE = [
   ".tabs button[aria-selected=true]{color:var(--primary-color,#1976d2);border-bottom-color:var(--primary-color,#1976d2);background:transparent;font-weight:650}button.active{background:var(--primary-color,#1976d2);color:var(--text-primary-color,#fff);border-color:var(--primary-color,#1976d2)}",
   "button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid var(--primary-color,#1976d2);outline-offset:2px}",
   ".grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}",
-  ".card{border:1px solid var(--divider-color,#e1e4e8);border-radius:10px;padding:14px;min-width:0;margin:8px 0}.settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr));gap:12px;margin-top:14px}.settings-card{margin:0;min-height:72px}.settings-card.expanded{grid-column:1/-1}.settings-heading{min-width:0;flex:1}.settings-heading p{margin-top:5px}.settings-card .row{align-items:flex-start}.config-code{white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;border:1px solid var(--divider-color,#e1e4e8);border-radius:8px;background:var(--secondary-background-color,#f7f8fa);font-size:12px;line-height:1.5}",
+  ".card{border:1px solid var(--divider-color,#e1e4e8);border-radius:10px;padding:14px;min-width:0;margin:8px 0}.settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px}.settings-card{margin:0;min-height:0}.settings-card.expanded{grid-column:1/-1}.schedule-days{gap:4px}.schedule-days button{min-width:0;padding:7px 9px}.settings-heading{min-width:0;flex:1}.settings-heading p{margin-top:5px}.settings-card .row{align-items:flex-start}.config-code{white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;border:1px solid var(--divider-color,#e1e4e8);border-radius:8px;background:var(--secondary-background-color,#f7f8fa);font-size:12px;line-height:1.5}",
   ".mc-icon{--mdc-icon-size:20px;display:inline-block;vertical-align:middle;margin-right:6px;flex:none;color:var(--primary-color,#1976d2)}.mc-icon.good{color:var(--success-color,#278355)}.mc-icon.warn{color:var(--warning-color,#b57418)}.mc-icon.bad{color:var(--error-color,#d43b38)}.mc-icon.quiet{color:var(--secondary-text-color,#65717e)}.mc-icon.solar{color:var(--warning-color,#b57418)}button .mc-icon{--mdc-icon-size:18px;color:inherit}.tabs .mc-icon{color:inherit}.metric .mc-icon{--mdc-icon-size:24px}.soc-track{height:8px;border-radius:6px;background:var(--divider-color,#ddd);overflow:hidden;margin:7px 0}.soc-fill{height:100%;background:var(--primary-color,#1976d2);border-radius:6px}.message[role=alert]{color:var(--error-color,#d43b38);white-space:pre-wrap;overflow-wrap:anywhere}",
   ".metric{background:var(--secondary-background-color,#f6f8fa);border:1px solid var(--divider-color,#e1e4e8);border-radius:10px;padding:15px;min-width:0}",
   ".row{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}",
@@ -230,6 +227,7 @@ const MC_STYLE = [
   ".owner-inventory{margin-top:14px;border-top:1px solid var(--divider-color,#bbb);padding-top:12px}.owner-inventory>h4{font-size:15px;margin:0 0 9px}.owner-group{margin:7px 0 12px;padding:8px 10px;border:1px solid var(--divider-color,#ccc);border-radius:8px;min-width:0}.owner-group h4{font-size:13px;margin:0 0 8px}.owner-group .pair{word-break:break-word}.owner-configure{margin-top:8px}.owner-configure a{display:inline-block;margin-top:4px}.owner-hint{font-size:12px}.owner-inventory .row{flex-wrap:wrap}",
   ".combined-plan{margin:12px 0 18px}.combined-plan svg{display:block;width:100%;height:auto;min-width:0}.combined-plan .chart{overflow:hidden}.lane-summary{overflow-wrap:anywhere}.quick-goal{margin:10px 0;padding:10px;border:1px solid var(--divider-color,#ddd);border-radius:9px;background:var(--secondary-background-color,#f6f8fa)}.quick-goal h4{font-size:14px;margin:0 0 6px}.goal-controls{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(90px,1fr);gap:10px}.quick-goal button{margin-top:6px}.schedule-editor{margin:8px 0}.overview-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}",
   "@media(max-width:600px){.goal-controls{grid-template-columns:1fr}.quick-goal{padding:9px}.combined-plan svg text{font-size:10px}.plan-lane{padding:8px}}",
+  ".vehicle-summary{margin:8px 0}.vehicle-target{display:flex;align-items:baseline;gap:6px}.vehicle-soc{font-size:26px;line-height:1.2}.vehicle-state{text-align:right}.vehicle-deadline{font-size:13px}.goal-outcome{border-top:1px solid var(--divider-color,#ddd);padding-top:9px;margin:9px 0}.goal-status{display:block;font-size:14px}.goal-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0}.goal-metric{display:flex;flex-direction:column;gap:2px;overflow-wrap:anywhere}.goal-metric strong{font-size:15px}.goal-track{position:relative;height:28px;margin:8px 3px 5px;background:var(--secondary-background-color,#eaecef);border-radius:5px}.goal-window{position:absolute;top:5px;bottom:5px;border-radius:3px;box-sizing:border-box}.goal-window.conditional{opacity:.65;border:1px dashed currentColor}.goal-deadline-marker{position:absolute;top:-3px;bottom:-3px;border-left:2px dashed var(--primary-text-color,#222)}.goal-ticks{position:relative;height:17px;font-size:10px;display:block}.goal-ticks>span{position:absolute;white-space:nowrap}.schedule-days button{border-radius:20px;flex:1}.schedule-modes{gap:4px}.schedule-modes button{flex:1;min-width:0;padding:7px}.schedule-actions{justify-content:space-between}.schedule-time .field{display:flex;flex-direction:row;justify-content:space-between;align-items:center}.schedule-time input{width:auto;max-width:100%;min-width:0}.goal-timeline{margin:9px 0}",
   ".plan-key{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:6px 0;font-size:12px}",
   ".plan-swatch{width:12px;height:12px;border-radius:3px;display:inline-block;margin-right:4px}",
   ".plan-caution{font-size:12px;color:var(--secondary-text-color,#65717e);line-height:1.5}",
@@ -290,13 +288,13 @@ function mcAssetIcon(a){
   return a.temporary?"account-clock-outline":({car:"car-electric-outline",bicycle:"bicycle",
     motorcycle:"motorbike",scooter:"scooter-electric",other:"battery-outline"}[a.kind]||"battery-outline");
 }
-function mcSocBar(container,observation){
+function mcSocBar(container,observation,color){
   if(observation?.quality!=="ok"||typeof observation.value!=="number"||
       !Number.isFinite(observation.value)||observation.value<0||observation.value>100)return;
   const track=mcEl("div","soc-track");track.setAttribute("role","progressbar");
   track.setAttribute("aria-label",mcTr("Battery"));track.setAttribute("aria-valuemin","0");
   track.setAttribute("aria-valuemax","100");track.setAttribute("aria-valuenow",String(observation.value));
-  const fill=mcEl("div","soc-fill");fill.style.width=observation.value+"%";track.append(fill);container.append(track);
+  const fill=mcEl("div","soc-fill");fill.style.width=observation.value+"%";if(color)fill.style.background=color;track.append(fill);container.append(track);
 }
 function mcButton(text, action, css) {
   const node = mcEl("button", css || "", text);
@@ -1010,6 +1008,9 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._tab="Overview";
     this._day="today";
     this._filter="";
+    this._preferenceKey=null;
+    this._restoredFilter=null;
+    this._noEntry=false;
     this._open="";
     this._folds={}; // disclosure-only UI state; never configuration or charging truth
     this._settingsOpen="";
@@ -1022,6 +1023,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     // Local, unsubmitted form values only; not an execution or settings store.
     this._manualDrafts={};
     this._calendarDrafts={};
+    this._batteryDrafts={};
+    this._batteryEditor="";
     this._windowsOpen="";
     this._settingsBusy=false;
     this._settingsFeedback=null;
@@ -1037,6 +1040,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._refreshPending=false;
     this._historyFetchedAt=0;
     this._historyKey="";
+    this._queryScope="";
+    this._snapshotDay=null;
     this._pendingNative=null;
     this._editingField="";
     this._confirmDelete="";
@@ -1045,8 +1050,36 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._yamlBaselineRevision=null;
     this._yamlCommittedRevision=null;
   }
-  canManage(){return this._hass?.user?.is_admin===true;}
-  canEditSettings(){return this.canManage()&&!this._data?.configuration_managed_by_yaml;}
+  canManage(){return this._hass?.user?.is_admin===true&&!this._error;}
+  canEditSettings(){return this.canManage()&&Boolean(this._data)&&!this._data.configuration_managed_by_yaml;}
+  restoreViewPreferences(hass){
+    // Browser-only display choices: never persist commands, goals or sources.
+    const id=hass?.user?.id;
+    if(!id)return;
+    const key="robotix.multicharge.view.v1."+id;
+    if(key===this._preferenceKey)return;
+    this._preferenceKey=key;
+    try{
+      const saved=JSON.parse(globalThis.localStorage?.getItem(key)||"null");
+      if(["today","tomorrow","both"].includes(saved?.day))this._day=saved.day;
+      this._restoredFilter=typeof saved?.filter==="string"?saved.filter:"";
+    }catch(_error){this._restoredFilter="";}
+  }
+  rememberViewPreferences(){
+    if(!this._preferenceKey)return;
+    try{globalThis.localStorage?.setItem(this._preferenceKey,
+      JSON.stringify({day:this._day,filter:this._filter}));}catch(_error){}
+  }
+  validViewFilter(filter,configuration){
+    return !filter||(configuration?.chargers||[]).some(x=>filter==="charger:"+x.id)||
+      (configuration?.assets||[]).some(x=>filter==="asset:"+x.id);
+  }
+  selectViewRange(day,filter=this._filter){
+    this._day=day;this._filter=filter;this._restoredFilter=null;
+    this.rememberViewPreferences();
+    this._last=0;
+    if(this._loading)this._refreshPending=true;else void this.load();
+  }
   watchedEntities(){
     const data=this._data||{},cfg=data.configuration||{},refs=data.preference_entities||{};
     const ids=new Set();
@@ -1070,6 +1103,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       tab==="Chargeable Assets"&&this._editingField.startsWith("asset:")||
       tab==="Chargers"&&this._editingField.startsWith("charger:")));
     return Boolean(this._unsavedInput||scopedEdit||this._yamlEditorOpen||
+      (this._batteryEditor&&["Overview","Chargeable Assets","Charging Plan"].includes(tab))||
       tab==="Chargeable Assets"&&(
         this._assetEditor||this._assignmentEditor||
         this._goalEditor||this._scheduleEditor||this._windowsOpen)||
@@ -1105,7 +1139,9 @@ class RobotixMultiChargeCard extends HTMLElement {
       this._refreshTimer=null;
       if(this._loading){this._refreshPending=true;return;}
       this._last=0;this.load();
-    },Math.max(350, 2500-(Date.now()-this._last)));
+    },this._error?5000:Math.max(350, 2500-(Date.now()-this._last)));
+    // Does nothing in browsers; lets the source-only Node fixture exit.
+    this._refreshTimer?.unref?.();
   }
   disconnectedCallback(){
     if(this._refreshTimer!==null)clearTimeout(this._refreshTimer);
@@ -1116,6 +1152,7 @@ class RobotixMultiChargeCard extends HTMLElement {
   set hass(value){
     const before=this._hass;
     this._hass=value;
+    this.restoreViewPreferences(value);
     if(this._pendingNative&&value?.states?.[this._pendingNative.entity]?.state===
         this._pendingNative.expected){
       this._pendingNative=null;
@@ -1130,18 +1167,36 @@ class RobotixMultiChargeCard extends HTMLElement {
   }
   async load(){
     if(!this._hass||this._loading)return;
-    this._loading=true;this._error="";if(!this._data)this.passiveRender();
+    this._loading=true;if(!this._data)this.passiveRender();
+    const requestedDay=this._day,requestedFilter=this._filter,requestedTab=this._tab;
+    // A personal plan filter must not hide other vehicles' status/history.
+    const queryFilter=requestedTab==="Charging Plan"?requestedFilter:"";
     try {
-      const historyKey=this._day+"|"+this._filter;
+      const historyKey=requestedDay+"|"+queryFilter;
       const wantsHistory=["Charging Plan","Chargeable Assets","Chargers"].includes(this._tab);
       const beforeData=this._data;
-      const cmd={type:"robotix_multicharge/get_plan",day:this._day,
+      const cmd={type:"robotix_multicharge/get_plan",day:requestedDay,
         include_history:wantsHistory&&(!beforeData||this._historyKey!==historyKey||
           Date.now()-this._historyFetchedAt>=30000||
           beforeData.actual_history_quality==="NOT_REQUESTED")};
-      if(this._filter.startsWith("charger:"))cmd.charger_id=this._filter.slice(8);
-      if(this._filter.startsWith("asset:"))cmd.asset_id=this._filter.slice(6);
+      if(queryFilter.startsWith("charger:"))cmd.charger_id=queryFilter.slice(8);
+      if(queryFilter.startsWith("asset:"))cmd.asset_id=queryFilter.slice(6);
       const nextData=await this._hass.callWS(cmd);
+      if(requestedDay!==this._day||
+          queryFilter!==(this._tab==="Charging Plan"?this._filter:"")){
+        this._refreshPending=true;return;
+      }
+      this._error="";this._noEntry=false;
+      if(this._restoredFilter!==null){
+        const restored=this._restoredFilter;
+        this._restoredFilter=null;
+        if(restored&&this.validViewFilter(restored,nextData.configuration)){
+          this._filter=restored;this._refreshPending=true;
+        }
+        this.rememberViewPreferences();
+      }else if(!this.validViewFilter(this._filter,nextData.configuration)){
+        this._filter="";this.rememberViewPreferences();this._refreshPending=true;
+      }
       if(cmd.include_history){
         this._historyKey=historyKey;this._historyFetchedAt=Date.now();
       }else if(beforeData&&this._historyKey===historyKey&&
@@ -1168,6 +1223,8 @@ class RobotixMultiChargeCard extends HTMLElement {
       for(const id of Object.keys(this._manualDrafts))
         if(!chargerIds.has(id))delete this._manualDrafts[id];
       this._data=nextData;
+      this._queryScope=queryFilter;
+      this._snapshotDay=requestedDay;
       if(this._yamlCommittedRevision&&
          this._data.configuration_revision===this._yamlCommittedRevision){
         this._yamlEditorOpen=false;
@@ -1178,14 +1235,34 @@ class RobotixMultiChargeCard extends HTMLElement {
       }
       if(this._pendingSettings&&
          this._data.configuration_revision===this._pendingSettings.expected_revision){
+        const pending=this._pendingSettings;
         this._settingsFeedback={status:"confirmed",message:"Saved"};
         this._pendingSettings=null;
+        if(pending.scope==="asset"){
+          const id=pending.targetId,fields=pending.fields||[];
+          if(fields.includes("capacity_kwh")&&fields.includes("charge_efficiency")){
+            delete this._batteryDrafts[id];if(this._batteryEditor===id)this._batteryEditor="";
+          }
+          if(fields.includes("ready_by_repeat")){
+            delete this._calendarDrafts[id];if(this._scheduleEditor===id)this._scheduleEditor="";
+          }
+          if(fields.includes("requested_kwh")&&fields.includes("requested_duration_minutes")){
+            delete this._goalDrafts[id];if(this._goalEditor===id)this._goalEditor="";
+          }
+        }
       }
       this._last=Date.now();
     }catch(error){
       this._error=error && (error.message||error.code) ? String(error.message||error.code) : "Read access unavailable";
-      this._data=null;
+      this._noEntry=this._error.includes("NO_CONFIG_ENTRY");
+      if(this._noEntry)this._data=null;
+      // A deleted selection can make a filtered query invalid. Retry the
+      // unfiltered snapshot, never show data from the wrong selected range.
+      if(requestedFilter&&this._error.includes("Invalid plan scope")){
+        this._filter="";this.rememberViewPreferences();this._refreshPending=true;
+      }
       this._last=Date.now();
+      if(!this._noEntry)this._refreshPending=true;
     }finally{
       this._loading=false;this.passiveRender();
       if(this._refreshPending){
@@ -1238,7 +1315,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       });
       if(receipt.status!=="accepted_unconfirmed"||!receipt.expected_revision)
         throw new Error("Settings change was not admitted");
-      this._pendingSettings={expected_revision:receipt.expected_revision};
+      this._pendingSettings={expected_revision:receipt.expected_revision,scope,targetId,fields:Object.keys(changes)};
       this._settingsFeedback={status:"accepted_unconfirmed",message:"Pending"};
       this._last=0;
       admitted=true;
@@ -1249,7 +1326,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         "Stop charging before changing charger":
         detail.includes("CHARGER_HAS_OTHER_ASSET")?
           "Unassign the other vehicle first":
-        detail.includes("STALE_SETTINGS_REFRESH")?
+        (detail.includes("STALE_SETTINGS_REFRESH")||detail.includes("stale_settings"))?
           "Settings changed; refresh and retry":
         detail.includes("SETTINGS_REJECTED")?
           "Settings rejected; check source, value and physical idle status":
@@ -1583,54 +1660,104 @@ class RobotixMultiChargeCard extends HTMLElement {
       const day=new Intl.DateTimeFormat("en-US",{timeZone:zone,weekday:"short"}).format(new Date(asset.ready_by)).toLowerCase();
       savedDays[day]=anchor.hour+":"+anchor.minute;
     }
+    const savedTimes=Object.values(savedDays);
     const draft=this._calendarDrafts[asset.id]||{
       mode:asset.ready_by_repeat==="weekly"?"specific_days":asset.ready_by_repeat==="daily"?"daily":
         asset.ready_by_repeat==="specific_days"?"specific_days":asset.ready_by?"once":"none",
       date:anchor?anchor.year+"-"+anchor.month+"-"+anchor.day:today.year+"-"+today.month+"-"+today.day,
-      clock:anchor?anchor.hour+":"+anchor.minute:"",
-      days:savedDays
+      clock:anchor?anchor.hour+":"+anchor.minute:savedTimes[0]||"",
+      days:savedDays,overrides:new Set(savedTimes).size>1
     };
-    container.append(mcEl("h4","specific-day-calendar",mcTr("Charging days")));
-    const choice=this.field(container,mcTr("Charging schedule"),draft.mode,null,[
-      ["none",mcTr("No deadline")],["once",mcTr("Once")],["daily",mcTr("Daily")],
-      ["specific_days",mcTr("Specific days")]
-    ]);
     const remember=()=>{this._calendarDrafts[asset.id]=draft;this._unsavedInput=true;};
-    choice.addEventListener("change",()=>{draft.mode=choice.value;remember();this.render();});
-    if(draft.mode==="once"){
-      const date=this.field(container,mcTr("Date"),draft.date,"date");
-      date.addEventListener("input",()=>{draft.date=date.value;remember();});
-      date.addEventListener("change",()=>{draft.date=date.value;remember();});
+    container.append(mcEl("h4","specific-day-calendar",mcTr("Charging days")));
+    const choices=mcEl("div","chips schedule-modes");
+    choices.setAttribute("aria-label",mcTr("Charging schedule"));
+    for(const [mode,label] of [["once","Once"],["daily","Daily"],["specific_days","Specific days"],["none","No deadline"]]){
+      const button=mcButton(mcTr(label),()=>{
+        if(mode==="specific_days"&&draft.mode==="daily"&&!Object.keys(draft.days).length){
+          for(const day of Object.keys(MC_DAY_NAMES))draft.days[day]=draft.clock;
+        }
+        draft.mode=mode;remember();this.render();
+      },draft.mode===mode?"active":"");
+      button.setAttribute("aria-pressed",String(draft.mode===mode));choices.append(button);
     }
-    if(draft.mode==="once"||draft.mode==="daily"){
-      const clock=this.field(container,mcTr("Ready By"),draft.clock,"time");
-      clock.addEventListener("input",()=>{draft.clock=clock.value;remember();});
-      clock.addEventListener("change",()=>{draft.clock=clock.value;remember();});
-      if(draft.mode==="daily")container.append(mcEl("p","muted small",mcTr("Every day")+" · Mon Tue Wed Thu Fri Sat Sun"));
-    }
-    if(draft.mode==="specific_days"){
-      for(const [day,label] of Object.entries(MC_DAY_NAMES)){
-        const select=this.field(container,mcTr(label),draft.days[day]||"off",null,[
-          ["off",mcTr("No day selected")],...MC_CLOCKS.map(hour=>[hour,hour])]);
-        select.addEventListener("change",()=>{if(select.value==="off")delete draft.days[day];else draft.days[day]=select.value;remember();});
+    container.append(choices);
+    if(draft.mode!=="none"){
+      if(draft.mode==="specific_days"){
+        const days=mcEl("div","chips schedule-days");
+        for(const [day,label] of Object.entries(MC_DAY_NAMES)){
+          const selected=Object.prototype.hasOwnProperty.call(draft.days,day);
+          const button=mcButton(mcTr(label).slice(0,3),()=>{
+            if(selected)delete draft.days[day];else draft.days[day]=draft.clock;
+            remember();this.render();
+          },selected?"active":"");
+          button.setAttribute("aria-label",mcTr(label));button.setAttribute("aria-pressed",String(selected));days.append(button);
+        }
+        container.append(days);
+      }
+      const line=mcEl("div","goal-controls schedule-time");
+      if(draft.mode==="once"){
+        const date=this.field(line,mcTr("Date"),draft.date,"date");
+        date.addEventListener("input",()=>{draft.date=date.value;remember();});
+        date.addEventListener("change",()=>{draft.date=date.value;remember();});
+      }
+      const clock=this.field(line,mcTr("Ready By"),draft.clock,"time");
+      const changeClock=()=>{
+        const previous=draft.clock;draft.clock=clock.value;
+        if(draft.mode==="specific_days"){
+          for(const day of Object.keys(draft.days)){
+            if(!draft.overrides||draft.days[day]===previous||!draft.days[day])draft.days[day]=clock.value;
+          }
+        }
+        remember();
+      };
+      clock.addEventListener("input",changeClock);clock.addEventListener("change",()=>{changeClock();this.render();});
+      container.append(line);
+      if(draft.mode==="specific_days"){
+        const toggle=mcButton(mcTr(draft.overrides?"Hide different times":"Different times per day"),()=>{
+          draft.overrides=!draft.overrides;remember();this.render();
+        });
+        toggle.setAttribute("aria-expanded",String(draft.overrides));container.append(toggle);
+        if(draft.overrides){
+          const overrides=mcEl("div","goal-controls");
+          for(const [day,label] of Object.entries(MC_DAY_NAMES)){
+            if(!Object.prototype.hasOwnProperty.call(draft.days,day))continue;
+            const time=this.field(overrides,mcTr(label),draft.days[day],"time");
+            const update=()=>{draft.days[day]=time.value;remember();};
+            time.addEventListener("input",update);time.addEventListener("change",update);
+          }
+          container.append(overrides);
+        }
       }
     }
+    const actions=mcEl("div","controls schedule-actions");
     const save=mcButton(mcTr("Save schedule"),async()=>{
       remember();
       let changes={ready_by_repeat:"none",ready_by:null,ready_by_weekdays:null};
+      const validClock=value=>/^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+      const reject=message=>{this._settingsFeedback={status:"rejected",message};this.showEditError(container);};
       if(draft.mode==="specific_days"){
-        if(!Object.keys(draft.days).length){this._settingsFeedback={status:"rejected",message:"Select at least one day"};this.showEditError(container);return;}
+        if(!Object.keys(draft.days).length)return reject("Select at least one day");
+        if(!Object.values(draft.days).every(validClock))return reject("Set Ready By time for selected days");
         changes.ready_by_repeat="specific_days";changes.ready_by_weekdays={...draft.days};
       }else if(draft.mode==="once"||draft.mode==="daily"){
-        if(!/^\d{2}:\d{2}$/.test(draft.clock)||!draft.date){this._settingsFeedback={status:"rejected",message:"Set Ready By time"};this.showEditError(container);return;}
+        if(!validClock(draft.clock)||!draft.date)return reject("Set Ready By time");
+        const localToday=today.year+"-"+today.month+"-"+today.day;
+        if(draft.mode==="once"&&draft.date+"T"+draft.clock<=localToday+"T"+today.hour+":"+today.minute)
+          return reject("Choose a future date and time");
         delete changes.ready_by;
         changes.ready_by_repeat=draft.mode==="daily"?"daily":"none";
-        changes.ready_by_local=(draft.mode==="daily"?today.year+"-"+today.month+"-"+today.day:draft.date)+"T"+draft.clock+":00";
+        changes.ready_by_local=(draft.mode==="daily"?localToday:draft.date)+"T"+draft.clock+":00";
       }
       const accepted=await this.saveSettings("asset",asset.id,changes);
-      if(accepted&&this._settingsFeedback?.status==="confirmed"){delete this._calendarDrafts[asset.id];this.render();}
+      if(accepted&&this._settingsFeedback?.status==="confirmed"){
+        delete this._calendarDrafts[asset.id];this._scheduleEditor="";this.render();
+      }
     });
-    save.disabled=this._settingsBusy;container.append(save);
+    save.disabled=this._settingsBusy;
+    save.className="active";
+    actions.append(mcButton(mcTr("Cancel"),()=>{delete this._calendarDrafts[asset.id];this._scheduleEditor="";this.render();}),save);
+    container.append(actions);
     this.nativeChargingWindowsEditor(container,asset);
   }
   nativeChargingWindowsEditor(container,asset){
@@ -1726,7 +1853,7 @@ class RobotixMultiChargeCard extends HTMLElement {
   }
   configure(container){
     // First installation only; configured runtime never navigates out for edits.
-    if(!this.canManage()||this._data)return;
+    if(this._hass?.user?.is_admin!==true||this._data||!this._noEntry)return;
     const link=mcEl("a","action",mcTr("Install MultiCharge once in Home Assistant"));
     link.href="/config/integrations/integration/robotix_multicharge";
     link.setAttribute("aria-label",mcTr("Home Assistant"));
@@ -1754,7 +1881,10 @@ class RobotixMultiChargeCard extends HTMLElement {
         this._yamlEditorOpen=false;
         this._yamlCommittedRevision=null;
         this.render();
-        if(["Charging Plan","Chargeable Assets","Chargers"].includes(item)&&this._data?.actual_history_quality==="NOT_REQUESTED"){
+        const scope=item==="Charging Plan"?this._filter:"";
+        if(this._queryScope!==scope||
+            (["Charging Plan","Chargeable Assets","Chargers"].includes(item)&&
+             this._data?.actual_history_quality==="NOT_REQUESTED")){
           if(this._loading)this._refreshPending=true;else{this._last=0;this.load();}
         }
       });
@@ -1764,12 +1894,14 @@ class RobotixMultiChargeCard extends HTMLElement {
     shell.append(tabs);
     if(this._loading&&!this._data)this.notice(shell,"Loading",false);
     if(this._error){
-      this.notice(shell,"Unavailable",true);
-      this.configure(shell);
+      this.notice(shell,this._noEntry?mcTr("Unavailable"):
+        "Connection interrupted · "+this._error+(this._data?" · Last available data (read-only)":""),
+        true);
+      if(this._noEntry)this.configure(shell);
     }else if(!this._data&&!this._loading){
       this.notice(shell,"Unavailable",true);
-      this.configure(shell);
-    }else if(this._data){
+    }
+    if(this._data){
       if(this._tab==="Overview")this.overview(shell);
       if(this._tab==="Charging Plan")this.plan(shell);
       if(this._tab==="Chargeable Assets")this.assets(shell);
@@ -1824,7 +1956,6 @@ class RobotixMultiChargeCard extends HTMLElement {
       }
       metrics.append(el);
     }
-    container.append(metrics);
     const mode=(c.controller||{}).mode||"Off";
     const chips=mcEl("div","chips");chips.append(mcEl("p","muted",mcTr("Charging mode")+" · "+mode));
     for(const item of this.canEditSettings()?MC_MODES:[]){
@@ -1834,21 +1965,18 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(item===mode)button.className="active";
       chips.append(button);
     }
-    container.append(chips);
+    // Goal cards first; site-wide context remains directly below them.
     this.feedback(container);
     for(const a of assets){
-      const card=mcEl("div","card");const observed=((d.observations||{}).assets||{})[a.id]||{};
+      const card=mcEl("div","card");
       const charger=chargers.find(x=>x.asset===a.id);
-      card.append(mcIconLabel(mcEl("h3","",a.name),a.name,mcAssetIcon(a)),mcEl("p","muted",
-        mcTr("Battery")+" "+mcValue(observed.soc,"%")+" · "+
-        mcTr("Charging goal")+" "+mcAssetGoalText(a)));
-      mcSocBar(card,observed.soc);
-      card.append(mcEl("p","small",mcTr("Ready By")+" "+mcTime(observed.next_ready_by??a.ready_by,d.timezone)+" · "+(charger?charger.name:mcTr("No charger assigned"))));
+      card.append(mcIconLabel(mcEl("h3","",a.name),a.name,mcAssetIcon(a)));
+      this.vehicleSummary(card,a,charger);
+      this.goalAssessment(card,a,charger);
       if(a.temporary)card.append(mcEl("p","small",mcTr("Guest")+" · "+mcTime(a.expires_at,d.timezone)));
       const controls=mcEl("div","overview-actions");
       controls.append(mcButton(mcTr("Charging plan"),()=>{
-        this._filter="asset:"+a.id;
-        this._tab="Charging Plan";this._last=0;this.load();
+        this._tab="Charging Plan";this.selectViewRange(this._day,"asset:"+a.id);
       }));
       if(this.canEditSettings()){
         controls.append(mcButton(mcTr("Set charging goal"),()=>{
@@ -1876,6 +2004,8 @@ class RobotixMultiChargeCard extends HTMLElement {
       card.append(controls);
       container.append(card);
     }
+    const site=mcEl("section","card");
+    site.append(mcEl("h3","",mcTr("Charging site")),metrics,chips);container.append(site);
     if(chargers.length){
       const quick=mcEl("section","card quick-owner-panel");
       quick.append(mcEl("h3","",mcTr("Quick charger assignment")));
@@ -1924,7 +2054,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     const day=mcEl("div","controls");
     for(const chosen of ["today","tomorrow","both"]){
       const b=mcButton(chosen==="today"?"Today":chosen==="tomorrow"?"Tomorrow":"48h",()=>{
-        this._day=chosen;this._last=0;this.load();
+        this.selectViewRange(chosen);
       },this._day===chosen?"active":"");
       day.append(b);
     }
@@ -1937,7 +2067,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       o.selected=this._filter===value;filter.append(o);
     }
     filter.value=this._filter;
-    filter.addEventListener("change",()=>{this._filter=filter.value;this._last=0;this.load();});
+    filter.addEventListener("change",()=>{this.selectViewRange(this._day,filter.value);});
     day.append(filter);container.append(day);
     const selectors=mcEl("div","controls");
     const option=(title,setting,value,variants)=>{
@@ -2043,8 +2173,9 @@ class RobotixMultiChargeCard extends HTMLElement {
         mcTime(readback.next_ready_by??selected?.ready_by,d.timezone)+
         (next?" · "+mcTr("Next charge")+" "+
           mcTime(next.start,d.timezone)+" · "+next.proposed_power_kw+" kW":""));
-      card.append(summary);
-      if(typeof shortfall==="number"&&shortfall>0)
+      if(!pastOnly&&selected){this.vehicleSummary(card,selected,charger);this.goalAssessment(card,selected,charger);}
+      else card.append(summary);
+      if(typeof shortfall==="number"&&shortfall>0&&!d.goal_assessments?.[charger.id])
         card.append(mcEl("p","plan-caution",mcTr("Shortfall")+" · "+
           shortfall.toFixed(2)+" kWh"));
       if(reason&&reason!=="PROPOSED"&&reason!=="TARGET_MET")
@@ -2066,6 +2197,8 @@ class RobotixMultiChargeCard extends HTMLElement {
         const item=assumptions[charger.id];
         card.append(mcEl("p","plan-caution",mcTr("Indicative")+" · "+
           (item.assumption==="IF_ACTIVATED"?mcTr("If activated"):item.assumption==="IF_CONNECTED_NOW"?mcTr("If connected now"):
+            item.assumption==="IF_SELECTED_VEHICLE_CONFIRMED"?mcTr("If selected vehicle is confirmed"):
+            item.assumption==="IF_CAPABILITY_VERIFIED"?mcTr("If charger capability is verified"):
             mcTr("Expected")+" "+mcTime(item.assumed_connection_at,d.timezone))+
           " · "+mcTr("Not reserved")));
       }
@@ -2168,7 +2301,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     container.append(fold);
     return fold;
   }
-  ownerFacts(container,scope,record){
+  ownerFacts(container,scope,record,primaryFields=[]){
     // Every accepted persisted field appears under the one owning Device.
     // Details are compact by default and fold independently by stable ID.
     const groups=MC_OWNER_GROUPS[scope]||[];
@@ -2186,13 +2319,16 @@ class RobotixMultiChargeCard extends HTMLElement {
       const key=scope+":"+record.id+":"+field;
       if(this.canEditSettings()&&!["id","physical_commissioned"].includes(field)){
         const edit=mcButton(mcTr("Edit"),()=>{
+          if(primaryFields.includes(field)){
+            this._settingsOpen=field==="phase_limits_a"?"Safety & limits":"Sources & bindings";
+          }
           this._editingField=this._editingField===key?"":key;this.render();
         });
         edit.setAttribute("aria-label",mcTr("Edit")+" "+mcTr(label)+" · "+record.name);
         line.append(edit);
       }
       parent.append(line);
-      if(this.canEditSettings()&&this._editingField===key)
+      if(this.canEditSettings()&&this._editingField===key&&!primaryFields.includes(field))
         this.dashboardEditField(parent,scope,record,field);
     };
     const fold=(title,fields,key)=>{
@@ -2226,6 +2362,151 @@ class RobotixMultiChargeCard extends HTMLElement {
       mcTr("Missing values are not assumed")));
     if(this.canEditSettings())this.dashboardDelete(wrapper,scope,record);
     container.append(wrapper);
+  }
+  vehicleSummary(card,asset,charger){
+    const d=this._data,obs=d.observations?.assets?.[asset.id]||{};
+    const connected=d.observations?.chargers?.[charger?.id]?.connected;
+    const connection=charger?(connected?.quality==="ok"?
+      (connected.value===true?mcTr("Connected"):mcTr("Disconnected")):mcTr("Connection unknown")):mcTr("Not assigned");
+    const activation=charger?mcTr(charger.control_owner==="multicharge"&&charger.physical_commissioned===true?"Active":"Inactive"):"";
+    const color=mcOwnerColor("asset",asset.id,d.configuration,d.plan_palette);
+    const summary=mcEl("div","vehicle-summary");
+    const row=mcEl("div","row");
+    const goal=mcEl("div","vehicle-target");
+    goal.append(mcEl("strong","vehicle-soc",mcValue(obs.soc,"%")),
+      mcEl("span","muted small"," → "+mcAssetGoalText(asset)));
+    const state=mcEl("div","vehicle-state muted small");
+    state.append(mcEl("div","",connection+(activation?" · "+activation:"")),
+      mcEl("div","",charger?.name||mcTr("No charger assigned")));
+    row.append(goal,state);summary.append(row);mcSocBar(summary,obs.soc,color);
+    const due=obs.next_ready_by!==undefined?obs.next_ready_by:asset.ready_by;
+    const schedule=mcEl("div","row vehicle-deadline");
+    const repeat=asset.ready_by_repeat==="daily"?mcTr("Daily"):
+      ["weekly","specific_days"].includes(asset.ready_by_repeat)?mcTr("Specific days"):due?mcTr("Once"):mcTr("No deadline");
+    schedule.append(mcEl("strong","",repeat),mcEl("span","",due?mcTr("Ready By")+" · "+mcTime(due,d.timezone):""));
+    summary.append(schedule);card.append(summary);
+  }
+  goalTimeline(container,goal,color){
+    const windows=goal.timeline_windows||[];
+    const start=Date.parse(goal.timeline_start),horizon=Date.parse(goal.timeline_end);
+    if(!windows.length||!Number.isFinite(start)||!Number.isFinite(horizon)||horizon<=start)return;
+    const finish=Date.parse(goal.planned_finish_at),deadline=Date.parse(goal.deadline);
+    // Crop to relevant future interval without inventing a deadline/slot.
+    const end=Math.min(horizon,Math.max(start+3600000,
+      Number.isFinite(finish)?finish:start,Number.isFinite(deadline)?deadline+3600000:start));
+    if(end<=start)return;
+    const pos=value=>Math.max(0,Math.min(100,100*(value-start)/(end-start)));
+    const block=mcEl("div","goal-timeline");
+    block.setAttribute("aria-label",mcTr(goal.conditional?"Indicative charging plan":"Charging plan"));
+    block.append(mcEl("div","muted small",mcTr(goal.conditional?"Indicative charging plan":"Charging plan")));
+    const track=mcEl("div","goal-track");
+    for(const item of windows){
+      const a=Date.parse(item.start),b=Date.parse(item.end);
+      if(!Number.isFinite(a)||!Number.isFinite(b)||b<=a||b<=start||a>=end)continue;
+      const slot=mcEl("span","goal-window"+(goal.conditional?" conditional":""));
+      slot.style.left=pos(a)+"%";slot.style.width=(pos(b)-pos(a))+"%";
+      slot.style.background=color;slot.title=mcTime(item.start,this._data.timezone)+" – "+mcTime(item.end,this._data.timezone);
+      track.append(slot);
+    }
+    if(Number.isFinite(deadline)&&deadline>=start&&deadline<=end){
+      const marker=mcEl("span","goal-deadline-marker");
+      marker.style.left=pos(deadline)+"%";marker.title=mcTr("Ready By")+" "+mcTime(goal.deadline,this._data.timezone);
+      marker.setAttribute("aria-label",marker.title);track.append(marker);
+    }
+    block.append(track);
+    const labels=mcEl("div","row goal-ticks muted small");
+    const middle=Math.round((start+(end-start)/2)/3600000)*3600000;
+    for(const t of [start,...(middle>start&&middle<end?[middle]:[]),end]){
+      const tick=mcEl("span","",new Date(t).toLocaleString(undefined,{
+        timeZone:this._data.timezone||"UTC",day:"numeric",hour:"2-digit",minute:"2-digit",hourCycle:"h23"
+      }));
+      tick.style.left=pos(t)+"%";
+      tick.style.transform=t===start?"none":t===end?"translateX(-100%)":"translateX(-50%)";
+      labels.append(tick);
+    }
+    block.append(labels);
+    if(Number.isFinite(deadline)&&deadline>=start&&deadline<=end)
+      block.append(mcEl("div","muted small",mcTr("Ready By")+" · "+mcTime(goal.deadline,this._data.timezone)));
+    container.append(block);
+  }
+  goalAssessment(card,asset,charger){
+    const goal=this._data?.goal_assessments?.[charger?.id];
+    if(!goal||goal.asset_id!==asset.id)return;
+    const labels={target_met:"Goal reached",achievable:"Goal achievable by deadline",
+      planned:"Goal planned",shortfall:"Goal not covered by current plan",
+      cannot_assess:"Cannot assess goal"};
+    const good=["target_met","achievable"].includes(goal.status);
+    const warn=["shortfall","cannot_assess"].includes(goal.status);
+    const result=mcEl("div","goal-outcome");
+    result.setAttribute("data-goal-status",goal.status);
+    const label=mcTr(labels[goal.status]||"Cannot assess goal");
+    result.append(mcIconLabel(mcEl("strong","goal-status "+(good?"confirmed":warn?"pending":""),label),
+      label,good?"check-circle-outline":warn?"alert-circle-outline":"clock-outline",good?"good":warn?"warn":"quiet"));
+    const metrics=mcEl("div","goal-metrics");
+    for(const [field,caption] of [["required_grid_kwh","Required"],["planned_grid_kwh","Planned"],["shortfall_grid_kwh","Shortfall"]]){
+      const cell=mcEl("div","goal-metric");
+      cell.append(mcEl("span","muted small",mcTr(caption)),
+        mcEl("strong","",typeof goal[field]==="number"&&Number.isFinite(goal[field])?goal[field].toFixed(2)+" kWh":mcTr("Unknown")));
+      metrics.append(cell);
+    }
+    result.append(metrics);
+    if(!goal.conditional||this._data.configuration?.controller?.show_indicative_forecast!==false)
+      this.goalTimeline(result,goal,mcOwnerColor("asset",asset.id,this._data.configuration,this._data.plan_palette));
+    if(goal.next_charge_at)result.append(mcEl("p","small",
+      mcTr("Next charge")+" · "+mcTime(goal.next_charge_at,this._data.timezone)));
+    if(goal.planned_finish_at)result.append(mcEl("p","small",
+      mcTr("Planned finish")+" · "+mcTime(goal.planned_finish_at,this._data.timezone)));
+    if(goal.conditional){
+      const assumption={IF_ACTIVATED:"If activated",IF_CONNECTED_NOW:"If connected now",
+        IF_SELECTED_VEHICLE_CONFIRMED:"If selected vehicle is confirmed",IF_CAPABILITY_VERIFIED:"If charger capability is verified",USER_EXPECTED_CONNECTION_TIME:"Expected connection"};
+      result.append(mcEl("p","muted small",mcTr("Indicative")+" · "+
+        (assumption[goal.assumption]?mcTr(assumption[goal.assumption])+" · ":"")+mcTr("Not reserved")));
+    }
+    if(goal.reason&&goal.reason!=="PROPOSED"&&goal.reason!=="TARGET_MET")
+      result.append(mcEl("p","muted small",mcReason(goal.reason)));
+    card.append(result);
+    const socGoal=asset.target_soc!==undefined&&
+      ["requested_kwh","requested_duration_minutes","requested_budget_amount"].every(k=>asset[k]==null);
+    if(socGoal&&goal.status!=="target_met"&&
+      (asset.capacity_kwh==null||asset.charge_efficiency==null)){
+      const missing=[asset.capacity_kwh==null?"Battery capacity":null,
+        asset.charge_efficiency==null?"Charging efficiency":null].filter(Boolean);
+      result.append(mcEl("p","plan-caution",missing.map(mcTr).join(" · ")));
+      if(this.canEditSettings()){
+        if(this._batteryEditor===asset.id)this.batteryEditor(result,asset);
+        else result.append(mcButton(mcTr("Complete battery data"),()=>{
+          this._batteryEditor=asset.id;this.render();
+        }));
+      }
+    }
+  }
+  batteryEditor(container,asset){
+    const draft=this._batteryDrafts[asset.id]||{
+      capacity:asset.capacity_kwh??"",efficiency:asset.charge_efficiency==null?"":asset.charge_efficiency*100
+    };
+    const form=mcEl("div","goal-controls");
+    const capacity=this.field(form,mcTr("Usable battery capacity (kWh)"),draft.capacity,"number");
+    const efficiency=this.field(form,mcTr("Charging efficiency (%)"),draft.efficiency,"number");
+    capacity.setAttribute("min","0.01");capacity.setAttribute("step","0.01");
+    efficiency.setAttribute("min","0.01");efficiency.setAttribute("max","100");efficiency.setAttribute("step","0.1");
+    const remember=()=>{this._batteryDrafts[asset.id]={capacity:capacity.value,efficiency:efficiency.value};this._unsavedInput=true;};
+    capacity.addEventListener("input",remember);efficiency.addEventListener("input",remember);
+    container.append(form,mcEl("p","muted small",mcTr("Use the vehicle's usable battery capacity and your charging efficiency estimate. No value is assumed.")));
+    const actions=mcEl("div","controls");
+    const save=mcButton(mcTr("Save battery data"),async()=>{
+      remember();
+      const kwh=Number(capacity.value),pct=Number(efficiency.value);
+      if(!capacity.value.trim()||!efficiency.value.trim()||!Number.isFinite(kwh)||kwh<=0||!Number.isFinite(pct)||pct<=0||pct>100){
+        this._settingsFeedback={status:"rejected",message:"Enter a positive capacity and efficiency between 0 and 100%"};this.showEditError(container);return;
+      }
+      const accepted=await this.saveSettings("asset",asset.id,{capacity_kwh:kwh,charge_efficiency:pct/100});
+      if(accepted&&this._settingsFeedback?.status==="confirmed"){
+        delete this._batteryDrafts[asset.id];this._batteryEditor="";this.render();
+      }
+    });
+    save.disabled=this._settingsBusy;
+    actions.append(save,mcButton(mcTr("Cancel"),()=>{delete this._batteryDrafts[asset.id];this._batteryEditor="";this.render();}));
+    container.append(actions);
   }
   assetGoalEditor(card,asset){
     const kind=asset.requested_budget_amount!==undefined?"budget":
@@ -2280,11 +2561,17 @@ class RobotixMultiChargeCard extends HTMLElement {
         changes.requested_budget_amount=number;
         changes.requested_budget_currency="EUR";
       }
-      delete this._goalDrafts[asset.id];
-      void this.saveSettings("asset",asset.id,changes,"save");
+      void (async()=>{
+        const accepted=await this.saveSettings("asset",asset.id,changes,"save");
+        if(accepted&&this._settingsFeedback?.status==="confirmed"){
+          delete this._goalDrafts[asset.id];this._goalEditor="";this.render();
+        }
+      })();
     });
     action.disabled=this._settingsBusy;
-    form.append(controls,action);
+    form.append(controls,action,mcButton(mcTr("Cancel"),()=>{
+      delete this._goalDrafts[asset.id];this._goalEditor="";this.render();
+    }));
     if(draft.mode==="budget")form.append(mcEl("p","muted small",
       mcTr("Indicative energy budget, not a guaranteed electricity bill")));
     card.append(form);
@@ -2307,41 +2594,22 @@ class RobotixMultiChargeCard extends HTMLElement {
       const obs=((d.observations||{}).assets||{})[a.id]||{};
       const header=mcEl("div","row");header.append(mcIconLabel(mcEl("h3","",a.name),a.name,mcAssetIcon(a)),mcButton(this._open===a.id?"Hide details":"Details",()=>{this._open=this._open===a.id?"":a.id;this.render();}));
       card.append(header);
-      const chip=mcEl("div","plan-key"),dot=mcEl("span","plan-swatch");
-      dot.style.background=mcOwnerColor("asset",a.id,d.configuration,d.plan_palette);
-      chip.append(dot,mcEl("span","muted small",mcTr("Plan color")+" · "+mcTr(a.plan_color||"blue")));
-      card.append(chip);
-      const kinds={
-        car:"Car",bicycle:"Bicycle",motorcycle:"Motorcycle",scooter:"Scooter",other:"Other"
-      };
-      mcPair(card,"Asset type",mcTr(kinds[a.kind]||a.kind||"Other"));
-      mcPair(card,"Battery",mcValue(obs.soc,"%"));
-      mcSocBar(card,obs.soc);
-      mcPair(card,"Effective charging power",mcValue(obs.effective_power_kw," kW"));
-      mcPair(card,"Target",a.target_soc===undefined?"Not set":a.target_soc+"%");
-      mcPair(card,"Ready By",mcTime(obs.next_ready_by!==undefined?obs.next_ready_by:a.ready_by,d.timezone));
-      mcPair(card,"Charger",charger?charger.name:"Not assigned");
-      mcPair(card,mcTr("Charging goal"),mcAssetGoalText(a));
-      mcPair(card,mcTr("Charging pattern"),a.continuous_charging?
-        mcTr("One continuous charge"):mcTr("Flexible cheapest quarters"));
-      if(a.maximum_price_per_kwh!==undefined)mcPair(card,
-        mcTr("Price ceiling per kWh"),
-        a.maximum_price_per_kwh+" "+(a.price_currency||"")+"/kWh");
-      // Novice: one complete visible goal editor on the first/focused
-      // object, the same one-click action for every other asset.
-      const goalVisible=this._goalEditor===a.id||
-        (this._goalEditor===""&&arranged[0]?.id===a.id);
+      this.vehicleSummary(card,a,charger);
+      this.goalAssessment(card,a,charger);
+      card.append(mcEl("p","muted small",mcTr("Effective charging power")+" · "+mcValue(obs.effective_power_kw," kW")));
+      // One explicit action opens the goal editor; the default view is a summary.
+      const goalVisible=this._goalEditor===a.id;
       if(goalVisible)this.assetGoalEditor(card,a);
       else if(this.canEditSettings())card.append(mcButton(
         mcTr("Set charging goal"),()=>{
-          this._goalEditor=a.id;this.render();
+          this._goalEditor=a.id;this._scheduleEditor="";this._assignmentEditor="";this.render();
         }));
       if(this.canEditSettings()){
         const calendar=mcButton(
           this._scheduleEditor===a.id?mcTr("Hide charging schedule"):
             mcTr("Schedule charging"),()=>{
             this._scheduleEditor=this._scheduleEditor===a.id?"":a.id;
-            this.render();
+            this._goalEditor="";this._assignmentEditor="";this.render();
           });
         calendar.disabled=this._settingsBusy;
         card.append(calendar);
@@ -2356,7 +2624,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         const change=mcButton(
           mcTr(charger?"Change charger":"Assign charger"),()=>{
             this._assignmentEditor=this._assignmentEditor===a.id?"":a.id;
-            this.render();
+            this._goalEditor="";this._scheduleEditor="";this.render();
           }
         );
         change.disabled=this._settingsBusy;
@@ -2456,7 +2724,7 @@ class RobotixMultiChargeCard extends HTMLElement {
           deadline.append(mcButton(mcTr("Set charging deadline"),()=>
             this.openNative("asset",a.id,"ready_by")));
         detail.append(deadline);
-        if(this._scheduleEditor!==a.id)this.nativeRepeatEditor(detail,a);
+        // Schedule has one resident editor; native owner fields remain in Details.
         // Native upstream price/SoC policy remains Asset-owned and one
         // Config Entry preference; this view never stores price decisions.
         mcPair(detail,mcTr("Price currency"),
@@ -2542,16 +2810,20 @@ class RobotixMultiChargeCard extends HTMLElement {
         ["motorcycle",mcTr("Motorcycle")],["scooter",mcTr("Scooter")],
         ["other",mcTr("Other")]
       ]);
-      const goal=this.field(form,mcTr("Charging goal"),"energy",null,[
-        ["energy",mcTr("Energy (kWh)")],["duration",mcTr("Duration (minutes)")],
-        ["budget",mcTr("Budget (€)")],["none",mcTr("Set later")]
+      const goal=this.field(form,mcTr("Charging goal"),"soc",null,[
+        ["soc",mcTr("Battery target (%)")],["energy",mcTr("Energy (kWh)")],
+        ["duration",mcTr("Duration (minutes)")],["budget",mcTr("Budget (€)")],
+        ["none",mcTr("Set later")]
       ]);
-      const amount=this.field(form,mcTr("Charging amount"),"","number");
+      const amount=this.field(form,mcTr("Charging amount"),"80","number");
+      form.append(mcEl("p","muted small","New permanent cars: Daily · 06:00 (local time)."));
+      kind.addEventListener("change",()=>{goal.value=kind.value==="car"?"soc":"none";amount.value=kind.value==="car"?"80":"";});
+      goal.addEventListener("change",()=>{amount.value=goal.value==="soc"?"80":"";});
       const free=(d.configuration.chargers||[]).filter(ch=>!ch.asset);
       const assigned=this.field(form,mcTr("Select free charger (optional)"),
         "none",null,[["none",mcTr("Assign later")],
                     ...free.map(ch=>[ch.id,ch.name])]);
-      const temporary=this.field(form,"Temporary guest","yes",null,
+      const temporary=this.field(form,"Temporary guest","no",null,
         [["yes","Yes — temporary guest"],["no","No — permanent asset"]]);
       const expiry=this.field(form,mcTr("Guest for"),"24",null,[
         ["4",mcTr("4 hours")],["24",mcTr("24 hours")],
@@ -2565,11 +2837,13 @@ class RobotixMultiChargeCard extends HTMLElement {
         const requested=amount.value.trim();
         if(goal.value!=="none"&&requested){
           const value=Number(requested);
-          if(!Number.isFinite(value)||value<=0||
+          if(!Number.isFinite(value)||value<0||
+              (goal.value!=="soc"&&value===0)||(goal.value==="soc"&&value>100)||
               goal.value==="duration"&&!Number.isInteger(value)){
             this._settingsFeedback={status:"rejected",message:"Invalid charging amount"};
             this.showEditError(form);return;
           }
+          if(goal.value==="soc")changes.target_soc=value;
           if(goal.value==="energy")changes.requested_kwh=value;
           if(goal.value==="duration")changes.requested_duration_minutes=value;
           if(goal.value==="budget"){
@@ -2604,7 +2878,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     const kind=this.field(box,mcTr("Control type"),"on_off",null,[
       ["on_off",mcTr("On/off")],["variable_current",mcTr("Variable current")]
     ]);
-    const owner=this.field(box,mcTr("Activation"),"external",null,[
+    const owner=this.field(box,mcTr("Activation"),"multicharge",null,[
       ["external",mcTr("Inactive")],["multicharge",mcTr("Active")]
     ]);
     const readSwitch=this.dashboardFieldControl(box,"charger",{id:"new_charger"},"control_entity");
@@ -2635,7 +2909,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         this.showEditError(box);return;
       }
       const changes={name:name.value.trim(),kind:kind.value,rated_power_kw:rated};
-      if(owner.value==="multicharge")changes.control_owner=owner.value;
+      changes.control_owner=owner.value;
       const control=readSwitch();if(control)changes.control_entity=control;
       try{
         for(const [key,read] of Object.entries(readers)){
@@ -2960,7 +3234,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     this.feedback(container);
     const settingsGrid=mcEl("div","settings-grid");
     for(const title of MC_SETTINGS){
-      const open=title===this._settingsOpen;
+      const primary=["Charging site","Charging strategy","Sources & bindings"].includes(title);
+      const open=primary||title===this._settingsOpen;
       const group=mcEl("section","card settings-card"+(open?" expanded":""));
       const heading=mcEl("div","settings-heading");
       heading.append(mcIconLabel(mcEl("h3","",title),title,mcIconFor(title)));
@@ -2976,7 +3251,8 @@ class RobotixMultiChargeCard extends HTMLElement {
         d.configuration_managed_by_yaml?"Legacy file source · read-only":"One dashboard-owned configuration";
       heading.append(mcEl("p","muted small",summary));
       const row=mcEl("div","row");
-      row.append(heading,mcButton(open?"Close":"Details",()=>{
+      row.append(heading);
+      if(!primary)row.append(mcButton(open?"Close":"Details",()=>{
         this._settingsOpen=open?"":title;this.render();
       }));
       group.append(row);
@@ -2995,7 +3271,11 @@ class RobotixMultiChargeCard extends HTMLElement {
             "Parallel chargers",ctl.max_parallel);
           this.nativeNumberEditor(detail,"controller",ctl.id,"max_power_kw",
             "Maximum group power",ctl.max_power_kw,"kW");
-          this.ownerFacts(detail,"controller",ctl);
+          this.ownerFacts(detail,"controller",ctl,[
+            "solar_power_entity","home_power_entity","grid_power_entity","solar_surplus_entity",
+            "current_price_entity","price_entity","export_price_entity","solar_entity",
+            "site_power_entity","binding_entity","phase_limits_a"
+          ]);
         }else if(title==="Charging strategy"){
           const options=mcEl("div","chips");
           for(const mode of this.canEditSettings()?MC_MODES:[]){
@@ -3052,30 +3332,37 @@ class RobotixMultiChargeCard extends HTMLElement {
               });
             }
           }
+          const advancedSources=mcEl("div","owner-fields");
+          const advancedFields=["solar_surplus_entity","export_price_entity","solar_entity","site_power_entity","binding_entity"];
           for(const [field,label] of [
+            ["current_price_entity","Current import price"],
+            ["price_entity","Future tariff intervals"],
             ["solar_power_entity","Solar production"],
             ["home_power_entity","Home consumption"],
             ["grid_power_entity","Grid power"],
             ["solar_surplus_entity","Solar surplus"],
-            ["current_price_entity","Current import price"],
-            ["price_entity","Future tariff intervals"],
             ["export_price_entity","Current export price"],
             ["solar_entity","Solar intervals"],
             ["site_power_entity","Site power"],["binding_entity","Capacity"]
           ]){
-            mcPair(detail,label,ctl[field]||mcTr("Not set"));
+            const parent=advancedFields.includes(field)?advancedSources:detail;
+            const sourceRow=mcEl("div","row");
+            sourceRow.append(mcEl("span","",mcTr(label)),mcEl("span","muted small",ctl[field]||mcTr("Not set")));
             if(this.canEditSettings()){
-              const sourceEdit=mcEl("div","row");
               const key="controller:"+ctl.id+":"+field;
-              sourceEdit.append(mcEl("span","muted small",mcTr(label)+" "+mcTr("source")),
+              sourceRow.append(
                 mcButton(mcTr("Edit"),()=>{
                   this._editingField=this._editingField===key?"":key;this.render();
                 }));
-              detail.append(sourceEdit);
+              parent.append(sourceRow);
               if(this._editingField===key)
-                this.dashboardEditField(detail,"controller",ctl,field);
-            }
+                this.dashboardEditField(parent,"controller",ctl,field);
+            }else parent.append(sourceRow);
           }
+          const advancedKey="controller:"+ctl.id+":advanced-sources";
+          if(advancedFields.some(field=>this._editingField==="controller:"+ctl.id+":"+field))
+            this._folds[advancedKey]=true;
+          this.disclosure(detail,advancedKey,"Advanced source bindings",advancedSources);
         }else if(title==="Safety & limits"){
           mcPair(detail,"Maximum group kW",
             ctl.max_power_kw===undefined?"Unknown":ctl.max_power_kw+" kW");

@@ -161,19 +161,36 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.exception("Cannot read stored MultiCharge control state; START disabled")
         saved = {"schema_major": -1}
     runtime.attach_control_store(store, saved)
+    # Only persist new/changed mapping metadata, never raw Recorder values.
+    # Do not replace an invalid physical intent snapshot with an empty one.
+    previous_bindings = saved.get("power_bindings") if isinstance(saved, dict) else None
+    if runtime.executor._persistence_verified and previous_bindings != runtime.power_bindings:
+        if not await runtime.persist_control_state():
+            runtime.executor._persistence_verified = False
     runtime.refresh()
 
     pending = None
     dirty = False
+    pending_quarter = None
     price_pending = None
     price_last_attempt = None
     price_source = cfg["controller"].get("price_entity") or cfg["controller"].get("current_price_entity")
 
     async def reconcile():
-        nonlocal dirty
+        nonlocal dirty, pending_quarter
         while dirty and runtime.active:
             dirty = False
-            runtime.refresh()
+            quarter, pending_quarter = pending_quarter, None
+            at = utc_datetime.now(timezone.utc)
+            current_quarter = at.replace(minute=(at.minute // 15) * 15,
+                                         second=0, microsecond=0)
+            if quarter is not None and quarter == current_quarter:
+                # Only the native quarter event grants execution. Minute and
+                # source refreshes are serialized in the same existing task.
+                runtime.refresh(quarter)
+                await runtime.executor.advance_plan(quarter)
+            else:
+                runtime.refresh(at)
             await runtime.executor.supervise()
 
     async def fetch_price():
@@ -209,23 +226,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if pending is None or pending.done():
             pending = hass.async_create_task(reconcile())
 
+    @callback
+    def on_minute(_now):
+        # HA interval callbacks receive datetime, not a state-change Event.
+        on_source_change()
+
     runtime.set_unsubscribe(
-        async_track_time_interval(hass, on_source_change, timedelta(minutes=1))
+        async_track_time_interval(hass, on_minute, timedelta(minutes=1))
     )
     runtime.set_unsubscribe(lambda: price_pending.cancel() if price_pending is not None and not price_pending.done() else None)
 
     @callback
-    def on_quarter(_event=None):
-        async def apply_quarter():
-            if not runtime.active:
-                return
-            at = utc_datetime.now(timezone.utc)
-            quarter = at.replace(minute=(at.minute // 15) * 15,
-                                 second=0, microsecond=0)
-            runtime.refresh(quarter)
-            await runtime.executor.advance_plan(quarter)
-            await runtime.executor.supervise()
-        hass.async_create_task(apply_quarter())
+    def on_quarter(now):
+        nonlocal pending_quarter
+        if not runtime.active:
+            return
+        at = now.astimezone(timezone.utc)
+        pending_quarter = at.replace(minute=(at.minute // 15) * 15,
+                                     second=0, microsecond=0)
+        on_source_change()
 
     runtime.set_unsubscribe(async_track_time_change(
         hass, on_quarter, minute=[0, 15, 30, 45], second=0

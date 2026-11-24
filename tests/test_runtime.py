@@ -82,6 +82,10 @@ class RuntimeTests(unittest.TestCase):
         rt.refresh(NOW)
         self.assertFalse(rt.assessment.plan.slots)
         self.assertEqual(rt.excluded["drive"], "CURRENT_PLUG_ASSET_UNCONFIRMED")
+        self.assertTrue(rt.forecast_assessment.plan.slots)
+        self.assertEqual(rt.goal_assessments["drive"]["status"], "achievable")
+        self.assertEqual(rt.goal_assessments["drive"]["assumption"], "IF_SELECTED_VEHICLE_CONFIRMED")
+        self.assertTrue(rt.goal_assessments["drive"]["conditional"])
         self.assertEqual(
             rt.executor.confirm_current_connection("drive", at=NOW)["status"],
             "confirmed",
@@ -110,6 +114,112 @@ class RuntimeTests(unittest.TestCase):
         rt.refresh(NOW)
         self.assertIsNone(rt.forecast_assessment)
         self.assertEqual(rt.forecast_excluded["drive"], "BATTERY_CAPACITY_NOT_CONFIGURED")
+
+    def test_active_confirmed_variable_charger_retains_nonbinding_kw_preview(self):
+        cfg = sample()
+        cfg["controller"]["mode"] = "Automatic"
+        cfg["chargers"][0].update(kind="variable_current", rated_power_kw=3.6)
+        data = {"sensor.soc": state("65", "%"), "sensor.power": state("0", "W"),
+                "binary_sensor.cable": state("on")}
+        rt = MultiChargeRuntime(SimpleNamespace(states=SimpleNamespace(get=data.get)), cfg)
+        rt.refresh(NOW)
+        self.assertEqual(rt.excluded["drive"], "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED")
+        self.assertFalse(rt.assessment.plan.slots)
+        self.assertTrue(rt.forecast_assessment.plan.slots)
+        self.assertEqual(rt.goal_assessments["drive"]["status"], "achievable")
+        self.assertEqual(rt.goal_assessments["drive"]["assumption"], "IF_CAPABILITY_VERIFIED")
+        self.assertTrue(all(slot.current_a is None for slot in rt.forecast_assessment.plan.slots))
+        cfg["controller"]["phase_limits_a"] = {"L1": 16}
+        rt.refresh(NOW)
+        self.assertFalse(rt.forecast_assessment.plan.slots)
+        self.assertEqual(rt.goal_assessments["drive"]["status"], "cannot_assess")
+
+    def test_goal_feasibility_uses_full_plan_not_chart_visibility(self):
+        cfg = sample()
+        cfg["controller"].update(mode="Automatic", max_power_kw=3.6,
+                                 show_indicative_forecast=False)
+        cfg["assets"][0].update(target_soc=95, capacity_kwh=20, charge_efficiency=0.9,
+                               ready_by=(NOW+timedelta(hours=2)).isoformat())
+        cfg["chargers"][0].update(control_owner="external", physical_commissioned=False,
+                                  rated_power_kw=3.6)
+        data = {"sensor.soc": state("88", "%"), "sensor.power": state("0", "W"),
+                "binary_sensor.cable": state("on")}
+        rt = _ProductionRuntime(SimpleNamespace(states=SimpleNamespace(get=data.get)), cfg)
+        rt.refresh(NOW)
+        result = rt.read_plan(NOW, NOW+timedelta(minutes=15))
+        self.assertEqual(result["slots"], [])
+        self.assertEqual(result["forecast_slots"], [])
+        goal = result["goal_assessments"]["drive"]
+        self.assertEqual(goal["status"], "achievable")
+        self.assertTrue(goal["conditional"])
+        self.assertAlmostEqual(goal["required_grid_kwh"], 1.4/0.9)
+        self.assertEqual(goal["shortfall_grid_kwh"], 0)
+        cfg["assets"][0]["ready_by"] = (NOW+timedelta(minutes=15)).isoformat()
+        rt.refresh(NOW)
+        self.assertEqual(rt.goal_assessments["drive"]["status"], "shortfall")
+        self.assertGreater(rt.goal_assessments["drive"]["shortfall_grid_kwh"], 0)
+        cfg["assets"][0].pop("capacity_kwh")
+        rt.refresh(NOW)
+        self.assertEqual(rt.goal_assessments["drive"]["status"], "cannot_assess")
+        self.assertEqual(rt.goal_assessments["drive"]["reason"], "BATTERY_CAPACITY_NOT_CONFIGURED")
+        data["sensor.soc"] = state("96", "%")
+        data["binary_sensor.cable"] = state("off")
+        cfg["controller"]["mode"] = "Off"
+        rt.refresh(NOW)
+        self.assertEqual(rt.goal_assessments["drive"]["status"], "target_met")
+        self.assertEqual(rt.goal_assessments["drive"]["required_grid_kwh"], 0)
+
+    def test_field_shaped_daily_goal_with_192_reference_price_quarters(self):
+        # Representative test data, not the physical vehicle's battery spec.
+        zone = ZoneInfo("Europe/Brussels")
+        at = datetime(2026, 11, 24, 20, 45, tzinfo=zone).astimezone(timezone.utc)
+        cfg = sample()
+        cfg["controller"].update(mode="Automatic", max_power_kw=3.6,
+                                 current_price_entity="sensor.price")
+        cfg["assets"][0].update(target_soc=95, capacity_kwh=20, charge_efficiency=0.9,
+            ready_by=datetime(2026, 11, 24, 6, tzinfo=zone).isoformat(),
+            ready_by_repeat="daily")
+        cfg["chargers"][0].update(kind="variable_current", control_owner="external",
+                                  physical_commissioned=False, rated_power_kw=3.6)
+        data = {"sensor.soc": state("88", "%"), "sensor.power": state("0", "W"),
+                "binary_sensor.cable": state("on"), "sensor.price": state("0.39", "EUR/kWh")}
+        first = datetime(2026, 11, 24, tzinfo=zone).astimezone(timezone.utc)
+        for source in data.values():
+            source.last_updated = source.last_changed = at
+        data["sensor.price"].attributes.update(
+            prices_today=[{"time": (first+timedelta(minutes=15*i)).isoformat(), "price": 0.39}
+                          for i in range(96)],
+            prices_tomorrow=[{"time": (first+timedelta(days=1, minutes=15*i)).isoformat(),
+                              "price": 0.05 if 8 <= i < 12 else 0.30}
+                             for i in range(96)],
+        )
+        rt = _ProductionRuntime(SimpleNamespace(states=SimpleNamespace(get=data.get),
+                      config=SimpleNamespace(time_zone="Europe/Brussels")), cfg)
+        rt.refresh(at)
+        self.assertEqual(len(rt.price_slots), 192)
+        result = rt.read_plan(first, first+timedelta(days=2))
+        self.assertEqual(result["slots"], [])
+        self.assertTrue(result["forecast_slots"])
+        goal = result["goal_assessments"]["drive"]
+        self.assertEqual(goal["status"], "achievable")
+        self.assertTrue(goal["conditional"])
+        self.assertAlmostEqual(goal["required_grid_kwh"], 1.4/0.9)
+        self.assertEqual(goal["shortfall_grid_kwh"], 0)
+        self.assertEqual(datetime.fromisoformat(goal["next_charge_at"]).astimezone(zone).hour, 2)
+        self.assertLessEqual(datetime.fromisoformat(goal["planned_finish_at"]),
+                             datetime.fromisoformat(goal["deadline"]))
+        self.assertTrue(goal["timeline_windows"])
+        self.assertEqual(goal["timeline_windows"][0]["start"], goal["next_charge_at"])
+        self.assertEqual(goal["timeline_windows"][-1]["end"], goal["planned_finish_at"])
+        self.assertEqual(rt.read_plan(first, first+timedelta(days=1))["goal_assessments"]["drive"]["timeline_windows"],
+                         goal["timeline_windows"])
+        self.assertTrue(all(not s["may_execute"] and s["indicative_current_a"] is None
+                            for s in result["forecast_slots"]))
+        cfg["assets"][0]["capacity_kwh"] = 1000
+        rt.refresh(at)
+        self.assertEqual(rt.goal_assessments["drive"]["status"], "shortfall")
+        self.assertGreater(rt.goal_assessments["drive"]["shortfall_grid_kwh"], 0)
+        self.assertFalse(rt.assessment.plan.slots)
 
     def test_stale_solar_last_report_is_display_only(self):
         cfg = sample()

@@ -272,7 +272,7 @@ async function main(){
   assert.ok(vehicleFolds.every(row=>
     row.children[0]?.tag==="summary"&&row.children[1]?.className==="owner-fields"),
     "Native summary/fields semantics support keyboard and dense layout");
-  assert.ok(find(vehicle.shadowRoot,"button","Save charging goal"),
+  assert.ok(find(vehicle.shadowRoot,"button","Set charging goal"),
     "Novice Goal is not hidden in a technical fold");
   assert.ok(vehicleText.includes("binary_sensor.car_soc_stale"));
   assert.ok(vehicleText.includes("FRI: 18:00"),
@@ -380,8 +380,10 @@ async function main(){
     };
     await new Promise(resolve=>setImmediate(resolve));
     novice._tab="Chargeable Assets";novice.render();
-    assert.ok(find(novice.shadowRoot,"button","Save charging goal"),
-      "A novice must see the primary Goal control on the Asset card");
+    const goalButton=find(novice.shadowRoot,"button","Set charging goal");
+    assert.ok(goalButton,"A novice must see the primary Goal action on the Asset card");
+    assert.equal(find(novice.shadowRoot,"button","Save charging goal"),undefined);
+    goalButton.click();
     assert.ok(find(novice.shadowRoot,"button","Schedule charging"),
       "Charging days and times are one explicitly named action away");
     const choice=cardField(novice.shadowRoot,"I want to charge to");
@@ -509,13 +511,14 @@ async function main(){
     call.args.entity_id==="select.car_opportunity"&&
     call.args.option==="type1"),
     "native per-Asset opportunistic selection uses only existing settings writer");
+  find(scheduleCard.shadowRoot,"button","Schedule charging").click();
   assert.ok(content(scheduleCard.shadowRoot).includes("Specific days"),
     "Single Weekly user option replaced by Specific days");
   assert.ok(!content(scheduleCard.shadowRoot).includes("Every week"),
     "Legacy single-weekday recurring option must not appear");
   let monday;
   visit(scheduleCard.shadowRoot,node=>{
-    if(node.tag==="select"&&String(node.attributes.id||"").startsWith("multicharge-monday-"))monday=node;
+    if(node.tag==="input"&&String(node.attributes.id||"").startsWith("multicharge-monday-"))monday=node;
   });
   assert.ok(monday,"Monday has an owned native weekday picker");
   const fieldIds=[];
@@ -530,6 +533,7 @@ async function main(){
   find(scheduleCard.shadowRoot,"button","Save schedule").click();
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(scheduleCalls.some(x=>x.type==="robotix_multicharge/update_settings"&&x.changes.ready_by_weekdays.mon==="07:00"&&x.changes.ready_by_weekdays.wed==="08:30"),"one atomic schedule Save preserves other weekdays");
+  find(scheduleCard.shadowRoot,"button","Schedule charging").click();
   find(scheduleCard.shadowRoot,"button","Allowed charging times").click();
   assert.ok(content(scheduleCard.shadowRoot).includes("Start hour"),
     "Allowed charging hours are distinct from Ready By");
@@ -544,6 +548,33 @@ async function main(){
   assert.ok(scheduleCalls.some(x=>x.domain==="text"&&
     x.args.entity_id==="text.car_window_mon"&&x.args.value==="23:00-06:00"),
     "allowed local charging window updates existing Asset HA Text");
+
+  // Daily -> weekday chips -> individual override, without implicit Save.
+  asset.ready_by_repeat="daily";asset.ready_by="2026-11-25T06:00:00+01:00";
+  delete asset.ready_by_weekdays;
+  scheduleCard._scheduleEditor="car";scheduleCard._windowsOpen="";scheduleCard._calendarDrafts={};scheduleCard.render();
+  const priorSaves=scheduleCalls.filter(x=>x.type==="robotix_multicharge/update_settings").length;
+  find(scheduleCard.shadowRoot,"button","Specific days").click();
+  const dayButton=label=>{
+    let result;visit(scheduleCard.shadowRoot,node=>{
+      if(node.tag==="button"&&node.attributes["aria-label"]===label)result=node;
+    });return result;
+  };
+  assert.equal(dayButton("Saturday").attributes["aria-pressed"],"true");
+  dayButton("Saturday").click();dayButton("Sunday").click();
+  find(scheduleCard.shadowRoot,"button","Different times per day").click();
+  const friday=cardField(scheduleCard.shadowRoot,"Friday");
+  assert.equal(friday.value,"06:00");
+  friday.value="08:00";friday.events.change();
+  assert.equal(scheduleCalls.filter(x=>x.type==="robotix_multicharge/update_settings").length,priorSaves);
+  find(scheduleCard.shadowRoot,"button","Save schedule").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(scheduleCalls.filter(x=>x.type==="robotix_multicharge/update_settings").at(-1).changes.ready_by_weekdays,
+    {mon:"06:00",tue:"06:00",wed:"06:00",thu:"06:00",fri:"08:00"});
+  find(scheduleCard.shadowRoot,"button","Schedule charging").click();
+  assert.equal(cardField(scheduleCard.shadowRoot,"Friday").value,"08:00");
+  find(scheduleCard.shadowRoot,"button","Cancel").click();
+  assert.equal(scheduleCalls.filter(x=>x.type==="robotix_multicharge/update_settings").length,priorSaves+1);
 
   // FLEX-06/08/11/17: Asset-side charger assignment writes to the one
   // Charger-owned Config Entry, never to a physical switch or duplicate store.
@@ -765,6 +796,7 @@ async function main(){
                    ["none","guest_charger"],
                    "one-step Guest can choose only a currently unassigned EVSE");
   guestName.value="Visitor";
+  formField(guestCard,"Temporary guest").value="yes";
   guestGoal.value="budget";guestAmount.value="10";
   guestFreeCharger.value="guest_charger";
   find(guestCard.shadowRoot,"button","Create asset").click();
@@ -779,6 +811,67 @@ async function main(){
   assert.equal(create.changes.temporary,true);
   assert.ok(Number.isFinite(Date.parse(create.changes.expires_at)),
     "Guest expiry is a real timestamp derived from selected duration");
+
+  // MC-17: missing battery data can be completed directly from the plan.
+  const incomplete=JSON.parse(JSON.stringify(fixture));
+  incomplete.configuration_revision="battery-before";
+  incomplete.goal_assessments={drive:{asset_id:"car",status:"cannot_assess",
+    reason:"BATTERY_CAPACITY_NOT_CONFIGURED",conditional:true}};
+  const batteryWrites=[];
+  const batteryCard=new Card();batteryCard.setConfig({});
+  batteryCard.hass={user:{is_admin:true},states:{},callWS:async msg=>{
+    if(msg.type==="robotix_multicharge/update_settings"){
+      batteryWrites.push(msg);
+      Object.assign(incomplete.configuration.assets[0],msg.changes);
+      incomplete.configuration_revision="battery-after";
+      incomplete.goal_assessments.drive={asset_id:"car",status:"achievable",
+        conditional:true,required_grid_kwh:1.56,planned_grid_kwh:1.8,shortfall_grid_kwh:0};
+      return {status:"accepted_unconfirmed",expected_revision:"battery-after"};
+    }
+    return incomplete;
+  }};
+  await new Promise(resolve=>setImmediate(resolve));
+  batteryCard._tab="Charging Plan";batteryCard.render();
+  find(batteryCard.shadowRoot,"button","Complete battery data").click();
+  const cap=cardField(batteryCard.shadowRoot,"Usable battery capacity (kWh)");
+  const eff=cardField(batteryCard.shadowRoot,"Charging efficiency (%)");
+  assert.ok(cap&&eff);
+  cap.value="20";eff.value="90";cap.events.input();eff.events.input();
+  find(batteryCard.shadowRoot,"button","Save battery data").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(batteryWrites.length,1);
+  assert.deepEqual(batteryWrites[0].changes,{capacity_kwh:20,charge_efficiency:0.9});
+  assert.ok(content(batteryCard.shadowRoot).includes("Goal achievable by deadline"));
+  batteryCard.disconnectedCallback();
+
+  // MC-18: view preferences survive remount; never store control settings.
+  const displayStore=new Map();
+  global.localStorage={getItem:key=>displayStore.get(key)||null,
+    setItem:(key,value)=>displayStore.set(key,value)};
+  const viewCard=new Card();
+  viewCard.hass={user:{id:"view-user",is_admin:true},states:{},callWS:async()=>fixture};
+  await new Promise(resolve=>setImmediate(resolve));
+  viewCard.selectViewRange("both","charger:drive");
+  await new Promise(resolve=>setImmediate(resolve));
+  const reopened=new Card();
+  const viewCalls=[];
+  reopened.hass={user:{id:"view-user",is_admin:true},states:{},
+    callWS:async msg=>{viewCalls.push(msg);return fixture;}};
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(reopened._day,"both");
+  assert.equal(reopened._filter,"charger:drive");
+  assert.equal(viewCalls[0].day,"both");
+  assert.ok(!viewCalls[0].charger_id,"restored filter is validated against current configuration");
+  reopened.disconnectedCallback();
+  const retained=viewCard._data;
+  viewCard._hass={...viewCard._hass,callWS:async()=>{throw Error("timeout");}};
+  await viewCard.load();
+  assert.equal(viewCard._data,retained);
+  assert.equal(viewCard.canManage(),false);
+  assert.ok(content(viewCard.shadowRoot).includes("Last available data"));
+  assert.ok(!content(viewCard.shadowRoot).includes("Install MultiCharge once"));
+  viewCard.disconnectedCallback();
+  delete global.localStorage;
 
   // A structural/config revision ends a pending local draft. It is never a
   // second persisted charge-request store or a physical session.
@@ -1370,7 +1463,7 @@ async function main(){
   find(card.shadowRoot,"button","Details").click();
   assert.ok(content(card.shadowRoot).includes("Charging limit"),
     "Asset dashboard directly presents user 80% target");
-  assert.ok(content(card.shadowRoot).includes("Charging schedule"),
+  assert.ok(find(card.shadowRoot,"button","Schedule charging"),
     "Daily/weekly recurrence is on the Asset dashboard, not Options Flow");
   assert.ok(find(card.shadowRoot,"button","Set charging deadline"),
     "HA device-owned Ready By datetime is reachable directly from dashboard");

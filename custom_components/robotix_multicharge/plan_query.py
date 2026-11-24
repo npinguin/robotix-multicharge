@@ -37,8 +37,11 @@ async def websocket_get_plan(
         ), None,
     )
     if selected is None:
-        connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND,
-                              "Unknown charging Controller")
+        # A configured but unloaded/reloading controller is not an install
+        # failure. The frontend may retain its last read-only snapshot.
+        reason = ("NO_CONFIG_ENTRY" if not hass.config_entries.async_entries(DOMAIN)
+                  else "CONTROLLER_UNAVAILABLE")
+        connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND, reason)
         return
     try:
         if "day" in msg:
@@ -62,10 +65,11 @@ async def websocket_get_plan(
         )
         if msg.get("include_history", True):
             actual, quality, estimates = await read_actual_history(
-                hass, runtime.configuration, start, end,
+                hass, result["configuration"], start, end,
                 charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
                 session_receipts=runtime.executor.completed_sessions(),
                 price_slots=runtime.price_slots, include_valuations=True,
+                power_bindings=runtime.power_bindings,
             )
         else:
             actual, quality, estimates = [], "NOT_REQUESTED", {}
@@ -96,7 +100,9 @@ async def websocket_get_plan(
             )
         def native_select(kind, uid, field):
             return native_entity("select", kind, uid, field)
-        cfg = runtime.configuration
+        # Use the same configuration snapshot as the response, even if an
+        # asynchronous Recorder query overlapped a settings update.
+        cfg = result["configuration"]
         result["preference_entities"] = {
             "controller": {
                 field: native_select("controller", cfg["controller"]["id"], field)
