@@ -74,8 +74,9 @@ async def async_setup_entry(
         key = names.get(entity.unique_id.rsplit(":", 1)[-1])
         if key is not None:
             entity._attr_translation_key = key
-            # Keep a functional fallback if HA cannot resolve the translation key.
-            # Registry identity and user overrides remain untouched.
+            # HA Entity._name_internal prioritizes even explicit None over
+            # translation_key. Delete the explicit name to use native translations.
+            del entity._attr_name
     async_add_entities(entities)
 
 
@@ -184,12 +185,13 @@ class _LogicalReadinessSensor(_NativeMultiChargeSensor):
         else:
             obs = self.runtime.observations.get("assets", {}).get(self.data["id"], {})
             soc = obs.get("soc")
+            asset = next((a for a in self.runtime.configuration["assets"] if a["id"] == self.data["id"]), {})
             status = (
                 "source_observed" if soc is not None and soc.quality == "ok"
                 else "demand_configured" if (
-                    self.data.get("requested_kwh") is not None
-                    or self.data.get("requested_duration_minutes") is not None
-                    or self.data.get("requested_budget_amount") is not None
+                    asset.get("requested_kwh") is not None
+                    or asset.get("requested_duration_minutes") is not None
+                    or asset.get("requested_budget_amount") is not None
                 )
                 else "needs_input"
             )

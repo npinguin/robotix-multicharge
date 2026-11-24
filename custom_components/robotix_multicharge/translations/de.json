@@ -375,6 +375,13 @@
       },
       "grid_power_direction": {
         "name": "Zählerrichtung Netz"
+      },
+      "control_owner": {
+        "name": "Aktivierung",
+        "state": {
+          "inactive": "Inaktiv",
+          "active": "Aktiv"
+        }
       }
     },
     "number": {
@@ -456,9 +463,13 @@
           "physical_readback_confirmed": "Bereit",
           "readback_stale": "Keine Rückmeldung",
           "unavailable": "Nicht verfügbar",
-          "source_observed": "Verbunden",
+          "source_observed": "Batteriedaten verfügbar",
           "demand_configured": "Konfiguriert",
-          "needs_input": "Ziel festlegen"
+          "needs_input": "Ziel festlegen",
+          "ready": "Bereit",
+          "waiting": "Warten",
+          "error": "Fehler",
+          "unknown": "Unbekannt"
         }
       },
       "plan_status": {

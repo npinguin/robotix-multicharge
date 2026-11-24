@@ -375,6 +375,13 @@
       },
       "grid_power_direction": {
         "name": "Sentido del medidor de red"
+      },
+      "control_owner": {
+        "name": "Activación",
+        "state": {
+          "inactive": "Inactivo",
+          "active": "Activo"
+        }
       }
     },
     "number": {
@@ -456,9 +463,13 @@
           "physical_readback_confirmed": "Listo",
           "readback_stale": "Sin actualización",
           "unavailable": "No disponible",
-          "source_observed": "Conectado",
+          "source_observed": "Datos de batería disponibles",
           "demand_configured": "Configurado",
-          "needs_input": "Definir objetivo"
+          "needs_input": "Definir objetivo",
+          "ready": "Listo",
+          "waiting": "En espera",
+          "error": "Error",
+          "unknown": "Desconocido"
         }
       },
       "plan_status": {

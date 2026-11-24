@@ -63,6 +63,7 @@ def sample():
         "id": "drive", "name": "Drive", "kind": "on_off", "rated_power_kw": 4,
         "asset": "car", "connected_entity": "binary_sensor.cable",
         "power_entity": "sensor.power", "control_owner": "multicharge",
+        "control_entity": "switch.drive",
     }]
     return validate_configuration(cfg)
 
@@ -99,7 +100,7 @@ class RuntimeTests(unittest.TestCase):
         cfg["chargers"].append({**cfg["chargers"][0], "id": "inactive", "name": "Inactive",
                                 "asset": "other", "control_owner": "external",
                                 "physical_commissioned": False, "connected_entity": "binary_sensor.other",
-                                "power_entity": "sensor.other_power"})
+                                "power_entity": "sensor.other_power", "control_entity": "switch.other"})
         data = {"sensor.soc": state("65", "%"), "sensor.power": state("0", "W"),
                 "sensor.other_power": state("0", "W"), "binary_sensor.cable": state("on"),
                 "binary_sensor.other": state("on")}
@@ -519,7 +520,7 @@ class RuntimeTests(unittest.TestCase):
         cfg["chargers"] = [{
             "id": "plug", "name": "Plug", "kind": "on_off", "rated_power_kw": 2,
             "asset": "bike", "connected_entity": "sensor.plug_connected",
-            "control_owner": "multicharge",
+            "control_owner": "multicharge", "control_entity": "switch.plug",
         }]
         data = {"sensor.plug_connected": state("connected")}
         rt = MultiChargeRuntime(

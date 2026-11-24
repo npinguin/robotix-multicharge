@@ -15,7 +15,7 @@ from homeassistant.helpers import selector
 
 from .configuration import (
     default_configuration, is_plan_presentation_only_change,
-    validate_configuration, configuration_revision,
+    validate_configuration, configuration_revision, effective_configuration,
     apply_new_asset_defaults, apply_new_import_defaults, energy_dashboard_suggestions,
     assert_expert_authority_change, is_in_place_runtime_preference_change,
 )
@@ -717,8 +717,9 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if expert_format not in ("yaml", "json"):
             raise ValueError("Unsupported expert configuration format")
         entries = self._async_current_entries()
-        prior = effective_configuration(entries[0]) if entries else {"assets": []}
-        cfg = apply_new_import_defaults(prior, cfg)
+        # Declarative imports reapply the default on every read of an omitted
+        # target, so a reboot cannot remove a defaulted goal. Explicit goals win.
+        cfg = apply_new_import_defaults({"assets": []}, cfg)
         if entries:
             # An existing setup can adopt expert YAML without deleting/readding
             # the HA Config Entry: this preserves its entry ID, logical devices,

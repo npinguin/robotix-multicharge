@@ -376,6 +376,13 @@
       },
       "grid_power_direction": {
         "name": "Netmålerretning"
+      },
+      "control_owner": {
+        "name": "Aktivering",
+        "state": {
+          "inactive": "Inaktiv",
+          "active": "Aktiv"
+        }
       }
     },
     "number": {
@@ -457,9 +464,13 @@
           "physical_readback_confirmed": "Ready",
           "readback_stale": "No update",
           "unavailable": "Unavailable",
-          "source_observed": "Connected",
+          "source_observed": "Batteridata tilgængelige",
           "demand_configured": "Configured",
-          "needs_input": "Set goal"
+          "needs_input": "Set goal",
+          "ready": "Klar",
+          "waiting": "Venter",
+          "error": "Fejl",
+          "unknown": "Ukendt"
         }
       },
       "plan_status": {

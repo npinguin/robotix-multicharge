@@ -375,6 +375,13 @@
       },
       "grid_power_direction": {
         "name": "Grid meter direction"
+      },
+      "control_owner": {
+        "name": "Activation",
+        "state": {
+          "inactive": "Inactive",
+          "active": "Active"
+        }
       }
     },
     "number": {
@@ -456,9 +463,13 @@
           "physical_readback_confirmed": "Ready",
           "readback_stale": "No update",
           "unavailable": "Unavailable",
-          "source_observed": "Connected",
+          "source_observed": "Battery data available",
           "demand_configured": "Configured",
-          "needs_input": "Set goal"
+          "needs_input": "Set goal",
+          "ready": "Ready",
+          "waiting": "Waiting",
+          "error": "Error",
+          "unknown": "Unknown"
         }
       },
       "plan_status": {
