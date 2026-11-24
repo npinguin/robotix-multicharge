@@ -911,6 +911,10 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             ctl = trial["controller"]
             preset = discovered if user_input.get("use_energy_dashboard") else {}
             for field in ENERGY_ENTITY_FIELDS:
+                # Missing optional UI fields are not an instruction to erase a
+                # previously selected native source. Explicit empty clears.
+                if field not in user_input and field not in preset:
+                    continue
                 value = user_input.get(field) or preset.get(field)
                 if value:
                     ctl[field] = value
