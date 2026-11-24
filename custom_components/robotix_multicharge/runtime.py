@@ -629,6 +629,16 @@ class MultiChargeRuntime:
             capability = capabilities.get(uid, {})
             goal_reason = (capability.get("reason") if charger.get("asset") is not None
                            else capability.get("manual_one_off_reason"))
+            if goal_reason == "MANUAL_START_REQUIRES_FORCE_CHARGE" and charger.get("asset") is not None:
+                # A disabled manual action is not the readiness of an
+                # automatic charging plan. Use the same planner evidence.
+                goal_reason = self.excluded.get(uid)
+                if goal_reason is None and self.assessment is not None:
+                    goal_reason = self.assessment.reasons.get(uid)
+                if goal_reason == "PROPOSED":
+                    goal_reason = "READY"
+                elif goal_reason is None:
+                    goal_reason = "INVALID_PLANNING_INPUT"
             if reported == "fault":
                 readiness, reason = "error", "CHARGER_REPORTED_FAULT"
             elif reported == "unavailable" or (charger.get("control_entity") and switch is None and activation == "active"):
