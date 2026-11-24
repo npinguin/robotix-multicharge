@@ -8,7 +8,7 @@
 
 Robotix MultiCharge is an open-source Home Assistant integration being built to coordinate charging for electric cars, e-bikes and other compatible rechargeable assets. The goal: make smart use of electricity prices, solar energy, available power and charging deadlines—without locking you to a vehicle, charger or energy provider.
 
-> **HACS TEST v0.1.10 — independent Community integration, not STABLE or field-qualified.** This increment adds device-owned native Home Assistant inputs/actions automatically on the logical ChargeController, Charger and ChargeableAsset, with everyday charging controls in the integrated dashboard instead of the Options Flow. Newly added car profiles default to an editable 80% target; recurring Ready By schedules and variable-current Charger min/max/set kW are supported where the hardware qualifies. Guided setup can select Automatic mode, but **real Charger ownership remains external until explicit qualified commissioning**. Never run two physical writers on the same charger. Actual charger operation, source quality, responsive UX and every field use-case still require acceptance. No other Robotix/RHI integration is required.
+> **HACS TEST v0.1.11 — independent Community integration, not STABLE or field-qualified.** This increment adds device-owned native Home Assistant inputs/actions automatically on the logical ChargeController, Charger and ChargeableAsset, with everyday charging controls in the integrated dashboard instead of the Options Flow. Newly added car profiles default to an editable 80% target; recurring Ready By schedules and variable-current Charger min/max/set kW are supported where the hardware qualifies. Guided setup can select Automatic mode, but **real Charger ownership remains external until explicit qualified commissioning**. Never run two physical writers on the same charger. Actual charger operation, source quality, responsive UX and every field use-case still require acceptance. No other Robotix/RHI integration is required.
 
 ## Functional product authority
 
@@ -33,7 +33,7 @@ One existing **Details** disclosure on each object also shows **every persisted 
 
 **Input stability:** Every native and in-dashboard Controller, Charger, Asset, Guest, schedule, YAML textarea and commissioning field stays open while the user focuses or enters data. Background Home Assistant sensor updates, the source-refresh coalescer and delayed get_plan responses continue updating observations without replacing the active form, erasing unsubmitted input or dismissing an iPad keyboard. There is **no inactivity-based editor timeout**. Only explicit Save, Cancel, navigation or Refresh may repaint the user's open form; rejected Save preserves the typed value and shows an in-place error. This is covered by automated source/browser regressions; actual Wessels Safari acceptance is separate.
 
-**Release distinction:** source, isolated-HA and Chromium tests do not establish real Wessels Safari/iPad behavior, real provider readings, owner handoff or physical STOP. Immutable v0.1.9 remains the rollback TEST for the v0.1.10 YAML/JSON editor correction; publishing TEST requires exact-dev, merged-main and artifact qualification.
+**Release distinction:** source, isolated-HA and Chromium tests do not establish real Wessels Safari/iPad behavior, real provider readings, owner handoff or physical STOP. Immutable v0.1.10 remains the rollback TEST for the v0.1.11 direct-Save correction; publishing TEST requires exact-dev, merged-main and artifact qualification.
 
 ### Beginner-first UX and combined charging graph (dev)
 
@@ -60,11 +60,10 @@ create its empty Config Entry. From then on, use only the bundled
 external YAML/JSON files, manual templates, `/config/packages`, Home Assistant
 Options screens, helper entities, or separate Lovelace chart card are required.
 All supported configuration remains editable through typed fields inside the
-same five-tab dashboard. In **Settings → Edit YAML**, administrators can also
-review and edit the **complete current configuration** in one large multiline
-JSON/YAML text area, select **Review changes**, then **Save reviewed configuration**.
-The backend validates the document, shows the affected Controller/Assets/Chargers,
-checks the original revision and safe idle/ownership boundaries, and commits only
+same five-tab dashboard. In **Settings → Edit YAML**, users can open and edit the **complete current configuration**
+in one large multiline JSON/YAML text area and press **Save** once (or **Cancel**).
+The backend performs administrator authorization and validation, checks the
+original revision and safe physical-writer ownership boundaries, and commits only
 to the **same Home Assistant Config Entry**. It does not create a second YAML
 configuration file, open Home Assistant Options Flow, issue a charging command,
 or transfer physical ownership. Imported file-owned configurations are read-only.
@@ -87,7 +86,7 @@ tabs for novice and expert use:
   qualified for single physical writer ownership.
 - **Settings:** Controller site name, strategy, site power and parallel limits,
   Solar, tariff, whole-home and grid native entity sources, meter direction,
-  safety, diagnostics and **Edit YAML → Review changes → Save reviewed configuration**.
+  safety, diagnostics and **Edit YAML → Save**.
 
 Every accepted Controller, Charger and ChargeableAsset field is available as a
 **typed in-dashboard field**, with native Home Assistant source candidates

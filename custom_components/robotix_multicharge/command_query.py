@@ -341,16 +341,14 @@ async def websocket_dashboard_config(
 @websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "robotix_multicharge/yaml_configuration",
-    vol.Required("operation"): vol.In(("review", "save")),
     vol.Required("expected_revision"): str,
     vol.Required("yaml_text"): str,
-    vol.Optional("reviewed_revision"): str,
 })
 @websocket_api.async_response
 async def websocket_yaml_configuration(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict,
 ) -> None:
-    """Review and commit a *single* Config Entry via the existing guarded owner.
+    """Save a complete mapping into the existing, guarded Home Assistant Config Entry.
 
     JSON (YAML-compatible) is only a transient text presentation. No file,
     separate state store, physical command or HA Options Flow is created.
@@ -369,7 +367,7 @@ async def websocket_yaml_configuration(
         return
 
     from .config_flow import (
-        _parse_editor_yaml, _yaml_review_summary, _assert_safe_yaml_ui_commit,
+        _parse_editor_yaml, _assert_safe_yaml_ui_commit,
     )
 
     try:
@@ -394,22 +392,8 @@ async def websocket_yaml_configuration(
                     != former.get("physical_commissioned", False)):
                 raise ValueError("COMMISSIONING_ONLY_IN_NATIVE_FLOW")
 
-        if msg["operation"] == "review":
-            if configuration_revision(runtime.configuration) != msg["expected_revision"]:
-                raise ValueError("STALE_SETTINGS_REFRESH")
-            connection.send_result(msg["id"], {
-                "status": "reviewed",
-                "expected_revision": msg["expected_revision"],
-                "proposed_revision": configuration_revision(proposed),
-                "summary": _yaml_review_summary(runtime.configuration, proposed),
-            })
-            return
-
-        if msg.get("reviewed_revision") != configuration_revision(proposed):
-            raise ValueError("REVIEW_REQUIRED_OR_TEXT_CHANGED")
-
-        # Save performs all validation again under the *same* executor lock
-        # as native preferences. Stale reviews or changed physical states fail.
+        # No review token or second UI step: validate once, then commit
+        # under the original executor lock and authoritative revision.
         async with runtime.executor._lock:
             if configuration_revision(runtime.configuration) != msg["expected_revision"]:
                 raise ValueError("STALE_SETTINGS_REFRESH")
@@ -417,8 +401,8 @@ async def websocket_yaml_configuration(
             desired_revision = configuration_revision(proposed)
             runtime.record_settings_action(
                 "controller", proposed["controller"]["id"],
-                "yaml_reviewed_save",
-                {"format": "yaml", "reviewed": True},
+                "yaml_save",
+                {"format": "yaml"},
                 desired_revision,
             )
             if not await runtime.persist_control_state():
