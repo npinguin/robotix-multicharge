@@ -2838,10 +2838,14 @@ class RobotixMultiChargeCard extends HTMLElement {
         this._settingsFeedback={status:"accepted_unconfirmed",message:"Pending"};
         this._last=0;
         await this.load();
-        if(this._yamlCommittedRevision){
-          notice.textContent="Save admitted; waiting for Home Assistant readback. Refresh to verify.";
-          review.disabled=false;
+        if(!this._yamlCommittedRevision){
+          // Readback is confirmed. A deliberately submitted Save can now
+          // replace the still-focused textarea; passive HA refresh may not.
+          this.render();
+          return;
         }
+        notice.textContent="Save admitted; waiting for Home Assistant readback. Refresh to verify.";
+        review.disabled=false;
       }catch(error){
         this._yamlCommittedRevision=null;
         notice.textContent="Save rejected: "+String(error?.message||error?.code||"Unavailable");
