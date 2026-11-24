@@ -46,7 +46,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     configuration_revision:"browser-smoke-1",
     configuration:{
       controller:{id:"home",name:"Home charging",mode:"Off",
-        max_parallel:Math.max(1,count),max_power_kw:3.6,plan_color_by:"charger"},
+        max_parallel:Math.max(1,count),max_power_kw:3.6,plan_color_by:"vehicle"},
       assets,chargers:devices
     },
     observations,slots:[],actual_slots:[],forecast_slots:[],price_slots:[],
@@ -62,11 +62,13 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
         asset:"select."+c.id+"_selected_vehicle"
       }]))
     },
-    plan_palette:{blue:"#3779B9"}
+    plan_palette:{blue:"#3779B9",orange:"#D98B39"}
   };
   // Nonfabricated source-backed plan test observations: missing intervals
   // remain empty, and price may only appear with one explicit EUR/spot basis.
   if(count>0&&view==="plan"){
+    assets[0].plan_color="blue";
+    if(count>1)assets[1].plan_color="orange";
     data.actual_slots=[{charger_id:"charger_0",asset_id:null,
       start:"2026-11-23T10:00:00+01:00",
       end:"2026-11-23T10:15:00+01:00",actual_power_kw:1.43}];
@@ -75,6 +77,15 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
       end:"2026-11-23T11:15:00+01:00",proposed_power_kw:2.3,
       accepted_power_kw:0,proposed_energy_kwh:0.575}];
     data.forecast_slots=[{charger_id:"charger_0",asset_id:"vehicle_0",start:"2026-11-23T12:00:00+01:00",end:"2026-11-23T12:15:00+01:00",indicative_power_kw:3.6}];
+    if(count>1)data.forecast_slots.push({charger_id:"charger_1",asset_id:"vehicle_1",
+      start:"2026-11-23T23:45:00+01:00",end:"2026-11-24T00:00:00+01:00",
+      indicative_power_kw:2.0});
+    data.goal_assessments=Object.fromEntries(data.forecast_slots.map(row=>[row.charger_id,{
+      asset_id:row.asset_id,status:"achievable",conditional:true,reason:"PROPOSED",
+      required_grid_kwh:row.indicative_power_kw/4,planned_grid_kwh:row.indicative_power_kw/4,
+      shortfall_grid_kwh:0,timeline_start:data.start,timeline_end:data.end,
+      timeline_windows:[{start:row.start,end:row.end}],deadline:row.end
+    }]));
     data.price_slots=[{start:"2026-11-23T10:00:00+01:00",
       end:"2026-11-23T10:15:00+01:00",price_per_kwh:0.23,
       currency:"EUR",basis:"spot"}];
@@ -93,6 +104,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     // Real browser interaction on a representative planner-shaped payload.
     // Source tests separately prove the actual planner's 192-quarter result.
     const a=assets[0],c=devices[0],start="2026-11-24T20:45:00+01:00";
+    data.start="2026-11-24T00:00:00+01:00";data.end="2026-11-26T00:00:00+01:00";
     Object.assign(a,{name:"Audi Q8",target_soc:95,capacity_kwh:20,charge_efficiency:0.9,
       ready_by:"2026-11-25T06:00:00+01:00",ready_by_repeat:"daily",plan_color:"blue"});
     delete a.requested_kwh;
@@ -314,6 +326,26 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
   const quick=[...root.querySelectorAll('select[data-quick-assignment]')];
   const chartLegend=root.querySelector(".combined-plan .legend");
   const chartHost=root.querySelector(".combined-plan .mc-apex");
+  const rangeStart=String(Date.parse(data.start)),rangeEnd=String(Date.parse(data.end));
+  const timelines=[...root.querySelectorAll(".goal-timeline")];
+  const sameRange=[...apexHosts,...timelines].every(el=>
+    el.getAttribute("data-range-start")===rangeStart&&el.getAttribute("data-range-end")===rangeEnd);
+  const colorAndQuarter=view!=="plan"||count<2||(()=>{
+    const opts=JSON.parse(chartHost?._mcSignature||"{}");
+    const one=opts.series?.findIndex(s=>s.name.includes("Indicative")&&s.name.includes("Vehicle 1"));
+    const two=opts.series?.findIndex(s=>s.name.includes("Indicative")&&s.name.includes("Vehicle 2"));
+    if(!(one>=0&&two>=0))return false;
+    const interval=opts.series[one].data.filter(p=>p.y===3.6);
+    const windows=[...root.querySelectorAll(".goal-window")];
+    const laneOpts=apexHosts.slice(1).map(el=>JSON.parse(el._mcSignature));
+    const visiblePath=chartHost.querySelectorAll(".apexcharts-series path").length>0;
+    return visiblePath&&opts.colors[one]==="#3779B9"&&opts.colors[two]==="#D98B39"&&
+      interval.length===2&&interval[1].x-interval[0].x===899999&&
+      windows.length===2&&windows[0].style.background==="rgb(55, 121, 185)"&&
+      windows[1].style.background==="rgb(217, 139, 57)"&&
+      laneOpts.every(o=>o.series.some((s,i)=>s.name.includes("Indicative")&&
+        ["#3779B9","#D98B39"].includes(o.colors[i])));
+  })();
   const toggle=chartLegend?.querySelector("button");
   if(toggle)toggle.click();
   const report={
@@ -322,7 +354,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     documentWidth:document.documentElement.scrollWidth,
     tabs:[...root.querySelectorAll(".tabs button")].map(b=>b.textContent),
     cards:cards.length,folds:folds.length,
-    apexHosts:apexHosts.length,apexLive,
+    apexHosts:apexHosts.length,apexLive,sameRange,colorAndQuarter,
     legendContained:!!chartLegend&&chartLegend.getBoundingClientRect().top>=chartHost.getBoundingClientRect().bottom-1,
     legendToggle:toggle?.getAttribute("aria-pressed")==="false",
     priceAndForecast:!!chartLegend&&chartLegend.textContent.includes("Reference price")&&chartLegend.textContent.includes("Indicative"),
