@@ -217,7 +217,8 @@ class MultiChargeRuntime:
                 "next_ready_by": due.isoformat() if due is not None else None,
                 "deadline_quality": reason,
             }
-        for raw in cfg["chargers"]:
+        for configured in cfg["chargers"]:
+            raw = self.executor.effective_charger(configured)
             uid = raw["id"]
             chargers[uid] = Charger(
                 uid=uid, name=raw["name"], controller_uid=controller.uid,
@@ -247,11 +248,16 @@ class MultiChargeRuntime:
             self.observations["chargers"][uid] = {
                 "connected": cable, "power_kw": power, "session": session,
             }
-            if cable.value is not True and cable.value is not False or cable.quality != "ok":
+            asset = assets.get(raw.get("asset"))
+            duration_without_connection = (raw["kind"] == "on_off"
+                and asset is not None and asset.get("requested_duration_minutes") is not None
+                and self.executor.duration_connection_allowed(cable))
+            if not duration_without_connection and (
+                    cable.value not in (True, False) or cable.quality != "ok"):
                 self.excluded[uid] = "CONNECTION_UNCONFIRMED"
                 self.forecast_excluded[uid] = "CONNECTION_UNCONFIRMED"
                 continue
-            disconnected = cable.value is False
+            disconnected = cable.quality == "ok" and cable.value is False
             if uid in self.executor._paused:
                 self.excluded[uid] = "USER_PAUSED"
                 self.forecast_excluded[uid] = "USER_PAUSED"
@@ -412,7 +418,7 @@ class MultiChargeRuntime:
                     "reserves_capacity": False,
                 }
             else:
-                if self.executor.connection_confirmation(raw, at) is None:
+                if not duration_without_connection and self.executor.connection_confirmation(raw, at) is None:
                     self.excluded[uid] = "CURRENT_PLUG_ASSET_UNCONFIRMED"
                     continue
                 demands.append(request)
@@ -574,6 +580,75 @@ class MultiChargeRuntime:
             self.excluded["controller"] = "INVALID_PLANNING_INPUT"
         self.notify()
 
+    def charger_states(self, capabilities=None):
+        """Four read-only projections of the existing source and control truth."""
+        if capabilities is None:
+            capabilities = self.executor.capabilities()
+        states = {}
+        for charger in self.configuration["chargers"]:
+            uid = charger["id"]
+            obs = self.observations.get("chargers", {}).get(uid, {})
+            cable, power, session = (obs.get(k) for k in ("connected", "power_kw", "session"))
+            connected = cable.value if cable is not None and cable.quality == "ok" else None
+            measured = power.value if power is not None and power.quality == "ok" else None
+            reported = session.value if session is not None and session.quality == "ok" else None
+            activation = "active" if charger.get("control_owner") == "multicharge" and charger.get("physical_commissioned") is True else "inactive"
+            switch = self.executor._switch(self.hass, charger.get("control_entity"))
+            # Preserve conflicts as unknown rather than choose a convenient source.
+            if ((connected is False and (reported in ("charging", "paused") or
+                                         measured is not None and measured > 0.05))
+                    or (reported in ("paused", "stopped", "completed", "idle", "inactive")
+                        and measured is not None and measured > 0.05)):
+                activity = "unknown"
+            elif reported == "charging" or (measured is not None and measured > 0.05):
+                activity = "charging"
+            elif reported == "paused":
+                activity = "paused"
+            elif (reported in ("stopped", "completed", "idle", "inactive")
+                  or connected is False or (measured is not None and measured <= 0.05)):
+                activity = "stopped"
+            else:
+                activity = "unknown"
+            capability = capabilities.get(uid, {})
+            goal_reason = (capability.get("reason") if charger.get("asset") is not None
+                           else capability.get("manual_one_off_reason"))
+            if reported == "fault":
+                readiness, reason = "error", "CHARGER_REPORTED_FAULT"
+            elif reported == "unavailable" or (charger.get("control_entity") and switch is None and activation == "active"):
+                readiness, reason = "unavailable", "CHARGER_SOURCE_UNAVAILABLE"
+            elif activation == "active" and capability.get("paused"):
+                readiness, reason = "waiting", "USER_PAUSED"
+            elif activation == "active" and goal_reason in ("CONTROL_STATE_UNVERIFIED", "PREVIOUS_COMMAND_UNCONFIRMED"):
+                readiness, reason = "unknown", goal_reason
+            elif reported == "paused":
+                readiness, reason = "waiting", session.reason if session.reason != "OK" else "PROVIDER_SUSPENDED"
+            elif (switch is not None or reported in ("charging", "stopped", "idle", "completed")
+                  or (measured is not None and measured > 0.05)):
+                if activation == "active" and connected is True and goal_reason in (
+                    "TARGET_ALREADY_MET", "MAX_PARALLEL_REACHED", "SITE_CAPACITY_EXCEEDED",
+                    "CHARGING_WINDOW_CLOSED", "EARLIEST_START_NOT_REACHED",
+                    "NATIVE_SOLAR_SURPLUS_INSUFFICIENT", "AUTOMATIC_MODE_NOT_ENABLED",
+                ) and goal_reason != "TARGET_ALREADY_MET":
+                    readiness, reason = "waiting", goal_reason
+                else:
+                    readiness, reason = "ready", "EQUIPMENT_OBSERVED"
+            else:
+                readiness, reason = "unknown", "NOT_OBSERVED"
+            states[uid] = {
+                "activation": activation,
+                "connection_state": ("asset_connected" if connected is True else
+                                     "no_asset_connected" if connected is False else "unknown"),
+                "connection_basis": ("user_confirmed" if cable is not None
+                                     and cable.reason == "USER_CONFIRMED_CONNECTION"
+                                     else "source_observed" if connected is not None else "unknown"),
+                "charging_session": activity,
+                "charging_state": readiness,
+                "reason": reason,
+                "goal_reason": goal_reason,
+                "switch_state": switch.state if switch is not None else None,
+            }
+        return states
+
     def live_state(self):
         """Near-real-time controller projection from native source and command evidence.
 
@@ -613,6 +688,11 @@ class MultiChargeRuntime:
             "connected_chargers": sum(int(e.value is True) for e in cables) if cable_ok else None,
             "charging_chargers": sum(int(e.value > 0.05) for e in powers) if power_ok else None,
             "actual_power_kw": round(sum(e.value for e in powers), 6) if power_ok else None,
+            "observed_power_subtotal_kw": (round(sum(e.value for e in powers if e is not None
+                                                       and e.quality == "ok"), 6)
+                                           if any(e is not None and e.quality == "ok" for e in powers)
+                                           else None),
+            "observed_power_chargers": sum(e is not None and e.quality == "ok" for e in powers),
             "connection_quality": "ok" if cable_ok else "unknown",
             "power_quality": "ok" if power_ok else "unknown",
             "mode": self.configuration["controller"]["mode"],
@@ -773,6 +853,7 @@ class MultiChargeRuntime:
             and (charger_id is None or receipt["charger_id"] == charger_id)
             and (asset_id is None or receipt["asset_id"] == asset_id)
         ]
+        capabilities = self.executor.capabilities()
         return {
             "schema_major": 1,
             "plan_palette": dict(PLAN_COLORS),
@@ -817,7 +898,8 @@ class MultiChargeRuntime:
                    if self.forecast_assessment else {}),
             },
             "command_outcomes": self.executor.snapshot(),
-            "command_capabilities": self.executor.capabilities(),
+            "command_capabilities": capabilities,
+            "charger_states": self.charger_states(capabilities),
             "connection_identity": {
                 c["id"]: self.executor.connection_confirmation(c, datetime.now(timezone.utc))
                 for c in self.configuration["chargers"]
@@ -847,6 +929,7 @@ class MultiChargeRuntime:
                     uid: {
                         "connected": _evidence(readings.get("connected")),
                         "power_kw": _evidence(readings.get("power_kw")),
+                        "session": _evidence(readings.get("session")),
                     }
                     for uid, readings in self.observations.get("chargers", {}).items()
                 },

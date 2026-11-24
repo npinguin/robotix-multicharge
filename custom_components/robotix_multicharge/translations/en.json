@@ -138,7 +138,6 @@
           "charger": "Chargers",
           "display": "Dashboard card",
           "yaml": "Edit complete configuration (JSON / YAML)",
-          "commission": "Commission Charger",
           "energy": "Energy & prices",
           "charger_pick": "Choose a charging point",
           "asset_pick": "Choose a chargeable asset"
@@ -176,7 +175,7 @@
       },
       "charger": {
         "title": "Charger",
-        "description": "Configure native hardware, sensors and wiring. Physical ownership is enabled separately under Commission.",
+        "description": "Configure native hardware, sensors and applicable limits. Select Active when you want MultiCharge to control the Charger.",
         "data": {
           "action": "Action",
           "id": "Stable ID (optional for new charger)",
@@ -215,16 +214,6 @@
         "description": "Edit the existing full configuration and press Save. One Home Assistant Config Entry, no physical charging command. {note} {validation_error}",
         "data": {
           "yaml_text": "Edit complete configuration (JSON / YAML)"
-        }
-      },
-      "commission": {
-        "title": "Physical Charger commissioning",
-        "description": "Verify exclusive native command ownership and safe idle readback before enabling physical control. This never sends a charging command.",
-        "data": {
-          "charger_id": "Charger",
-          "commission": "Enable MultiCharge control for this Charger",
-          "exclusive_writer_confirmed": "Other controllers and automations have relinquished physical command ownership",
-          "electrical_limits_confirmed": "Electrical limits, physical power and independent sensor readback have been verified"
         }
       },
       "energy": {

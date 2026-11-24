@@ -813,7 +813,7 @@ const MC_OWNER_GROUPS = {
   charger: [
     ["Identity & ownership",[
       "id","name","kind","asset","plan_color",
-      "control_owner","physical_commissioned"
+      "control_owner"
     ]],
     ["Connection & meter sources",[
       "control_entity","connected_entity","connected_states",
@@ -873,7 +873,7 @@ const MC_OWNER_NAMES = {
   capacity_kwh:"Usable battery capacity",
   max_charge_kw:"Vehicle charging limit",
   charge_efficiency:"Charging efficiency",
-  control_owner:"Physical command owner",
+  control_owner:"Activation",
   physical_commissioned:"Physical commissioning",
   control_entity:"Native Charger control switch",
   connected_entity:"Cable/connection sensor",
@@ -918,6 +918,7 @@ const MC_EDIT_NUMBERS=new Set([
 const MC_EDIT_BOOLEAN=new Set(["temporary","continuous_charging","show_indicative_forecast"]);
 const MC_EDIT_DATES=new Set(["ready_by","expires_at","earliest_start_at","expected_connection_at"]);
 const MC_EDIT_ENUM={
+  control_owner:["external","multicharge"],
   mode:["Automatic","Solar","Economy","Ready By","Force Charge","Off"],
   plan_label_mode:["vehicle","charger","both"],
   plan_color_by:["vehicle","charger"],
@@ -952,6 +953,7 @@ function mcAssetGoalText(a){
   return mcTr("Not set");
 }
 function mcOwnerReadValue(value,field,timeZone){
+  if(field==="control_owner")return mcTr(value==="multicharge"?"Active":"Inactive");
   if(value===undefined||value===null||value==="")return mcTr("Not configured");
   if(typeof value==="boolean")return mcTr(value?"Yes":"No");
   if(Array.isArray(value))return value.length?value.join(", "):mcTr("Not configured");
@@ -1015,7 +1017,6 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._editingField="";
     this._confirmDelete="";
     this._createCharger=false;
-    this._commissionEditor=null;
     this._yamlEditorOpen=false;
     this._yamlBaselineRevision=null;
     this._yamlCommittedRevision=null;
@@ -1044,7 +1045,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       tab==="Settings"&&this._editingField.startsWith("controller:")||
       tab==="Chargeable Assets"&&this._editingField.startsWith("asset:")||
       tab==="Chargers"&&this._editingField.startsWith("charger:")));
-    return Boolean(this._unsavedInput||scopedEdit||this._yamlEditorOpen||this._commissionEditor||
+    return Boolean(this._unsavedInput||scopedEdit||this._yamlEditorOpen||
       tab==="Chargeable Assets"&&(
         this._assetEditor||this._assignmentEditor||
         this._goalEditor||this._scheduleEditor||this._windowsOpen)||
@@ -1289,7 +1290,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     else options=MC_EDIT_ENUM[field]||null;
     if(MC_EDIT_BOOLEAN.has(field))options=["true","false"];
     if(options){
-      const pairs=options.map(key=>[key,key||mcTr("No vehicle")]);
+      const pairs=options.map(key=>[key,field==="control_owner"?(key==="multicharge"?mcTr("Active"):mcTr("Inactive")):key||mcTr("No vehicle")]);
       if(prior!==undefined&&!pairs.some(x=>x[0]===String(prior)))
         pairs.unshift([String(prior),String(prior)]);
       const choice=this.field(container,MC_OWNER_NAMES[field]||field,
@@ -1645,86 +1646,6 @@ class RobotixMultiChargeCard extends HTMLElement {
     wrapper.append(label,input);container.append(wrapper);
     return input;
   }
-  openCommissionEditor(charger){
-    if(!this.canEditSettings())return;
-    this._commissionEditor={
-      charger_id:charger.id,name:charger.name,
-      enable:charger.control_owner!=="multicharge",
-      busy:false,error:""
-    };
-    this.render();
-  }
-  async applyCommission(exclusive,electrical){
-    const editor=this._commissionEditor;
-    if(!editor||editor.busy||!this.canEditSettings())return;
-    editor.busy=true;editor.error="";
-    try{
-      const response=await this._hass.callWS({
-        type:"robotix_multicharge/dashboard_config",
-        operation:"commission",
-        expected_revision:this._data.configuration_revision,
-        charger_id:editor.charger_id,
-        commission:editor.enable,
-        exclusive_writer_confirmed:exclusive,
-        electrical_limits_confirmed:electrical
-      });
-      if(response.status!=="accepted_unconfirmed"||!response.expected_revision)
-        throw Error("Commissioning not authorized");
-      this._pendingSettings={expected_revision:response.expected_revision};
-      this._settingsFeedback={status:"accepted_unconfirmed",
-        message:"Commissioning accepted; waiting HA Config Entry readback"};
-      this._last=0;await this.load();
-      if(this._data?.configuration_revision===response.expected_revision){
-        this._commissionEditor=null;
-        this._settingsFeedback={status:"confirmed",message:"Saved"};
-      }else editor.error="HA runtime readback pending; refresh";
-    }catch(error){
-      editor.error=String(error?.message||error?.code||"Physical commissioning rejected").slice(0,250);
-    }finally{
-      editor.busy=false;
-      if(editor.error){
-        this._settingsFeedback={status:"rejected",message:editor.error};
-        this.showEditError();
-      }else this.render();
-    }
-  }
-  commissionEditor(container){
-    const editor=this._commissionEditor;
-    if(!editor||!this.canEditSettings())return;
-    const card=mcEl("section","card dashboard-editor");
-    card.setAttribute("data-dashboard-commission",editor.charger_id);
-    const header=mcEl("div","row");
-    header.append(mcEl("h3","",
-      (editor.enable?"Commission":"Return to monitoring")+
-      " · "+editor.name),
-      mcButton(mcTr("Close"),()=>{
-        this._commissionEditor=null;this.render();
-      }));
-    card.append(header);
-    card.append(mcEl("p","message error",
-      "Physical hardware ownership can only change with "+
-      "an exclusive writer, verified electrical limits, OFF switch and "+
-      "independently measured zero power. No START/STOP command is issued here."));
-    const check=(label)=>{
-      const row=mcEl("label","dashboard-confirm");
-      const input=mcEl("input");input.setAttribute("type","checkbox");
-      row.append(input,mcEl("span","",label));
-      card.append(row);return input;
-    };
-    const exclusive=check("I verified no EV Smart Charging or other controller still writes to this charger");
-    const electrical=check("I verified the physical circuit/phase/current limits and source readback");
-    const save=mcButton(
-      editor.enable?"Enable MultiCharge physical ownership":"Disable MultiCharge physical ownership",
-      ()=>this.applyCommission(exclusive.checked,electrical.checked)
-    );
-    save.disabled=editor.busy;
-    card.append(save);
-    if(editor.error){
-      const p=mcEl("p","message error",editor.error);p.setAttribute("role","alert");
-      card.append(p);
-    }
-    container.append(card);
-  }
   feedback(container){
     if(!this._settingsFeedback)return;
     const result=this._settingsFeedback;
@@ -1778,7 +1699,6 @@ class RobotixMultiChargeCard extends HTMLElement {
       tabs.append(btn);
     }
     shell.append(tabs);
-    if(this.canEditSettings()&&this._commissionEditor)this.commissionEditor(shell);
     if(this._loading&&!this._data)this.notice(shell,"Loading",false);
     if(this._error){
       this.notice(shell,"Unavailable",true);
@@ -2168,7 +2088,7 @@ class RobotixMultiChargeCard extends HTMLElement {
           mcOwnerReadValue(record[field],field,this._data?.timezone)));
       line.append(info);
       const key=scope+":"+record.id+":"+field;
-      if(this.canEditSettings()&&!["id","control_owner","physical_commissioned"].includes(field)){
+      if(this.canEditSettings()&&!["id","physical_commissioned"].includes(field)){
         const edit=mcButton(mcTr("Edit"),()=>{
           this._editingField=this._editingField===key?"":key;this.render();
         });
@@ -2201,7 +2121,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     }
     // A newly supported source key may never disappear during a version
     // upgrade just because the bundled frontend is older than the backend.
-    const extra=Object.keys(record).filter(key=>!covered.has(key));
+    const extra=Object.keys(record).filter(key=>!covered.has(key)&&!(scope==="charger"&&key==="physical_commissioned"));
     if(extra.length)fold("Additional owner settings",extra,
       scope+":"+record.id+":additional");
     wrapper.append(mcEl("p","muted small",
@@ -2585,12 +2505,16 @@ class RobotixMultiChargeCard extends HTMLElement {
     box.append(mcEl("h3","",mcTr("Add charger")+" · "+
       mcTr("configured entirely in MultiCharge")));
     box.append(mcEl("p","muted small",
-      mcTr("New chargers start in external monitor-only mode; no physical command")));
+      "Active allows MultiCharge control. Inactive retains monitoring. Save sends no charging command."));
     const id=this.field(box,mcTr("Stable charger ID"),"","text");
     const name=this.field(box,mcTr("Charger name"),"","text");
     const kind=this.field(box,mcTr("Control type"),"on_off",null,[
       ["on_off",mcTr("On/off")],["variable_current",mcTr("Variable current")]
     ]);
+    const owner=this.field(box,mcTr("Activation"),"external",null,[
+      ["external",mcTr("Inactive")],["multicharge",mcTr("Active")]
+    ]);
+    const readSwitch=this.dashboardFieldControl(box,"charger",{id:"new_charger"},"control_entity");
     const power=this.field(box,mcTr("Rated power (kW)"),"","number");
     power.setAttribute("step","any");
     const tech=mcEl("details","owner-group");
@@ -2599,7 +2523,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     const draft={id:"new_charger"};
     const readers={};
     for(const field of [
-      "control_entity","connected_entity","connected_states","disconnected_states",
+      "connected_entity","connected_states","disconnected_states",
       "power_entity","energy_entity","session_entity",
       "current_control_entity","current_readback_entity",
       "phase_count","phase_ids","voltage_v",
@@ -2618,6 +2542,8 @@ class RobotixMultiChargeCard extends HTMLElement {
         this.showEditError(box);return;
       }
       const changes={name:name.value.trim(),kind:kind.value,rated_power_kw:rated};
+      if(owner.value==="multicharge")changes.control_owner=owner.value;
+      const control=readSwitch();if(control)changes.control_entity=control;
       try{
         for(const [key,read] of Object.entries(readers)){
           const value=read();if(value!==null)changes[key]=value;
@@ -2649,22 +2575,25 @@ class RobotixMultiChargeCard extends HTMLElement {
       dot.style.background=mcOwnerColor("charger",c.id,d.configuration,d.plan_palette);
       chip.append(dot,mcEl("span","muted small",mcTr("Plan color")+" · "+mcTr(c.plan_color||"blue")));
       card.append(chip);
-      mcPair(card,"Connection",mcValue(obs.connected));
-      const status=obs.connected?.quality==="ok"&&obs.connected.value===true&&
-        obs.power_kw?.quality==="ok"&&typeof obs.power_kw.value==="number"&&obs.power_kw.value>0?"Charging":
-        obs.connected?.quality==="ok"?(obs.connected.value===true?"Connected":"Disconnected"):"Unknown";
-      const statusIcon=status==="Charging"?"lightning-bolt":status==="Connected"?"connection":status==="Disconnected"?"power-plug-off-outline":"help-circle-outline";
-      card.append(mcIconLabel(mcEl("p","small",status),status,statusIcon,status==="Charging"?"good":"quiet"));
+      const states=(d.charger_states||{})[c.id]||{};
+      const activation=c.control_owner==="multicharge"&&c.physical_commissioned!==false?"Active":"Inactive";
+      const connection=states.connection_state==="asset_connected"?
+        (states.connection_basis==="user_confirmed"?"Asset connected (user confirmed)":"Asset connected"):
+        states.connection_state==="no_asset_connected"?"No asset connected":"Unknown";
+      const activity={charging:"Charging",paused:"Paused",stopped:"Stopped"}[states.charging_session]||"Unknown";
+      const readiness={ready:"Ready",waiting:"Waiting",error:"Error",unavailable:"Unavailable"}[states.charging_state]||"Unknown";
+      mcPair(card,mcTr("Activation"),mcTr(activation));
+      mcPair(card,mcTr("Connection state"),mcTr(connection));
+      mcPair(card,mcTr("Charging session"),mcTr(activity));
+      mcPair(card,mcTr("Charging state"),mcTr(readiness));
+      if(states.reason&&states.charging_state!=="ready")
+        card.append(mcEl("p","muted small",mcReason(states.reason)));
+      if(states.switch_state==="on"&&activity==="Unknown")
+        card.append(mcEl("p","muted small",mcTr("Switch on · charging not measured")));
       mcPair(card,"Effective charging power",mcValue(obs.power_kw," kW"));
       mcPair(card,"Control type",c.kind==="on_off"?"On/off":"Variable current");
-      mcPair(card,mcTr("Physical control owner"),
-        c.control_owner==="multicharge"?mcTr("MultiCharge"):
-        mcTr("External control (monitor only)"));
-      mcPair(card,mcTr("Physically commissioned"),
-        c.physical_commissioned===true?mcTr("Yes"):mcTr("No"));
       if(this.canEditSettings())card.append(mcButton(
-        mcTr("Physical ownership & commissioning"),
-        ()=>this.openCommissionEditor(c)
+        mcTr("Change activation"),()=>this.openNative("charger",c.id,"control_owner")
       ));
       const session=(d.active_sessions||{})[c.id];
       if(session){
@@ -2742,8 +2671,8 @@ class RobotixMultiChargeCard extends HTMLElement {
           ]){
             const session=(d.active_sessions||{})[c.id];
             const kw=field==="set_charging_power_kw"?
-              (session?.target_current_a!=null&&c.voltage_v&&c.phase_ids?.length?
-                session.target_current_a*c.voltage_v*c.phase_ids.length/1000:null):
+              (session?.target_current_a!=null&&c.voltage_v&&c.phase_count?
+                session.target_current_a*c.voltage_v*c.phase_count/1000:null):
               c[field];
             mcPair(detail,mcTr(label),kw==null?mcTr("Not set"):Number(kw).toFixed(2)+" kW");
             this.nativeNumberEditor(detail,"charger",c.id,field,label,
@@ -2786,53 +2715,57 @@ class RobotixMultiChargeCard extends HTMLElement {
       }
       if(controls.children.length)card.append(controls);
       if(this.canManage()&&!c.asset){
-        // Always allow preparing a finite manual request. The backend is
-        // authoritative for native source/safety/physical permission.
+        // One user goal, one input, one command. All readiness is server-owned.
         const oneOff=mcEl("div","details");
-        const draft=this._manualDrafts[c.id]||{energy:"",minutes:"",budget:""};
+        oneOff.append(mcEl("h4","",mcTr("Manual one-off charge")));
+        const draft=this._manualDrafts[c.id]||{kind:"duration",duration:"",energy:"",budget:""};
         this._manualDrafts[c.id]=draft;
-        const energy=this.field(oneOff,mcTr("Energy limit (kWh)"),draft.energy,"number");
-        const minutes=this.field(oneOff,mcTr("Time limit (minutes)"),draft.minutes,"number");
-        const budget=this.field(oneOff,mcTr("Budget limit (€)"),draft.budget,"number");
-        energy.addEventListener("input",()=>{draft.energy=energy.value;});
-        minutes.addEventListener("input",()=>{draft.minutes=minutes.value;});
-        budget.addEventListener("input",()=>{draft.budget=budget.value;});
-        const submit=mcButton(mcTr("Start bounded session"),()=>{
-          const amount=energy.value.trim(),time=minutes.value.trim(),
-                money=budget.value.trim();
-          draft.energy=amount;draft.minutes=time;draft.budget=money;
-          if([amount,time,money].filter(Boolean).length!==1||
-              [amount,time,money].filter(Boolean).some(x=>
-                !Number.isFinite(Number(x))||Number(x)<=0)||
-              (time&&!Number.isInteger(Number(time)))){
-            this._commandFeedback[c.id]={
-              status:"rejected",reason:"ONE_FINITE_MANUAL_LIMIT_REQUIRED"
-            };
-            this.render();return;
-          }
-          this.command(c.id,"start",amount?{energy_kwh:Number(amount)}:
-            time?{duration_minutes:Number(time)}:
-            {cost_amount:Number(money),currency:"EUR"});
+        const goal=this.field(oneOff,mcTr("Charging goal"),draft.kind,null,[
+          ["duration",mcTr("Time limit (minutes)")],
+          ["energy",mcTr("Energy limit (kWh)")],
+          ["budget",mcTr("Budget limit (€)")]
+        ]);
+        const labels={duration:"Time limit (minutes)",energy:"Energy limit (kWh)",budget:"Budget limit (€)"};
+        const amount=this.field(oneOff,mcTr(labels[draft.kind]),draft[draft.kind],"number");
+        amount.setAttribute("min",draft.kind==="duration"?"1":"0.01");
+        amount.setAttribute("step",draft.kind==="duration"?"1":"any");
+        goal.addEventListener("change",()=>{
+          draft.kind=goal.value;
+          this.render();
         });
-        submit.disabled=this._commandBusy||!capability.manual_one_off_allowed;
-        oneOff.append(submit);
-        if(!capability.manual_one_off_allowed)
-          oneOff.append(mcEl("p","muted small",
-            mcTr("Start unavailable")+" · "+
-            mcReason(capability.manual_one_off_reason||"SOURCE_NOT_SELECTED")));
-        this.disclosure(card,"charger:"+c.id+":oneoff",
-          "Manual one-off charge",oneOff,
-          capability.manual_one_off_allowed?"":
-          mcReason(capability.manual_one_off_reason||"SOURCE_NOT_SELECTED"));
+        const valid=()=>{
+          const value=Number(amount.value);
+          return !!amount.value.trim()&&Number.isFinite(value)&&value>0&&
+            (draft.kind!=="duration"||(Number.isInteger(value)&&value<=1440))&&
+            (draft.kind!=="energy"||value<=1000)&&(draft.kind!=="budget"||value<=10000);
+        };
+        const reason=capability.manual_goal_reasons?.[draft.kind]||
+          capability.manual_one_off_reason||"SOURCE_NOT_SELECTED";
+        const submit=mcButton(mcTr("Start bounded session"),()=>{
+          if(reason!=="READY"||!valid())return;
+          const value=Number(amount.value);
+          this.command(c.id,"start",draft.kind==="duration"?{duration_minutes:value}:
+            draft.kind==="energy"?{energy_kwh:value}:{cost_amount:value,currency:"EUR"});
+        });
+        const availability=mcEl("p","muted small");
+        const updateGoal=()=>{
+          submit.disabled=this._commandBusy||reason!=="READY"||!valid();
+          availability.textContent=reason==="READY"?"":mcTr("Start unavailable")+" · "+mcReason(reason);
+        };
+        amount.addEventListener("input",()=>{draft[draft.kind]=amount.value;updateGoal();});
+        updateGoal();
+        oneOff.append(submit,availability);
+        card.append(oneOff);
       }
       if(!capability.start_allowed && capability.reason && c.asset)
         card.append(mcEl("p","muted small",mcTr("Unavailable")+" · "+mcReason(capability.reason)));
       if(outcome){
         const bad=outcome.status==="rejected"||outcome.status==="execution_unknown";
         const label=bad?mcReason(outcome.reason):outcome.status==="confirmed"?
-          (outcome.action==="stop"?"Stopped":
+          (outcome.reason==="NATIVE_SWITCH_STATE"?(outcome.action==="start"?mcTr("Switch on · charging not measured"):mcTr("Switch off · charging not measured")):
+           outcome.action==="stop"?"Stopped":
            outcome.action==="pause"?mcTr("Paused"):
-           outcome.action==="resume"?mcTr("Ready for next plan"):"Charging"):"Pending";
+           outcome.action==="resume"?mcTr("Ready for next plan"):"Command confirmed"):"Pending";
         const status=mcEl("p","small"+(bad?" error":""),label);
         status.setAttribute("role",bad?"alert":"status");
         card.append(status);
@@ -2863,7 +2796,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     editor.setAttribute("aria-label","YAML or JSON configuration");
     editor.setAttribute("spellcheck","false");
     editor.setAttribute("rows","22");
-    editor.value=JSON.stringify(this._data.configuration,null,2);
+    editor.value=JSON.stringify(this._data.configuration,(key,value)=>key==="physical_commissioned"?undefined:value,2);
     const notice=mcEl("p","message");
     notice.setAttribute("role","status");
     const buttons=mcEl("div","yaml-actions");

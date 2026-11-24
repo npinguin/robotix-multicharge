@@ -138,7 +138,6 @@
           "charger": "Ladepunkt",
           "display": "Dashboardkarte",
           "yaml": "Vollständige Konfiguration (JSON / YAML)",
-          "commission": "Ladepunkt in Betrieb nehmen",
           "energy": "Energie und Preise",
           "charger_pick": "Ladepunkt wählen",
           "asset_pick": "Ladeobjekt wählen"
@@ -176,7 +175,7 @@
       },
       "charger": {
         "title": "Ladepunkt",
-        "description": "Hardware, Sensoren und Verkabelung konfigurieren. Die physische Steuerung wird unter Inbetriebnahme aktiviert.",
+        "description": "Hardware, Sensoren und geltende Grenzwerte konfigurieren. Aktiv auswählen, wenn MultiCharge den Ladepunkt steuern soll.",
         "data": {
           "action": "Aktion",
           "id": "Stabile ID",
@@ -215,16 +214,6 @@
         "description": "Edit the existing full configuration and press Save. One Home Assistant Config Entry, no physical charging command. {note} {validation_error}",
         "data": {
           "yaml_text": "Vollständige Konfiguration (JSON / YAML)"
-        }
-      },
-      "commission": {
-        "title": "Physische Inbetriebnahme des Ladepunkts",
-        "description": "Exklusive Steuerung und gemessenen Ruhezustand prüfen. Hier wird kein Ladebefehl gesendet.",
-        "data": {
-          "charger_id": "Ladepunkt",
-          "commission": "MultiCharge-Steuerung aktivieren",
-          "exclusive_writer_confirmed": "Andere Steuerungen und Automationen greifen nicht mehr auf diesen Ladepunkt zu",
-          "electrical_limits_confirmed": "Elektrische Grenzen, Leistung und unabhängige Rückmeldung geprüft"
         }
       },
       "energy": {

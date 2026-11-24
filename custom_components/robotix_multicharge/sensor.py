@@ -212,6 +212,8 @@ class _LogicalReadinessSensor(_NativeMultiChargeSensor):
                 assessment.plan.status if assessment is not None else "unavailable"
             ),
             "command_outcome": outcomes.get(self.data["id"]),
+            **(self.runtime.charger_states(caps).get(self.data["id"], {})
+               if self.kind == "charger" else {}),
         }
 
 

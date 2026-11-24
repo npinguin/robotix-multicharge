@@ -138,7 +138,6 @@
           "charger": "Chargers",
           "display": "Dashboard card",
           "yaml": "Volledige configuratie bewerken (JSON / YAML)",
-          "commission": "Laadpaal in bedrijf stellen",
           "energy": "Energie en tarieven",
           "charger_pick": "Kies een laadpunt",
           "asset_pick": "Kies een voertuig of ander laadbaar object"
@@ -177,7 +176,7 @@
       },
       "charger": {
         "title": "Laadpaal",
-        "description": "Configureer hardware, sensoren en bedrading. Fysieke aansturing schakel je afzonderlijk in bij Inbedrijfstelling.",
+        "description": "Configureer hardware, sensoren en toepasselijke limieten. Kies Actief wanneer MultiCharge de laadpaal mag aansturen.",
         "data": {
           "action": "Actie",
           "id": "Naam",
@@ -216,16 +215,6 @@
         "description": "Bewerk de bestaande configuratie en klik op Opslaan. Eén Home Assistant-configuratie, geen fysieke laadopdracht. {note} {validation_error}",
         "data": {
           "yaml_text": "Volledige configuratie bewerken (JSON / YAML)"
-        }
-      },
-      "commission": {
-        "title": "Fysieke inbedrijfstelling laadpaal",
-        "description": "Controleer exclusieve aansturing en de veilige, werkelijk gemeten rusttoestand voordat fysieke bediening wordt ingeschakeld. Deze stap verstuurt geen laadcommando.",
-        "data": {
-          "charger_id": "Laadpaal",
-          "commission": "Fysieke MultiCharge-aansturing inschakelen",
-          "exclusive_writer_confirmed": "Andere controllers en automatiseringen sturen deze laadpaal niet meer aan",
-          "electrical_limits_confirmed": "Elektrische limieten, werkelijk vermogen en onafhankelijke sensoren zijn gecontroleerd"
         }
       },
       "energy": {

@@ -1,8 +1,8 @@
 {
   "status": "AUTHORIZED_FOR_TEST",
   "distribution": "open_source_community",
-  "expected_tag": "v0.1.14",
+  "expected_tag": "v0.1.15",
   "precompile": false,
-  "qualification_scope": "Owner-requested correction after v0.1.13 field Save failure and retired v0.1.10 review UI remaining in upgraded session. Versioned frontend resource and stale request rejection; exact native and dashboard error reporting, independent object-level validation errors, preserved draft and populated existing-entry repeat Save; native HA icon/color treatment of existing five views and measured-only SoC/energy. Preserve all commissioning, role, identity, source, restart and physical negative controls. Exact dev/main CI, real pinned HA and Chromium and artifact qualification required.",
-  "limitations": "Wessels actual installed v0.1.14 Save, Safari/iPad and live provider/physical acceptance remain separate. The original native Options field rejection still needs actual-site retest. No physical ownership change or stable promotion; v0.1.13 remains immutable rollback."
+  "qualification_scope": "Owner-requested full progressive-context charging batch: one explicit Active/Inactive setting, four independent charger states, ordinary configuration Save, bounded guest duration and measured kWh/budget goals, integrated SoC/Ready By, native adjustable setpoint and applicable configured constraints, mixed four-charger/four-asset upgrade, degraded optional sources, command feedback and recovery. Preserve existing architecture, identities, settings/history and all unchanged functionality. Exact candidate dev/main, installed HA, browser and artifact gates.",
+  "limitations": "Actual installed HA source availability, Safari/iPad and device readback are separate from TEST publication. Actual private site values for charging objectives, phase/voltage conversion and usable battery capacity/efficiency must be supplied where needed; do not guess. No STABLE or full field acceptance; immutable v0.1.14 is rollback."
 }

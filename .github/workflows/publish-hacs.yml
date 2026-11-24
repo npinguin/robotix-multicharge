@@ -102,7 +102,7 @@ jobs:
             --target "$SOURCE_SHA" \
             --title "Robotix MultiCharge $VERSION — TEST" \
             --prerelease \
-            --notes "Open-source Home Assistant/HACS TEST candidate. Includes the complete current runtime, native controls, five-tab UX and diagnostics. Charging requires verified exclusive physical ownership, source-qualified power and explicit current-connection identity. This prerelease is for integration and field qualification; it is not a STABLE/field-accepted claim."
+            --notes "Open-source Home Assistant/HACS TEST candidate. Includes the complete current runtime, native controls, five-tab UX and diagnostics. Charging uses user-selected activation, goal-relevant source evidence, applicable configured limits and capability-appropriate command readback. This prerelease is for integration and field qualification; it is not a STABLE/field-accepted claim."
           TAG_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.sha')"
           test "$TAG_SHA" = "$SOURCE_SHA"
           test "$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq '.isPrerelease')" = true

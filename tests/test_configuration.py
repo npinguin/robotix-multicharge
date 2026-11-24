@@ -69,14 +69,11 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(updated["assets"][0]["priority"], 25)
         self.assertEqual(updated["chargers"], source["chargers"])
         self.assertEqual(updated["controller"], source["controller"])
-        with self.assertRaisesRegex(ValueError, "ownership or commissioning"):
-            prepare_expert_yaml_revision(source, {
-                "chargers": [{
-                    **source["chargers"][0],
-                    "control_owner": "multicharge",
-                    "physical_commissioned": True,
-                }],
-            }, "merge")
+        managed = prepare_expert_yaml_revision(source, {
+            "chargers": [{"id": "plug", "control_owner": "multicharge"}],
+        }, "merge")
+        self.assertEqual(managed["chargers"][0]["control_owner"], "multicharge")
+        self.assertTrue(managed["chargers"][0]["physical_commissioned"])
 
     def test_energy_dashboard_suggestions_reuse_native_power_and_price_only(self):
         from multicharge_configuration_tests.configuration import (
@@ -430,7 +427,7 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(config["controller"]["mode"], "Ready By")
         self.assertEqual(config["controller"]["phase_limits_a"], {"L1": 20.0})
         self.assertEqual(config["controller"]["plan_color_by"], "charger")
-        self.assertEqual(config["chargers"][0]["control_owner"], "multicharge")
+        self.assertEqual(config["chargers"][0]["control_owner"], "external")
         self.assertFalse(config["chargers"][0]["physical_commissioned"])
         self.assertEqual(config["chargers"][0]["asset"], "car")
         self.assertEqual(config["assets"][0]["requested_kwh"], 4.0)
@@ -466,8 +463,8 @@ class ConfigurationTests(unittest.TestCase):
         from copy import deepcopy
         without_readback = deepcopy(configured)
         without_readback["Charger"].pop("Charging-current-readback-sensor")
-        with self.assertRaisesRegex(ValueError, "readback"):
-            normalize_expert_json(without_readback)
+        self.assertNotIn("current_readback_entity",
+                         normalize_expert_json(without_readback)["chargers"][0])
         duplicate_readback = deepcopy(configured)
         duplicate_readback["Charger"]["Charging-current-readback-sensor"] = (
             "number.wallbox_target"
@@ -1215,6 +1212,53 @@ class YamlEditorConfigurationTests(unittest.TestCase):
         ]
         return validate_configuration(cfg)
 
+    def test_explicit_expert_relinquishment_preserves_charger_identity(self):
+        from copy import deepcopy
+        from multicharge_configuration_tests.configuration import (
+            assert_expert_authority_change,
+        )
+        cfg = self.configured_site()
+        old = cfg["chargers"][0]
+        old.update(control_owner="multicharge", physical_commissioned=True,
+                   connected_entity="binary_sensor.white_connected",
+                   power_entity="sensor.white_power")
+        cfg = validate_configuration(cfg)
+        proposed = deepcopy(cfg)
+        proposed["chargers"][0].update(control_owner="external",
+                                       physical_commissioned=False)
+        saved = prepare_expert_yaml_revision(cfg, proposed, "replace")
+        self.assertEqual(saved["chargers"][0]["id"], "white")
+        self.assertEqual(saved["chargers"][0]["control_owner"], "external")
+        self.assertFalse(saved["chargers"][0]["physical_commissioned"])
+        assert_expert_authority_change(saved, cfg)
+        self.assertEqual(prepare_expert_yaml_revision(saved, cfg, "replace"), cfg)
+
+    def test_one_native_status_can_supply_connection_and_session_for_same_charger(self):
+        cfg = self.configured_site()
+        cfg["chargers"][0].update(connected_entity="sensor.evse_status",
+                                   session_entity="sensor.evse_status")
+        saved = validate_configuration(cfg)
+        self.assertEqual(saved["chargers"][0]["connected_entity"],
+                         saved["chargers"][0]["session_entity"])
+        cfg["chargers"][1]["session_entity"] = "sensor.evse_status"
+        with self.assertRaisesRegex(ValueError, "also bound"):
+            validate_configuration(cfg)
+
+    def test_minimal_managed_switch_with_one_explicit_control_setting(self):
+        cfg = default_configuration()
+        cfg["chargers"] = [{
+            "id": "plug", "name": "Guest plug", "kind": "on_off",
+            "rated_power_kw": 1.8, "control_entity": "switch.plug",
+            "control_owner": "multicharge",
+        }]
+        saved = validate_configuration(cfg)
+        self.assertTrue(saved["chargers"][0]["physical_commissioned"])
+        self.assertEqual(saved, validate_configuration(saved))
+        cfg["chargers"][0]["physical_commissioned"] = False
+        legacy = validate_configuration(cfg)
+        self.assertEqual(legacy["chargers"][0]["control_owner"], "external")
+        self.assertFalse(legacy["chargers"][0]["physical_commissioned"])
+
     def test_independent_errors_identify_objects(self):
         cfg = self.configured_site()
         cfg["assets"][0]["target_soc"] = 120
@@ -1244,8 +1288,7 @@ class YamlEditorConfigurationTests(unittest.TestCase):
                                   "connected_entity": "binary_sensor.white_plug",
                                   "power_entity": "sensor.white_power",
                                   "physical_commissioned": False}]}
-        with self.assertRaisesRegex(ValueError, "cannot transfer"):
-            prepare_expert_yaml_revision(old, bad, "replace")
+        self.assertEqual(prepare_expert_yaml_revision(old, bad, "replace")["chargers"][0]["control_owner"], "external")
         with self.assertRaisesRegex(ValueError, "cannot change"):
             prepare_expert_yaml_revision(old, {
                 **old, "controller": {**old["controller"], "id": "other"},

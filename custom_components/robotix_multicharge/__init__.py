@@ -50,6 +50,8 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
         except (KeyError, ValueError):
             _LOGGER.error("MultiCharge updated configuration failed validation")
             return
+        if existing.configuration == changed:
+            return  # identical Save is not a physical reload
         if (is_plan_presentation_only_change(existing.configuration, changed)
                 or is_in_place_runtime_preference_change(existing.configuration, changed)):
             # Existing device preferences (including qualified idle-only rebind)
@@ -58,6 +60,7 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
             original = existing.configuration
             existing.configuration = changed
             existing.refresh()
+            await existing.executor.supervise()
             from homeassistant.helpers import device_registry as dr
             registry = dr.async_get(hass)
             for kind, before_rows, after_rows in (

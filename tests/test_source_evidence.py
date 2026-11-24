@@ -212,7 +212,7 @@ class EvidenceTests(unittest.TestCase):
             connected_states=selected, disconnected_states=empty,
         )
         self.assertIsNone(unknown.value)
-        self.assertEqual(unknown.reason, "CONNECTION_AMBIGUOUS")
+        self.assertEqual(unknown.reason, "CONNECTION_PROVIDER_BLOCKED")
         self.assertEqual(connection(
             observations, "sensor.stale", NOW,
             connected_states=selected, disconnected_states=empty,
@@ -228,9 +228,19 @@ class EvidenceTests(unittest.TestCase):
         )
         self.assertEqual(overlap.reason, "CONNECTION_MAPPING_AMBIGUOUS")
 
+    def test_manual_connection_is_explicit_user_evidence_not_hardware_detection(self):
+        obj = hass({"sensor.manual": state("manual_confirmed"),
+                    "sensor.fault": state("fault")})
+        reading = connection(obj, "sensor.manual", NOW)
+        self.assertIs(reading.value, True)
+        self.assertEqual(reading.reason, "USER_CONFIRMED_CONNECTION")
+        self.assertEqual(connection(obj, "sensor.fault", NOW).reason, "CONNECTION_PROVIDER_BLOCKED")
+
     def test_session_status_is_only_read_only_source_evidence(self):
         obj = hass({
             "sensor.session": state("Charging"),
+            "sensor.suspended_ev": state("SuspendedEV"),
+            "sensor.suspended_evse": state("SuspendedEVSE"),
             "binary_sensor.session": state("on"),
             "sensor.invalid": state("1"),
             "sensor.stale": state(
@@ -239,6 +249,8 @@ class EvidenceTests(unittest.TestCase):
         })
         self.assertEqual(session_status(obj, "sensor.session", NOW).value,
                          "charging")
+        self.assertEqual(session_status(obj, "sensor.suspended_ev", NOW).reason, "SUSPENDED_EV")
+        self.assertEqual(session_status(obj, "sensor.suspended_evse", NOW).reason, "SUSPENDED_EVSE")
         self.assertEqual(session_status(obj, "binary_sensor.session", NOW).value,
                          "active")
         self.assertIsNone(session_status(obj, "sensor.invalid", NOW).value)

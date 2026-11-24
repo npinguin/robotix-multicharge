@@ -138,7 +138,6 @@
           "charger": "Chargers",
           "display": "Dashboard card",
           "yaml": "Configuration complète (JSON / YAML)",
-          "commission": "Mise en service de la borne",
           "energy": "Énergie et tarifs",
           "charger_pick": "Choisir une borne",
           "asset_pick": "Choisir un véhicule ou objet rechargeable"
@@ -177,7 +176,7 @@
       },
       "charger": {
         "title": "Borne",
-        "description": "Configurez le matériel, les capteurs et le câblage. L'autorité physique est activée séparément dans Mise en service.",
+        "description": "Configurez le matériel, les capteurs et les limites applicables. Sélectionnez Actif pour autoriser MultiCharge à commander la borne.",
         "data": {
           "action": "Action",
           "id": "Nom",
@@ -216,16 +215,6 @@
         "description": "Edit the existing full configuration and press Save. One Home Assistant Config Entry, no physical charging command. {note} {validation_error}",
         "data": {
           "yaml_text": "Configuration complète (JSON / YAML)"
-        }
-      },
-      "commission": {
-        "title": "Mise en service physique",
-        "description": "Vérifiez l'exclusivité des commandes et l'arrêt physique confirmé avant d'activer la commande. Cette étape n'envoie aucun ordre de charge.",
-        "data": {
-          "charger_id": "Borne",
-          "commission": "Activer la commande MultiCharge",
-          "exclusive_writer_confirmed": "Les autres contrôleurs et automatisations ne commandent plus cette borne",
-          "electrical_limits_confirmed": "Limites électriques, puissance et capteurs indépendants vérifiés"
         }
       },
       "energy": {

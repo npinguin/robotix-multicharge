@@ -128,6 +128,16 @@ def test_expert_reimport_rejects_live_writer_before_entry_mutation():
         _assert_safe_expert_import(runtime, old)
     states["sensor.charger_power"].state = "0"
     _assert_safe_expert_import(runtime, old)
+    # A permitted return to monitoring still requires safe structural reload.
+    from custom_components.robotix_multicharge.configuration import assert_expert_authority_change
+    assert_expert_authority_change(old, external)
+    runtime.configuration = old
+    _assert_safe_expert_import(runtime, external)
+    states["switch.charger"].state = "on"
+    with pytest.raises(ValueError, match="VERIFIED_IDLE"):
+        _assert_safe_expert_import(runtime, external)
+    states["switch.charger"].state = "off"
+    runtime.configuration = external
     # An unclosed prior command is not an idle physical session even when
     # measured zero and switch OFF happen to be present.
     executor._inflight["asset"] = "unreconciled"
@@ -266,7 +276,55 @@ async def test_clean_ha_minimal_unassigned_charger_has_finite_manual_hold(
         "plug", "start", manual_request={"duration_minutes": 10},
     )
     assert outcome["status"] == "rejected"
-    assert not issued, "A native switch state is not cable or permission proof"
+    assert not issued, "A native switch state alone is not permission to control"
+
+    # Authorize through the ordinary charger settings path, without a second
+    # commissioning workflow. The isolated HA service confirms the switch
+    # state only; it does not supply battery, cable or measured power evidence.
+    from custom_components.robotix_multicharge.command_query import apply_native_preference
+    from datetime import timedelta
+    async def observed_switch_on(call):
+        issued.append(call.service)
+        hass.states.async_set("switch.suitable_plug", "on")
+    async def observed_switch_off(call):
+        issued.append(call.service)
+        hass.states.async_set("switch.suitable_plug", "off")
+    hass.services.async_register("switch", "turn_on", observed_switch_on)
+    hass.services.async_register("switch", "turn_off", observed_switch_off)
+    await apply_native_preference(hass, entry, runtime, "charger", "plug",
+                                  {"control_owner": "multicharge"}, structural=True)
+    await hass.async_block_till_done()
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    assert runtime.configuration["chargers"][0]["control_owner"] == "multicharge"
+    assert issued == [], "Configuration Save is not a charging command"
+    assert runtime.executor.capabilities()["plug"]["manual_goal_reasons"]["duration"] == "READY"
+    assert runtime.executor.capabilities()["plug"]["manual_goal_reasons"]["energy"] != "READY"
+    started = await runtime.executor.execute(
+        "plug", "start", manual_request={"duration_minutes": 10}
+    )
+    assert started["status"] == "confirmed"
+    assert started["reason"] == "NATIVE_SWITCH_STATE"
+    assert started["measured_power_kw"] is None
+    assert runtime.charger_states()["plug"]["charging_session"] == "unknown"
+    await hass.async_block_till_done()
+    assert hass.states.get("switch.suitable_plug").state == "on"
+    assert not runtime.executor._supervising
+    runtime.executor._sessions["plug"]["started_at"] -= timedelta(minutes=11)
+    await runtime.executor.supervise()
+    await hass.async_block_till_done()
+    assert issued == ["turn_on", "turn_off"]
+    assert hass.states.get("switch.suitable_plug").state == "off"
+    receipt = runtime.executor.completed_sessions()[-1]
+    assert receipt["switch_stop_confirmed"] is True
+    assert receipt["physical_stop_confirmed"] is False
+    assert receipt["actual_energy_kwh"] is None
+    await apply_native_preference(hass, entry, runtime, "charger", "plug",
+                                  {"control_owner": "external"}, structural=True)
+    await hass.async_block_till_done()
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    assert runtime.charger_states()["plug"]["activation"] == "inactive"
+    assert runtime.configuration["chargers"][0]["control_entity"] == "switch.suitable_plug"
+    assert issued == ["turn_on", "turn_off"]
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 
@@ -825,7 +883,8 @@ async def test_native_options_menu_expert_prefill_save_and_reject_unsafe(
     marker = next(k for k in editor["data_schema"].schema
                   if str(k) == "yaml_text")
     prefilled = json.loads(marker.default())
-    assert prefilled == cfg, "Expert editor must prefill the actual Config Entry"
+    assert validate_configuration(prefilled) == cfg, "Expert editor must preserve the actual Config Entry"
+    assert "physical_commissioned" not in prefilled["chargers"][0]
 
     invalid = await hass.config_entries.options.async_configure(
         editor["flow_id"], {"yaml_text": 'controller: {}\\ncontroller: {}'},
@@ -856,9 +915,12 @@ async def test_native_options_menu_expert_prefill_save_and_reject_unsafe(
     )
     marker = next(k for k in screen["data_schema"].schema
                   if str(k) == "yaml_text")
-    assert json.loads(marker.default()) == actual
+    assert validate_configuration(json.loads(marker.default())) == actual
 
-    # Full-text editor never transfers physical control ownership.
+    # Explicit control intent is permitted, but not while the same endpoint
+    # is visibly energized under another owner.
+    hass.states.async_set("switch.wall", "on")
+    await hass.async_block_till_done()
     unsafe = json.loads(json.dumps(actual))
     unsafe["chargers"][0]["control_owner"] = "multicharge"
     unsafe["chargers"][0]["physical_commissioned"] = True
@@ -868,6 +930,8 @@ async def test_native_options_menu_expert_prefill_save_and_reject_unsafe(
     assert blocked["type"] == FlowResultType.FORM
     assert blocked["errors"]["base"] != "invalid_config"
     assert entry.options["configuration"] == actual
+    hass.states.async_set("switch.wall", "off")
+    await hass.async_block_till_done()
 
     # Concurrent changes cannot be overwritten by an older open form.
     hass.config_entries.async_update_entry(entry, options={
@@ -1011,7 +1075,8 @@ async def test_native_expert_save_four_external_adjustable_chargers_without_gues
     )
     marker = next(k for k in again["data_schema"].schema
                   if str(k) == "yaml_text")
-    assert json.loads(marker.default()) == actual
+    assert validate_configuration(json.loads(marker.default())) == actual
+    assert "physical_commissioned" not in json.loads(marker.default())["chargers"][0]
     # Real existing options (not only first save from an empty entry).
     repeated = await hass.config_entries.options.async_configure(
         again["flow_id"], {"yaml_text": json.dumps(config)},
@@ -1019,6 +1084,172 @@ async def test_native_expert_save_four_external_adjustable_chargers_without_gues
     assert repeated["type"] == FlowResultType.CREATE_ENTRY, repeated.get("errors")
     await hass.async_block_till_done()
     assert entry.options["configuration"] == actual
+
+    # Reproduce the previous installed-site ownership mismatch on all four
+    # objects, retaining the legacy writer and all existing source bindings.
+    legacy = json.loads(json.dumps(actual))
+    legacy["chargers"][0].update(kind="on_off", control_owner="multicharge",
+                                  physical_commissioned=True)
+    hass.states.async_set(legacy["chargers"][0]["control_entity"], "off")
+    hass.states.async_set(legacy["chargers"][0]["power_entity"], "0",
+                          {"unit_of_measurement": "W"})
+    hass.config_entries.async_update_entry(entry, options={"configuration": validate_configuration(legacy)})
+    await hass.async_block_till_done()
+    menu = await hass.config_entries.options.async_init(entry.entry_id)
+    form = await hass.config_entries.options.async_configure(menu["flow_id"], {"next_step_id": "yaml"})
+    saved = await hass.config_entries.options.async_configure(form["flow_id"], {"yaml_text": json.dumps(config)})
+    assert saved["type"] == FlowResultType.CREATE_ENTRY, saved.get("errors")
+    await hass.async_block_till_done()
+    assert entry.options["configuration"] == actual
+    assert hass.data[DOMAIN][entry.entry_id].configuration == actual
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
+async def test_mixed_four_charger_site_native_integrated_soc_and_adjustable_readback(hass: HomeAssistant):
+    """Installed HA, actual service APIs, representative sources, not hardware proof."""
+    from datetime import datetime, timedelta, timezone
+
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    cfg = validate_configuration({
+        "controller": {"id": "home", "name": "Mixed site", "mode": "Force Charge",
+                       "max_parallel": 1, "max_power_kw": 3.6},
+        "assets": [
+            {"id": "car_a", "name": "Car A", "kind": "car", "soc_entity": "sensor.car_a_soc"},
+            {"id": "car_b", "name": "Car B", "kind": "car", "soc_entity": "sensor.car_b_soc",
+             "target_soc": 80, "capacity_kwh": 60, "charge_efficiency": 0.9},
+            {"id": "guest_1", "name": "Guest 1", "kind": "car", "requested_duration_minutes": 30},
+            {"id": "guest_2", "name": "Guest 2", "kind": "car", "requested_kwh": 2},
+        ],
+        "chargers": [{
+            "id": uid, "name": uid, "kind": "variable_current",
+            "rated_power_kw": 3.6, "control_entity": f"switch.{uid}",
+            "current_control_entity": f"number.{uid}_limit",
+            "connected_entity": f"sensor.{uid}_connected", "power_entity": f"sensor.{uid}_power",
+            "energy_entity": f"sensor.{uid}_energy", "control_owner": "external",
+            **({"asset": "car_b", "phase_count": 1, "voltage_v": 230}
+               if uid == "outside" else {"current_readback_entity": f"sensor.{uid}_amps"}),
+        } for uid in ("wall_a", "wall_b", "outside")] + [{
+            "id": "utility", "name": "Utility", "kind": "on_off", "rated_power_kw": 2,
+            "control_entity": "switch.utility", "connected_entity": "sensor.utility_connection",
+            "power_entity": "sensor.utility_power", "energy_entity": "sensor.utility_energy",
+            "control_owner": "external",
+        }],
+    })
+    for uid in ("wall_a", "wall_b", "outside", "utility"):
+        hass.states.async_set(f"switch.{uid}", "off")
+        hass.states.async_set(f"sensor.{uid}_power", "0", {"unit_of_measurement": "W"})
+    hass.states.async_set("sensor.outside_connected", "connected")
+    hass.states.async_set("sensor.outside_energy", "10", {"unit_of_measurement": "kWh"})
+    hass.states.async_set("sensor.car_b_soc", "50", {"unit_of_measurement": "%"})
+    hass.states.async_set("number.outside_limit", "6",
+                          {"unit_of_measurement": "A", "min": 6, "max": 16, "step": 1})
+    entry = MockConfigEntry(domain=DOMAIN, title="Mixed MultiCharge",
+                            data={"source": "ui", "configuration": cfg}, unique_id=DOMAIN)
+    entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    from custom_components.robotix_multicharge.command_query import apply_native_preference
+    await apply_native_preference(hass, entry, runtime, "charger", "outside",
+                                  {"control_owner": "multicharge"}, structural=True)
+    await hass.async_block_till_done()
+    assert hass.data[DOMAIN][entry.entry_id] is runtime
+    assert runtime.executor.confirm_current_connection("outside")["status"] == "confirmed"
+
+    commands = []
+    async def set_current(call):
+        commands.append(("set_value", call.data["value"]))
+        hass.states.async_set("number.outside_limit", str(call.data["value"]),
+                              {"unit_of_measurement": "A", "min": 6, "max": 16, "step": 1})
+    async def start(call):
+        commands.append(("turn_on", call.data["entity_id"]))
+        hass.states.async_set("switch.outside", "on")
+        hass.states.async_set("sensor.outside_power", "1600", {"unit_of_measurement": "W"})
+    async def stop(call):
+        commands.append(("turn_off", call.data["entity_id"]))
+        hass.states.async_set("switch.outside", "off")
+        hass.states.async_set("sensor.outside_power", "0", {"unit_of_measurement": "W"})
+    hass.services.async_register("number", "set_value", set_current)
+    hass.services.async_register("switch", "turn_on", start)
+    hass.services.async_register("switch", "turn_off", stop)
+    result = await runtime.executor.execute("outside", "start")
+    assert result["status"] == "confirmed", result
+    assert commands[:2] == [("set_value", 15.0), ("turn_on", "switch.outside")]
+    await hass.async_block_till_done()
+    assert hass.states.get("switch.outside").state == "on"
+    assert runtime.charger_states()["outside"]["charging_session"] == "charging"
+    assert runtime.executor.session_snapshot()["outside"]["target_current_a"] == 15
+    hass.states.async_set("sensor.car_b_soc", "80", {"unit_of_measurement": "%"})
+    hass.states.async_set("sensor.outside_energy", "11", {"unit_of_measurement": "kWh"})
+    await hass.async_block_till_done()
+    await runtime.executor.supervise()
+    await hass.async_block_till_done()
+    assert commands[-1] == ("turn_off", "switch.outside")
+    assert runtime.executor.completed_sessions()[-1]["asset_id"] == "car_b"
+    assert all(c["control_owner"] == "external" for c in runtime.configuration["chargers"] if c["id"] != "outside")
+    # Reuse the same native sources in a real Ready By proposal; no fictitious tariff.
+    hass.states.async_set("sensor.car_b_soc", "50", {"unit_of_measurement": "%"})
+    await hass.async_block_till_done()
+    deadline = (datetime.now(timezone.utc) + timedelta(hours=12)).isoformat()
+    await apply_native_preference(hass, entry, runtime, "asset", "car_b", {"ready_by": deadline})
+    await hass.async_block_till_done()
+    await apply_native_preference(hass, entry, runtime, "controller", "home", {"mode": "Ready By"})
+    await hass.async_block_till_done()
+    runtime.refresh()
+    assert runtime.assessment is not None
+    assert any(slot.charger_uid == "outside" for slot in runtime.assessment.plan.slots)
+    assert len(runtime.configuration["chargers"]) == len(runtime.configuration["assets"]) == 4
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
+async def test_native_expert_can_relinquish_existing_idle_owner_in_one_save(hass: HomeAssistant):
+    """Existing Config Entry, explicit monitoring intent, not physical certification."""
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    cfg = validate_configuration({
+        "controller": {"id": "home", "name": "Existing site", "mode": "Off",
+                       "max_parallel": 1, "max_power_kw": 3.6},
+        "assets": [],
+        "chargers": [{
+            "id": "wall", "name": "Existing wall", "kind": "on_off",
+            "rated_power_kw": 3.6, "control_entity": "switch.wall",
+            "connected_entity": "binary_sensor.wall_connected",
+            "power_entity": "sensor.wall_power", "control_owner": "multicharge",
+            "physical_commissioned": True,
+        }],
+    })
+    hass.states.async_set("switch.wall", "off")
+    hass.states.async_set("sensor.wall_power", "0", {"unit_of_measurement": "W"})
+    entry = MockConfigEntry(domain=DOMAIN, title="MultiCharge Community",
+                            data={"source": "ui", "configuration": cfg},
+                            unique_id=DOMAIN)
+    entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+    menu = await hass.config_entries.options.async_init(entry.entry_id)
+    editor = await hass.config_entries.options.async_configure(
+        menu["flow_id"], {"next_step_id": "yaml"},
+    )
+    proposed = json.loads(json.dumps(cfg))
+    proposed["chargers"][0].update(control_owner="external",
+                                   physical_commissioned=False,
+                                   kind="variable_current")
+    proposed["controller"]["current_price_entity"] = "sensor.optional_price"
+    result = await hass.config_entries.options.async_configure(
+        editor["flow_id"], {"yaml_text": json.dumps(proposed)},
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY, result.get("errors")
+    await hass.async_block_till_done()
+    assert entry.options["configuration"] == validate_configuration(proposed)
+    assert hass.data[DOMAIN][entry.entry_id].configuration == validate_configuration(proposed)
+    assert hass.states.get("switch.wall").state == "off"
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 
@@ -2015,14 +2246,23 @@ async def test_direct_yaml_save_native_websocket_single_entry_roundtrip(
     assert stale["success"] is False
     assert "STALE_SETTINGS_REFRESH" in stale["error"]["message"]
 
-    # Even with admin rights and a correct revision, free text cannot
-    # commission a previously external charger or switch the physical owner.
+    # Even an admin cannot acquire a visibly energized endpoint while
+    # its former owner is still using it. Explicit idle activation is valid.
+    control = changed["chargers"][0]["control_entity"]
+    hass.states.async_set(control, "on")
+    await hass.async_block_till_done()
     unsafe = json.loads(text)
     unsafe["chargers"][0]["control_owner"] = "multicharge"
     unsafe["chargers"][0]["physical_commissioned"] = True
     denied = await yaml_ws(json.dumps(unsafe), proposed)
     assert denied["success"] is False
     assert entry.options["configuration"]["chargers"][0]["control_owner"] == "external"
+    hass.states.async_set(control, "off")
+    await hass.async_block_till_done()
+    enabled = await yaml_ws(json.dumps(unsafe), proposed)
+    assert enabled["success"] is True
+    await hass.async_block_till_done()
+    assert entry.options["configuration"]["chargers"][0]["control_owner"] == "multicharge"
 
     await client.close()
     assert await hass.config_entries.async_unload(entry.entry_id)

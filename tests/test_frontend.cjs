@@ -42,7 +42,9 @@ for(let index=0;index<scopeList.length;index++){
   assert.ok(start>=0&&after>start,"Owner field groups for "+scope);
   const uiFields=new Set([...groupSource.slice(start,after)
     .matchAll(/"([a-z][a-z0-9_]*)"/g)].map(match=>match[1]));
-  const missing=[...new Set(permitted)].filter(field=>!uiFields.has(field));
+  // Legacy commissioning is a derived compatibility projection, not a UX setting.
+  const missing=[...new Set(permitted)].filter(field=>!uiFields.has(field) &&
+    !(scope==="charger"&&field==="physical_commissioned"));
   assert.deepEqual(missing,[],"No "+scope+
     " configuration field may silently disappear from its logical UX object");
 }
@@ -289,7 +291,7 @@ async function main(){
                       "Native Charger control switch","Circuit breaker limit",
                       "Cumulative Charger energy meter",
                       "Original vehicle at session time",
-                      "historical_guest","External control (monitor only)"]){
+                      "historical_guest","Activation","Charging session","Charging state"]){
     assert.ok(evseText.includes(label),"Charger owner must expose "+label);
   }
   const chargerFolds=[];
@@ -691,28 +693,29 @@ async function main(){
     r.charger_id==="plug"&&r.action==="start"&&r.duration_minutes===15),
     "Only a bounded real executor request can start an eligible manual session");
 
-  // GUEST-UX-02 budget one-off: still the same native guarded command.
+  // GUEST-UX-02: the selected objective alone determines readiness and request.
+  minimalData.command_capabilities.plug.manual_goal_reasons={
+    duration:"READY",energy:"MEASURED_ENERGY_METER_REQUIRED",budget:"BUDGET_EFFECTIVE_TARIFF_UNAVAILABLE"
+  };
+  await minimalCard.load();
+  const goalPicker=finiteInput(minimalCard,"Charging goal");
+  goalPicker.value="budget";goalPicker.events.change();
+  assert.equal(finiteInput(minimalCard,"Time limit (minutes)"),undefined,
+    "Only the selected charging objective has a visible amount field");
   const moneyDraft=finiteInput(minimalCard,"Budget limit (€)");
   assert.ok(moneyDraft);
-  moneyDraft.value="10";
-  moneyDraft.events.input();
-  minimalCard.render();
-  // Two incompatible goals never send a physical command.
-  const beforeMoney=manualWS.filter(r=>
-    r.type==="robotix_multicharge/command").length;
-  find(minimalCard.shadowRoot,"button","Start bounded session").click();
-  await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(manualWS.filter(r=>
-    r.type==="robotix_multicharge/command").length,beforeMoney,
-    "budget plus time cannot authorize a contradictory charge");
-  const minutesNew=finiteInput(minimalCard,"Time limit (minutes)");
-  minutesNew.value="";minutesNew.events.input();
-  minimalCard.render();
+  moneyDraft.value="10";moneyDraft.events.input();
+  assert.equal(find(minimalCard.shadowRoot,"button","Start bounded session").disabled,true);
+  const beforeMoney=manualWS.filter(r=>r.type==="robotix_multicharge/command").length;
+  assert.equal(manualWS.filter(r=>r.type==="robotix_multicharge/command").length,beforeMoney);
+  minimalData.command_capabilities.plug.manual_goal_reasons.budget="READY";
+  await minimalCard.load();
+  assert.equal(finiteInput(minimalCard,"Budget limit (€)").value,"10");
   find(minimalCard.shadowRoot,"button","Start bounded session").click();
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(manualWS.some(r=>r.type==="robotix_multicharge/command"&&
-    r.action==="start"&&r.cost_amount===10&&r.currency==="EUR"),
-    "€10 manual Charger-only intent reaches one owner-protected executor");
+    r.action==="start"&&r.cost_amount===10&&r.currency==="EUR"&&r.duration_minutes===undefined),
+    "Only the selected €10 objective reaches the owner-protected executor");
 
   // GUEST-UX-01: an ordinary Guest is created with an amount and relative
   // expiry, not a raw ISO timestamp edited by a resident.

@@ -329,11 +329,6 @@ def compile_plan(
             shortfall[uid] = demand.remaining_grid_kwh
             coverage[uid] = "UNAVAILABLE"
             continue
-        if controller.max_group_power_kw is None:
-            reasons[uid] = "GROUP_CAPACITY_UNQUALIFIED"
-            shortfall[uid] = demand.remaining_grid_kwh
-            coverage[uid] = "UNAVAILABLE"
-            continue
         if not isfinite(charger.rated_power_kw) or charger.rated_power_kw <= 0:
             reasons[uid] = "CHARGER_CAPABILITY_UNQUALIFIED"
             shortfall[uid] = demand.remaining_grid_kwh
@@ -355,7 +350,7 @@ def compile_plan(
         # fictitious fractional on/off switch. Unknown wiring remains unavailable.
         adjustable = charger.control_kind == "variable_current"
         if adjustable and (
-            not charger.phase_ids or charger.voltage_v is None
+            charger.phase_count is None or charger.voltage_v is None
             or charger.current_step_a is None
         ):
             reasons[uid] = "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED"
@@ -409,7 +404,11 @@ def compile_plan(
                     demand.not_before is not None and slot < _utc(demand.not_before)):
 
                 continue
+            # An unselected site ceiling is not an invented electrical limit.
+            # Each charger rating, parallelism and selected binding still apply.
             cap = controller.max_group_power_kw
+            if cap is None:
+                cap = sum(row.rated_power_kw for row in chargers.values())
             if binding is not None:
                 if (_utc(binding.issued_at) > slot
                         or _utc(binding.valid_until) < finish):
@@ -436,12 +435,12 @@ def compile_plan(
             if adjustable:
                 remaining_kw = min(remaining_kw, charger.rated_power_kw)
                 current_cap = min(charger.max_current_a,
-                                  remaining_kw * 1000 / (voltage * len(phases)))
+                                  remaining_kw * 1000 / (voltage * charger.phase_count))
                 if charger.max_charging_power_kw is not None:
                     current_cap = min(
                         current_cap,
                         charger.max_charging_power_kw * 1000
-                        / (voltage * len(phases))
+                        / (voltage * charger.phase_count)
                     )
                 if controller.phase_limits_a is not None:
                     current_cap = min(current_cap, *(
@@ -458,7 +457,7 @@ def compile_plan(
                 current = (charger.min_current_a + max(0, steps) * charger.current_step_a)
                 if current_cap + 1e-9 < charger.min_current_a:
                     continue
-                power = round(current * voltage * len(phases) / 1000, 6)
+                power = round(current * voltage * charger.phase_count / 1000, 6)
                 if (charger.min_charging_power_kw is not None
                         and power + 1e-9 < charger.min_charging_power_kw):
                     continue

@@ -199,7 +199,7 @@ def connection(hass, entity_id: str | None, now: datetime, *,
     domain = entity_id.split(".", 1)[0]
     allowed = (
         {"on": True, "off": False} if domain == "binary_sensor"
-        else {"connected": True, "disconnected": False} if domain == "sensor"
+        else {"connected": True, "disconnected": False, "manual_confirmed": True} if domain == "sensor"
         else {}
     )
     if connected_states is not None or disconnected_states is not None:
@@ -216,10 +216,14 @@ def connection(hass, entity_id: str | None, now: datetime, *,
                             "CONNECTION_MAPPING_AMBIGUOUS")
         allowed = {**dict.fromkeys(positive, True),
                    **dict.fromkeys(negative, False)}
-    value = allowed.get(str(obj.state).strip().casefold())
+    raw = str(obj.state).strip().casefold()
+    if raw in ("fault", "faulted", "error", "reserved"):
+        return Evidence(None, "invalid", evidence.observed_at, "CONNECTION_PROVIDER_BLOCKED")
+    value = allowed.get(raw)
     if value is None:
         return Evidence(None, "invalid", evidence.observed_at, "CONNECTION_AMBIGUOUS")
-    return Evidence(value, "ok", evidence.observed_at, "OK")
+    return Evidence(value, "ok", evidence.observed_at,
+                    "USER_CONFIRMED_CONNECTION" if raw == "manual_confirmed" and value else "OK")
 
 
 
@@ -241,13 +245,21 @@ def session_status(hass, entity_id: str | None, now: datetime) -> Evidence:
             "charging": "charging", "active": "active",
             "paused": "paused", "idle": "idle",
             "stopped": "stopped", "completed": "completed",
-            "inactive": "inactive",
+            "inactive": "inactive", "running": "charging",
+            "suspended": "paused", "suspended_ev": "paused", "suspendedev": "paused",
+            "suspended_evse": "paused", "suspendedevse": "paused",
+            "finishing": "stopped", "preparing": "stopped", "available": "idle",
+            "fault": "fault", "faulted": "fault", "error": "fault",
+            "reserved": "unavailable",
         }
     else:
         labels = {}
     if value not in labels:
         return Evidence(None, "invalid", evidence.observed_at, "SESSION_STATUS_AMBIGUOUS")
-    return Evidence(labels[value], "ok", evidence.observed_at, "OK")
+    reason = {"suspended_ev": "SUSPENDED_EV", "suspendedev": "SUSPENDED_EV",
+              "suspended_evse": "SUSPENDED_EVSE", "suspendedevse": "SUSPENDED_EVSE",
+              "reserved": "PROVIDER_RESERVED"}.get(value, "OK")
+    return Evidence(labels[value], "ok", evidence.observed_at, reason)
 
 def _native_spot_price_intervals(obj, now):
     """Read native raw_today/raw_tomorrow without a Robotix template bridge.

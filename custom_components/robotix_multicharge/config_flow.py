@@ -17,6 +17,7 @@ from .configuration import (
     default_configuration, is_plan_presentation_only_change,
     validate_configuration, configuration_revision,
     apply_new_asset_defaults, energy_dashboard_suggestions,
+    assert_expert_authority_change, is_in_place_runtime_preference_change,
 )
 from .source_evidence import number
 from .execution import stop_power_limit
@@ -123,7 +124,7 @@ def _assert_safe_expert_import(runtime, updated, *, source_changed=False):
         if not checked:
             continue
         if uid in executor._sessions:
-            raise ValueError("EXPERT_IMPORT_REQUIRES_VERIFIED_IDLE_CHARGERS")
+            raise ValueError(f"EXPERT_IMPORT_REQUIRES_VERIFIED_IDLE_CHARGERS: {uid} has an open MultiCharge session")
         for charger in checked:
             switch = executor._switch(
                 runtime.hass, charger.get("control_entity")
@@ -131,9 +132,10 @@ def _assert_safe_expert_import(runtime, updated, *, source_changed=False):
             power = number(
                 runtime.hass, charger.get("power_entity"), "power", now
             )
-            if (switch is None or switch.state != "off" or power.quality != "ok"
-                    or power.value > stop_power_limit(charger)):
-                raise ValueError("EXPERT_IMPORT_REQUIRES_VERIFIED_IDLE_CHARGERS")
+            if (switch is None or switch.state != "off"
+                    or (charger.get("power_entity") and (power.quality != "ok"
+                        or power.value > stop_power_limit(charger)))):
+                raise ValueError(f"EXPERT_IMPORT_REQUIRES_VERIFIED_IDLE_CHARGERS: {charger['name']} ({uid}) must be idle for structural reload")
 
 
 def _parse_editor_yaml(text):
@@ -170,44 +172,53 @@ def _parse_editor_yaml(text):
 
 def _assert_safe_yaml_ui_commit(runtime, updated):
     """Recheck source and safety immediately before native Options Save."""
-    _assert_safe_expert_import(runtime, updated)
-    existing = {charger["id"]: charger for charger in runtime.configuration["chargers"]}
-    revised = {charger["id"]: charger for charger in updated["chargers"]}
-    # Even an external-owner charger must be measured idle to remove or change
-    # its historical association; a name-only edit never needs this gate.
-    for uid, previous in existing.items():
-        current = revised.get(uid)
-        if (current is not None and
-                all(previous.get(key) == current.get(key)
-                    for key in ("asset", "control_entity", "power_entity",
-                                "connected_entity", "connected_states",
-                                "disconnected_states", "energy_entity",
-                                "session_entity", "kind", "rated_power_kw"))):
+    before = runtime.configuration
+    if before == updated:
+        return
+    # Existing preferences apply in place: no unload, no authority transfer.
+    # Runtime execution/supervision enforces the updated goals and limits.
+    in_place = (is_plan_presentation_only_change(before, updated)
+                or is_in_place_runtime_preference_change(before, updated))
+    if not in_place:
+        # Structural changes still reload the HA platforms. Protect all
+        # managed writers affected by that actual reload, not external EVSEs.
+        _assert_safe_expert_import(runtime, updated)
+    existing = {row["id"]: row for row in before["chargers"]}
+    revised = {row["id"]: row for row in updated["chargers"]}
+    for uid, old in existing.items():
+        new = revised.get(uid)
+        if new is not None and old.get("control_owner") != new.get("control_owner"):
+            executor = runtime.executor
+            if (not executor._persistence_verified or uid in executor._sessions
+                    or uid in executor._start_pending or uid in executor._quarantine
+                    or f"charger:{uid}" in executor._inflight
+                    or (old.get("asset") is not None and old["asset"] in executor._inflight)):
+                raise ValueError(f"charger_busy: {old['name']} ({uid}) reconcile its own session first")
+            switch = executor._switch(runtime.hass, old.get("control_entity"))
+            measured = number(runtime.hass, old.get("power_entity"), "power",
+                              datetime.now(timezone.utc))
+            if (switch is not None and switch.state == "on") or (
+                    measured.quality == "ok" and measured.value > stop_power_limit(old)):
+                raise ValueError(f"charger_busy: {old['name']} ({uid}) stop before changing activation")
+        # Selection/attribution is independent of names and user preferences.
+        if new is None or old.get("asset") == new.get("asset"):
             continue
-        if (uid in runtime.executor._sessions or
-                uid in runtime.executor._start_pending):
-            raise ValueError("YAML_UPDATE_CHARGER_BUSY")
-        # Read-only external hardware can be mapped without asserting idle:
-        # MultiCharge has no physical command authority over this charger.
-        # Active or commissioned MultiCharge writers retain full idle checks.
-        if (previous.get("control_owner") != "multicharge"
-                and previous.get("physical_commissioned") is not True):
-            continue
-        if previous.get("power_entity"):
-            observed = number(
-                runtime.hass, previous["power_entity"], "power",
-                datetime.now(timezone.utc),
-            )
-            if (observed.quality != "ok" or
-                    observed.value > stop_power_limit(previous)):
-                raise ValueError("YAML_UPDATE_REQUIRES_VERIFIED_IDLE")
-        elif previous.get("control_owner") == "multicharge":
-            raise ValueError("YAML_UPDATE_REQUIRES_VERIFIED_IDLE")
-        switch = runtime.executor._switch(
-            runtime.hass, previous.get("control_entity"),
-        )
-        if switch is not None and switch.state != "off":
-            raise ValueError("YAML_UPDATE_REQUIRES_VERIFIED_IDLE")
+        executor = runtime.executor
+        if uid in executor._sessions or uid in executor._start_pending:
+            raise ValueError(f"charger_busy: {old['name']} ({uid}) has an open session")
+        power = number(runtime.hass, old.get("power_entity"), "power",
+                       datetime.now(timezone.utc))
+        switch = executor._switch(runtime.hass, old.get("control_entity"))
+        owned = (old.get("control_owner") == "multicharge"
+                 and old.get("physical_commissioned") is True)
+        # An assignment affects actual energy attribution, not hardware
+        # certification. Keep the existing verified-idle rebind contract.
+        if ((old.get("power_entity") and power.quality != "ok")
+                or (power.quality == "ok" and power.value > stop_power_limit(old))
+                or (switch is not None and switch.state != "off")
+                or (owned and switch is None)
+                or (switch is None and power.quality != "ok")):
+            raise ValueError(f"charger_busy: {old['name']} ({uid}) assignment needs idle evidence")
 
 
 class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -230,6 +241,7 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Charger and Asset setting is configured subsequently in MultiCharge.
         # Do not force a native HA wizard or free-text JSON/YAML upon users.
         cfg = default_configuration()
+        cfg["controller"]["mode"] = "Automatic"
         return self.async_create_entry(
             title=NAME, data={"source": "ui", "configuration": cfg},
         )
@@ -679,8 +691,8 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                  if ceiling is not None else "Group power ceiling not yet configured")
         return {"summary": (
             f"{len(cfg['chargers'])} charging points, {len(cfg['assets'])} assets. "
-            f"{limit}. Physical controls can be commissioned from "
-            "Home Assistant Options > Commission, using independent native "
+            f"{limit}. Select Active in Charger settings when desired. Use "
+            "relevant native "
             "sensor and safe-idle readback. No RHI modules are required."
         )}
 
@@ -808,68 +820,10 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             self._last_config_error = str(exc)
             return None
 
-    async def async_step_commission(self, user_input=None):
-        """Opt-in standalone physical ownership with source-qualified idle gate.
-
-        A deliberate operator assertion is required because Home Assistant
-        cannot inspect hidden provider automations for competing EVSE writes.
-        No device command is issued by this flow.
-        """
-        current = self._current()
-        if not current["chargers"]:
-            return self.async_abort(reason="no_chargers")
-        errors = {}
-        if user_input is not None:
-            charger_id = user_input.get("charger_id")
-            desired = bool(user_input.get("commission"))
-            if (not charger_id
-                    or (desired and not user_input.get("exclusive_writer_confirmed"))
-                    or (desired and not user_input.get("electrical_limits_confirmed"))):
-                errors["base"] = "invalid_config"
-            else:
-                trial = deepcopy(current)
-                selected = next(
-                    (row for row in trial["chargers"] if row["id"] == charger_id),
-                    None,
-                )
-                if selected is None:
-                    errors["base"] = "invalid_config"
-                else:
-                    selected["control_owner"] = (
-                        "multicharge" if desired else "external"
-                    )
-                    selected["physical_commissioned"] = desired
-                    result = await self._safe_structural_save(trial)
-                    if result is not None:
-                        return result
-                    errors["base"] = "invalid_config"
-        choices = {row["id"]: row["name"] for row in current["chargers"]}
-        return self.async_show_form(
-            step_id="commission", errors=errors,
-            data_schema=vol.Schema({
-                vol.Required("charger_id"): vol.In(choices),
-                vol.Required("commission", default=True): bool,
-                vol.Required("exclusive_writer_confirmed", default=False): bool,
-                vol.Required("electrical_limits_confirmed", default=False): bool,
-            }),
-            description_placeholders={
-                "note": (
-                    "Stand-alone Home Assistant ownership. Before enabling, "
-                    "stop or disable every other controller/automation for "
-                    "this exact physical Charger, verify its circuit and "
-                    "hardware limits, and configure independent live "
-                    "connection, switch and power readback. The Charger must "
-                    "be observed OFF with near-zero power; active/unknown "
-                    "control states, unavailable sources and unresolved "
-                    "commands are rejected. No RHI integration is required."
-                ),
-            },
-        )
-
     async def async_step_yaml(self, user_input=None):
         """Edit the complete current Config Entry with one native Save.
 
-        Physical owner changes belong to Commission, not free-text edits.
+        Explicit activation changes use the same validated Config Entry.
         """
         cfg = self._current()
         if not hasattr(self, "_form_baseline_revision"):
@@ -881,23 +835,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                 proposed = validate_configuration(_parse_editor_yaml(user_input["yaml_text"]))
                 if proposed["controller"]["id"] != cfg["controller"]["id"]:
                     raise ValueError("CONTROLLER_ID_IMMUTABLE")
-                old = {row["id"]: row for row in cfg["chargers"]}
-                new = {row["id"]: row for row in proposed["chargers"]}
-                for uid, existing in old.items():
-                    if uid not in new and (
-                        existing.get("control_owner") == "multicharge"
-                        or existing.get("physical_commissioned") is True
-                    ):
-                        raise ValueError("COMMISSIONING_ONLY_IN_NATIVE_FLOW")
-                for row in proposed["chargers"]:
-                    existing = old.get(row["id"], {})
-                    if (
-                        row.get("control_owner", "external")
-                        != existing.get("control_owner", "external")
-                        or row.get("physical_commissioned", False)
-                        != existing.get("physical_commissioned", False)
-                    ):
-                        raise ValueError("COMMISSIONING_ONLY_IN_NATIVE_FLOW")
+                assert_expert_authority_change(cfg, proposed)
                 result = await self._safe_structural_save(proposed)
                 if result is not None:
                     return result
@@ -921,7 +859,10 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             step_id="yaml", errors=errors,
             data_schema=vol.Schema({
                 vol.Required("yaml_text", default=(user_input or {}).get(
-                    "yaml_text", json.dumps(cfg, indent=2),
+                    "yaml_text", json.dumps({**cfg, "chargers": [
+                        {k: v for k, v in row.items() if k != "physical_commissioned"}
+                        for row in cfg["chargers"]
+                    ]}, indent=2),
                 )): selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
             }),
             description_placeholders={
@@ -941,7 +882,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_menu(
             step_id="init",
             menu_options=["controller", "charger_pick", "asset_pick", "energy",
-                          "yaml", "display", "commission"],
+                          "yaml", "display"],
         )
 
     async def async_step_energy(self, user_input=None):
@@ -1222,7 +1163,9 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                     if not user_input.get("name") and not record.get("name"):
                         errors["base"] = "invalid_config"
                     else:
-                        for key in ("name", "kind", "rated_power_kw",
+                        if "control_owner" in user_input:
+                            record.pop("physical_commissioned", None)
+                        for key in ("name", "kind", "rated_power_kw", "control_owner",
                                     "control_entity", "connected_entity",
                                     "power_entity", "energy_entity",
                                     "current_control_entity",
@@ -1263,6 +1206,8 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                     selector.NumberSelectorConfig(
                         min=0.01, max=1000, step=0.1,
                         mode=selector.NumberSelectorMode.BOX)),
+            vol.Required("control_owner", default=original.get("control_owner", "external")):
+                vol.In(["external", "multicharge"]),
             field("control_entity"): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="switch")),
             field("connected_entity"): selector.EntitySelector(

@@ -19,7 +19,7 @@ class PackageTest(unittest.TestCase):
         )
         for prefix, expression, count in (
             ("UC", r"^### UC(\d{2}) —", 29),
-            ("FLEX", r"^\| FLEX-(\d{2}) \|", 21),
+            ("FLEX", r"^\| FLEX-(\d{2}) \|", 20),
             ("FORECAST", r"^\| FORECAST-(\d{2}) \|", 12),
             ("UI-OWNER", r"^\| UI-OWNER-(\d{2}) \|", 10),
         ):
@@ -96,11 +96,19 @@ class PackageTest(unittest.TestCase):
         self.assertIn('"robotix_multicharge/get_plan"', read)
         self.assertNotIn("@websocket_api.require_admin", read)
         self.assertIn('@websocket_api.websocket_command({', read)
-        self.assertEqual(writes.count("@websocket_api.require_admin"), 4)
+        self.assertEqual(writes.count("@websocket_api.require_admin"), 3)
         self.assertNotIn("websocket_dashboard_yaml_configuration", writes)
         self.assertIn('"robotix_multicharge/yaml_configuration"', writes)
         self.assertIn("websocket_yaml_configuration", writes)
-        self.assertIn("websocket_dashboard_config", writes)
+        self.assertNotIn("websocket_dashboard_config", writes)
+        self.assertNotIn("exclusive_writer_confirmed", writes)
+        config = (COMPONENT / "config_flow.py").read_text(encoding="utf8")
+        frontend = (COMPONENT / "frontend" / "robotix-multicharge.js").read_text(encoding="utf8")
+        self.assertNotIn("async_step_commission", config)
+        self.assertNotIn("exclusive_writer_confirmed", config)
+        self.assertNotIn("exclusive_writer_confirmed", frontend)
+        self.assertNotIn("openCommissionEditor", frontend)
+        self.assertIn("websocket_update_settings", writes)
 
 
 
