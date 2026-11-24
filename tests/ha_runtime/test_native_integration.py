@@ -889,6 +889,126 @@ async def test_native_options_menu_expert_prefill_save_and_reject_unsafe(
 
 
 @pytest.mark.asyncio
+async def test_optional_one_click_install_and_native_guided_configure(
+    hass: HomeAssistant,
+):
+    """Real HA: install without a wizard, configure real objects afterwards."""
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    assert await async_setup_component(hass, DOMAIN, {})
+    installed_entry = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER},
+    )
+    assert installed_entry["type"] == FlowResultType.CREATE_ENTRY
+    entries = hass.config_entries.async_entries(DOMAIN)
+    assert len(entries) == 1
+    entry = entries[0]
+    initial = entry.data["configuration"]
+    assert initial["assets"] == []
+    assert initial["chargers"] == []
+    await hass.async_block_till_done()
+
+    async def menu_step(step_id):
+        menu = await hass.config_entries.options.async_init(entry.entry_id)
+        assert menu["type"] == FlowResultType.MENU
+        assert step_id in menu["menu_options"]
+        return await hass.config_entries.options.async_configure(
+            menu["flow_id"], {"next_step_id": step_id},
+        )
+
+    site = await menu_step("controller")
+    assert site["type"] == FlowResultType.FORM
+    assert site["step_id"] == "controller"
+    result = await hass.config_entries.options.async_configure(
+        site["flow_id"], {
+            "name": "Configured Home", "mode": "Automatic",
+            "max_parallel": 2, "max_power_kw": 7.2,
+        },
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert entry.options["configuration"]["controller"]["name"] == "Configured Home"
+    assert entry.options["configuration"]["controller"]["max_parallel"] == 2
+
+    choose_charger = await menu_step("charger_pick")
+    assert choose_charger["step_id"] == "charger_pick"
+    new_charger = await hass.config_entries.options.async_configure(
+        choose_charger["flow_id"], {"selected": "__new__"},
+    )
+    assert new_charger["step_id"] == "charger"
+    charger = await hass.config_entries.options.async_configure(
+        new_charger["flow_id"], {
+            "action": "save", "id": "garage_white", "name": "Garage White",
+            "kind": "on_off", "rated_power_kw": 3.6,
+            "control_entity": "switch.wallbox_test",
+            "power_entity": "sensor.wallbox_test_power",
+        },
+    )
+    assert charger["type"] == FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert entry.options["configuration"]["chargers"][0]["id"] == "garage_white"
+    assert entry.options["configuration"]["chargers"][0]["control_owner"] == "external"
+
+    choose_existing = await menu_step("charger_pick")
+    assert choose_existing["data_schema"].schema
+    edit_charger = await hass.config_entries.options.async_configure(
+        choose_existing["flow_id"], {"selected": "garage_white"},
+    )
+    assert edit_charger["step_id"] == "charger"
+    name_marker = next(k for k in edit_charger["data_schema"].schema
+                       if str(k) == "name")
+    assert name_marker.default() == "Garage White"
+    edited_charger = await hass.config_entries.options.async_configure(
+        edit_charger["flow_id"], {"action": "save", "name": "White Wallbox",
+                                 "kind": "on_off", "rated_power_kw": 3.6},
+    )
+    assert edited_charger["type"] == FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    saved_charger = entry.options["configuration"]["chargers"][0]
+    assert saved_charger["id"] == "garage_white"
+    assert saved_charger["name"] == "White Wallbox"
+    assert saved_charger["control_entity"] == "switch.wallbox_test"
+
+    choose_asset = await menu_step("asset_pick")
+    new_asset = await hass.config_entries.options.async_configure(
+        choose_asset["flow_id"], {"selected": "__new__"},
+    )
+    saved_asset = await hass.config_entries.options.async_configure(
+        new_asset["flow_id"], {
+            "action": "save", "id": "audi_q8", "name": "Audi Q8",
+            "kind": "car", "soc_entity": "sensor.audi_oem_soc",
+            "target_soc": 80,
+        },
+    )
+    assert saved_asset["type"] == FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert entry.options["configuration"]["assets"][0]["id"] == "audi_q8"
+    assert entry.options["configuration"]["assets"][0]["soc_entity"] == "sensor.audi_oem_soc"
+
+    source_form = await menu_step("energy")
+    assert source_form["step_id"] == "energy"
+    energy = await hass.config_entries.options.async_configure(
+        source_form["flow_id"], {
+            "use_energy_dashboard": False, "solar_source_kind": "none",
+            "grid_power_direction": "import_positive",
+            "current_price_entity": "sensor.energy_current_price",
+            "solar_power_entity": "sensor.energy_solar_power",
+        },
+    )
+    assert energy["type"] == FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    final = entry.options["configuration"]
+    assert final["controller"]["current_price_entity"] == "sensor.energy_current_price"
+    assert final["controller"]["solar_power_entity"] == "sensor.energy_solar_power"
+    assert final["assets"][0]["id"] == "audi_q8"
+    assert final["chargers"][0]["id"] == "garage_white"
+    assert len(hass.config_entries.async_entries(DOMAIN)) == 1
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
 async def test_unconfigured_energy_dashboard_does_not_initialize_component(
     hass: HomeAssistant,
 ):
