@@ -244,14 +244,18 @@ def session_status(hass, entity_id: str | None, now: datetime) -> Evidence:
             "inactive": "inactive", "running": "charging",
             "suspended": "paused", "suspended_ev": "paused", "suspendedev": "paused",
             "suspended_evse": "paused", "suspendedevse": "paused",
-            "finishing": "stopped", "fault": "fault", "faulted": "fault", "error": "fault",
+            "finishing": "stopped", "preparing": "stopped", "available": "idle",
+            "fault": "fault", "faulted": "fault", "error": "fault",
             "reserved": "unavailable",
         }
     else:
         labels = {}
     if value not in labels:
         return Evidence(None, "invalid", evidence.observed_at, "SESSION_STATUS_AMBIGUOUS")
-    return Evidence(labels[value], "ok", evidence.observed_at, "OK")
+    reason = {"suspended_ev": "SUSPENDED_EV", "suspendedev": "SUSPENDED_EV",
+              "suspended_evse": "SUSPENDED_EVSE", "suspendedevse": "SUSPENDED_EVSE",
+              "reserved": "PROVIDER_RESERVED"}.get(value, "OK")
+    return Evidence(labels[value], "ok", evidence.observed_at, reason)
 
 def _native_spot_price_intervals(obj, now):
     """Read native raw_today/raw_tomorrow without a Robotix template bridge.

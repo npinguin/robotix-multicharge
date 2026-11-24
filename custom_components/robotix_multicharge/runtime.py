@@ -615,9 +615,9 @@ class MultiChargeRuntime:
             elif activation == "active" and goal_reason in ("CONTROL_STATE_UNVERIFIED", "PREVIOUS_COMMAND_UNCONFIRMED"):
                 readiness, reason = "unknown", goal_reason
             elif reported == "paused":
-                readiness, reason = "waiting", "PROVIDER_SUSPENDED"
-            elif (switch is not None or connected is not None or measured is not None or
-                  reported in ("charging", "stopped", "idle", "completed", "active", "inactive")):
+                readiness, reason = "waiting", session.reason if session.reason != "OK" else "PROVIDER_SUSPENDED"
+            elif (switch is not None or reported in ("charging", "stopped", "idle", "completed")
+                  or (measured is not None and measured > 0.05)):
                 if activation == "active" and connected is True and goal_reason in (
                     "TARGET_ALREADY_MET", "MAX_PARALLEL_REACHED", "SITE_CAPACITY_EXCEEDED",
                     "CHARGING_WINDOW_CLOSED", "EARLIEST_START_NOT_REACHED",
@@ -720,7 +720,7 @@ class MultiChargeRuntime:
             "read_only": True,
             "physical_actuation_authorized": any(
                 x["start_allowed"] or x["stop_allowed"]
-                for x in self.executor.capabilities().values()
+                for x in capabilities.values()
             ),
             "command_outcomes": self.executor.snapshot(),
             "active_sessions": self.executor.session_snapshot(),
@@ -839,6 +839,7 @@ class MultiChargeRuntime:
             and (charger_id is None or receipt["charger_id"] == charger_id)
             and (asset_id is None or receipt["asset_id"] == asset_id)
         ]
+        capabilities = self.executor.capabilities()
         return {
             "schema_major": 1,
             "plan_palette": dict(PLAN_COLORS),
@@ -883,8 +884,8 @@ class MultiChargeRuntime:
                    if self.forecast_assessment else {}),
             },
             "command_outcomes": self.executor.snapshot(),
-            "command_capabilities": self.executor.capabilities(),
-            "charger_states": self.charger_states(),
+            "command_capabilities": capabilities,
+            "charger_states": self.charger_states(capabilities),
             "connection_identity": {
                 c["id"]: self.executor.connection_confirmation(c, datetime.now(timezone.utc))
                 for c in self.configuration["chargers"]

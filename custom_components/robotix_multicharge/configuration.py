@@ -601,7 +601,11 @@ def validate_configuration(value):
             if not entity:
                 continue
             previous = physical_sources.setdefault(entity, (charger["id"], role))
-            if previous != (charger["id"], role):
+            # One native EVSE status may describe both connection and session
+            # for the SAME charger; it is never shared between physical owners.
+            shared_status = (previous[0] == charger["id"] and
+                             {previous[1], role} == {"connected_entity", "session_entity"})
+            if previous != (charger["id"], role) and not shared_status:
                 raise ValueError(
                     f"charger.{role}: entity also bound as {previous[0]}.{previous[1]}"
                 )

@@ -1233,6 +1233,17 @@ class YamlEditorConfigurationTests(unittest.TestCase):
         assert_expert_authority_change(saved, cfg)
         self.assertEqual(prepare_expert_yaml_revision(saved, cfg, "replace"), cfg)
 
+    def test_one_native_status_can_supply_connection_and_session_for_same_charger(self):
+        cfg = self.configured_site()
+        cfg["chargers"][0].update(connected_entity="sensor.evse_status",
+                                   session_entity="sensor.evse_status")
+        saved = validate_configuration(cfg)
+        self.assertEqual(saved["chargers"][0]["connected_entity"],
+                         saved["chargers"][0]["session_entity"])
+        cfg["chargers"][1]["session_entity"] = "sensor.evse_status"
+        with self.assertRaisesRegex(ValueError, "also bound"):
+            validate_configuration(cfg)
+
     def test_minimal_managed_switch_with_one_explicit_control_setting(self):
         cfg = default_configuration()
         cfg["chargers"] = [{

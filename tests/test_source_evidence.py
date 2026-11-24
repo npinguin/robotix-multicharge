@@ -231,6 +231,8 @@ class EvidenceTests(unittest.TestCase):
     def test_session_status_is_only_read_only_source_evidence(self):
         obj = hass({
             "sensor.session": state("Charging"),
+            "sensor.suspended_ev": state("SuspendedEV"),
+            "sensor.suspended_evse": state("SuspendedEVSE"),
             "binary_sensor.session": state("on"),
             "sensor.invalid": state("1"),
             "sensor.stale": state(
@@ -239,6 +241,8 @@ class EvidenceTests(unittest.TestCase):
         })
         self.assertEqual(session_status(obj, "sensor.session", NOW).value,
                          "charging")
+        self.assertEqual(session_status(obj, "sensor.suspended_ev", NOW).reason, "SUSPENDED_EV")
+        self.assertEqual(session_status(obj, "sensor.suspended_evse", NOW).reason, "SUSPENDED_EVSE")
         self.assertEqual(session_status(obj, "binary_sensor.session", NOW).value,
                          "active")
         self.assertIsNone(session_status(obj, "sensor.invalid", NOW).value)

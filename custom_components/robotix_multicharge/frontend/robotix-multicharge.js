@@ -2796,46 +2796,47 @@ class RobotixMultiChargeCard extends HTMLElement {
       }
       if(controls.children.length)card.append(controls);
       if(this.canManage()&&!c.asset){
-        // Always allow preparing a finite manual request. The backend is
-        // authoritative for native source/safety/physical permission.
+        // One user goal, one input, one command. All readiness is server-owned.
         const oneOff=mcEl("div","details");
-        const draft=this._manualDrafts[c.id]||{energy:"",minutes:"",budget:""};
+        oneOff.append(mcEl("h4","",mcTr("Manual one-off charge")));
+        const draft=this._manualDrafts[c.id]||{kind:"duration",duration:"",energy:"",budget:""};
         this._manualDrafts[c.id]=draft;
-        const energy=this.field(oneOff,mcTr("Energy limit (kWh)"),draft.energy,"number");
-        const minutes=this.field(oneOff,mcTr("Time limit (minutes)"),draft.minutes,"number");
-        const budget=this.field(oneOff,mcTr("Budget limit (€)"),draft.budget,"number");
+        const goal=this.field(oneOff,mcTr("Charging goal"),draft.kind,null,[
+          ["duration",mcTr("Time limit (minutes)")],
+          ["energy",mcTr("Energy limit (kWh)")],
+          ["budget",mcTr("Budget limit (€)")]
+        ]);
+        const labels={duration:"Time limit (minutes)",energy:"Energy limit (kWh)",budget:"Budget limit (€)"};
+        const amount=this.field(oneOff,mcTr(labels[draft.kind]),draft[draft.kind],"number");
+        amount.setAttribute("min",draft.kind==="duration"?"1":"0.01");
+        amount.setAttribute("step",draft.kind==="duration"?"1":"any");
+        goal.addEventListener("change",()=>{
+          draft.kind=goal.value;
+          this.render();
+        });
+        const valid=()=>{
+          const value=Number(amount.value);
+          return !!amount.value.trim()&&Number.isFinite(value)&&value>0&&
+            (draft.kind!=="duration"||(Number.isInteger(value)&&value<=1440))&&
+            (draft.kind!=="energy"||value<=1000)&&(draft.kind!=="budget"||value<=10000);
+        };
+        const reason=capability.manual_goal_reasons?.[draft.kind]||
+          capability.manual_one_off_reason||"SOURCE_NOT_SELECTED";
         const submit=mcButton(mcTr("Start bounded session"),()=>{
-          const amount=energy.value.trim(),time=minutes.value.trim(),
-                money=budget.value.trim();
-          draft.energy=amount;draft.minutes=time;draft.budget=money;
-          if([amount,time,money].filter(Boolean).length!==1||
-              [amount,time,money].filter(Boolean).some(x=>
-                !Number.isFinite(Number(x))||Number(x)<=0)||
-              (time&&!Number.isInteger(Number(time)))){
-            this._commandFeedback[c.id]={
-              status:"rejected",reason:"ONE_FINITE_MANUAL_LIMIT_REQUIRED"
-            };
-            this.render();return;
-          }
-          this.command(c.id,"start",amount?{energy_kwh:Number(amount)}:
-            time?{duration_minutes:Number(time)}:
-            {cost_amount:Number(money),currency:"EUR"});
+          if(reason!=="READY"||!valid())return;
+          const value=Number(amount.value);
+          this.command(c.id,"start",draft.kind==="duration"?{duration_minutes:value}:
+            draft.kind==="energy"?{energy_kwh:value}:{cost_amount:value,currency:"EUR"});
         });
         const availability=mcEl("p","muted small");
         const updateGoal=()=>{
-          const kind=energy.value.trim()?"energy":budget.value.trim()?"budget":"duration";
-          const reason=capability.manual_goal_reasons?.[kind]||capability.manual_one_off_reason||"SOURCE_NOT_SELECTED";
-          submit.disabled=this._commandBusy||reason!=="READY";
+          submit.disabled=this._commandBusy||reason!=="READY"||!valid();
           availability.textContent=reason==="READY"?"":mcTr("Start unavailable")+" · "+mcReason(reason);
         };
-        for(const [input,key] of [[energy,"energy"],[minutes,"minutes"],[budget,"budget"]])
-          input.addEventListener("input",()=>{draft[key]=input.value;updateGoal();});
+        amount.addEventListener("input",()=>{draft[draft.kind]=amount.value;updateGoal();});
         updateGoal();
         oneOff.append(submit,availability);
-        this.disclosure(card,"charger:"+c.id+":oneoff",
-          "Manual one-off charge",oneOff,
-          capability.manual_one_off_allowed?"":
-          mcReason(capability.manual_one_off_reason||"SOURCE_NOT_SELECTED"));
+        card.append(oneOff);
       }
       if(!capability.start_allowed && capability.reason && c.asset)
         card.append(mcEl("p","muted small",mcTr("Unavailable")+" · "+mcReason(capability.reason)));
