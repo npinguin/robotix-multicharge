@@ -328,6 +328,10 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     priceAndForecast:!!chartLegend&&chartLegend.textContent.includes("Reference price")&&chartLegend.textContent.includes("Indicative"),
     apexErrors:apexHosts.filter(x=>!x.querySelector(".apexcharts-svg")).map(x=>x.textContent.slice(0,220)),
     quickSelectors:quick.length,
+    siteFirst:view!=="overview"||!!root.querySelector(".charging-site-overview")&&
+      (!count||root.querySelector(".charging-site-overview").getBoundingClientRect().top<
+        root.querySelector(".vehicle-summary").getBoundingClientRect().top),
+    assetAssignmentActions:buttons.filter(x=>x==="Change charger"||x==="Assign charger").length,
     quickEditable:quick.filter(x=>!x.disabled).length,
     firstFoldClosed:folds.length?folds[0].open===false:null,
     keyboardSummary:folds.every(x=>x.firstElementChild?.tagName==="SUMMARY"),

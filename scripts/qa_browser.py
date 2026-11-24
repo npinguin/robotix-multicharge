@@ -122,7 +122,10 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
     if view == "asset" and count:
         if row["goalEditable"] != (role == "admin"):
             raise AssertionError(f"{label}: novice goal or resident auth drift: {row}")
-    if view in ("charger", "overview"):
+    if view == "overview":
+        if not row["siteFirst"] or row["quickSelectors"] != 0 or row["assetAssignmentActions"] != (count if role == "admin" else 0):
+            raise AssertionError(f"{label}: site-first asset assignment hierarchy lost: {row}")
+    if view == "charger":
         if row["quickSelectors"] != count:
             raise AssertionError(f"{label}: top-level Charger vehicle quick action missing: {row}")
         if row["quickEditable"] != (count if role == "admin" else 0):

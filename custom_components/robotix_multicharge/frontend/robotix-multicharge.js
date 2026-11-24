@@ -1104,6 +1104,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       tab==="Chargers"&&this._editingField.startsWith("charger:")));
     return Boolean(this._unsavedInput||scopedEdit||this._yamlEditorOpen||
       (this._batteryEditor&&["Overview","Chargeable Assets","Charging Plan"].includes(tab))||
+      tab==="Overview"&&this._assignmentEditor||
       tab==="Chargeable Assets"&&(
         this._assetEditor||this._assignmentEditor||
         this._goalEditor||this._scheduleEditor||this._windowsOpen)||
@@ -1965,8 +1966,10 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(item===mode)button.className="active";
       chips.append(button);
     }
-    // Goal cards first; site-wide context remains directly below them.
+    const site=mcEl("section","card charging-site-overview");
+    site.append(mcEl("h3","",mcTr("Charging site")),metrics,chips);container.append(site);
     this.feedback(container);
+    if(assets.length)container.append(mcEl("h3","",mcTr("Chargeable Assets")));
     for(const a of assets){
       const card=mcEl("div","card");
       const charger=chargers.find(x=>x.asset===a.id);
@@ -2002,25 +2005,9 @@ class RobotixMultiChargeCard extends HTMLElement {
         }
       }
       card.append(controls);
+      this.assetChargerAssignment(card,a,charger,chargers);
+      this.assetConnectionConfirmation(card,a,charger);
       container.append(card);
-    }
-    const site=mcEl("section","card");
-    site.append(mcEl("h3","",mcTr("Charging site")),metrics,chips);container.append(site);
-    if(chargers.length){
-      const quick=mcEl("section","card quick-owner-panel");
-      quick.append(mcEl("h3","",mcTr("Quick charger assignment")));
-      quick.append(mcEl("p","muted small",mcTr("Select the vehicle at each charger · no Details needed")));
-      for(const charger of chargers){
-        const line=mcEl("div","quick-owner-line");
-        line.append(mcEl("strong","",charger.name));
-        this.chargerQuickSelection(line,charger);
-        const evidence=observations[charger.id]?.connected;
-        line.append(mcEl("span","muted small",
-          evidence?.quality==="ok"?(evidence.value?
-            mcTr("Connected"):mcTr("Disconnected")):mcTr("Connection unknown")));
-        quick.append(line);
-      }
-      container.append(quick);
     }
     if(!assets.length&&chargers.length)this.notice(container,"No vehicles",false);
     if(this.canEditSettings()){
@@ -2576,6 +2563,69 @@ class RobotixMultiChargeCard extends HTMLElement {
       mcTr("Indicative energy budget, not a guaranteed electricity bill")));
     card.append(form);
   }
+  assetConnectionConfirmation(card,asset,charger){
+    if(!charger||!this.canManage())return;
+    const connected=this._data?.observations?.chargers?.[charger.id]?.connected;
+    const identity=this._data?.connection_identity?.[charger.id];
+    if(connected?.quality!=="ok"||connected.value!==true||
+        identity?.asset_id===asset.id||
+        !this.ownerEntity("charger",charger.id,"confirm_connection"))return;
+    const confirm=mcButton(mcTr("Confirm connected vehicle"),()=>
+      this.nativeButton("charger",charger.id,"confirm_connection"));
+    confirm.disabled=this._settingsBusy;
+    card.append(confirm);
+  }
+  assetChargerAssignment(card,a,charger,chargers){
+  if(this.canEditSettings()&&chargers.length){
+    const change=mcButton(
+      mcTr(charger?"Change charger":"Assign charger"),()=>{
+        this._assignmentEditor=this._assignmentEditor===a.id?"":a.id;
+        this._goalEditor="";this._scheduleEditor="";this.render();
+      }
+    );
+    change.disabled=this._settingsBusy;
+    card.append(change);
+    if(this._assignmentEditor===a.id){
+      // A selected Vehicle belongs to exactly one Charger Config Entry
+      // field. Do not silently replace a different assigned Vehicle.
+      const candidates=chargers.filter(c=>!c.asset||c.asset===a.id);
+      const editor=mcEl("div","details assignment-editor");
+      editor.append(mcEl("p","muted small",
+        "Idle-only reassignment. Stop charging separately before moving a vehicle."));
+      if(candidates.length){
+        const chooser=mcEl("select");
+        chooser.setAttribute("aria-label",mcTr("Select charger"));
+        for(const candidate of candidates){
+          const option=mcEl("option","",candidate.name);
+          option.value=candidate.id;
+          chooser.append(option);
+        }
+        chooser.value=charger?.id||candidates[0].id;
+        const apply=mcButton(mcTr("Assign selected charger"),()=>{
+          if(!chooser.value||chooser.value===charger?.id)return;
+          this.saveSettings("charger",chooser.value,{asset:a.id},"save");
+        });
+        apply.disabled=this._settingsBusy||
+          !chooser.value||chooser.value===charger?.id;
+        chooser.addEventListener("change",()=>{
+          apply.disabled=this._settingsBusy||
+            !chooser.value||chooser.value===charger?.id;
+        });
+        editor.append(chooser,apply);
+      }else editor.append(mcEl("p","muted small","No free charger"));
+      if(charger){
+        const detach=mcButton(mcTr("Unassign charger"),()=>
+          this.saveSettings("charger",charger.id,{asset:null},"save"));
+        detach.disabled=this._settingsBusy;
+        editor.append(detach);
+      }
+      editor.append(mcButton(mcTr("Close assignment"),()=>{
+        this._assignmentEditor="";this.render();
+      }));
+      card.append(editor);
+    }
+  }
+  }
   assets(container){
     const d=this._data,assets=d.configuration.assets||[],chargers=d.configuration.chargers||[];
     this.title(container,mcTr("Chargeable Assets")+" ("+assets.length+")");
@@ -2620,55 +2670,8 @@ class RobotixMultiChargeCard extends HTMLElement {
           card.append(schedule);
         }
       }
-      if(this.canEditSettings()&&chargers.length){
-        const change=mcButton(
-          mcTr(charger?"Change charger":"Assign charger"),()=>{
-            this._assignmentEditor=this._assignmentEditor===a.id?"":a.id;
-            this._goalEditor="";this._scheduleEditor="";this.render();
-          }
-        );
-        change.disabled=this._settingsBusy;
-        card.append(change);
-        if(this._assignmentEditor===a.id){
-          // A selected Vehicle belongs to exactly one Charger Config Entry
-          // field. Do not silently replace a different assigned Vehicle.
-          const candidates=chargers.filter(c=>!c.asset||c.asset===a.id);
-          const editor=mcEl("div","details assignment-editor");
-          editor.append(mcEl("p","muted small",
-            "Idle-only reassignment. Stop charging separately before moving a vehicle."));
-          if(candidates.length){
-            const chooser=mcEl("select");
-            chooser.setAttribute("aria-label",mcTr("Select charger"));
-            for(const candidate of candidates){
-              const option=mcEl("option","",candidate.name);
-              option.value=candidate.id;
-              chooser.append(option);
-            }
-            chooser.value=charger?.id||candidates[0].id;
-            const apply=mcButton(mcTr("Assign selected charger"),()=>{
-              if(!chooser.value||chooser.value===charger?.id)return;
-              this.saveSettings("charger",chooser.value,{asset:a.id},"save");
-            });
-            apply.disabled=this._settingsBusy||
-              !chooser.value||chooser.value===charger?.id;
-            chooser.addEventListener("change",()=>{
-              apply.disabled=this._settingsBusy||
-                !chooser.value||chooser.value===charger?.id;
-            });
-            editor.append(chooser,apply);
-          }else editor.append(mcEl("p","muted small","No free charger"));
-          if(charger){
-            const detach=mcButton(mcTr("Unassign charger"),()=>
-              this.saveSettings("charger",charger.id,{asset:null},"save"));
-            detach.disabled=this._settingsBusy;
-            editor.append(detach);
-          }
-          editor.append(mcButton(mcTr("Close assignment"),()=>{
-            this._assignmentEditor="";this.render();
-          }));
-          card.append(editor);
-        }
-      }
+      this.assetChargerAssignment(card,a,charger,chargers);
+      this.assetConnectionConfirmation(card,a,charger);
       if(this._open===a.id){
         const detail=mcEl("div","details");
         mcPair(detail,"Charging priority",a.priority===undefined?"Not set":a.priority);
