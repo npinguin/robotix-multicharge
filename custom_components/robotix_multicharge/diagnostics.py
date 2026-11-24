@@ -100,7 +100,10 @@ def build_diagnostics(runtime, entry, captured_at=None):
             "has_deadline": bool(item.get("ready_by")),
         } for item in cfg["assets"]],
         "observations": {
-            "sources": dict(obs.get("sources", {})),
+            "sources": {
+                key: _alias(value) if key == "tariff_source" else value
+                for key, value in obs.get("sources", {}).items()
+            },
             "chargers": {
                 _alias(uid): {key: _evidence(readings.get(key))
                               for key in ("connected", "power_kw", "session")}

@@ -128,9 +128,11 @@ class RuntimeTests(unittest.TestCase):
 
         cfg = sample()
         cfg["controller"]["name"] = "Private test home"
+        cfg["controller"]["current_price_entity"] = "sensor.private_tariff"
         cfg["assets"][0]["name"] = "Personal vehicle"
         states = {
             "sensor.soc": state("65", "%"),
+            "sensor.private_tariff": state("0.2", "EUR/kWh"),
             "sensor.power": state("unavailable", "W"),
             "binary_sensor.cable": state("on"),
         }
@@ -147,8 +149,11 @@ class RuntimeTests(unittest.TestCase):
             next(iter(result["observations"]["chargers"]))
         ]["power_kw"]["quality"], "unavailable")
         self.assertIn("source", rendered)
+        self.assertEqual(result["observations"]["sources"]["tariff_source"],
+                         result["controller"]["bindings"]["current_price_entity"])
         for sensitive in ("Private test home", "Personal vehicle",
                           "sensor.soc", "sensor.power", "binary_sensor.cable",
+                          "sensor.private_tariff",
                           '"asset_id": "car"', '"charger_id": "drive"'):
             self.assertNotIn(sensitive, rendered)
         self.assertIsNone(rt.live_state()["actual_power_kw"])
