@@ -1728,9 +1728,8 @@ class RobotixMultiChargeCard extends HTMLElement {
   feedback(container){
     if(!this._settingsFeedback)return;
     const result=this._settingsFeedback;
-    const node=mcEl("p","message "+(result.status==="confirmed"?"confirmed":result.status==="rejected"?"error":"pending"),
-      result.status==="confirmed"?"Saved":
-      result.status==="rejected"?(result.message||"Unavailable"):"Pending");
+    const label=result.status==="confirmed"?"Saved":result.status==="rejected"?(result.message||"Unavailable"):"Pending";
+    const node=mcIconLabel(mcEl("p","message "+(result.status==="confirmed"?"confirmed":result.status==="rejected"?"error":"pending"),label),label,result.status==="confirmed"?"check-circle-outline":result.status==="rejected"?"alert-circle-outline":"clock-outline",result.status==="confirmed"?"good":result.status==="rejected"?"bad":"warn");
     node.setAttribute("role",result.status==="rejected"?"alert":"status");
     container.append(node);
   }
@@ -1801,7 +1800,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     const d=this._data,c=d.configuration||{},assets=c.assets||[],chargers=c.chargers||[];
     this.title(container,"Charging overview");
     const observations=(d.observations||{}).chargers||{};
-    const priced=((d.observations||{}).sources||{}).current_price||{};
+    const sources=(d.observations||{}).sources||{};
+    const priced=sources.current_price||{};
     const priceLabel=priced.quality==="ok"&&typeof priced.value==="number"&&priced.currency
       ?new Intl.NumberFormat(undefined,{style:"currency",currency:priced.currency,maximumFractionDigits:4}).format(priced.value)+"/kWh"
       :"Unavailable";
@@ -1815,8 +1815,16 @@ class RobotixMultiChargeCard extends HTMLElement {
     for(const [key,value] of [
       ["Active chargers",!chargers.length?"0":complete?String(active):"Unknown"],
       ["Actual power",complete?(powers.reduce((sum,x)=>sum+x.value,0).toFixed(2)+" kW"):"Unknown"],
-      [priceKind,priceLabel]
-    ]){const el=mcEl("div","metric");el.append(mcIconLabel(mcEl("p","muted small",key),key,mcIconFor(key),key==="Actual power"?"good":"") ,mcEl("div","value",value));metrics.append(el);}
+      [priceKind,priceLabel],
+      ["Solar production",mcValue(sources.solar_power," kW")],
+      ["Home consumption",mcValue(sources.home_power," kW")],
+      ["Grid power",mcValue(sources.grid_power," kW")]
+    ]){const el=mcEl("div","metric");
+      const tone=value==="Unknown"||value==="Unavailable"?"quiet":
+        key==="Solar production"?"solar":key==="Actual power"&&active>0?"good":"";
+      el.append(mcIconLabel(mcEl("p","muted small",key),key,mcIconFor(key),tone),mcEl("div","value",value));
+      metrics.append(el);
+    }
     container.append(metrics);
     const mode=(c.controller||{}).mode||"Off";
     const chips=mcEl("div","chips");chips.append(mcEl("p","muted",mcTr("Charging mode")+" · "+mode));
@@ -2642,7 +2650,8 @@ class RobotixMultiChargeCard extends HTMLElement {
       chip.append(dot,mcEl("span","muted small",mcTr("Plan color")+" · "+mcTr(c.plan_color||"blue")));
       card.append(chip);
       mcPair(card,"Connection",mcValue(obs.connected));
-      const status=obs.power_kw?.quality==="ok"&&typeof obs.power_kw.value==="number"&&obs.power_kw.value>0?"Charging":
+      const status=obs.connected?.quality==="ok"&&obs.connected.value===true&&
+        obs.power_kw?.quality==="ok"&&typeof obs.power_kw.value==="number"&&obs.power_kw.value>0?"Charging":
         obs.connected?.quality==="ok"?(obs.connected.value===true?"Connected":"Disconnected"):"Unknown";
       const statusIcon=status==="Charging"?"lightning-bolt":status==="Connected"?"connection":status==="Disconnected"?"power-plug-off-outline":"help-circle-outline";
       card.append(mcIconLabel(mcEl("p","small",status),status,statusIcon,status==="Charging"?"good":"quiet"));
