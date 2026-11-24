@@ -925,6 +925,19 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(states["switch.evse_control"].state, "on")
         self.assertEqual((await rt.executor.execute("evse", "stop"))["status"], "confirmed")
 
+    async def test_wrong_native_current_unit_rejected_before_service(self):
+        rt, states, services = rig(group_kw=3.6)
+        charger = rt.configuration["chargers"][0]
+        charger.update(kind="variable_current", rated_power_kw=3.68,
+                       voltage_v=230, min_current_a=6, max_current_a=16,
+                       current_step_a=1, current_control_entity="number.charge_limit")
+        native = state(6, "kW")
+        native.attributes.update(min=6, max=16, step=1)
+        states["number.charge_limit"] = native
+        reason, _ = rt.executor._requested_current(charger, 10, datetime.now(timezone.utc))
+        self.assertEqual(reason, "NATIVE_CURRENT_UNIT_UNSUPPORTED")
+        self.assertFalse(services.calls)
+
     async def test_verified_adjustable_native_setpoint_and_physical_start(self):
         rt, states, services = rig(group_kw=7.5)
         cfg = rt.configuration["chargers"][0]
@@ -1935,7 +1948,7 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
             "UNRESOLVED_PREVIOUS_CHARGE_INTENT",
         )
 
-    async def test_unknown_external_switch_reserves_possible_parallel_slot(self):
+    async def test_measured_idle_inactive_charger_does_not_reserve_parallel_slot(self):
         rt, sources, services = rig()
         rt.configuration["chargers"].append({
             "id": "other", "name": "Another charger", "kind": "on_off",
@@ -1946,8 +1959,8 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         })
         sources["sensor.other_power"] = state(0, "W")
         outcome = await rt.executor.execute("evse", "start")
-        self.assertEqual(outcome["reason"], "MAX_PARALLEL_REACHED")
-        self.assertEqual(services.calls, [])
+        self.assertEqual(outcome["status"], "confirmed")
+        self.assertEqual(services.calls[0][1], "turn_on")
 
     async def test_zero_demand_and_only_relevant_phase_constraints_block_start(self):
         rt, _, services = rig()

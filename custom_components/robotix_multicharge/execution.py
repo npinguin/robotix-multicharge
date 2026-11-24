@@ -970,6 +970,8 @@ class NativeSwitchExecutor:
         device = self.runtime.hass.states.get(entity)
         if device is None or device.state in ("unavailable", "unknown"):
             return "CURRENT_CONTROL_UNAVAILABLE", None
+        if device.attributes.get("unit_of_measurement") != "A":
+            return "NATIVE_CURRENT_UNIT_UNSUPPORTED", None
         try:
             attrs = device.attributes
             hmin, hmax, hstep = (float(attrs["min"]), float(attrs["max"]),
@@ -1056,10 +1058,8 @@ class NativeSwitchExecutor:
                 state is None
                 and other.get("control_owner") != "multicharge"
             )
-            if unknown_external_state and power.value <= stop_power_limit(other):
-                cable = self._connection(other, at)
-                if cable.quality == "ok" and cable.value is False:
-                    continue
+            if other.get("control_owner") != "multicharge" and power.quality == "ok" and power.value <= stop_power_limit(other) and (state is None or state.state == "off"):
+                continue
             if state is None and not unknown_external_state:
                 return "OTHER_CHARGER_OWNER_OR_STATE_UNKNOWN"
             # Another independently controlled charger may start at any time
@@ -1369,6 +1369,7 @@ class NativeSwitchExecutor:
             else asset.get("requested_budget_currency")
         )
         intent_key = None
+        budget_minutes = 24 * 60
         if asset is not None:
             raw_due = asset.get("ready_by")
             due = datetime.fromisoformat(raw_due) if raw_due else None
@@ -1381,8 +1382,15 @@ class NativeSwitchExecutor:
                 if due is None:
                     return error
             intent_key = self._intent_key(asset, charger, due)
-            if explicit_energy is not None or duration is not None:
+            if explicit_energy is not None or duration is not None or budget is not None:
                 progress = self.measured_intent_usage(asset, charger, due, now)
+                if budget is not None:
+                    if progress.get("budget_amount") is None or progress.get("duration_minutes") is None:
+                        return "BUDGET_MEASURED_PROGRESS_UNAVAILABLE"
+                    budget = max(0.0, budget - progress["budget_amount"])
+                    budget_minutes = max(0.0, budget_minutes - progress["duration_minutes"])
+                    if budget <= 0.000001 or budget_minutes <= 0:
+                        return "TARGET_ALREADY_MET"
                 if explicit_energy is not None:
                     if progress["energy_kwh"] is None:
                         return "ASSET_MEASURED_PROGRESS_UNAVAILABLE"
@@ -1412,7 +1420,7 @@ class NativeSwitchExecutor:
                 now, budget_currency) is None:
             return "BUDGET_EFFECTIVE_TARIFF_UNAVAILABLE"
         # Session cannot run longer than 24h on one manual authorization.
-        end = now + timedelta(hours=24)
+        end = now + timedelta(minutes=budget_minutes if budget is not None else 24 * 60)
         if duration is not None:
             end = min(end, now + timedelta(minutes=duration))
         if asset is not None and (

@@ -1019,6 +1019,11 @@ def prepare_expert_yaml_revision(current, document, mode="merge"):
                         existing.update(deepcopy(supplied))
             candidate = validate_configuration(candidate)
 
+    existing_ids = {row["id"] for row in before["assets"]}
+    for asset in candidate["assets"]:
+        if asset["id"] not in existing_ids and asset.get("soc_entity"):
+            apply_new_asset_defaults(asset)
+    candidate = validate_configuration(candidate)
     if candidate["controller"]["id"] != before["controller"]["id"]:
         raise ValueError("controller ID cannot change in UI; preserve existing HA history")
     assert_expert_authority_change(before, candidate)

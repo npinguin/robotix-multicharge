@@ -45,6 +45,7 @@ async def async_setup_entry(
     for charger in choices["chargers"]:
         entities.append(_OwnedSelect(entry, runtime, "charger", charger, "plan_color"))
         entities.append(_OwnedSelect(entry, runtime, "charger", charger, "asset"))
+        entities.append(_OwnedSelect(entry, runtime, "charger", charger, "control_owner"))
     async_add_entities(entities)
 
 
@@ -78,7 +79,10 @@ class _OwnedSelect(SelectEntity):
         self._attr_translation_key = (
             "selected_vehicle" if field == "asset" else field
         )
-        if field in ("mode", "ready_by_repeat", "asset", "plan_color", "continuous_charging", "opportunistic_kind") or field.startswith("ready_day_"):
+        if field == "control_owner":
+            self._attr_name = "Activation"
+            self._attr_translation_key = None
+        if field in ("control_owner", "mode", "ready_by_repeat", "asset", "plan_color", "continuous_charging", "opportunistic_kind") or field.startswith("ready_day_"):
             self._attr_entity_category = None
         self._attr_device_info = {
             "identifiers": {(DOMAIN, f"{kind}/{self.uid}")},
@@ -114,6 +118,8 @@ class _OwnedSelect(SelectEntity):
             return ["vehicle", "charger"]
         if self.field == "show_indicative_forecast":
             return ["on", "off"]
+        if self.field == "control_owner":
+            return ["inactive", "active"]
         if self.field == "mode":
             return list(MODES)
         if self.field == "solar_source_kind":
@@ -145,6 +151,8 @@ class _OwnedSelect(SelectEntity):
         current = self._record()
         if current is None:
             self._attr_current_option = None
+        elif self.field == "control_owner":
+            self._attr_current_option = ("active" if current.get("control_owner") == "multicharge" and current.get("physical_commissioned") is True else "inactive")
         elif self.field == "asset":
             assets = self.runtime.configuration["assets"]
             selected = next((
@@ -249,6 +257,8 @@ class _OwnedSelect(SelectEntity):
             value = option == "on"
         elif self.field == "continuous_charging":
             value = option == "continuous"
+        elif self.field == "control_owner":
+            value = "multicharge" if option == "active" else "external"
         elif self.field == "mode":
             value = MODES[option]
         else:
@@ -256,4 +266,5 @@ class _OwnedSelect(SelectEntity):
         await apply_native_preference(
             self.hass, self.entry, self.runtime,
             self.kind, self.uid, {self.field: value},
+            structural=self.field == "control_owner",
         )

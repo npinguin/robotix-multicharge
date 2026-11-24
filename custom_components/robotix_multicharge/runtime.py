@@ -399,21 +399,23 @@ class MultiChargeRuntime:
                 max_power_kw=asset.get("max_charge_kw"),
                 not_before=eligible_after,
             )
-            if disconnected:
-                self.executor.connection_confirmation(raw, at)
-                self.excluded[uid] = "DISCONNECTED"
+            inactive = raw.get("control_owner") != "multicharge" or raw.get("physical_commissioned") is not True
+            if disconnected or inactive:
+                if disconnected:
+                    self.executor.connection_confirmation(raw, at)
+                self.excluded[uid] = "DISCONNECTED" if disconnected else "CHARGER_INACTIVE"
                 indicative_demands.append(request)
                 self.forecast_assumptions[uid] = {
                     "asset_id": asset["id"], "charger_id": uid,
                     "assumption": (
                         "USER_EXPECTED_CONNECTION_TIME" if assumed_arrival
-                        else "IF_CONNECTED_NOW"
+                        else "IF_CONNECTED_NOW" if disconnected else "IF_ACTIVATED"
                     ),
                     "assumed_connection_at": (
                         max(at, assumed_arrival).isoformat()
                         if assumed_arrival else at.isoformat()
                     ),
-                    "physically_connected": False,
+                    "physically_connected": cable.value if cable.quality == "ok" else None,
                     "may_execute": False,
                     "reserves_capacity": False,
                 }
@@ -455,6 +457,10 @@ class MultiChargeRuntime:
         tariff, tariff_quality = intervals(
             self.hass, setting.get("price_entity"), "price", at
         )
+        if not setting.get("price_entity") and setting.get("current_price_entity"):
+            candidate, quality = intervals(self.hass, setting["current_price_entity"], "price", at)
+            if quality == "OK":
+                tariff, tariff_quality = candidate, quality
         solar_kind = setting.get(
             "solar_source_kind", "intervals" if setting.get("solar_entity") else "none",
         )

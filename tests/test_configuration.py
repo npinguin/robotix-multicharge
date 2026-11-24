@@ -251,6 +251,20 @@ class ConfigurationTests(unittest.TestCase):
         imported["assets"] = [{"id": "legacy", "name": "Legacy car", "kind": "car"}]
         self.assertNotIn("target_soc", validate_configuration(imported)["assets"][0])
 
+    def test_expert_editor_new_soc_car_defaults_without_rewriting_existing_targets(self):
+        from multicharge_configuration_tests.configuration import prepare_expert_yaml_revision
+        base = default_configuration()
+        base["assets"] = [{"id": "old", "name": "Old", "kind": "car",
+                           "soc_entity": "sensor.old_soc", "target_soc": 90}]
+        result = prepare_expert_yaml_revision(base, {"assets": [
+            {"id": "new", "name": "New", "kind": "car", "soc_entity": "sensor.new_soc"},
+            {"id": "guest", "name": "Guest", "kind": "car", "requested_duration_minutes": 20},
+        ]})
+        assets = {a["id"]: a for a in result["assets"]}
+        self.assertEqual(assets["new"]["target_soc"], 80)
+        self.assertEqual(assets["old"]["target_soc"], 90)
+        self.assertNotIn("target_soc", assets["guest"])
+
     def test_charger_user_power_envelope_is_hardware_bounded_and_native_editable(self):
         from multicharge_configuration_tests.configuration import (
             apply_settings_change, is_in_place_runtime_preference_change,
