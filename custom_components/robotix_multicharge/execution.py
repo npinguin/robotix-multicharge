@@ -944,11 +944,12 @@ class NativeSwitchExecutor:
             return "NATIVE_CURRENT_CAPABILITY_UNVERIFIED", None
         phases = charger.get("phase_ids") or []
         voltage = charger.get("voltage_v")
-        if (charger.get("phase_count") != len(phases)
-                or len(phases) != len(set(phases))
-                or not phases or not isinstance(voltage, (float, int))):
+        count = charger.get("phase_count")
+        if (count not in (1, 2, 3) or (phases and (
+                count != len(phases) or len(phases) != len(set(phases))))
+                or not isinstance(voltage, (float, int)) or not 200 <= voltage <= 260):
             return "ELECTRICAL_WIRING_UNVERIFIED", None
-        kw = float(current) * voltage * len(phases) / 1000
+        kw = float(current) * voltage * count / 1000
         if (charger.get("min_charging_power_kw") is not None
                 and kw + 1e-9 < charger["min_charging_power_kw"]):
             return "BELOW_USER_CHARGING_POWER_MINIMUM", None
@@ -1051,9 +1052,9 @@ class NativeSwitchExecutor:
                                 return "OTHER_CHARGER_CURRENT_UNAVAILABLE"
                         elif target is not None:
                             amps = max(sensed.value, target)
-                            if other.get("voltage_v") and other.get("phase_ids"):
+                            if other.get("voltage_v") and other.get("phase_count"):
                                 reserved_kw = max(power.value, amps * other["voltage_v"]
-                                                  * len(other["phase_ids"]) / 1000)
+                                                  * other["phase_count"] / 1000)
                         else:
                             # External adjustable load can increase within
                             # its declared envelope; reserve that envelope
@@ -1114,7 +1115,7 @@ class NativeSwitchExecutor:
                          "current", datetime.now(timezone.utc))
         watts = number(self.runtime.hass, charger.get("power_entity"), "power",
                        datetime.now(timezone.utc))
-        target_kw = current * charger["voltage_v"] * len(charger["phase_ids"]) / 1000
+        target_kw = current * charger["voltage_v"] * charger["phase_count"] / 1000
         return (reading.quality == "ok" and reading.observed_at is not None
                 and reading.observed_at >= requested_at
                 and watts.quality == "ok" and watts.observed_at is not None
@@ -1613,7 +1614,7 @@ class NativeSwitchExecutor:
                     kw = (charger["rated_power_kw"]
                           if charger["kind"] == "on_off" else
                           session["target_current_a"] * charger["voltage_v"]
-                          * len(charger["phase_ids"]) / 1000)
+                          * charger["phase_count"] / 1000)
                     current = (charger.get("fixed_current_a")
                                if charger["kind"] == "on_off"
                                else session["target_current_a"])

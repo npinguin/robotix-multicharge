@@ -813,6 +813,24 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(services.calls, [])
             self.assertFalse(rt.executor.accepted_slots())
 
+    async def test_adjustable_charger_without_unselected_site_phase_or_circuit_limits(self):
+        rt, states, services = rig(group_kw=3.6)
+        cfg = rt.configuration["chargers"][0]
+        cfg.update(kind="variable_current", rated_power_kw=3.68,
+                   voltage_v=230, min_current_a=6, max_current_a=16,
+                   current_step_a=1, current_control_entity="number.charge_limit",
+                   current_readback_entity="sensor.actual_current")
+        rt.configuration = validate_configuration(rt.configuration)
+        number_state = state(6, "A")
+        number_state.attributes.update(min=6, max=16, step=1)
+        states["number.charge_limit"] = number_state
+        states["sensor.actual_current"] = state(0, "A")
+        rt.refresh()
+        started = await rt.executor.execute("evse", "start")
+        self.assertEqual(started["status"], "confirmed")
+        self.assertEqual(services.calls[0][2]["value"], 15)
+        self.assertEqual((await rt.executor.execute("evse", "stop"))["status"], "confirmed")
+
     async def test_verified_adjustable_native_setpoint_and_physical_start(self):
         rt, states, services = rig(group_kw=7.5)
         cfg = rt.configuration["chargers"][0]

@@ -483,12 +483,12 @@ def validate_configuration(value):
                     or "max_charging_power_kw" in charger):
                 if charger["kind"] != "variable_current":
                     raise ValueError("charger power preferences require adjustable current")
-                phases = source.get("phase_ids") or []
-                if not phases or not all(key in charger for key in (
+                phase_count = charger.get("phase_count")
+                if phase_count is None or not all(key in charger for key in (
                         "voltage_v", "min_current_a", "max_current_a",
                         "current_step_a")):
-                    raise ValueError("charger power preferences require verified physical limits")
-                factor = charger["voltage_v"] * len(phases) / 1000
+                    raise ValueError("charger power preferences require declared physical limits")
+                factor = charger["voltage_v"] * phase_count / 1000
                 physical_min = charger["min_current_a"] * factor
                 physical_max = min(charger["rated_power_kw"],
                                    charger["max_current_a"] * factor)
@@ -521,15 +521,15 @@ def validate_configuration(value):
             if source.get("circuit_id"):
                 charger["circuit_id"] = _text(source["circuit_id"], "charger.circuit_id")
             if owner == "multicharge" and source["kind"] == "variable_current":
-                if not ctl.get("phase_limits_a"):
-                    raise ValueError("charger: commissioned variable current requires verified site phase limits")
                 if not all(key in charger for key in (
-                    "phase_count", "phase_ids", "voltage_v", "current_step_a",
-                    "min_current_a", "max_current_a", "circuit_id", "circuit_limit_a"
+                    "phase_count", "voltage_v", "current_step_a",
+                    "min_current_a", "max_current_a"
                 )) or not str(source.get("current_control_entity", "")).startswith("number.") or not str(
                     source.get("current_readback_entity", "")
                 ).startswith("sensor."):
-                    raise ValueError("charger: controlled current requires verified phases, circuit, setpoint and independent current sensor")
+                    raise ValueError("charger: controlled current requires phase count, voltage, supported range/step, setpoint and independent current sensor (readback)")
+                if charger.get("circuit_id") and not charger.get("circuit_limit_a"):
+                    raise ValueError("charger: selected circuit requires a current limit")
                 if charger["voltage_v"] < 200 or charger["voltage_v"] > 260:
                     raise ValueError("charger.voltage_v: expected verified line-neutral voltage")
             if (source.get("current_readback_entity")
