@@ -271,6 +271,10 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             try:
                 cfg = validate_configuration(_parse_editor_yaml(user_input["yaml_text"]))
+                if any(row.get("control_owner") != "external"
+                       or row.get("physical_commissioned") is True
+                       for row in cfg["chargers"]):
+                    raise ValueError("Commissioning is never performed by initial setup")
                 await self.async_set_unique_id(DOMAIN)
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(
@@ -751,6 +755,8 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         The native Options flow uses the same executor lock / guards as expert
         YAML. A fresh uncommissioned setup may still be edited while offline.
         """
+        if self.config_entry.data.get("source") in ("yaml", "json"):
+            return None
         try:
             updated = validate_configuration(configuration)
         except ValueError:
