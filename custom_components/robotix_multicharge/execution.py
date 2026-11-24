@@ -1628,6 +1628,12 @@ class NativeSwitchExecutor:
             for configured in active:
                 charger = self.effective_charger(configured)
                 uid = charger["id"]
+                # Native HA publishes the switch event before execute() has
+                # adopted the command receipt. The same executor already
+                # bounds that pending START and handles its readback timeout.
+                # Do not queue a spurious STOP against a not-yet-adopted session.
+                if uid in self._start_pending:
+                    continue
                 cable = self._connection(charger, at)
                 power = number(self.runtime.hass, charger.get("power_entity"), "power", at)
                 session_reason = self._session_stop_reason(charger, at)
