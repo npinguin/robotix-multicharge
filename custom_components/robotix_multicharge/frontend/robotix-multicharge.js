@@ -21,7 +21,9 @@ const MC_REASONS={
   NO_CHARGEABLE_ASSET:"No vehicle",TEMPORARY_ASSET_EXPIRED:"Guest expired",
   OFF:"Off",PROPOSED:"Proposed",TARGET_MET:"Ready",PRICE_UNAVAILABLE:"No tariff",
   SOLAR_UNAVAILABLE:"No solar",DEADLINE_UNKNOWN:"No deadline",
-  DEMAND_UNKNOWN:"No charging goal",INSUFFICIENT_CAPACITY_OR_TIME:"Limited power",
+  DEMAND_UNKNOWN:"Charging demand unknown",NO_CHARGING_GOAL:"No charging goal",
+  BATTERY_CAPACITY_NOT_CONFIGURED:"Set battery capacity",CHARGE_EFFICIENCY_NOT_CONFIGURED:"Set charging efficiency",
+  SOC_SOURCE_UNAVAILABLE:"Battery level unavailable",INSUFFICIENT_CAPACITY_OR_TIME:"Limited power",
   SOURCE_NOT_SELECTED:"No source",BINDING_CAPACITY_UNAVAILABLE:"No capacity",
   PHASE_WIRING_UNVERIFIED:"Wiring unknown",NO_ASSIGNED_ASSET:"No vehicle",
   EXTERNAL_WRITER_OWNS_CHARGER:"Inactive",
@@ -220,7 +222,7 @@ const MC_STYLE = [
   ".message{font-size:13px;margin:9px 0}.pending{color:var(--warning-color,#b57418)}.confirmed{color:var(--success-color,#278355)}",
   ".notice{border:1px solid var(--divider-color,#e5e7eb);border-radius:8px;padding:11px 13px;background:var(--secondary-background-color,#f6f8fa);margin:12px 0;font-size:13px}",
   ".error{border-color:var(--error-color,#d43b38)}.chart{overflow-x:auto;width:100%}",
-  ".legend{display:flex;flex-wrap:wrap;gap:15px;font-size:12px;color:var(--secondary-text-color,#65717e)}",
+  ".legend{display:flex;flex-wrap:wrap;gap:8px;font-size:12px;color:var(--secondary-text-color,#65717e)}.legend-toggle{font-size:12px;border:0;padding:4px;min-height:30px;background:transparent;color:inherit}.legend-toggle[aria-pressed=false]{opacity:.5;text-decoration:line-through}",
   ".dot{display:inline-block;width:11px;height:11px;margin-right:5px;border-radius:2px}",
   ".plan-lane{margin:10px 0;border:1px solid var(--divider-color,#d8dde3);border-radius:11px;padding:11px}",
   ".plan-lane svg{display:block;min-width:680px;width:100%;height:auto}",
@@ -375,7 +377,9 @@ function mcMountApex(plot,options){
   const key=mcEl("div","legend");
   for(const [i,series] of (options.series||[]).entries()){
     if(!series.data?.length)continue;
-    const label=mcEl("span");const dot=mcEl("span","dot");dot.style.background=options.colors[i];
+    const label=mcEl("button","legend-toggle");label.setAttribute("aria-pressed","true");
+    label.addEventListener("click",()=>{if(!plot._mcApex)return;plot._mcApex.toggleSeries(series.name);const visible=label.getAttribute("aria-pressed")!=="true";label.setAttribute("aria-pressed",String(visible));});
+    const dot=mcEl("span","dot");dot.style.background=options.colors[i];
     label.append(dot,mcEl("span","",series.name));key.append(label);
   }
   plot._mcLegend=key;
@@ -1779,6 +1783,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         const existing=previousCharts.find(old=>old._mcApex&&old._mcSignature===plot._mcSignature&&typeof plot.replaceWith==="function");
         if(existing){
           previousCharts.splice(previousCharts.indexOf(existing),1);
+          if(plot._mcLegend&&existing._mcLegend)plot._mcLegend.replaceWith(existing._mcLegend);
           plot.replaceWith(existing);
         }
       }
@@ -1802,17 +1807,21 @@ class RobotixMultiChargeCard extends HTMLElement {
     const active=powers.filter(x=>x&&x.quality==="ok"&&x.value>0).length;
     const activated=chargers.filter(x=>x.control_owner==="multicharge"&&x.physical_commissioned===true).length;
     const metrics=mcEl("div","grid");
-    for(const [key,value] of [
+    for(const [key,value,source] of [
       ["Active chargers",String(activated)],
       ["Actual power",complete?(powers.reduce((sum,x)=>sum+x.value,0).toFixed(2)+" kW"):"Unknown"],
       [priceKind,priceLabel],
-      ["Solar production",mcValue(sources.solar_power," kW")],
-      ["Home consumption",mcValue(sources.home_power," kW")],
-      ["Grid power",mcValue(sources.grid_power," kW")]
+      ["Solar production",mcValue(sources.solar_power," kW"),sources.solar_power],
+      ["Home consumption",mcValue(sources.home_power," kW"),sources.home_power],
+      ["Grid power",mcValue(sources.grid_power," kW"),sources.grid_power]
     ]){const el=mcEl("div","metric");
       const tone=value==="Unknown"||value==="Unavailable"?"quiet":
         key==="Solar production"?"solar":key==="Actual power"&&active>0?"good":"";
       el.append(mcIconLabel(mcEl("p","muted small",key),key,mcIconFor(key),tone),mcEl("div","value",value));
+      if(source&&source.quality!=="ok"){
+        const last=source.last_reported_value;
+        el.append(mcEl("p","muted small",typeof last==="number"?mcTr("Last reported")+" "+last+" kW · "+mcReason(source.reason):mcReason(source.reason)));
+      }
       metrics.append(el);
     }
     container.append(metrics);
@@ -2034,6 +2043,8 @@ class RobotixMultiChargeCard extends HTMLElement {
           shortfall.toFixed(2)+" kWh"));
       if(reason&&reason!=="PROPOSED"&&reason!=="TARGET_MET")
         card.append(mcEl("p","plan-caution",mcReason(reason)));
+      if(!assumptions[charger.id]&&forecastVisible&&d.forecast_reasons?.[charger.id]&&d.forecast_reasons[charger.id]!==reason)
+        card.append(mcEl("p","plan-caution",mcTr("Indicative")+" · "+mcReason(d.forecast_reasons[charger.id])));
       if(actualRows.some(row=>row.asset_provenance!=="confirmed_closed_session"))
         card.append(mcEl("p","muted small",
           mcTr("Measured power is attributed to this charger; vehicle may be unknown")));

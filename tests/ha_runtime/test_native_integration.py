@@ -860,8 +860,30 @@ async def test_new_asset_from_dashboard_gets_its_own_native_inputs(
         )
         assert device is not None
         assert registry.async_get(entity_id).device_id == device.id
+    # First Daily schedule needs no prior datetime; one revision owns it.
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    await apply_native_preference(hass, entry, runtime, "asset", "fresh_car", {
+        "ready_by_repeat": "daily", "ready_by_local": "2026-11-25T07:00:00",
+        "ready_by_weekdays": None,
+    })
+    await hass.async_block_till_done()
+    saved = entry.options["configuration"]["assets"][0]
+    assert saved["ready_by_repeat"] == "daily"
+    assert saved["target_soc"] == 80
+    for day in ("mon", "tue", "wed", "thu", "fri", "sat", "sun"):
+        entity_id = registry.async_get_entity_id(
+            "select", DOMAIN, f"{DOMAIN}:asset:fresh_car:ready_day_{day}"
+        )
+        assert hass.states.get(entity_id).state == "07:00"
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    await apply_native_preference(hass, entry, runtime, "asset", "fresh_car", {
+        "ready_by_repeat": "none", "ready_by": None, "ready_by_weekdays": None,
+    })
+    await hass.async_block_till_done()
+    saved = entry.options["configuration"]["assets"][0]
+    assert "ready_by" not in saved
+    assert saved["target_soc"] == 80
     assert await hass.config_entries.async_unload(entry.entry_id)
-
 
 
 @pytest.mark.asyncio

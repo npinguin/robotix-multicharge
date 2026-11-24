@@ -108,8 +108,24 @@ class RuntimeTests(unittest.TestCase):
         self.assertTrue(all(s.current_a is None and s.power_kw <= 4 for s in rt.forecast_assessment.plan.slots))
         cfg["assets"][0].pop("capacity_kwh")
         rt.refresh(NOW)
-        self.assertFalse(rt.forecast_assessment.plan.slots)
-        self.assertEqual(rt.forecast_assessment.reasons["drive"], "DEMAND_UNKNOWN")
+        self.assertIsNone(rt.forecast_assessment)
+        self.assertEqual(rt.forecast_excluded["drive"], "BATTERY_CAPACITY_NOT_CONFIGURED")
+
+    def test_stale_solar_last_report_is_display_only(self):
+        cfg = sample()
+        cfg["controller"].update(solar_power_entity="sensor.pv",
+                                 solar_source_kind="direct_surplus",
+                                 solar_surplus_entity="sensor.pv")
+        pv = state("0", "W")
+        pv.last_updated = NOW - timedelta(minutes=5)
+        data = {"sensor.pv": pv}
+        rt = MultiChargeRuntime(SimpleNamespace(states=SimpleNamespace(get=data.get)), cfg)
+        rt.refresh(NOW)
+        reading = rt.observations["sources"]["solar_power"]
+        self.assertEqual(reading["quality"], "stale")
+        self.assertIsNone(reading["value"])
+        self.assertEqual(reading["last_reported_value"], 0)
+        self.assertEqual(rt.native_surplus_power(NOW), (None, "SOURCE_STALE"))
 
     def test_inactive_demand_never_displaces_active_charger(self):
         cfg = sample()

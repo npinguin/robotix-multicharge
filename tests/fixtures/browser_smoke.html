@@ -74,6 +74,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
       start:"2026-11-23T11:00:00+01:00",
       end:"2026-11-23T11:15:00+01:00",proposed_power_kw:2.3,
       accepted_power_kw:0,proposed_energy_kwh:0.575}];
+    data.forecast_slots=[{charger_id:"charger_0",asset_id:"vehicle_0",start:"2026-11-23T12:00:00+01:00",end:"2026-11-23T12:15:00+01:00",indicative_power_kw:3.6}];
     data.price_slots=[{start:"2026-11-23T10:00:00+01:00",
       end:"2026-11-23T10:15:00+01:00",price_per_kwh:0.23,
       currency:"EUR",basis:"spot"}];
@@ -233,6 +234,10 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
   const apexHosts=[...root.querySelectorAll('[data-chart-engine="apexcharts-3.49.1"]')];
   const apexLive=apexHosts.filter(x=>x.querySelector(".apexcharts-svg")).length;
   const quick=[...root.querySelectorAll('select[data-quick-assignment]')];
+  const chartLegend=root.querySelector(".combined-plan .legend");
+  const chartHost=root.querySelector(".combined-plan .mc-apex");
+  const toggle=chartLegend?.querySelector("button");
+  if(toggle)toggle.click();
   const report={
     count,role,view,viewport:innerWidth,
     render:!!frame,frameWidth:Math.round(rect?.width||0),
@@ -240,6 +245,9 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     tabs:[...root.querySelectorAll(".tabs button")].map(b=>b.textContent),
     cards:cards.length,folds:folds.length,
     apexHosts:apexHosts.length,apexLive,
+    legendContained:!!chartLegend&&chartLegend.getBoundingClientRect().top>=chartHost.getBoundingClientRect().bottom-1,
+    legendToggle:toggle?.getAttribute("aria-pressed")==="false",
+    priceAndForecast:!!chartLegend&&chartLegend.textContent.includes("Reference price")&&chartLegend.textContent.includes("Indicative"),
     apexErrors:apexHosts.filter(x=>!x.querySelector(".apexcharts-svg")).map(x=>x.textContent.slice(0,220)),
     quickSelectors:quick.length,
     quickEditable:quick.filter(x=>!x.disabled).length,

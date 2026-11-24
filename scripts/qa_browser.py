@@ -126,6 +126,8 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
             raise AssertionError(f"{label}: all source-qualified local ApexCharts must render: {row}")
         if row.get("apexErrors"):
             raise AssertionError(f"{label}: a real browser ApexCharts error occurred: {row}")
+        if not all(row.get(key) for key in ("legendContained", "legendToggle", "priceAndForecast")):
+            raise AssertionError(f"{label}: price/forecast legend layout or interaction lost: {row}")
     if row["commandButtons"]:
         raise AssertionError(f"{label}: uncommissioned external Charger shows physical writes")
     if not screenshot.is_file() or screenshot.stat().st_size < 2000:
