@@ -337,6 +337,98 @@ async def websocket_dashboard_config(
         )
 
 
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): "robotix_multicharge/yaml_configuration",
+    vol.Required("operation"): vol.In(("review", "save")),
+    vol.Required("expected_revision"): str,
+    vol.Required("yaml_text"): str,
+})
+@websocket_api.async_response
+async def websocket_yaml_configuration(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict,
+) -> None:
+    """Review and commit a *single* Config Entry via the existing guarded owner.
+
+    JSON (YAML-compatible) is only a transient text presentation. No file,
+    separate state store, physical command or HA Options Flow is created.
+    """
+    rows = tuple(hass.data.get(DOMAIN, {}).items())
+    if len(rows) != 1:
+        connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND,
+                              "NO_ACTIVE_CHARGE_CONTROLLER")
+        return
+    entry_id, runtime = rows[0]
+    entry = hass.config_entries.async_get_entry(entry_id)
+    if (entry is None or entry.source == "import"
+            or entry.data.get("source") in ("yaml", "json")):
+        connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT,
+                              "FILE_OWNED_CONFIG_READONLY")
+        return
+
+    from .config_flow import (
+        _parse_editor_yaml, _yaml_review_summary, _assert_safe_yaml_ui_commit,
+    )
+
+    try:
+        # Parsing and schema validation are side-effect free, and bounded.
+        proposed = validate_configuration(_parse_editor_yaml(msg["yaml_text"]))
+        if proposed["controller"]["id"] != runtime.configuration["controller"]["id"]:
+            raise ValueError("CONTROLLER_ID_IMMUTABLE")
+        # Commissioning / exclusive physical writer is only available through
+        # the separate native owner-aware commissioning transaction. A text
+        # import cannot silently activate a physical charger.
+        existing = {c["id"]: c for c in runtime.configuration["chargers"]}
+        for charger in proposed["chargers"]:
+            former = existing.get(charger["id"], {})
+            if (charger.get("control_owner", "external")
+                    != former.get("control_owner", "external")
+                    or charger.get("physical_commissioned", False)
+                    != former.get("physical_commissioned", False)):
+                raise ValueError("COMMISSIONING_ONLY_IN_NATIVE_FLOW")
+
+        if msg["operation"] == "review":
+            if configuration_revision(runtime.configuration) != msg["expected_revision"]:
+                raise ValueError("STALE_SETTINGS_REFRESH")
+            connection.send_result(msg["id"], {
+                "status": "reviewed",
+                "expected_revision": msg["expected_revision"],
+                "proposed_revision": configuration_revision(proposed),
+                "summary": _yaml_review_summary(runtime.configuration, proposed),
+            })
+            return
+
+        # Save performs all validation again under the *same* executor lock
+        # as native preferences. Stale reviews or changed physical states fail.
+        async with runtime.executor._lock:
+            if configuration_revision(runtime.configuration) != msg["expected_revision"]:
+                raise ValueError("STALE_SETTINGS_REFRESH")
+            _assert_safe_yaml_ui_commit(runtime, proposed)
+            desired_revision = configuration_revision(proposed)
+            runtime.record_settings_action(
+                "controller", proposed["controller"]["id"],
+                "yaml_reviewed_save",
+                {"format": "yaml", "reviewed": True},
+                desired_revision,
+            )
+            if not await runtime.persist_control_state():
+                raise ValueError("SETTINGS_AUDIT_PERSISTENCE_UNAVAILABLE")
+            hass.config_entries.async_update_entry(
+                entry, options={**entry.options, "configuration": proposed},
+            )
+        connection.send_result(msg["id"], {
+            "status": "accepted_unconfirmed",
+            "expected_revision": desired_revision,
+            "reason": "Authoritative Config Entry readback required",
+        })
+    except (ValueError, TypeError, KeyError) as exc:
+        connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT,
+                              str(exc)[:180])
+
+
+
 def register_settings_query(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_update_settings)
     websocket_api.async_register_command(hass, websocket_dashboard_config)
+    websocket_api.async_register_command(hass, websocket_yaml_configuration)
