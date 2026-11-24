@@ -154,42 +154,35 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     return;
   }
   if(view==="yaml"){
-    // Real Chromium: administrator gets a large multiline review/save editor
-    // with no focus/keyboard loss while HA refreshes behind an unsaved draft.
+    // Real Chromium: the same production editor with no frontend role
+    // visibility gate and one authoritative Save, while HA states change.
     card._tab="Settings";card.render();
     const root=card.shadowRoot;
     const edit=[...root.querySelectorAll("button")].find(b=>b.textContent==="Edit YAML");
-    if(!edit)throw Error("Admin Edit YAML button missing");
+    if(!edit)throw Error("Edit YAML button missing");
     edit.click();
     const textarea=root.querySelector(".yaml-editor textarea");
-    if(!textarea)throw Error("Large YAML textarea missing");
+    if(!textarea)throw Error("YAML textarea missing");
     const textareaOpen=textarea.rows>=20&&textarea.value.includes('"controller"');
     textarea.focus();
     const draft=JSON.parse(textarea.value);
-    draft.controller.name="Browser-reviewed complete configuration";
+    draft.controller.name="Browser-saved complete configuration";
     textarea.value=JSON.stringify(draft,null,2);
     textarea.dispatchEvent(new Event("input",{bubbles:true,composed:true}));
-    const review=[...root.querySelectorAll("button")].find(b=>b.textContent==="Review changes");
-    const save=[...root.querySelectorAll("button")].find(
-      b=>b.textContent==="Save reviewed configuration");
-    const reviewBlockedBefore=save.disabled;
+    const save=[...root.querySelectorAll("button")].find(b=>b.textContent==="Save");
+    const saveAvailable=!!save&&!save.disabled&&
+      ![...root.querySelectorAll("button")].some(b=>b.textContent==="Review changes");
     const originalRoot=root.querySelector(".root");
     let backendResponses=0;
     card.hass={user:{is_admin:true},language:"en",states:{
       "sensor.any_live_source":{state:"3"}
     },callWS:async request=>{
       if(request.type==="robotix_multicharge/yaml_configuration"){
-        if(request.operation==="review"){
-          return {status:"reviewed",expected_revision:request.expected_revision,
-            proposed_revision:"browser-reviewed-2",summary:"Site settings: name"};
-        }
-        if(request.operation==="save"){
-          if(request.reviewed_revision!=="browser-reviewed-2")
-            throw Error("REVIEW_REQUIRED");
-          data.configuration=JSON.parse(request.yaml_text);
-          data.configuration_revision="browser-reviewed-2";
-          return {status:"accepted_unconfirmed",expected_revision:"browser-reviewed-2"};
-        }
+        if(Object.hasOwn(request,"operation")||Object.hasOwn(request,"reviewed_revision"))
+          throw Error("OLD_REVIEW_FLOW");
+        data.configuration=JSON.parse(request.yaml_text);
+        data.configuration_revision="browser-save-2";
+        return {status:"accepted_unconfirmed",expected_revision:"browser-save-2"};
       }
       backendResponses++;
       return data;
@@ -199,29 +192,26 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     const draftRetained=textarea.isConnected&&root.activeElement===textarea&&
       textarea.value===JSON.stringify(draft,null,2)&&
       originalRoot===root.querySelector(".root");
-    review.click();
-    await new Promise(resolve=>setTimeout(resolve,100));
-    const reviewEnabled=save.disabled===false&&root.textContent.includes("Site settings: name");
     save.click();
-    await new Promise(resolve=>setTimeout(resolve,140));
+    await new Promise(resolve=>setTimeout(resolve,160));
     const savedConfirmed=data.configuration.controller.name===
-      "Browser-reviewed complete configuration"&&
+      "Browser-saved complete configuration"&&
       !textarea.isConnected&&root.textContent.includes("Saved");
     const reopen=[...root.querySelectorAll("button")].find(b=>b.textContent==="Edit YAML");
     if(!reopen)throw Error("Editor did not close after readback");
     reopen.click();
     const second=root.querySelector(".yaml-editor textarea");
-    second.value="draft that should be abandoned";
+    second.value="draft not to be saved";
     second.dispatchEvent(new Event("input",{bubbles:true,composed:true}));
     const cancel=[...root.querySelectorAll("button")].find(b=>b.textContent==="Cancel");
     cancel.click();
     const cancelled=!second.isConnected&&data.configuration.controller.name===
-      "Browser-reviewed complete configuration";
+      "Browser-saved complete configuration";
     const report={
       count,role,view,viewport:innerWidth,render:!!root.querySelector(".root"),
       documentWidth:document.documentElement.scrollWidth,
       tabs:[...root.querySelectorAll(".tabs button")].map(b=>b.textContent),
-      textareaOpen,reviewBlockedBefore,draftRetained,reviewEnabled,
+      textareaOpen,saveAvailable,draftRetained,
       savedConfirmed,cancelled,backendResponses
     };
     document.getElementById("smoke-result").textContent=JSON.stringify(report);
