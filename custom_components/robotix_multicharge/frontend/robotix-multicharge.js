@@ -972,6 +972,10 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._confirmDelete="";
     this._createCharger=false;
     this._commissionEditor=null;
+    this._yamlEditorOpen=false;
+    this._yamlBaselineRevision=null;
+    this._yamlCommittedRevision=null;
+    this._yamlReview=null;
   }
   canManage(){return this._hass?.user?.is_admin===true;}
   canEditSettings(){return this.canManage()&&!this._data?.configuration_managed_by_yaml;}
@@ -997,7 +1001,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       tab==="Settings"&&this._editingField.startsWith("controller:")||
       tab==="Chargeable Assets"&&this._editingField.startsWith("asset:")||
       tab==="Chargers"&&this._editingField.startsWith("charger:")));
-    return Boolean(this._unsavedInput||scopedEdit||this._commissionEditor||
+    return Boolean(this._unsavedInput||scopedEdit||this._yamlEditorOpen||this._commissionEditor||
       tab==="Chargeable Assets"&&(
         this._assetEditor||this._assignmentEditor||
         this._goalEditor||this._scheduleEditor||this._windowsOpen)||
@@ -1071,6 +1075,15 @@ class RobotixMultiChargeCard extends HTMLElement {
       for(const id of Object.keys(this._manualDrafts))
         if(!chargerIds.has(id))delete this._manualDrafts[id];
       this._data=nextData;
+      if(this._yamlCommittedRevision&&
+         this._data.configuration_revision===this._yamlCommittedRevision){
+        this._yamlEditorOpen=false;
+        this._yamlReview=null;
+        this._yamlBaselineRevision=null;
+        this._yamlCommittedRevision=null;
+        this._unsavedInput=false;
+        this._settingsFeedback={status:"confirmed",message:"Saved"};
+      }
       if(this._pendingSettings&&
          this._data.configuration_revision===this._pendingSettings.expected_revision){
         this._settingsFeedback={status:"confirmed",message:"Saved"};
@@ -1715,7 +1728,10 @@ class RobotixMultiChargeCard extends HTMLElement {
     const tabs=mcEl("nav","tabs");tabs.setAttribute("aria-label","MultiCharge views");
     for(const item of MC_TABS){
       const btn=mcButton(item,()=>{
-        this._tab=item;this.render();
+        this._tab=item;
+        this._yamlEditorOpen=false;this._yamlReview=null;
+        this._yamlCommittedRevision=null;
+        this.render();
       });
       btn.setAttribute("aria-selected",String(this._tab===item));
       tabs.append(btn);
@@ -2774,9 +2790,117 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(this._createCharger)this.dashboardChargerCreate(container);
     }
   }
+
+  openYamlEditor(){
+    if(!this.canEditSettings()||!this._data)return;
+    this._yamlEditorOpen=true;
+    this._yamlBaselineRevision=this._data.configuration_revision;
+    this._yamlReview=null;
+    this._yamlCommittedRevision=null;
+    this.render();
+  }
+  yamlEditor(container){
+    if(!this._yamlEditorOpen||!this.canEditSettings())return;
+    const panel=mcEl("section","yaml-editor");
+    panel.append(mcEl("h3","","Complete site configuration · YAML / JSON"),
+      mcEl("p","muted small",
+        "Edit the existing Controller, Assets and Chargers in one document. "+
+        "Review before Save. Physical commissioning is managed separately."));
+    const editor=mcEl("textarea","");
+    editor.setAttribute("aria-label","YAML or JSON configuration");
+    editor.setAttribute("spellcheck","false");
+    editor.setAttribute("rows","22");
+    editor.value=JSON.stringify(this._data.configuration,null,2);
+    const detail=mcEl("pre","config-code");
+    const notice=mcEl("p","message");
+    notice.setAttribute("role","status");
+    const buttons=mcEl("div","yaml-actions");
+    const save=mcButton("Save reviewed configuration",async ()=>{
+      if(this._settingsBusy||!this._yamlReview)return;
+      if(this._yamlReview.text!==editor.value||
+         this._yamlReview.base!==this._yamlBaselineRevision){
+        notice.textContent="Configuration changed after Review. Review again.";
+        save.disabled=true;return;
+      }
+      this._settingsBusy=true;
+      review.disabled=true;save.disabled=true;
+      notice.textContent="Saving…";
+      try{
+        const result=await this._hass.callWS({
+          type:"robotix_multicharge/yaml_configuration",
+          operation:"save",yaml_text:editor.value,
+          expected_revision:this._yamlBaselineRevision,
+          reviewed_revision:this._yamlReview.proposed
+        });
+        if(result.status!=="accepted_unconfirmed"||!result.expected_revision)
+          throw Error("Save not accepted");
+        this._yamlCommittedRevision=result.expected_revision;
+        this._settingsFeedback={status:"accepted_unconfirmed",message:"Pending"};
+        this._last=0;
+        await this.load();
+        if(this._yamlCommittedRevision){
+          notice.textContent="Save admitted; waiting for Home Assistant readback. Refresh to verify.";
+          review.disabled=false;
+        }
+      }catch(error){
+        this._yamlCommittedRevision=null;
+        notice.textContent="Save rejected: "+String(error?.message||error?.code||"Unavailable");
+        notice.setAttribute("role","alert");
+        review.disabled=false;save.disabled=false;
+      }finally{this._settingsBusy=false;}
+    });
+    save.disabled=true;
+    const review=mcButton("Review changes",async ()=>{
+      if(this._settingsBusy)return;
+      this._yamlReview=null;
+      save.disabled=true;review.disabled=true;
+      notice.textContent="Validating…";detail.textContent="";
+      this._settingsBusy=true;
+      try{
+        const result=await this._hass.callWS({
+          type:"robotix_multicharge/yaml_configuration",
+          operation:"review",yaml_text:editor.value,
+          expected_revision:this._yamlBaselineRevision
+        });
+        if(result.status!=="reviewed"||!result.proposed_revision)
+          throw Error("Review was not accepted");
+        this._yamlReview={text:editor.value,
+          base:this._yamlBaselineRevision,proposed:result.proposed_revision};
+        detail.textContent=result.summary;
+        notice.textContent="Review completed. Save only if these changes are intended.";
+        save.disabled=false;
+      }catch(error){
+        notice.textContent="Review rejected: "+String(error?.message||error?.code||"Unavailable");
+        notice.setAttribute("role","alert");
+      }finally{this._settingsBusy=false;review.disabled=false;}
+    });
+    editor.addEventListener("input",()=>{
+      this._yamlReview=null;save.disabled=true;detail.textContent="";
+      notice.textContent="Text changed. Review again before Save.";
+    });
+    const cancel=mcButton("Cancel",()=>{
+      this._yamlEditorOpen=false;this._yamlReview=null;
+      this._yamlCommittedRevision=null;this._yamlBaselineRevision=null;
+      this.render();
+    });
+    buttons.append(review,save,cancel);
+    panel.append(editor,buttons,notice,detail);
+    container.append(panel);
+  }
   settings(container){
     const d=this._data,c=d.configuration||{},ctl=c.controller||{};
     this.title(container,"Settings");
+    if(this.canEditSettings()){
+      const toolbar=mcEl("div","settings-toolbar");
+      toolbar.append(mcButton(this._yamlEditorOpen?"Close YAML editor":"Edit YAML",()=>{
+        if(this._yamlEditorOpen){
+          this._yamlEditorOpen=false;this._yamlReview=null;
+          this._yamlCommittedRevision=null;this.render();
+        }else this.openYamlEditor();
+      }));
+      container.append(toolbar);
+      if(this._yamlEditorOpen)this.yamlEditor(container);
+    }
     if(d.configuration_managed_by_yaml)mcPair(
       container,"Configuration",
       "Legacy file-owned configuration is read-only; migrate once to GUI ownership"
