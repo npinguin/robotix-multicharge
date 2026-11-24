@@ -1055,7 +1055,9 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             uid = selected or _id(user_input.get("id") or user_input.get("name") or "")
             action = user_input.get("action", "save")
-            if not uid or (action == "delete" and not selected):
+            if (not uid or (action == "delete" and not selected)
+                    or (not selected and any(
+                        row["id"] == uid for row in cfg["assets"]))):
                 errors["base"] = "invalid_config"
             else:
                 trial = deepcopy(cfg)
@@ -1102,7 +1104,6 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         schema = {
             vol.Required("action", default="save"): vol.In(
                 ["save", "delete"] if selected else ["save"]),
-            vol.Optional("id", default=selected or ""): str,
             vol.Required("name", default=original.get("name", "")): str,
             vol.Required("kind", default=original.get("kind", "car")):
                 vol.In(["car", "bicycle", "motorcycle", "scooter", "other"]),
@@ -1123,6 +1124,8 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                     min=0, max=100, step=1,
                     mode=selector.NumberSelectorMode.BOX)),
         }
+        if not selected:
+            schema[vol.Optional("id")] = str
         return self.async_show_form(
             step_id="asset", data_schema=vol.Schema(schema), errors=errors,
         )
@@ -1153,7 +1156,9 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             uid = selected or _id(user_input.get("id") or user_input.get("name") or "")
             action = user_input.get("action", "save")
-            if not uid or (action == "delete" and not selected):
+            if (not uid or (action == "delete" and not selected)
+                    or (not selected and any(
+                        row["id"] == uid for row in cfg["chargers"]))):
                 errors["base"] = "invalid_config"
             else:
                 trial = deepcopy(cfg)
@@ -1203,7 +1208,6 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         schema = {
             vol.Required("action", default="save"): vol.In(
                 ["save", "delete"] if selected else ["save"]),
-            vol.Optional("id", default=selected or ""): str,
             vol.Required("name", default=original.get("name", "")): str,
             vol.Required("kind", default=original.get("kind", "on_off")):
                 vol.In(["on_off", "variable_current"]),
@@ -1225,6 +1229,8 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             field("current_readback_entity"): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")),
         }
+        if not selected:
+            schema[vol.Optional("id")] = str
         return self.async_show_form(
             step_id="charger", data_schema=vol.Schema(schema), errors=errors,
         )
