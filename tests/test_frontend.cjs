@@ -533,6 +533,7 @@ async function main(){
   find(scheduleCard.shadowRoot,"button","Save schedule").click();
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(scheduleCalls.some(x=>x.type==="robotix_multicharge/update_settings"&&x.changes.ready_by_weekdays.mon==="07:00"&&x.changes.ready_by_weekdays.wed==="08:30"),"one atomic schedule Save preserves other weekdays");
+  find(scheduleCard.shadowRoot,"button","Schedule charging").click();
   find(scheduleCard.shadowRoot,"button","Allowed charging times").click();
   assert.ok(content(scheduleCard.shadowRoot).includes("Start hour"),
     "Allowed charging hours are distinct from Ready By");
@@ -547,6 +548,33 @@ async function main(){
   assert.ok(scheduleCalls.some(x=>x.domain==="text"&&
     x.args.entity_id==="text.car_window_mon"&&x.args.value==="23:00-06:00"),
     "allowed local charging window updates existing Asset HA Text");
+
+  // Daily -> weekday chips -> individual override, without implicit Save.
+  asset.ready_by_repeat="daily";asset.ready_by="2026-11-25T06:00:00+01:00";
+  delete asset.ready_by_weekdays;
+  scheduleCard._scheduleEditor="car";scheduleCard._calendarDrafts={};scheduleCard.render();
+  const priorSaves=scheduleCalls.filter(x=>x.type==="robotix_multicharge/update_settings").length;
+  find(scheduleCard.shadowRoot,"button","Specific days").click();
+  const dayButton=label=>{
+    let result;visit(scheduleCard.shadowRoot,node=>{
+      if(node.tag==="button"&&node.attributes["aria-label"]===label)result=node;
+    });return result;
+  };
+  assert.equal(dayButton("Saturday").attributes["aria-pressed"],"true");
+  dayButton("Saturday").click();dayButton("Sunday").click();
+  find(scheduleCard.shadowRoot,"button","Different times per day").click();
+  const friday=cardField(scheduleCard.shadowRoot,"Friday");
+  assert.equal(friday.value,"06:00");
+  friday.value="08:00";friday.events.change();
+  assert.equal(scheduleCalls.filter(x=>x.type==="robotix_multicharge/update_settings").length,priorSaves);
+  find(scheduleCard.shadowRoot,"button","Save schedule").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(scheduleCalls.filter(x=>x.type==="robotix_multicharge/update_settings").at(-1).changes.ready_by_weekdays,
+    {mon:"06:00",tue:"06:00",wed:"06:00",thu:"06:00",fri:"08:00"});
+  find(scheduleCard.shadowRoot,"button","Schedule charging").click();
+  assert.equal(cardField(scheduleCard.shadowRoot,"Friday").value,"08:00");
+  find(scheduleCard.shadowRoot,"button","Cancel").click();
+  assert.equal(scheduleCalls.filter(x=>x.type==="robotix_multicharge/update_settings").length,priorSaves+1);
 
   // FLEX-06/08/11/17: Asset-side charger assignment writes to the one
   // Charger-owned Config Entry, never to a physical switch or duplicate store.

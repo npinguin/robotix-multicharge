@@ -685,7 +685,13 @@ class MultiChargeRuntime:
                     and reason in ("DEADLINE_PASSED", "INSUFFICIENT_CAPACITY_OR_TIME",
                                    "PRICE_LIMIT_BLOCKED", "CHARGING_WINDOW_LIMITED")):
                 status = "shortfall"
+            future = [
+                slot for slot in assessment.plan.slots
+                if slot.charger_uid == uid and slot.end > at
+            ] if assessment and not measured_target_met else []
             self.goal_assessments[uid] = {
+                "next_charge_at": min(slot.start for slot in future).isoformat() if future else None,
+                "planned_finish_at": max(slot.end for slot in future).isoformat() if future else None,
                 "asset_id": asset["id"], "status": status, "reason": reason,
                 "conditional": conditional, "deadline": (
                     due.isoformat() if due else self.observations["assets"][asset["id"]]["next_ready_by"]

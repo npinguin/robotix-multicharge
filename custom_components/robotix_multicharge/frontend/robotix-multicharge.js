@@ -1165,19 +1165,22 @@ class RobotixMultiChargeCard extends HTMLElement {
   async load(){
     if(!this._hass||this._loading)return;
     this._loading=true;if(!this._data)this.passiveRender();
-    const requestedDay=this._day,requestedFilter=this._filter;
+    const requestedDay=this._day,requestedFilter=this._filter,requestedTab=this._tab;
+    // A personal plan filter must not hide other vehicles' status/history.
+    const queryFilter=requestedTab==="Charging Plan"?requestedFilter:"";
     try {
-      const historyKey=requestedDay+"|"+requestedFilter;
+      const historyKey=requestedDay+"|"+queryFilter;
       const wantsHistory=["Charging Plan","Chargeable Assets","Chargers"].includes(this._tab);
       const beforeData=this._data;
       const cmd={type:"robotix_multicharge/get_plan",day:requestedDay,
         include_history:wantsHistory&&(!beforeData||this._historyKey!==historyKey||
           Date.now()-this._historyFetchedAt>=30000||
           beforeData.actual_history_quality==="NOT_REQUESTED")};
-      if(requestedFilter.startsWith("charger:"))cmd.charger_id=requestedFilter.slice(8);
-      if(requestedFilter.startsWith("asset:"))cmd.asset_id=requestedFilter.slice(6);
+      if(queryFilter.startsWith("charger:"))cmd.charger_id=queryFilter.slice(8);
+      if(queryFilter.startsWith("asset:"))cmd.asset_id=queryFilter.slice(6);
       const nextData=await this._hass.callWS(cmd);
-      if(requestedDay!==this._day||requestedFilter!==this._filter){
+      if(requestedDay!==this._day||requestedFilter!==this._filter||
+          requestedTab!==this._tab){
         this._refreshPending=true;return;
       }
       this._error="";this._noEntry=false;
@@ -2346,6 +2349,10 @@ class RobotixMultiChargeCard extends HTMLElement {
     result.append(mcEl("strong","",mcTr(labels[goal.status]||"Cannot assess goal")));
     if(goal.conditional)result.append(mcEl("p","muted small",
       mcTr("Indicative")+" · "+mcTr("Not reserved")));
+    if(goal.next_charge_at)result.append(mcEl("p","small",
+      mcTr("Next charge")+" · "+mcTime(goal.next_charge_at,this._data.timezone)));
+    if(goal.planned_finish_at)result.append(mcEl("p","small",
+      mcTr("Planned finish")+" · "+mcTime(goal.planned_finish_at,this._data.timezone)));
     const parts=[];
     for(const [field,label] of [["required_grid_kwh","Required"],["planned_grid_kwh","Planned"],["shortfall_grid_kwh","Shortfall"]]){
       if(typeof goal[field]==="number")parts.push(mcTr(label)+" "+goal[field].toFixed(2)+" kWh");
