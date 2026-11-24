@@ -175,6 +175,7 @@ class _LogicalReadinessSensor(_NativeMultiChargeSensor):
             uid for uid, cap in caps.items()
             if cap["start_allowed"] or cap["stop_allowed"]
         ]
+        projection = {}
         if self.kind == "controller":
             status = "manual_controls_available" if active else "not_commissioned"
             operational = any(row.get("status") == "confirmed" for row in outcomes.values())
@@ -206,8 +207,7 @@ class _LogicalReadinessSensor(_NativeMultiChargeSensor):
                 assessment.plan.status if assessment is not None else "unavailable"
             ),
             "command_outcome": outcomes.get(self.data["id"]),
-            **(self.runtime.charger_states(caps).get(self.data["id"], {})
-               if self.kind == "charger" else {}),
+            **projection,
         }
 
 

@@ -97,7 +97,10 @@ def build_diagnostics(runtime, entry, captured_at=None):
             "has_budget_request": item.get("requested_budget_amount") is not None,
             "has_energy_request": item.get("requested_kwh") is not None,
             "has_duration_request": item.get("requested_duration_minutes") is not None,
-            "has_deadline": bool(item.get("ready_by")),
+            "has_deadline": bool(item.get("ready_by") or item.get("ready_by_weekdays")),
+            "has_capacity": item.get("capacity_kwh") is not None,
+            "has_efficiency": item.get("charge_efficiency") is not None,
+            "deadline_repeat": item.get("ready_by_repeat", "none"),
         } for item in cfg["assets"]],
         "observations": {
             "sources": {
@@ -126,6 +129,9 @@ def build_diagnostics(runtime, entry, captured_at=None):
             "forecast_status": forecast.plan.status if forecast else "not_available",
             "excluded": _by_id(runtime.excluded),
             "forecast_excluded": _by_id(runtime.forecast_excluded),
+            "forecast_reasons": _by_id(forecast.reasons) if forecast else {},
+            "forecast_coverage": _by_id(forecast.coverage) if forecast else {},
+            "forecast_shortfall_kwh": _by_id(forecast.shortfall_kwh) if forecast else {},
             "reasons": _by_id(planning.reasons) if planning else {},
             "coverage": _by_id(planning.coverage) if planning else {},
             "shortfall_kwh": _by_id(planning.shortfall_kwh) if planning else {},

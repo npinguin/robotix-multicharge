@@ -1,8 +1,8 @@
 {
   "status": "AUTHORIZED_FOR_TEST",
   "distribution": "open_source_community",
-  "expected_tag": "v0.1.16",
+  "expected_tag": "v0.1.17",
   "precompile": false,
-  "qualification_scope": "Owner-requested stabilization and feature closure MC-06–MC-14: active planning, cumulative budget, intent reconciliation, native capability, consistent readiness, performance, defaults, tariff/chart and native HA UX. Preserve existing scope and IDs, configuration/history. Exact-dev/main, installed HA, Chromium, artifact qualification before TEST publication.",
-  "limitations": "TEST only; actual user-installed performance, Safari/iPad, provider/physical command verification separate. No site-specific gate. Immutable v0.1.15 rollback."
+  "qualification_scope": "Owner-requested complete field stabilization MC-06–15: existing price shapes, nonbinding forecast, Ready By atomic Save and native parity, mobile chart/layout, diagnostics and performance. Preserve all previous journeys, IDs, configuration, and history. Exact candidate qualification required.",
+  "limitations": "TEST only; actual installed provider payload, mobile responsiveness, latency and physical readback separately reported. Immutable v0.1.16 rollback."
 }

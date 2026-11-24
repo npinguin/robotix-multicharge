@@ -317,7 +317,7 @@ def _native_spot_price_intervals(obj, now):
         return (), "INTERVAL_PAYLOAD_INVALID"
 
 
-def _native_all_in_reference_intervals(hass, obj, now):
+def _native_all_in_reference_intervals(hass, obj, now, *, split_prices=False):
     """Use full native electricity-price days without a Robotix bridge.
 
     A provider that explicitly publishes timestamped all_in EUR/kWh values
@@ -331,8 +331,9 @@ def _native_all_in_reference_intervals(hass, obj, now):
         return (), "INTERVAL_CURRENCY_OR_UNIT_UNVERIFIED"
     if attrs.get("snapshot_stale") not in (None, False):
         return (), "INTERVAL_SOURCE_STALE"
-    raw_today = attrs.get("today")
-    raw_tomorrow = attrs.get("tomorrow")
+    raw_today = attrs.get("prices_today" if split_prices else "today")
+    raw_tomorrow = attrs.get("prices_tomorrow" if split_prices else "tomorrow")
+    stamp_key, price_key = ("time", "price") if split_prices else ("start", "all_in")
     if (not isinstance(raw_today, list) or
             raw_tomorrow is not None and not isinstance(raw_tomorrow, list)):
         return (), "INTERVAL_PAYLOAD_INVALID"
@@ -372,16 +373,16 @@ def _native_all_in_reference_intervals(hass, obj, now):
             ).astimezone(timezone.utc)
             if expected_end - expected_start != count * step:
                 return (), "INTERVAL_COVERAGE_INCOMPLETE"
-            first = _date(day[0]["start"])
+            first = _date(day[0][stamp_key])
             if first != expected_start or (
                     previous_end is not None and first != previous_end):
                 return (), "INTERVAL_TIME_INVALID"
             for index, row in enumerate(day):
-                stamp = _date(row["start"])
+                stamp = _date(row[stamp_key])
                 expected = first + index * step
                 if stamp != expected:
                     return (), "INTERVAL_COVERAGE_INCOMPLETE"
-                price = float(row["all_in"])
+                price = float(row[price_key])
                 if not isfinite(price):
                     return (), "INTERVAL_PAYLOAD_INVALID"
                 all_slots.append(PriceSlot(
@@ -553,6 +554,8 @@ def intervals(hass, entity_id: str | None, kind: str, now: datetime):
                 and obj.attributes.get("unit_of_measurement")
                     in ("EUR/kWh", "€/kWh")):
             return _native_all_in_reference_intervals(hass, obj, now)
+        if kind == "price" and "prices_today" in obj.attributes:
+            return _native_all_in_reference_intervals(hass, obj, now, split_prices=True)
         if kind == "price" and "prices" in obj.attributes:
             return _native_timestamp_prices(hass, obj, now)
         if kind == "price" and ("data" in obj.attributes or "intervals" in obj.attributes):

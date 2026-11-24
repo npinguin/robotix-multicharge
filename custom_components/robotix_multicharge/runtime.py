@@ -34,6 +34,17 @@ def _evidence(value):
             "observed_at": value.observed_at.isoformat() if value.observed_at else None}
 
 
+def _display_power(hass, entity, at, *, signed=False):
+    """Retain a clearly labeled last report for UI only, not control."""
+    reading = live_power(hass, entity, at, signed=signed)
+    result = _evidence(reading)
+    if reading.quality == "stale" and reading.observed_at:
+        previous = live_power(hass, entity, reading.observed_at, signed=signed)
+        if previous.quality == "ok":
+            result["last_reported_value"] = previous.value
+    return result
+
+
 class MultiChargeRuntime:
     def __init__(self, hass, configuration):
         self.hass = hass
@@ -167,12 +178,14 @@ class MultiChargeRuntime:
         # Native entity listeners share one projection during this synchronous dispatch.
         self._notification_capabilities = self.executor.capabilities() if self._listeners else None
         self._notification_live = self.live_state() if self._listeners else None
+        self._notification_charger_states = self.charger_states(self._notification_capabilities) if self._listeners else None
         try:
             for listener in tuple(self._listeners):
                 listener()
         finally:
             self._notification_capabilities = None
             self._notification_live = None
+            self._notification_charger_states = None
 
     def projected_capabilities(self):
         cached = getattr(self, "_notification_capabilities", None)
@@ -293,7 +306,9 @@ class MultiChargeRuntime:
             minimum_priority = 0.0
             low_soc_priority = 0.0
             budget_minutes = 24 * 60 if budget is not None else None
-            if soc_based and (
+            if soc_based and reading.quality == "ok" and asset.get("target_soc") is not None and reading.value >= asset["target_soc"]:
+                amount = 0.0
+            if soc_based and amount != 0 and (
                     asset.get("minimum_soc_pct") is not None
                     or asset.get("low_soc_trigger_pct") is not None):
                 if (reading.quality != "ok"
@@ -327,6 +342,14 @@ class MultiChargeRuntime:
                                 * asset["capacity_kwh"] / 100
                                 / asset["charge_efficiency"]),
                         )
+            if soc_based and amount is None:
+                reason = ("NO_CHARGING_GOAL" if asset.get("target_soc") is None
+                          else "SOC_SOURCE_UNAVAILABLE" if reading.quality != "ok"
+                          else "BATTERY_CAPACITY_NOT_CONFIGURED" if "capacity_kwh" not in asset
+                          else "CHARGE_EFFICIENCY_NOT_CONFIGURED")
+                self.excluded[uid] = reason
+                self.forecast_excluded[uid] = reason
+                continue
             ready = asset.get("ready_by")
             deadline = datetime.fromisoformat(ready) if ready else None
             repeat = asset.get("ready_by_repeat", "none")
@@ -545,15 +568,9 @@ class MultiChargeRuntime:
             "tariff_slot_count": len(tariff),
             "binding_quality": binding_quality,
             "current_price": current_price,
-            "solar_power": _evidence(live_power(
-                self.hass, setting.get("solar_power_entity"), at,
-            )),
-            "home_power": _evidence(live_power(
-                self.hass, setting.get("home_power_entity"), at,
-            )),
-            "grid_power": _evidence(live_power(
-                self.hass, setting.get("grid_power_entity"), at, signed=True,
-            )),
+            "solar_power": _display_power(self.hass, setting.get("solar_power_entity"), at),
+            "home_power": _display_power(self.hass, setting.get("home_power_entity"), at),
+            "grid_power": _display_power(self.hass, setting.get("grid_power_entity"), at, signed=True),
             "surplus_power": _evidence(live_power(
                 self.hass, setting.get("solar_surplus_entity"), at,
             )),
@@ -595,6 +612,7 @@ class MultiChargeRuntime:
                     binding=external_binding,
                     reserved_slots=self.assessment.plan.slots,
                     charging_windows=active_windows, site_time_zone=site_zone,
+                    indicative_only=True,
                 )
         except (ValueError, TypeError, OverflowError) as exc:
             _LOGGER.warning("MultiCharge proposal unavailable: %s", exc)
@@ -606,6 +624,9 @@ class MultiChargeRuntime:
 
     def charger_states(self, capabilities=None):
         """Four read-only projections of the existing source and control truth."""
+        cached = getattr(self, "_notification_charger_states", None)
+        if cached is not None:
+            return cached
         if capabilities is None:
             capabilities = self.projected_capabilities()
         states = {}

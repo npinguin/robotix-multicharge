@@ -434,6 +434,7 @@ async function main(){
 
   // SCHEDULE-06 owner-native Specific days and time windows.
   const scheduleData=JSON.parse(JSON.stringify(fixture));
+  scheduleData.configuration_revision="before-schedule";
   const asset=scheduleData.configuration.assets[0];
   asset.ready_by_repeat="specific_days";
   asset.ready_by_weekdays={mon:"06:45",wed:"08:30"};
@@ -460,7 +461,13 @@ async function main(){
       "select.car_day_mon":{state:"06:45"},
       "select.car_day_wed":{state:"08:30"},
     },
-    callWS:async()=>scheduleData,
+    callWS:async msg=>{
+      if(msg.type==="robotix_multicharge/update_settings"){
+        scheduleCalls.push(msg);Object.assign(asset,msg.changes);scheduleData.configuration_revision="saved-schedule";
+        return {status:"accepted_unconfirmed",expected_revision:"saved-schedule"};
+      }
+      return scheduleData;
+    },
     callService:async(domain,service,args)=>{
       scheduleCalls.push({domain,service,args});
     },
@@ -519,9 +526,10 @@ async function main(){
     "All displayed goal/weekday/price inputs must have unique DOM label IDs");
   monday.value="07:00";monday.events.change();
   await new Promise(resolve=>setImmediate(resolve));
-  assert.ok(scheduleCalls.some(x=>x.domain==="select"&&
-    x.args.entity_id==="select.car_day_mon"&&x.args.option==="07:00"),
-    "per-day Ready By updates existing Asset HA Select");
+  assert.ok(!scheduleCalls.some(x=>x.type==="robotix_multicharge/update_settings"),"weekday remains a draft before Save");
+  find(scheduleCard.shadowRoot,"button","Save schedule").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(scheduleCalls.some(x=>x.type==="robotix_multicharge/update_settings"&&x.changes.ready_by_weekdays.mon==="07:00"&&x.changes.ready_by_weekdays.wed==="08:30"),"one atomic schedule Save preserves other weekdays");
   find(scheduleCard.shadowRoot,"button","Allowed charging times").click();
   assert.ok(content(scheduleCard.shadowRoot).includes("Start hour"),
     "Allowed charging hours are distinct from Ready By");

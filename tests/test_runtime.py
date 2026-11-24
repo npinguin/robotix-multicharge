@@ -93,6 +93,40 @@ class RuntimeTests(unittest.TestCase):
         self.assertFalse(rt.assessment.plan.slots)
         self.assertEqual(rt.excluded["drive"], "CURRENT_PLUG_ASSET_UNCONFIRMED")
 
+    def test_inactive_adjustable_kw_preview_without_guessed_current(self):
+        cfg = sample()
+        cfg["controller"]["mode"] = "Automatic"
+        cfg["assets"][0].pop("ready_by")
+        cfg["chargers"][0].update(kind="variable_current", control_owner="external",
+                                  physical_commissioned=False, rated_power_kw=11)
+        data = {"sensor.soc": state("65", "%"), "sensor.power": state("0", "W"),
+                "binary_sensor.cable": state("on")}
+        rt = MultiChargeRuntime(SimpleNamespace(states=SimpleNamespace(get=data.get)), cfg)
+        rt.refresh(NOW)
+        self.assertFalse(rt.assessment.plan.slots)
+        self.assertTrue(rt.forecast_assessment.plan.slots)
+        self.assertTrue(all(s.current_a is None and s.power_kw <= 4 for s in rt.forecast_assessment.plan.slots))
+        cfg["assets"][0].pop("capacity_kwh")
+        rt.refresh(NOW)
+        self.assertIsNone(rt.forecast_assessment)
+        self.assertEqual(rt.forecast_excluded["drive"], "BATTERY_CAPACITY_NOT_CONFIGURED")
+
+    def test_stale_solar_last_report_is_display_only(self):
+        cfg = sample()
+        cfg["controller"].update(solar_power_entity="sensor.pv",
+                                 solar_source_kind="direct_surplus",
+                                 solar_surplus_entity="sensor.pv")
+        pv = state("0", "W")
+        pv.last_updated = NOW - timedelta(minutes=5)
+        data = {"sensor.pv": pv}
+        rt = MultiChargeRuntime(SimpleNamespace(states=SimpleNamespace(get=data.get)), cfg)
+        rt.refresh(NOW)
+        reading = rt.observations["sources"]["solar_power"]
+        self.assertEqual(reading["quality"], "stale")
+        self.assertIsNone(reading["value"])
+        self.assertEqual(reading["last_reported_value"], 0)
+        self.assertEqual(rt.native_surplus_power(NOW), (None, "SOURCE_STALE"))
+
     def test_inactive_demand_never_displaces_active_charger(self):
         cfg = sample()
         cfg["controller"]["max_parallel"] = 1

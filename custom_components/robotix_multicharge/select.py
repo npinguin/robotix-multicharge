@@ -54,6 +54,9 @@ def _saved_weekday_times(asset, site_zone):
 
     Do not interpret a persisted timestamp using the server's OS timezone.
     """
+    if asset.get("ready_by_repeat") == "daily" and asset.get("ready_by"):
+        local = datetime.fromisoformat(asset["ready_by"]).astimezone(ZoneInfo(site_zone))
+        return {day: local.strftime("%H:%M") for day in WEEKDAYS}
     if asset.get("ready_by_weekdays"):
         return dict(asset["ready_by_weekdays"])
     if asset.get("ready_by_repeat") != "weekly" or not asset.get("ready_by"):

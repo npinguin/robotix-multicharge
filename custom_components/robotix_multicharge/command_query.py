@@ -6,6 +6,9 @@ planned execution through the same serialized and physically verified writer.
 """
 from __future__ import annotations
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 import voluptuous as vol
 
 from .configuration import (
@@ -93,6 +96,20 @@ async def apply_native_preference(hass, entry, runtime, scope, target_id, change
         if expected_revision is not None and (
                 expected_revision != configuration_revision(runtime.configuration)):
             raise ValueError("stale_settings")
+        if "ready_by_local" in changes:
+            # Transport-only wall clock; persist the existing aware anchor.
+            if scope != "asset" or action != "save" or "ready_by" in changes:
+                raise ValueError("invalid_schedule")
+            changes = dict(changes)
+            local = changes.pop("ready_by_local")
+            wall = datetime.fromisoformat(local)
+            if wall.tzinfo is not None:
+                raise ValueError("invalid_schedule")
+            zone = ZoneInfo(hass.config.time_zone)
+            first, second = wall.replace(tzinfo=zone, fold=0), wall.replace(tzinfo=zone, fold=1)
+            if first.utcoffset() != second.utcoffset():
+                raise ValueError("deadline_dst_unresolved")
+            changes["ready_by"] = first.isoformat()
         updated = (
             apply_dashboard_structure(
                 runtime.configuration, scope, target_id, changes, action,
