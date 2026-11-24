@@ -53,7 +53,7 @@ def _number(value, name, *, zero=False):
         raise ValueError(f"{name}: expected a number, received {type(value).__name__}")
     result = float(value)
     if not isfinite(result) or result < 0 or (not zero and result == 0):
-        raise ValueError(f"{name}: invalid amount")
+        raise ValueError(f"{name}: invalid amount; expected a finite {'nonnegative' if zero else 'positive'} number, received {result!r}")
     return result
 
 
