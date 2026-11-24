@@ -1033,6 +1033,53 @@ async def test_native_expert_save_four_external_adjustable_chargers_without_gues
 
 
 @pytest.mark.asyncio
+async def test_native_expert_can_relinquish_existing_idle_owner_in_one_save(hass: HomeAssistant):
+    """Existing Config Entry, explicit monitoring intent, not physical certification."""
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    cfg = validate_configuration({
+        "controller": {"id": "home", "name": "Existing site", "mode": "Off",
+                       "max_parallel": 1, "max_power_kw": 3.6},
+        "assets": [],
+        "chargers": [{
+            "id": "wall", "name": "Existing wall", "kind": "on_off",
+            "rated_power_kw": 3.6, "control_entity": "switch.wall",
+            "connected_entity": "binary_sensor.wall_connected",
+            "power_entity": "sensor.wall_power", "control_owner": "multicharge",
+            "physical_commissioned": True,
+        }],
+    })
+    hass.states.async_set("switch.wall", "off")
+    hass.states.async_set("sensor.wall_power", "0", {"unit_of_measurement": "W"})
+    entry = MockConfigEntry(domain=DOMAIN, title="MultiCharge Community",
+                            data={"source": "ui", "configuration": cfg},
+                            unique_id=DOMAIN)
+    entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+    menu = await hass.config_entries.options.async_init(entry.entry_id)
+    editor = await hass.config_entries.options.async_configure(
+        menu["flow_id"], {"next_step_id": "yaml"},
+    )
+    proposed = json.loads(json.dumps(cfg))
+    proposed["chargers"][0].update(control_owner="external",
+                                   physical_commissioned=False,
+                                   kind="variable_current")
+    proposed["controller"]["current_price_entity"] = "sensor.optional_price"
+    result = await hass.config_entries.options.async_configure(
+        editor["flow_id"], {"yaml_text": json.dumps(proposed)},
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY, result.get("errors")
+    await hass.async_block_till_done()
+    assert entry.options["configuration"] == validate_configuration(proposed)
+    assert hass.data[DOMAIN][entry.entry_id].configuration == validate_configuration(proposed)
+    assert hass.states.get("switch.wall").state == "off"
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
 async def test_optional_one_click_install_and_native_guided_configure(
     hass: HomeAssistant,
 ):
