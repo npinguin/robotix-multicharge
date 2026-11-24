@@ -138,7 +138,6 @@
           "charger": "Punto de carga",
           "display": "Tarjeta del panel",
           "yaml": "Configuración completa (JSON / YAML)",
-          "commission": "Puesta en servicio del cargador",
           "energy": "Energía y precios",
           "charger_pick": "Elegir cargador",
           "asset_pick": "Elegir vehículo u otro activo"
@@ -176,7 +175,7 @@
       },
       "charger": {
         "title": "Punto de carga",
-        "description": "Configure hardware, sensores y cableado. La autoridad física se activa en Puesta en servicio.",
+        "description": "Configure el hardware, los sensores y los límites aplicables. Seleccione Activo para que MultiCharge controle el cargador.",
         "data": {
           "action": "Acción",
           "id": "ID estable",
@@ -215,16 +214,6 @@
         "description": "Edit the existing full configuration and press Save. One Home Assistant Config Entry, no physical charging command. {note} {validation_error}",
         "data": {
           "yaml_text": "Configuración completa (JSON / YAML)"
-        }
-      },
-      "commission": {
-        "title": "Puesta en servicio física",
-        "description": "Verifique el control exclusivo y la parada física confirmada. Este paso no envía órdenes de carga.",
-        "data": {
-          "charger_id": "Cargador",
-          "commission": "Activar control MultiCharge",
-          "exclusive_writer_confirmed": "Otros controladores y automatizaciones ya no controlan este cargador",
-          "electrical_limits_confirmed": "Límites eléctricos, potencia y sensores independientes verificados"
         }
       },
       "energy": {
