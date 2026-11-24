@@ -2586,12 +2586,16 @@ class RobotixMultiChargeCard extends HTMLElement {
     box.append(mcEl("h3","",mcTr("Add charger")+" · "+
       mcTr("configured entirely in MultiCharge")));
     box.append(mcEl("p","muted small",
-      mcTr("New chargers start in external monitor-only mode; no physical command")));
+      "Select monitor only or allow MultiCharge to control the configured switch. No charging command is sent by Save."));
     const id=this.field(box,mcTr("Stable charger ID"),"","text");
     const name=this.field(box,mcTr("Charger name"),"","text");
     const kind=this.field(box,mcTr("Control type"),"on_off",null,[
       ["on_off",mcTr("On/off")],["variable_current",mcTr("Variable current")]
     ]);
+    const owner=this.field(box,"Control mode","external",null,[
+      ["external","Monitor only"],["multicharge","MultiCharge manages charging"]
+    ]);
+    const readSwitch=this.dashboardFieldControl(box,"charger",{id:"new_charger"},"control_entity");
     const power=this.field(box,mcTr("Rated power (kW)"),"","number");
     power.setAttribute("step","any");
     const tech=mcEl("details","owner-group");
@@ -2600,7 +2604,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     const draft={id:"new_charger"};
     const readers={};
     for(const field of [
-      "control_entity","connected_entity","connected_states","disconnected_states",
+      "connected_entity","connected_states","disconnected_states",
       "power_entity","energy_entity","session_entity",
       "current_control_entity","current_readback_entity",
       "phase_count","phase_ids","voltage_v",
@@ -2619,6 +2623,8 @@ class RobotixMultiChargeCard extends HTMLElement {
         this.showEditError(box);return;
       }
       const changes={name:name.value.trim(),kind:kind.value,rated_power_kw:rated};
+      if(owner.value==="multicharge")changes.control_owner=owner.value;
+      const control=readSwitch();if(control)changes.control_entity=control;
       try{
         for(const [key,read] of Object.entries(readers)){
           const value=read();if(value!==null)changes[key]=value;
@@ -2662,11 +2668,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         c.control_owner==="multicharge"?mcTr("MultiCharge"):
         mcTr("External control (monitor only)"));
       if(this.canEditSettings())card.append(mcButton(
-        "Change control mode",()=>{
-          this._open=c.id;
-          this._editingField="charger:"+c.id+":control_owner";
-          this.render();
-        }
+        "Change control mode",()=>this.openNative("charger",c.id,"control_owner")
       ));
       const session=(d.active_sessions||{})[c.id];
       if(session){
@@ -2865,7 +2867,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     editor.setAttribute("aria-label","YAML or JSON configuration");
     editor.setAttribute("spellcheck","false");
     editor.setAttribute("rows","22");
-    editor.value=JSON.stringify(this._data.configuration,null,2);
+    editor.value=JSON.stringify(this._data.configuration,(key,value)=>key==="physical_commissioned"?undefined:value,2);
     const notice=mcEl("p","message");
     notice.setAttribute("role","status");
     const buttons=mcEl("div","yaml-actions");

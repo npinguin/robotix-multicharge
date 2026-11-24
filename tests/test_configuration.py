@@ -69,14 +69,11 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(updated["assets"][0]["priority"], 25)
         self.assertEqual(updated["chargers"], source["chargers"])
         self.assertEqual(updated["controller"], source["controller"])
-        with self.assertRaisesRegex(ValueError, "ownership or commissioning"):
-            prepare_expert_yaml_revision(source, {
-                "chargers": [{
-                    **source["chargers"][0],
-                    "control_owner": "multicharge",
-                    "physical_commissioned": True,
-                }],
-            }, "merge")
+        managed = prepare_expert_yaml_revision(source, {
+            "chargers": [{"id": "plug", "control_owner": "multicharge"}],
+        }, "merge")
+        self.assertEqual(managed["chargers"][0]["control_owner"], "multicharge")
+        self.assertTrue(managed["chargers"][0]["physical_commissioned"])
 
     def test_energy_dashboard_suggestions_reuse_native_power_and_price_only(self):
         from multicharge_configuration_tests.configuration import (
@@ -430,7 +427,7 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(config["controller"]["mode"], "Ready By")
         self.assertEqual(config["controller"]["phase_limits_a"], {"L1": 20.0})
         self.assertEqual(config["controller"]["plan_color_by"], "charger")
-        self.assertEqual(config["chargers"][0]["control_owner"], "multicharge")
+        self.assertEqual(config["chargers"][0]["control_owner"], "external")
         self.assertFalse(config["chargers"][0]["physical_commissioned"])
         self.assertEqual(config["chargers"][0]["asset"], "car")
         self.assertEqual(config["assets"][0]["requested_kwh"], 4.0)
@@ -1233,8 +1230,23 @@ class YamlEditorConfigurationTests(unittest.TestCase):
         self.assertEqual(saved["chargers"][0]["id"], "white")
         self.assertEqual(saved["chargers"][0]["control_owner"], "external")
         self.assertFalse(saved["chargers"][0]["physical_commissioned"])
-        with self.assertRaisesRegex(ValueError, "white"):
-            assert_expert_authority_change(saved, cfg)
+        assert_expert_authority_change(saved, cfg)
+        self.assertEqual(prepare_expert_yaml_revision(saved, cfg, "replace"), cfg)
+
+    def test_minimal_managed_switch_with_one_explicit_control_setting(self):
+        cfg = default_configuration()
+        cfg["chargers"] = [{
+            "id": "plug", "name": "Guest plug", "kind": "on_off",
+            "rated_power_kw": 1.8, "control_entity": "switch.plug",
+            "control_owner": "multicharge",
+        }]
+        saved = validate_configuration(cfg)
+        self.assertTrue(saved["chargers"][0]["physical_commissioned"])
+        self.assertEqual(saved, validate_configuration(saved))
+        cfg["chargers"][0]["physical_commissioned"] = False
+        legacy = validate_configuration(cfg)
+        self.assertEqual(legacy["chargers"][0]["control_owner"], "external")
+        self.assertFalse(legacy["chargers"][0]["physical_commissioned"])
 
     def test_independent_errors_identify_objects(self):
         cfg = self.configured_site()
@@ -1265,8 +1277,7 @@ class YamlEditorConfigurationTests(unittest.TestCase):
                                   "connected_entity": "binary_sensor.white_plug",
                                   "power_entity": "sensor.white_power",
                                   "physical_commissioned": False}]}
-        with self.assertRaisesRegex(ValueError, "cannot transfer"):
-            prepare_expert_yaml_revision(old, bad, "replace")
+        self.assertEqual(prepare_expert_yaml_revision(old, bad, "replace")["chargers"][0]["control_owner"], "external")
         with self.assertRaisesRegex(ValueError, "cannot change"):
             prepare_expert_yaml_revision(old, {
                 **old, "controller": {**old["controller"], "id": "other"},

@@ -902,7 +902,10 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             step_id="yaml", errors=errors,
             data_schema=vol.Schema({
                 vol.Required("yaml_text", default=(user_input or {}).get(
-                    "yaml_text", json.dumps(cfg, indent=2),
+                    "yaml_text", json.dumps({**cfg, "chargers": [
+                        {k: v for k, v in row.items() if k != "physical_commissioned"}
+                        for row in cfg["chargers"]
+                    ]}, indent=2),
                 )): selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
             }),
             description_placeholders={

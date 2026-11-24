@@ -1349,6 +1349,8 @@ class NativeSwitchExecutor:
             "asset_id": asset["id"] if asset is not None else None,
             "intent_key": intent_key,
             "manual_duration": manual_request is not None and duration is not None,
+            "manual_mode": (self.runtime.configuration["controller"]["mode"]
+                            if manual_request is not None else None),
             "switch_only": observed.reason == "NATIVE_SWITCH_STATE",
             "started_at": now,
             "hard_stop_at": end,
@@ -1420,7 +1422,7 @@ class NativeSwitchExecutor:
                 if switch is None:
                     continue
                 if switch.state == "on":
-                    if self._sessions.get(uid, {}).get("manual_duration"):
+                    if self._sessions.get(uid, {}).get("manual_mode") == mode:
                         continue  # finite manual timer owns this session, not a quarter plan
                     # Never adopt an unowned session after restart or handover.
                     session = self._sessions.get(uid)
@@ -1560,8 +1562,11 @@ class NativeSwitchExecutor:
                 unowned = is_auto and accepted is None
                 manual_duration = self._sessions.get(uid, {}).get("manual_duration", False)
                 switch_only = self._sessions.get(uid, {}).get("switch_only", False)
+                manual_mode = self._sessions.get(uid, {}).get("manual_mode")
                 wrong_mode = mode == "Off" or (is_auto and (no_plan or unowned)
-                    and not (manual_duration and mode == "Automatic"))
+                    and not (manual_mode == mode == "Automatic"))
+                if manual_mode is not None and manual_mode != mode:
+                    wrong_mode = True
                 if mode == "Force Charge" and accepted is not None:
                     wrong_mode = True
                 unsafe = (
@@ -1778,8 +1783,8 @@ class NativeSwitchExecutor:
                 # hardware. A real future quarter plan or explicit manual
                 # START must independently pass all physical gates.
                 return result("confirmed", "PAUSE_RELEASED_NO_PHYSICAL_START",
-                              observed_at=power.observed_at,
-                              measured_kw=power.value)
+                              observed_at=power.observed_at or getattr(state, "last_updated", None),
+                              measured_kw=power.value if power.quality == "ok" else None)
             if action == "pause" and charger_id not in self._paused:
                 self._paused.add(charger_id)
                 if not await self.runtime.persist_control_state():

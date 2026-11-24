@@ -612,6 +612,50 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(receipt["actual_energy_kwh"])
         self.assertEqual(receipt["energy_quality"], "unknown")
 
+    async def test_guest_switch_only_automatic_bounded_duration_and_truthful_receipt(self):
+        rt, sources, services = rig(mode="Automatic")
+        charger = rt.configuration["chargers"][0]
+        for field in ("asset", "phase_count", "power_entity", "energy_entity", "connected_entity"):
+            charger.pop(field, None)
+        rt.configuration["controller"].pop("max_power_kw")
+        rt.refresh()
+        first = await rt.executor.execute("evse", "start", manual_request={"duration_minutes": 30})
+        self.assertEqual(first["status"], "confirmed")
+        self.assertEqual(first["reason"], "NATIVE_SWITCH_STATE")
+        self.assertIsNone(first["measured_power_kw"])
+        self.assertIsNone(rt.live_state()["actual_power_kw"])
+        self.assertTrue(rt.executor.session_snapshot()["evse"]["switch_only"])
+        await rt.executor.supervise()
+        self.assertEqual([c[1] for c in services.calls], ["turn_on"])
+        rt.executor._sessions["evse"]["started_at"] -= timedelta(minutes=31)
+        await rt.executor.supervise()
+        self.assertEqual([c[1] for c in services.calls], ["turn_on", "turn_off"])
+        receipt = rt.executor.completed_sessions()[0]
+        self.assertFalse(receipt["physical_stop_confirmed"])
+        self.assertTrue(receipt["switch_stop_confirmed"])
+        self.assertIsNone(receipt["actual_energy_kwh"])
+        self.assertFalse(rt.executor._inflight)
+        self.assertFalse(rt.executor._sessions)
+        self.assertEqual(sources["switch.evse_control"].state, "off")
+
+    async def test_switch_only_restart_reconciles_without_replaying_start(self):
+        rt, sources, services = rig(mode="Automatic")
+        charger = rt.configuration["chargers"][0]
+        for field in ("asset", "power_entity", "energy_entity", "connected_entity"):
+            charger.pop(field, None)
+        rt.refresh()
+        started = await rt.executor.execute("evse", "start", manual_request={"duration_minutes": 30})
+        self.assertEqual(started["status"], "confirmed")
+        persisted = rt.executor.export_state()
+        restored = MultiChargeRuntime(rt.hass, rt.configuration)
+        restored.executor.restore_state(persisted)
+        restored.refresh()
+        await restored.executor.supervise()
+        self.assertEqual(sources["switch.evse_control"].state, "off")
+        self.assertEqual([c[1] for c in services.calls], ["turn_on", "turn_off"])
+        self.assertFalse(restored.executor._inflight)
+        self.assertFalse(restored.executor._sessions)
+
     async def test_optional_energy_meter_loss_does_not_stop_duration(self):
         rt, sources, services = rig()
         rt.configuration["chargers"][0].pop("asset")
@@ -1685,7 +1729,7 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         rt, _, services = rig(commissioned=False)
         self.assertEqual(
             (await rt.executor.execute("evse", "start"))["reason"],
-            "PHYSICAL_COMMISSIONING_REQUIRED",
+            "EXTERNAL_WRITER_OWNS_CHARGER",
         )
         self.assertEqual(services.calls, [])
         rt, _, services = rig(mode="Automatic")

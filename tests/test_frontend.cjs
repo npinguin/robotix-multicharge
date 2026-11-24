@@ -42,7 +42,9 @@ for(let index=0;index<scopeList.length;index++){
   assert.ok(start>=0&&after>start,"Owner field groups for "+scope);
   const uiFields=new Set([...groupSource.slice(start,after)
     .matchAll(/"([a-z][a-z0-9_]*)"/g)].map(match=>match[1]));
-  const missing=[...new Set(permitted)].filter(field=>!uiFields.has(field));
+  // Legacy commissioning is a derived compatibility projection, not a UX setting.
+  const missing=[...new Set(permitted)].filter(field=>!uiFields.has(field) &&
+    !(scope==="charger"&&field==="physical_commissioned"));
   assert.deepEqual(missing,[],"No "+scope+
     " configuration field may silently disappear from its logical UX object");
 }

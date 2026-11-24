@@ -866,7 +866,7 @@ async def test_native_options_menu_expert_prefill_save_and_reject_unsafe(
     )
     marker = next(k for k in screen["data_schema"].schema
                   if str(k) == "yaml_text")
-    assert json.loads(marker.default()) == actual
+    assert validate_configuration(json.loads(marker.default())) == actual
 
     # Full-text editor never transfers physical control ownership.
     unsafe = json.loads(json.dumps(actual))
