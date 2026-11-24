@@ -2101,7 +2101,8 @@ class RobotixMultiChargeCard extends HTMLElement {
         (next?" · "+mcTr("Next charge")+" "+
           mcTime(next.start,d.timezone)+" · "+next.proposed_power_kw+" kW":""));
       card.append(summary);
-      if(typeof shortfall==="number"&&shortfall>0)
+      if(!pastOnly&&selected)this.goalAssessment(card,selected,charger);
+      if(typeof shortfall==="number"&&shortfall>0&&!d.goal_assessments?.[charger.id])
         card.append(mcEl("p","plan-caution",mcTr("Shortfall")+" · "+
           shortfall.toFixed(2)+" kWh"));
       if(reason&&reason!=="PROPOSED"&&reason!=="TARGET_MET")
@@ -2123,6 +2124,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         const item=assumptions[charger.id];
         card.append(mcEl("p","plan-caution",mcTr("Indicative")+" · "+
           (item.assumption==="IF_ACTIVATED"?mcTr("If activated"):item.assumption==="IF_CONNECTED_NOW"?mcTr("If connected now"):
+            item.assumption==="IF_SELECTED_VEHICLE_CONFIRMED"?mcTr("If selected vehicle is confirmed"):
             mcTr("Expected")+" "+mcTime(item.assumed_connection_at,d.timezone))+
           " · "+mcTr("Not reserved")));
       }
@@ -2284,6 +2286,25 @@ class RobotixMultiChargeCard extends HTMLElement {
     if(this.canEditSettings())this.dashboardDelete(wrapper,scope,record);
     container.append(wrapper);
   }
+  goalAssessment(card,asset,charger){
+    const goal=this._data?.goal_assessments?.[charger?.id];
+    if(!goal||goal.asset_id!==asset.id)return;
+    const labels={target_met:"Goal reached",achievable:"Goal achievable by deadline",
+      planned:"Goal planned",shortfall:"Goal not covered by current plan",
+      cannot_assess:"Cannot assess goal"};
+    const result=mcEl("div","details");
+    result.append(mcEl("strong","",mcTr(labels[goal.status]||"Cannot assess goal")));
+    if(goal.conditional)result.append(mcEl("p","muted small",
+      mcTr("Indicative")+" · "+mcTr("Not reserved")));
+    const parts=[];
+    for(const [field,label] of [["required_grid_kwh","Required"],["planned_grid_kwh","Planned"],["shortfall_grid_kwh","Shortfall"]]){
+      if(typeof goal[field]==="number")parts.push(mcTr(label)+" "+goal[field].toFixed(2)+" kWh");
+    }
+    if(parts.length)result.append(mcEl("p","small",parts.join(" · ")));
+    if(goal.reason&&goal.reason!=="PROPOSED"&&goal.reason!=="TARGET_MET")
+      result.append(mcEl("p","muted small",mcReason(goal.reason)));
+    card.append(result);
+  }
   assetGoalEditor(card,asset){
     const kind=asset.requested_budget_amount!==undefined?"budget":
       asset.requested_duration_minutes!==undefined?"duration":
@@ -2379,6 +2400,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       mcPair(card,"Ready By",mcTime(obs.next_ready_by!==undefined?obs.next_ready_by:a.ready_by,d.timezone));
       mcPair(card,"Charger",charger?charger.name:"Not assigned");
       mcPair(card,mcTr("Charging goal"),mcAssetGoalText(a));
+      this.goalAssessment(card,a,charger);
       mcPair(card,mcTr("Charging pattern"),a.continuous_charging?
         mcTr("One continuous charge"):mcTr("Flexible cheapest quarters"));
       if(a.maximum_price_per_kwh!==undefined)mcPair(card,

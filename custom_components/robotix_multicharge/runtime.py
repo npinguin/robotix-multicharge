@@ -53,6 +53,7 @@ class MultiChargeRuntime:
         self.forecast_assessment = None
         self.forecast_assumptions = {}
         self.forecast_excluded = {}
+        self.goal_assessments = {}
         self.observations = {"chargers": {}, "assets": {}, "sources": {}}
         self.excluded = {}
         self.price_slots = ()
@@ -435,16 +436,24 @@ class MultiChargeRuntime:
                 not_before=eligible_after,
             )
             inactive = raw.get("control_owner") != "multicharge" or raw.get("physical_commissioned") is not True
-            if disconnected or inactive:
+            identity_unconfirmed = (
+                not disconnected and not inactive and not duration_without_connection
+                and self.executor.connection_confirmation(raw, at) is None
+            )
+            if disconnected or inactive or identity_unconfirmed:
                 if disconnected:
                     self.executor.connection_confirmation(raw, at)
-                self.excluded[uid] = "DISCONNECTED" if disconnected else "CHARGER_INACTIVE"
+                self.excluded[uid] = (
+                    "DISCONNECTED" if disconnected else "CHARGER_INACTIVE" if inactive
+                    else "CURRENT_PLUG_ASSET_UNCONFIRMED"
+                )
                 indicative_demands.append(request)
                 self.forecast_assumptions[uid] = {
                     "asset_id": asset["id"], "charger_id": uid,
                     "assumption": (
                         "USER_EXPECTED_CONNECTION_TIME" if assumed_arrival
-                        else "IF_CONNECTED_NOW" if disconnected else "IF_ACTIVATED"
+                        else "IF_CONNECTED_NOW" if disconnected else "IF_ACTIVATED" if inactive
+                        else "IF_SELECTED_VEHICLE_CONFIRMED"
                     ),
                     "assumed_connection_at": (
                         max(at, assumed_arrival).isoformat()
@@ -455,9 +464,6 @@ class MultiChargeRuntime:
                     "reserves_capacity": False,
                 }
             else:
-                if not duration_without_connection and self.executor.connection_confirmation(raw, at) is None:
-                    self.excluded[uid] = "CURRENT_PLUG_ASSET_UNCONFIRMED"
-                    continue
                 demands.append(request)
         # Asset power reuses the Charger observation. A selected Vehicle alone
         # never proves the identity of an actively charging battery.
@@ -613,7 +619,7 @@ class MultiChargeRuntime:
                 binding=external_binding,
                 charging_windows=active_windows, site_time_zone=site_zone,
             )
-            if indicative_demands and setting.get("show_indicative_forecast", True):
+            if indicative_demands:
                 # The real plan is complete FIRST; forecast slots only consume
                 # leftover group, phase, circuit and parallel capacity.
                 self.forecast_assessment = compile_plan(
@@ -631,6 +637,45 @@ class MultiChargeRuntime:
             self.forecast_assessment = None
             self.forecast_excluded["controller"] = "INVALID_PLANNING_INPUT"
             self.excluded["controller"] = "INVALID_PLANNING_INPUT"
+        # Project the SAME planner result, before any chart-range filtering.
+        # The forecast visibility preference is presentation, not goal truth.
+        self.goal_assessments = {}
+        requests = {d.charger_uid: d for d in (*demands, *indicative_demands)}
+        for row in cfg["chargers"]:
+            uid = row["id"]
+            asset = assets.get(row.get("asset"))
+            if asset is None:
+                continue
+            request = requests.get(uid)
+            conditional = uid in self.forecast_assumptions
+            assessment = self.forecast_assessment if conditional else self.assessment
+            reason = (
+                assessment.reasons.get(uid) if assessment else None
+            ) or self.forecast_excluded.get(uid) or self.excluded.get(uid) or "INVALID_PLANNING_INPUT"
+            due = request.ready_by if request else None
+            proposed = assessment.proposed_kwh.get(uid) if assessment else None
+            shortfall = assessment.shortfall_kwh.get(uid) if assessment else None
+            coverage = assessment.coverage.get(uid) if assessment else None
+            status = "cannot_assess"
+            if reason == "TARGET_MET":
+                status = "target_met"
+            elif reason == "PROPOSED" and coverage == "COMPLETE":
+                status = "achievable" if due is not None and setting["mode"] != "Force Charge" else "planned"
+            elif (due is not None and due <= at + timedelta(hours=48)
+                    and setting["mode"] != "Force Charge"
+                    and reason in ("DEADLINE_PASSED", "INSUFFICIENT_CAPACITY_OR_TIME",
+                                   "PRICE_LIMIT_BLOCKED", "CHARGING_WINDOW_LIMITED")):
+                status = "shortfall"
+            self.goal_assessments[uid] = {
+                "asset_id": asset["id"], "status": status, "reason": reason,
+                "conditional": conditional, "deadline": (
+                    due.isoformat() if due else self.observations["assets"][asset["id"]]["next_ready_by"]
+                ),
+                "required_grid_kwh": request.remaining_grid_kwh if request else None,
+                "planned_grid_kwh": proposed, "shortfall_grid_kwh": shortfall,
+                "coverage": coverage,
+                "assumption": self.forecast_assumptions.get(uid, {}).get("assumption"),
+            }
         self.notify()
 
     def charger_states(self, capabilities=None):
@@ -895,7 +940,8 @@ class MultiChargeRuntime:
             match["accepted_current_a"] = accepted["current_a"]
         slots.sort(key=lambda row: (row["start"], row["charger_id"]))
         forecast_slots = []
-        if self.forecast_assessment is not None:
+        if (self.forecast_assessment is not None
+                and self.configuration["controller"].get("show_indicative_forecast", True)):
             for forecast in self.forecast_assessment.plan.slots:
                 if forecast.start >= last or forecast.end <= first:
                     continue
@@ -957,6 +1003,11 @@ class MultiChargeRuntime:
             "reasons": {**self.excluded, **assessment.reasons} if assessment else dict(self.excluded),
             "slots": slots,
             "forecast_slots": forecast_slots,
+            "goal_assessments": {
+                uid: dict(result) for uid, result in self.goal_assessments.items()
+                if (charger_id is None or uid == charger_id)
+                and (asset_id is None or result["asset_id"] == asset_id)
+            },
             "forecast_status": (
                 self.forecast_assessment.plan.status
                 if self.forecast_assessment else "not_available"

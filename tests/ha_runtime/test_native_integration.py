@@ -1922,6 +1922,12 @@ async def test_new_install_dashboard_typed_four_chargers_four_assets(
         )
         await hass.async_block_till_done()
     for key in ("white", "black", "peblar", "utility"):
+        # Active defaults still require observed idle hardware for registration.
+        hass.states.async_set("switch." + key, "off")
+        hass.states.async_set("sensor." + key + "_power", "0",
+                              {"unit_of_measurement": "W"})
+        hass.states.async_set("binary_sensor." + key + "_connected", "off")
+        await hass.async_block_till_done()
         runtime = hass.data[DOMAIN][entry.entry_id]
         await apply_native_preference(
             hass, entry, runtime, "charger", key,
@@ -1936,9 +1942,11 @@ async def test_new_install_dashboard_typed_four_chargers_four_assets(
         await hass.async_block_till_done()
     saved = entry.options["configuration"]
     assert len(saved["assets"]) == len(saved["chargers"]) == 4
-    assert all(c["control_owner"] == "external"
-               and c["physical_commissioned"] is False
+    assert all(c["control_owner"] == "multicharge"
+               and c["physical_commissioned"] is True
                for c in saved["chargers"])
+    assert all(a["target_soc"] == 80 and a["ready_by_repeat"] == "daily"
+               for a in saved["assets"])
     devices = dr.async_get(hass)
     assert devices.async_get_device_by_identifier(
         (DOMAIN, "charger/white"), entry.entry_id,

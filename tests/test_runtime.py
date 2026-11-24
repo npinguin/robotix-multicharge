@@ -82,6 +82,10 @@ class RuntimeTests(unittest.TestCase):
         rt.refresh(NOW)
         self.assertFalse(rt.assessment.plan.slots)
         self.assertEqual(rt.excluded["drive"], "CURRENT_PLUG_ASSET_UNCONFIRMED")
+        self.assertTrue(rt.forecast_assessment.plan.slots)
+        self.assertEqual(rt.goal_assessments["drive"]["status"], "achievable")
+        self.assertEqual(rt.goal_assessments["drive"]["assumption"], "IF_SELECTED_VEHICLE_CONFIRMED")
+        self.assertTrue(rt.goal_assessments["drive"]["conditional"])
         self.assertEqual(
             rt.executor.confirm_current_connection("drive", at=NOW)["status"],
             "confirmed",
@@ -110,6 +114,35 @@ class RuntimeTests(unittest.TestCase):
         rt.refresh(NOW)
         self.assertIsNone(rt.forecast_assessment)
         self.assertEqual(rt.forecast_excluded["drive"], "BATTERY_CAPACITY_NOT_CONFIGURED")
+
+    def test_goal_feasibility_uses_full_plan_not_chart_visibility(self):
+        cfg = sample()
+        cfg["controller"].update(mode="Automatic", max_power_kw=3.6,
+                                 show_indicative_forecast=False)
+        cfg["assets"][0].update(target_soc=95, capacity_kwh=20, charge_efficiency=0.9,
+                               ready_by=(NOW+timedelta(hours=2)).isoformat())
+        cfg["chargers"][0].update(control_owner="external", physical_commissioned=False,
+                                  rated_power_kw=3.6)
+        data = {"sensor.soc": state("88", "%"), "sensor.power": state("0", "W"),
+                "binary_sensor.cable": state("on")}
+        rt = _ProductionRuntime(SimpleNamespace(states=SimpleNamespace(get=data.get)), cfg)
+        rt.refresh(NOW)
+        result = rt.read_plan(NOW, NOW+timedelta(minutes=15))
+        self.assertEqual(result["slots"], [])
+        self.assertEqual(result["forecast_slots"], [])
+        goal = result["goal_assessments"]["drive"]
+        self.assertEqual(goal["status"], "achievable")
+        self.assertTrue(goal["conditional"])
+        self.assertAlmostEqual(goal["required_grid_kwh"], 1.4/0.9)
+        self.assertEqual(goal["shortfall_grid_kwh"], 0)
+        cfg["assets"][0]["ready_by"] = (NOW+timedelta(minutes=15)).isoformat()
+        rt.refresh(NOW)
+        self.assertEqual(rt.goal_assessments["drive"]["status"], "shortfall")
+        self.assertGreater(rt.goal_assessments["drive"]["shortfall_grid_kwh"], 0)
+        cfg["assets"][0].pop("capacity_kwh")
+        rt.refresh(NOW)
+        self.assertEqual(rt.goal_assessments["drive"]["status"], "cannot_assess")
+        self.assertEqual(rt.goal_assessments["drive"]["reason"], "BATTERY_CAPACITY_NOT_CONFIGURED")
 
     def test_stale_solar_last_report_is_display_only(self):
         cfg = sample()
