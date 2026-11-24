@@ -69,7 +69,7 @@ chargers:
     power_entity: sensor.driveway_power
 ```
 
-Native one-time setup, legacy import validation and logical HA setup devices have been committed. Real HA dashboard configuration/reload and rollback still require qualification. On `dev`, physical actuation is source-tested but remains gated by explicit activation, applicable constraints and capability-appropriate command readback.
+Native one-time setup, legacy import validation and logical HA setup devices have been committed. Real HA dashboard configuration/reload and rollback still require qualification. Physical actuation is source-tested but remains gated by explicit activation, applicable constraints and capability-appropriate command readback.
 
 ### Full owning-object configuration projection (UC14-UX-OWNER-02)
 
@@ -101,7 +101,7 @@ This is a **presentation-only reuse** of the proven Wessels Mobility Basic user 
 
 The read view accepts `day=today|tomorrow|both`, with `both` as two local calendar days. The bounded query permits a maximum of 49 real hours because the fall DST day can contain 25 hours, while spring yields 47. There is no duplicated chart state or second native entity database; the frontend only visualizes already-qualified source, plan and Recorder results. Filtering affects the backend query and the visible chart/lanes; source-unknown historical power is never retroactively assigned to a newly selected vehicle. 0 and 10+ chargers are data-driven; no private Garage White/Black/Peblar/Utility IDs cross the public repository boundary.
 
-A novice changes a charging goal using exactly one validated Asset revision (SoC vs finite kWh/minutes/EUR, leaving independent kW hardware caps untouched), schedules specific local day/time choices using the same native Calendar preferences, and reaches plan/goal/STOP from Overview. STOP is surfaced only through native `command_capabilities.stop_allowed`. Technical settings stay one explicit disclosure step within the same Asset/Charger instead of becoming a new interface or lost feature. HA admin versus read-only resident remains enforced by the existing backend. For acceptance semantics and real-HA/browser tests, see [UC14-UX-ROW-01](FUNCTIONAL_SPECIFICATION.md), Issue #1 and PR #9.
+A novice changes a charging goal using exactly one validated Asset revision (SoC vs finite kWh/minutes/EUR, leaving independent kW hardware caps untouched), schedules specific local day/time choices using the same native Calendar preferences, and reaches plan/goal/STOP from Overview. STOP is surfaced only through native `command_capabilities.stop_allowed`. Technical settings stay one explicit disclosure step within the same Asset/Charger instead of becoming a new interface or lost feature. HA admin versus read-only resident remains enforced by the existing backend. For acceptance semantics and real-HA/browser tests, see [UC14-UX-ROW-01](FUNCTIONAL_SPECIFICATION.md), Issue #1 and the current or latest merged PR.
 
 ## Charging plan timeline
 
@@ -276,7 +276,7 @@ Controller aggregation must be sourced from **all** configured Chargers: connect
 
 **G5 Qualify exact candidate:** HACS/Hassfest, actual HA setup/reload/unload/upgrades/rollback, frontend browser screenshots at the three viewports, provider interoperability, own command and readback scenarios and explicit release permission. Public HACS TEST must follow the validated exact-`main` governance path. Keep the existing Draft PR on `dev` for the ongoing agreed batch.
 
-**Present status (2026-11-22): the same `dev` batch now includes verified source/config schema, phase/circuit-aware stepped planning, native switch/current commands and independent readback, quarter-hour admission for Automatic/Solar/Economy/Ready By, guarded Force Charge/Off, a bounded accepted/proposed/actual query and native storage replay hold. These are development/source-tested capabilities only. Actual HA/browser and hardware qualification, complete session/UX editing and exact-candidate release gates remain OPEN.
+**Current evidence:** See [Issue #1](https://github.com/npinguin/robotix-multicharge/issues/1), the active or latest merged PR, and immutable releases. Source, installed HA, browser and physical field evidence remain distinct. Feature Complete and STABLE require the applicable functional acceptance, not only green CI.
 
 ## Initial whole-site setup from native Home Assistant (UC01/UC02/UC17)
 

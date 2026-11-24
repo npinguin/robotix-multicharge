@@ -445,6 +445,23 @@ async def test_direct_native_ha_electricity_price_reference_without_robotix_brid
     assert len(runtime.price_slots) == length
     assert runtime.observations["sources"]["tariff_quality"] == "OK"
     assert runtime.price_slots[0].basis == "variable_reference"
+    # Separate current import and forecast are independent native HA sources.
+    hass.states.async_set("sensor.native_import", "0.32", {
+        "unit_of_measurement": "EUR/kWh",
+    })
+    runtime.configuration["controller"]["current_price_entity"] = "sensor.native_import"
+    hass.states.async_set("sensor.native_all_in", "0.24", {
+        "unit_of_measurement": "€/kWh", "time_zone": "Europe/Brussels",
+        "today": observed, "tomorrow": [{"start": after_day.isoformat(), "all_in": 0.1}],
+        "snapshot_stale": False,
+    })
+    runtime.refresh(at)
+    sources = runtime.observations["sources"]
+    assert sources["current_price"]["value"] == 0.32
+    assert sources["current_price"]["basis"] == "current_only"
+    assert sources["tariff_tomorrow_quality"] == "INTERVAL_COVERAGE_INCOMPLETE"
+    assert len(runtime.price_slots) == length
+    assert runtime.price_slots[-1].end == after_day
     hass.states.async_set("sensor.native_all_in","0.24",{
         "unit_of_measurement":"€/kWh", "time_zone":"Europe/Brussels",
         "today":observed[:-1], "snapshot_stale":False,

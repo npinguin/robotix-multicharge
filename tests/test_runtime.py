@@ -156,6 +156,42 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(rt.observations["sources"]["tariff_quality"], "OK")
         self.assertTrue(rt.price_slots)
 
+    def test_current_import_price_remains_separate_from_forecast(self):
+        cfg = sample()
+        cfg["controller"].update(current_price_entity="sensor.import_price",
+                                 price_entity="sensor.forecast_price")
+        forecast = state("0.11", "EUR/kWh")
+        zone = ZoneInfo("Europe/Brussels")
+        first = NOW.astimezone(zone).replace(hour=0, minute=0, second=0).astimezone(timezone.utc)
+        forecast.attributes.update(
+            prices_today=[{"time": (first+timedelta(hours=i)).isoformat(), "price": 0.11}
+                          for i in range(24)],
+            prices_tomorrow=[{"time": (first+timedelta(days=1)).isoformat(), "price": 0.2}],
+        )
+        data = {"sensor.import_price": state("0.32", "EUR/kWh"),
+                "sensor.forecast_price": forecast}
+        rt = MultiChargeRuntime(SimpleNamespace(states=SimpleNamespace(get=data.get),
+                                                config=SimpleNamespace(time_zone="Europe/Brussels")), cfg)
+        rt.refresh(NOW)
+        sources = rt.observations["sources"]
+        self.assertEqual(sources["current_price"], {
+            "quality": "ok", "value": 0.32, "currency": "EUR", "basis": "current_only",
+        })
+        self.assertEqual(sources["tariff_quality"], "OK")
+        self.assertEqual(sources["tariff_tomorrow_quality"], "INTERVAL_COVERAGE_INCOMPLETE")
+        self.assertEqual(len(rt.price_slots), 24)
+        self.assertTrue(all(s.effective_price_per_kwh == 0.11 and
+                            s.basis == "variable_reference" for s in rt.price_slots))
+        data["sensor.import_price"] = state("unavailable", "EUR/kWh")
+        rt.refresh(NOW)
+        self.assertIsNone(rt.observations["sources"]["current_price"]["value"])
+        self.assertEqual(rt.observations["sources"]["current_price"]["quality"], "unavailable")
+        self.assertEqual(len(rt.price_slots), 24)
+        cfg["controller"].pop("current_price_entity")
+        rt.refresh(NOW)
+        self.assertEqual(rt.observations["sources"]["current_price"]["value"], 0.11)
+        self.assertEqual(rt.observations["sources"]["current_price"]["basis"], "variable_reference")
+
     def test_native_diagnostics_capture_errors_without_leaking_names(self):
         import json
         from multicharge_runtime_test.diagnostics import build_diagnostics

@@ -54,8 +54,22 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(len(slots), 120)
         self.assertEqual(slots[-1].effective_price_per_kwh, -0.02)
         self.assertEqual(slots[-1].basis, "variable_reference")
-        provider.attributes["prices_tomorrow"] = []
-        self.assertEqual(len(intervals(h, "sensor.price", "price", NOW)[0]), 96)
+        # A rejected tomorrow cannot remove the independently valid today.
+        for invalid, reason in (
+            ([], "SOURCE_UNAVAILABLE"),
+            (tomorrow[:-1], "INTERVAL_COVERAGE_INCOMPLETE"),
+            ({}, "INTERVAL_PAYLOAD_INVALID"),
+            ([*tomorrow[:-1], {"time": "bad", "price": 0.2}], "INTERVAL_PAYLOAD_INVALID"),
+            ([*tomorrow[:-1], {**tomorrow[-1], "price": "nan"}], "INTERVAL_PAYLOAD_INVALID"),
+        ):
+            with self.subTest(reason=reason, tomorrow=invalid):
+                provider.attributes["prices_tomorrow"] = invalid
+                coverage = {}
+                valid, quality = intervals(h, "sensor.price", "price", NOW,
+                                           coverage_details=coverage)
+                self.assertEqual(quality, "OK")
+                self.assertEqual(valid, slots[:96])
+                self.assertEqual(coverage["tomorrow_quality"], reason)
         provider.attributes["prices_today"] = today[:-1]
         self.assertEqual(intervals(h, "sensor.price", "price", NOW)[1], "INTERVAL_COVERAGE_INCOMPLETE")
 
@@ -515,6 +529,29 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(intervals(
             no_future, "sensor.only_now", "price", NOW,
         )[1], "INTERVAL_SEMANTICS_UNVERIFIED")
+
+    def test_native_reference_today_survives_invalid_dst_tomorrow(self):
+        zone = ZoneInfo("Europe/Brussels")
+        for when, count in ((datetime(2026, 3, 28, 12, tzinfo=zone), 23),
+                            (datetime(2026, 10, 24, 12, tzinfo=zone), 25)):
+            at = when.astimezone(timezone.utc)
+            today = self._native_full_day(when.date(), zone)
+            tomorrow = self._native_full_day(when.date()+timedelta(days=1), zone)
+            provider = state("0.2", "EUR/kWh", observed=at,
+                             today=today, tomorrow=tomorrow)
+            h = hass({"sensor.price": provider})
+            details = {}
+            both, quality = intervals(h, "sensor.price", "price", at,
+                                      coverage_details=details)
+            self.assertEqual(quality, "OK")
+            self.assertEqual(len(both), 24+count)
+            self.assertEqual(details["tomorrow_quality"], "OK")
+            provider.attributes["tomorrow"] = tomorrow[:-1]
+            today_only, quality = intervals(h, "sensor.price", "price", at,
+                                            coverage_details=details)
+            self.assertEqual(quality, "OK")
+            self.assertEqual(today_only, both[:24])
+            self.assertEqual(details["tomorrow_quality"], "INTERVAL_COVERAGE_INCOMPLETE")
 
     def test_native_23_and_25_hour_all_in_days_use_real_utc_boundaries(self):
         zone = ZoneInfo("Europe/Brussels")

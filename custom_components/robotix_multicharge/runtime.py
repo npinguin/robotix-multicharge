@@ -490,7 +490,10 @@ class MultiChargeRuntime:
                     power = source_power
             readings["effective_power_kw"] = power
         tariff_source = setting.get("price_entity") or setting.get("current_price_entity")
-        tariff, tariff_quality = intervals(self.hass, tariff_source, "price", at)
+        tariff_coverage = {}
+        tariff, tariff_quality = intervals(
+            self.hass, tariff_source, "price", at, coverage_details=tariff_coverage,
+        )
         if (tariff_quality != "OK" and self.nordpool_prices
                 and self.nordpool_prices[0] == tariff_source):
             _, cached, quality, fetched_at = self.nordpool_prices
@@ -555,17 +558,25 @@ class MultiChargeRuntime:
         native_export_price, export_currency = live_price(
             self.hass, setting.get("export_price_entity"), at,
         )
-        if current_price["quality"] != "ok" and native_price.quality == "ok":
+        # A separately selected import-price entity owns the current reading.
+        # Forecast data must not impersonate it, including when it is unavailable.
+        live_source = setting.get("current_price_entity")
+        separate_live_source = live_source and live_source != tariff_source
+        if separate_live_source or (
+                current_price["quality"] != "ok" and native_price.quality == "ok"):
             current_price = {
-                "quality": "ok", "value": native_price.value,
+                "quality": native_price.quality, "value": native_price.value,
                 "currency": native_currency, "basis": "current_only",
             }
+            if native_price.quality != "ok":
+                current_price["reason"] = native_price.reason
         self.observations["sources"] = {
             "tariff_quality": tariff_quality, "solar_quality": solar_quality,
             "tariff_source": tariff_source,
             "tariff_basis": tariff[0].basis if tariff else None,
             "tariff_coverage_until": tariff[-1].end.isoformat() if tariff else None,
             "tariff_slot_count": len(tariff),
+            "tariff_tomorrow_quality": tariff_coverage.get("tomorrow_quality"),
             "binding_quality": binding_quality,
             "current_price": current_price,
             "solar_power": _display_power(self.hass, setting.get("solar_power_entity"), at),
