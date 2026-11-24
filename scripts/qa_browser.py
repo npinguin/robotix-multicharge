@@ -80,6 +80,15 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
         raise AssertionError(f"{label}: horizontal page overflow: {row}")
     if row["viewport"] != size:
         raise AssertionError(f"{label}: requested width not actually honored: {row}")
+    if view == "goal":
+        required = ("initial", "compact", "actionable", "allDays", "noImplicitWrite",
+                    "saved", "reopened", "shared", "variants")
+        if not all(row.get(key) is True for key in required):
+            raise AssertionError(f"{label}: resident outcome/schedule journey failed: {row}")
+        if not screenshot.is_file() or screenshot.stat().st_size < 2000:
+            raise AssertionError(f"{label}: resident outcome screenshot missing")
+        print(f"BROWSER PASS {label}: goal metrics, real-shaped timeline, compact schedule, one Save/readback")
+        return
     if view == "edit":
         required = ("focused", "inputRetained", "backgroundSaved",
                     "dirtyRetained", "rejectedRetained", "explicitRepaint")
@@ -160,11 +169,13 @@ def main():
             run_case(chrome, base, width, 1, "admin", "edit", False)
         for width in (390, 1024, 1600):
             run_case(chrome, base, width, 4, "admin", "yaml", False)
+        for width in (390, 1024, 1600):
+            run_case(chrome, base, width, 2, "admin", "goal", False)
     finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
-    print(f"Real Chromium responsive source-UX PASS: {len(CASES) + 6} cases "
+    print(f"Real Chromium responsive source-UX PASS: {len(CASES) + 9} cases "
           "(simulated HA input; installed target HA and real EVSE separately unqualified)")
 
 
