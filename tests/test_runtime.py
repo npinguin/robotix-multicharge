@@ -143,6 +143,12 @@ class RuntimeTests(unittest.TestCase):
         rt.refresh(NOW)
         self.assertEqual(rt.goal_assessments["drive"]["status"], "cannot_assess")
         self.assertEqual(rt.goal_assessments["drive"]["reason"], "BATTERY_CAPACITY_NOT_CONFIGURED")
+        data["sensor.soc"] = state("96", "%")
+        data["binary_sensor.cable"] = state("off")
+        cfg["controller"]["mode"] = "Off"
+        rt.refresh(NOW)
+        self.assertEqual(rt.goal_assessments["drive"]["status"], "target_met")
+        self.assertEqual(rt.goal_assessments["drive"]["required_grid_kwh"], 0)
 
     def test_stale_solar_last_report_is_display_only(self):
         cfg = sample()

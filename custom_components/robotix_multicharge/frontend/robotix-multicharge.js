@@ -1025,6 +1025,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     // Local, unsubmitted form values only; not an execution or settings store.
     this._manualDrafts={};
     this._calendarDrafts={};
+    this._batteryDrafts={};
+    this._batteryEditor="";
     this._windowsOpen="";
     this._settingsBusy=false;
     this._settingsFeedback=null;
@@ -1101,6 +1103,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       tab==="Chargeable Assets"&&this._editingField.startsWith("asset:")||
       tab==="Chargers"&&this._editingField.startsWith("charger:")));
     return Boolean(this._unsavedInput||scopedEdit||this._yamlEditorOpen||
+      (this._batteryEditor&&["Overview","Chargeable Assets","Charging Plan"].includes(tab))||
       tab==="Chargeable Assets"&&(
         this._assetEditor||this._assignmentEditor||
         this._goalEditor||this._scheduleEditor||this._windowsOpen)||
@@ -1305,7 +1308,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         "Stop charging before changing charger":
         detail.includes("CHARGER_HAS_OTHER_ASSET")?
           "Unassign the other vehicle first":
-        detail.includes("STALE_SETTINGS_REFRESH")?
+        (detail.includes("STALE_SETTINGS_REFRESH")||detail.includes("stale_settings"))?
           "Settings changed; refresh and retry":
         detail.includes("SETTINGS_REJECTED")?
           "Settings rejected; check source, value and physical idle status":
@@ -1902,6 +1905,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         mcTr("Charging goal")+" "+mcAssetGoalText(a)));
       mcSocBar(card,observed.soc);
       card.append(mcEl("p","small",mcTr("Ready By")+" "+mcTime(observed.next_ready_by??a.ready_by,d.timezone)+" · "+(charger?charger.name:mcTr("No charger assigned"))));
+      this.goalAssessment(card,a,charger);
       if(a.temporary)card.append(mcEl("p","small",mcTr("Guest")+" · "+mcTime(a.expires_at,d.timezone)));
       const controls=mcEl("div","overview-actions");
       controls.append(mcButton(mcTr("Charging plan"),()=>{
@@ -2304,6 +2308,48 @@ class RobotixMultiChargeCard extends HTMLElement {
     if(goal.reason&&goal.reason!=="PROPOSED"&&goal.reason!=="TARGET_MET")
       result.append(mcEl("p","muted small",mcReason(goal.reason)));
     card.append(result);
+    const socGoal=asset.target_soc!==undefined&&
+      ["requested_kwh","requested_duration_minutes","requested_budget_amount"].every(k=>asset[k]==null);
+    if(socGoal&&goal.status!=="target_met"&&
+      (asset.capacity_kwh==null||asset.charge_efficiency==null)){
+      const missing=[asset.capacity_kwh==null?"Battery capacity":null,
+        asset.charge_efficiency==null?"Charging efficiency":null].filter(Boolean);
+      result.append(mcEl("p","plan-caution",missing.map(mcTr).join(" · ")));
+      if(this.canEditSettings()){
+        if(this._batteryEditor===asset.id)this.batteryEditor(result,asset);
+        else result.append(mcButton(mcTr("Complete battery data"),()=>{
+          this._batteryEditor=asset.id;this.render();
+        }));
+      }
+    }
+  }
+  batteryEditor(container,asset){
+    const draft=this._batteryDrafts[asset.id]||{
+      capacity:asset.capacity_kwh??"",efficiency:asset.charge_efficiency==null?"":asset.charge_efficiency*100
+    };
+    const form=mcEl("div","goal-controls");
+    const capacity=this.field(form,mcTr("Usable battery capacity (kWh)"),draft.capacity,"number");
+    const efficiency=this.field(form,mcTr("Charging efficiency (%)"),draft.efficiency,"number");
+    capacity.setAttribute("min","0.01");capacity.setAttribute("step","0.01");
+    efficiency.setAttribute("min","0.01");efficiency.setAttribute("max","100");efficiency.setAttribute("step","0.1");
+    const remember=()=>{this._batteryDrafts[asset.id]={capacity:capacity.value,efficiency:efficiency.value};this._unsavedInput=true;};
+    capacity.addEventListener("input",remember);efficiency.addEventListener("input",remember);
+    container.append(form,mcEl("p","muted small",mcTr("Use the vehicle's usable battery capacity and your charging efficiency estimate. No value is assumed.")));
+    const actions=mcEl("div","controls");
+    const save=mcButton(mcTr("Save battery data"),async()=>{
+      remember();
+      const kwh=Number(capacity.value),pct=Number(efficiency.value);
+      if(!capacity.value.trim()||!efficiency.value.trim()||!Number.isFinite(kwh)||kwh<=0||!Number.isFinite(pct)||pct<=0||pct>100){
+        this._settingsFeedback={status:"rejected",message:"Enter a positive capacity and efficiency between 0 and 100%"};this.showEditError(container);return;
+      }
+      const accepted=await this.saveSettings("asset",asset.id,{capacity_kwh:kwh,charge_efficiency:pct/100});
+      if(accepted&&this._settingsFeedback?.status==="confirmed"){
+        delete this._batteryDrafts[asset.id];this._batteryEditor="";this.render();
+      }
+    });
+    save.disabled=this._settingsBusy;
+    actions.append(save,mcButton(mcTr("Cancel"),()=>{delete this._batteryDrafts[asset.id];this._batteryEditor="";this.render();}));
+    container.append(actions);
   }
   assetGoalEditor(card,asset){
     const kind=asset.requested_budget_amount!==undefined?"budget":

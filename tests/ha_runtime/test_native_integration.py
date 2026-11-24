@@ -2162,15 +2162,24 @@ async def test_ha_idle_rebind_is_atomic_and_keeps_logical_device_ids(hass: HomeA
     # A committed revision can precede the asynchronous runtime update.
     # A second native writer without a supplied revision must not overwrite it.
     from copy import deepcopy
+    applied = deepcopy(runtime.configuration)
     pending = deepcopy(entry.options["configuration"])
     pending["controller"]["name"] = "First committed edit"
     hass.config_entries.async_update_entry(
         entry, options={**entry.options, "configuration": pending},
     )
-    with pytest.raises(ValueError, match="stale_settings"):
-        await apply_native_preference(
-            hass, entry, runtime, "controller", "home", {"name": "Stale edit"},
-        )
+    await hass.async_block_till_done()
+    # HA may dispatch the listener eagerly; explicitly reproduce the
+    # unapplied runtime snapshot rather than assuming a scheduling order.
+    runtime.configuration = applied
+    try:
+        with pytest.raises(ValueError, match="stale_settings"):
+            await apply_native_preference(
+                hass, entry, runtime, "controller", "home", {"name": "Stale edit"},
+            )
+    finally:
+        runtime.configuration = pending
+        runtime.refresh()
     await hass.async_block_till_done()
     assert entry.options["configuration"]["controller"]["name"] == "First committed edit"
     assert runtime.configuration["controller"]["name"] == "First committed edit"

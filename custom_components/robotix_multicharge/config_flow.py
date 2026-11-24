@@ -15,7 +15,7 @@ from homeassistant.helpers import selector
 
 from .configuration import (
     default_configuration, is_plan_presentation_only_change,
-    validate_configuration, configuration_revision,
+    validate_configuration, configuration_revision, effective_configuration,
     apply_new_asset_defaults, apply_new_charger_defaults, apply_new_import_defaults,
     energy_dashboard_suggestions,
     assert_expert_authority_change, is_in_place_runtime_preference_change,
@@ -783,10 +783,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
     """UI-owned settings; YAML entries remain read-only until explicit migration."""
 
     def _current(self):
-        configuration = self.config_entry.options.get("configuration")
-        if configuration is None:
-            configuration = self.config_entry.data["configuration"]
-        return deepcopy(configuration)
+        return effective_configuration(self.config_entry)
 
     def _saved(self, config):
         try:

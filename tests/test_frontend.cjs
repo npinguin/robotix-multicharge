@@ -781,6 +781,38 @@ async function main(){
   assert.ok(Number.isFinite(Date.parse(create.changes.expires_at)),
     "Guest expiry is a real timestamp derived from selected duration");
 
+  // MC-17: missing battery data can be completed directly from the plan.
+  const incomplete=JSON.parse(JSON.stringify(fixture));
+  incomplete.configuration_revision="battery-before";
+  incomplete.goal_assessments={drive:{asset_id:"car",status:"cannot_assess",
+    reason:"BATTERY_CAPACITY_NOT_CONFIGURED",conditional:true}};
+  const batteryWrites=[];
+  const batteryCard=new Card();batteryCard.setConfig({});
+  batteryCard.hass={user:{is_admin:true},states:{},callWS:async msg=>{
+    if(msg.type==="robotix_multicharge/update_settings"){
+      batteryWrites.push(msg);
+      Object.assign(incomplete.configuration.assets[0],msg.changes);
+      incomplete.configuration_revision="battery-after";
+      incomplete.goal_assessments.drive={asset_id:"car",status:"achievable",
+        conditional:true,required_grid_kwh:1.56,planned_grid_kwh:1.8,shortfall_grid_kwh:0};
+      return {status:"accepted_unconfirmed",expected_revision:"battery-after"};
+    }
+    return incomplete;
+  }};
+  await new Promise(resolve=>setImmediate(resolve));
+  batteryCard._tab="Charging Plan";batteryCard.render();
+  find(batteryCard.shadowRoot,"button","Complete battery data").click();
+  const cap=cardField(batteryCard.shadowRoot,"Usable battery capacity (kWh)");
+  const eff=cardField(batteryCard.shadowRoot,"Charging efficiency (%)");
+  assert.ok(cap&&eff);
+  cap.value="20";eff.value="90";cap.events.input();eff.events.input();
+  find(batteryCard.shadowRoot,"button","Save battery data").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(batteryWrites.length,1);
+  assert.deepEqual(batteryWrites[0].changes,{capacity_kwh:20,charge_efficiency:0.9});
+  assert.ok(content(batteryCard.shadowRoot).includes("Goal achievable by deadline"));
+  batteryCard.disconnectedCallback();
+
   // MC-18: view preferences survive remount; never store control settings.
   const displayStore=new Map();
   global.localStorage={getItem:key=>displayStore.get(key)||null,

@@ -392,7 +392,10 @@ class MultiChargeRuntime:
                         # A completed finite duration is a zero-demand plan,
                         # never an exception that kills an HA refresh.
                         amount, minutes = 0.0, None
-                if self.executor.intent_completed(asset, raw, deadline):
+                # A measured SoC target is a live goal, not a permanently
+                # completed finite-energy receipt. A later SoC drop must
+                # appear as new remaining demand, not as a reached target.
+                if not soc_based and self.executor.intent_completed(asset, raw, deadline):
                     if budget is not None:
                         budget = 0.0
                     else:
@@ -657,7 +660,17 @@ class MultiChargeRuntime:
             shortfall = assessment.shortfall_kwh.get(uid) if assessment else None
             coverage = assessment.coverage.get(uid) if assessment else None
             status = "cannot_assess"
-            if reason == "TARGET_MET":
+            soc = self.observations["assets"][asset["id"]]["soc"]
+            measured_target_met = (
+                all(asset.get(k) is None for k in (
+                    "requested_kwh", "requested_duration_minutes", "requested_budget_amount"
+                )) and asset.get("target_soc") is not None
+                and soc.quality == "ok" and soc.value >= asset["target_soc"]
+            )
+            if measured_target_met:
+                status, reason = "target_met", "TARGET_MET"
+                proposed, shortfall = 0.0, 0.0
+            elif reason == "TARGET_MET":
                 status = "target_met"
             elif reason == "PROPOSED" and coverage == "COMPLETE":
                 status = "achievable" if due is not None and setting["mode"] != "Force Charge" else "planned"
@@ -671,7 +684,7 @@ class MultiChargeRuntime:
                 "conditional": conditional, "deadline": (
                     due.isoformat() if due else self.observations["assets"][asset["id"]]["next_ready_by"]
                 ),
-                "required_grid_kwh": request.remaining_grid_kwh if request else None,
+                "required_grid_kwh": 0.0 if measured_target_met else request.remaining_grid_kwh if request else None,
                 "planned_grid_kwh": proposed, "shortfall_grid_kwh": shortfall,
                 "coverage": coverage,
                 "assumption": self.forecast_assumptions.get(uid, {}).get("assumption"),

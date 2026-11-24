@@ -111,6 +111,8 @@ async def apply_native_preference(hass, entry, runtime, scope, target_id, change
             first, second = wall.replace(tzinfo=zone, fold=0), wall.replace(tzinfo=zone, fold=1)
             if first.utcoffset() != second.utcoffset():
                 raise ValueError("deadline_dst_unresolved")
+            if changes.get("ready_by_repeat", "none") == "none" and first <= datetime.now(zone):
+                raise ValueError("deadline_must_be_future")
             changes["ready_by"] = first.isoformat()
         updated = (
             apply_dashboard_structure(
