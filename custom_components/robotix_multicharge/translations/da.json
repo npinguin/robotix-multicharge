@@ -138,7 +138,6 @@
           "charger": "Chargers",
           "display": "Dashboard card",
           "yaml": "Komplet konfiguration (JSON / YAML)",
-          "commission": "Idriftsæt lader",
           "energy": "Energi og priser",
           "charger_pick": "Vælg ladepunkt",
           "asset_pick": "Vælg opladningsaktiv"
@@ -177,7 +176,7 @@
       },
       "charger": {
         "title": "Lader",
-        "description": "Konfigurer hardware, sensorer og ledninger. Fysisk styring aktiveres særskilt ved Idriftsættelse.",
+        "description": "Konfigurer hardware, sensorer og relevante grænser. Vælg Aktiv, når MultiCharge skal styre laderen.",
         "data": {
           "action": "Handling",
           "id": "Navn",
@@ -216,16 +215,6 @@
         "description": "Edit the existing full configuration and press Save. One Home Assistant Config Entry, no physical charging command. {note} {validation_error}",
         "data": {
           "yaml_text": "Komplet konfiguration (JSON / YAML)"
-        }
-      },
-      "commission": {
-        "title": "Fysisk idriftsættelse",
-        "description": "Kontrollér eksklusiv styring og verificeret inaktiv tilstand. Der sendes ingen ladeordre.",
-        "data": {
-          "charger_id": "Lader",
-          "commission": "Aktivér MultiCharge-styring",
-          "exclusive_writer_confirmed": "Andre styringer har frigivet denne lader",
-          "electrical_limits_confirmed": "Elgrænser, effekt og uafhængig sensorfeedback er verificeret"
         }
       },
       "energy": {
