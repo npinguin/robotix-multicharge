@@ -110,8 +110,8 @@
 **Persona / eigenaar:** Engineer / MultiCharge  
 **GIVEN — beginsituatie:** Fresh HA install or existing GUI-managed entry; complete data-only YAML.  
 **WHEN — handelingen:** Either Settings → Edit YAML or native HA Configure → Expert full configuration shows the complete **current** Controller/Assets/Chargers in a large multiline JSON/YAML editor, not an empty or guessed template. Edit → Save once → reopen and verify the same Config Entry. Cancel leaves it unchanged. No mandatory Review or second authorization wizard.  
-**THEN — verwacht gedrag / PASS:** One GUI-owned validated Config Entry, preserved existing object identities unless a deliberate compatible change is saved, coherent revision, authoritative reload/readback; typed controls remain and no mandatory templates, packages, Robotix runtime, review workflow or second authority.  
-**Negatief / fail-closed:** Duplicate YAML keys, invalid schema, attempted commissioning/writer change, unsafe change to a commissioned charger, non-admin or file-owned write, Cancel and concurrent HA refresh ⇒ no persistence, no physical command and no lost textarea draft. Browser editor also rejects stale revision; HA Options flow uses the entry state current at that form's opening and refuses overwritten concurrent updates. Native Config Flow has no silent `dashboard_only`/`yaml_editor_in_dashboard` abort.  
+**THEN — verwacht gedrag / PASS:** One GUI-owned validated Config Entry, preserved existing object identities unless a deliberate compatible change is saved, coherent revision, authoritative reload/readback; typed controls remain and no mandatory templates, packages, Robotix runtime, review workflow or second authority. A complete site mapping with four externally owned Chargers (three variable-current without unverified electrical Amp limits, one on/off) and four Assets saves and reads back unchanged, without pretending to commission hardware.  
+**Negatief / fail-closed:** Duplicate YAML keys, invalid schema, incomplete/one-sided adjustable Amp bounds, attempted commissioning/writer change, unsafe change to a commissioned charger, non-admin or file-owned write, Cancel and concurrent HA refresh ⇒ no persistence, no physical command and no lost textarea draft. Native expert Save displays the actual schema, revision or ownership error (not just generic `invalid_config`). Browser editor also rejects stale revision; HA Options flow uses the entry state current at that form's opening and refuses overwritten concurrent updates. Native Config Flow has no silent `dashboard_only`/`yaml_editor_in_dashboard` abort.  
 **Bewijs:** Native HA Add/Configure flows and WSSave, single Save response, authoritative entry revision/readback, unchanged identity and zero physical command log.
 
 ### UC03 — One vehicle with one charger
@@ -237,10 +237,10 @@
 
 ### UC12 — Verified variable-current capability control
 **Persona / eigenaar:** Engineer / MultiCharge  
-**GIVEN — beginsituatie:** Variable-current Charger with proven phase/voltage/current step and separate current readback.  
-**WHEN — handelingen:** Change setpoint while active; exceed bounds; reduce under power constraint.  
-**THEN — verwacht gedrag / PASS:** Only supported step/bounds are sent via native current service; reported setpoint remains distinct from measured current; safe reduction/STOP.  
-**Negatief / fail-closed:** Missing phase/current capability, stale ampere feedback or rejected setpoint ⇒ no false accepted current.  
+**GIVEN — beginsituatie:** Variable-current Charger may first be configured as **external and uncommissioned**, with actual provider sensor/entity bindings but no invented physical min/max current limits or independent ampere readback. Physically controlling it is a separate later decision requiring independent proof.  
+**WHEN — handelingen:** Save source bindings in external monitor-only mode; later qualify actual physical phase/circuit/min-max/current step and independent readback and commission separately; only then change setpoint while active, exceed bounds and reduce under power constraint.  
+**THEN — verwacht gedrag / PASS:** External uncommissioned variable-current chargers can be mapped with their real source IDs and never send physical commands. Only separately commissioned, fully verified MultiCharge writers can send supported native setpoint values; reported and measured currents stay distinct, with safe reduction/STOP.  
+**Negatief / fail-closed:** Missing phase/current capability, stale ampere feedback, partial min/max bounds or rejected setpoint ⇒ no physical command or false accepted current. These do **not** block merely storing monitor-only external Charger mappings.  
 **Bewijs:** Native setpoint service + independent actual ampere and group power.
 
 ### UC13 — Temporary guest vehicle or asset
