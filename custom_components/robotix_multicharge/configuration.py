@@ -50,7 +50,7 @@ def _text(value, name):
 
 def _number(value, name, *, zero=False):
     if isinstance(value, bool) or not isinstance(value, (float, int)):
-        raise ValueError(f"{name}: expected a number")
+        raise ValueError(f"{name}: expected a number, received {type(value).__name__}")
     result = float(value)
     if not isfinite(result) or result < 0 or (not zero and result == 0):
         raise ValueError(f"{name}: invalid amount")
@@ -146,7 +146,7 @@ def validate_configuration(value):
     cid = _text(ctl.get("id", "home"), "controller.id")
     parallel = ctl.get("max_parallel", 1)
     if isinstance(parallel, bool) or not isinstance(parallel, int) or parallel < 1:
-        raise ValueError("controller.max_parallel: expected positive integer")
+        raise ValueError(f"controller.max_parallel: expected positive integer, received {parallel!r}")
     mode = ctl.get("mode", "Off")
     if mode not in ("Automatic", "Solar", "Economy", "Ready By", "Force Charge", "Off"):
         raise ValueError("controller.mode: unsupported charging mode")
@@ -209,360 +209,374 @@ def validate_configuration(value):
                      max_parallel=parallel, max_group_power_kw=controller.get("max_power_kw"),
                      phase_limits_a=controller.get("phase_limits_a"))
 
+    errors = []
     assets = []
     ids = set()
     if not isinstance(value.get("assets", []), list):
         raise ValueError("assets: expected list")
-    for source in value.get("assets", []):
-        _allowed(source, ("id", "name", "kind", "soc_entity",
-                          "soc_stale_entity", "vehicle_control_entity", "vehicle_current_entity",
-                          "capacity_kwh", "target_soc", "max_charge_kw",
-                          "requested_kwh", "requested_duration_minutes",
-                          "requested_budget_amount", "requested_budget_currency", "ready_by",
-                          "ready_by_repeat", "ready_by_weekdays", "charging_windows",
-            "continuous_charging",
-            "minimum_soc_pct", "maximum_price_per_kwh", "price_currency",
-            "low_price_trigger_per_kwh", "low_soc_trigger_pct",
-            "opportunistic_kind", "opportunistic_level_pct",
-            "earliest_start_at",
-            "charge_efficiency", "priority",
-                          "temporary", "expires_at", "expected_connection_at",
-                          "plan_color"), "asset")
-        uid = _text(source.get("id"), "asset.id")
-        if uid in ids:
-            raise ValueError("asset.id: duplicate")
-        ids.add(uid)
-        asset = {"id": uid, "name": _text(source.get("name"), "asset.name"),
-                 "kind": _text(source.get("kind", "car"), "asset.kind")}
-        if source.get("plan_color") is not None:
-            if source["plan_color"] not in PLAN_COLORS:
-                raise ValueError("asset.plan_color: invalid palette color")
-            asset["plan_color"] = source["plan_color"]
-        if source.get("soc_entity"):
-            asset["soc_entity"] = _entity(source["soc_entity"], "asset.soc_entity")
-        if source.get("soc_stale_entity"):
-            entity_id = _entity(source["soc_stale_entity"], "asset.soc_stale_entity")
-            if not entity_id.startswith("binary_sensor."):
-                raise ValueError("asset.soc_stale_entity: native binary_sensor required")
-            if not source.get("soc_entity"):
-                raise ValueError("asset.soc_stale_entity: select a SoC sensor first")
-            asset["soc_stale_entity"] = entity_id
-        for key, domain in (("vehicle_control_entity", "switch"),
-                            ("vehicle_current_entity", "number")):
-            if source.get(key):
-                selected_entity = _entity(source[key], "asset." + key)
-                if selected_entity.split(".", 1)[0] != domain:
-                    raise ValueError(f"asset.{key}: expected {domain} entity")
-                asset[key] = selected_entity
-        for key in ("capacity_kwh", "max_charge_kw"):
-            if source.get(key) is not None:
-                asset[key] = _number(source[key], "asset." + key)
-        if source.get("target_soc") is not None:
-            asset["target_soc"] = _number(source["target_soc"], "asset.target_soc", zero=True)
-        if source.get("requested_kwh") is not None:
-            asset["requested_kwh"] = _number(
-                source["requested_kwh"], "asset.requested_kwh", zero=True
-            )
-        if source.get("requested_duration_minutes") is not None:
-            minutes = source["requested_duration_minutes"]
-            if isinstance(minutes, bool) or not isinstance(minutes, int) or minutes <= 0:
-                raise ValueError("asset.requested_duration_minutes: positive integer required")
-            asset["requested_duration_minutes"] = minutes
-        if source.get("requested_budget_amount") is not None:
-            asset["requested_budget_amount"] = _number(
-                source["requested_budget_amount"],
-                "asset.requested_budget_amount",
-            )
-            currency = source.get("requested_budget_currency", "EUR")
-            if (not isinstance(currency, str) or
-                    fullmatch(r"[A-Z]{3}", currency) is None):
-                raise ValueError("asset.requested_budget_currency: ISO-4217 required")
-            asset["requested_budget_currency"] = currency
-        elif source.get("requested_budget_currency") is not None:
-            raise ValueError("asset.requested_budget_currency: amount required")
-        finite_goals = sum(key in asset for key in (
-            "requested_kwh", "requested_duration_minutes",
-            "requested_budget_amount",
-        ))
-        if finite_goals > 1:
-            raise ValueError("asset: choose kWh, duration OR money")
-        if source.get("temporary") is not None:
-            if type(source["temporary"]) is not bool:
-                raise ValueError("asset.temporary: expected boolean")
-            if source["temporary"]:
-                asset["temporary"] = True
-        if source.get("expires_at") is not None:
-            if not asset.get("temporary"):
-                raise ValueError("asset.expires_at: only temporary assets can expire")
-            raw = _text(source["expires_at"], "asset.expires_at")
-            try:
-                instant = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-            except ValueError as exc:
-                raise ValueError("asset.expires_at: expected ISO time") from exc
-            if instant.tzinfo is None or instant.utcoffset() is None:
-                raise ValueError("asset.expires_at: timezone required")
-            asset["expires_at"] = instant.isoformat()
-        if asset.get("temporary") and "expires_at" not in asset:
-            raise ValueError("asset.temporary: expiry required")
-        if source.get("expected_connection_at") is not None:
-            arrival = _text(source["expected_connection_at"], "asset.expected_connection_at")
-            try:
-                moment = datetime.fromisoformat(arrival.replace("Z", "+00:00"))
-            except ValueError as exc:
-                raise ValueError("asset.expected_connection_at: invalid ISO timestamp") from exc
-            if moment.tzinfo is None or moment.utcoffset() is None:
-                raise ValueError("asset.expected_connection_at: timezone required")
-            asset["expected_connection_at"] = moment.isoformat()
-        if source.get("priority") is not None:
-            priority = source["priority"]
-            if isinstance(priority, bool) or not isinstance(priority, int) or not 0 <= priority <= 100:
-                raise ValueError("asset.priority: expected integer 0..100")
-            asset["priority"] = priority
-        if source.get("charge_efficiency") is not None:
-            efficiency = _number(source["charge_efficiency"], "asset.charge_efficiency")
-            if efficiency > 1:
-                raise ValueError("asset.charge_efficiency: expected >0 and <=1")
-            asset["charge_efficiency"] = efficiency
-        if source.get("ready_by") is not None:
-            ready = _text(source["ready_by"], "asset.ready_by")
-            try:
-                parsed = datetime.fromisoformat(ready.replace("Z", "+00:00"))
-            except ValueError as exc:
-                raise ValueError("asset.ready_by: expected ISO-8601 timestamp") from exc
-            if parsed.tzinfo is None or parsed.utcoffset() is None:
-                raise ValueError("asset.ready_by: explicit timezone required")
-            asset["ready_by"] = parsed.isoformat()
-        # Legacy weekly is readable for exact time-zone migration on user edit.
-        repeat = source.get("ready_by_repeat", "none")
-        if repeat not in ("none", "daily", "specific_days", "weekly"):
-            raise ValueError("asset.ready_by_repeat: unsupported recurrence")
-        if repeat in ("daily", "weekly") and "ready_by" not in asset:
-            raise ValueError("asset.ready_by_repeat: Ready By anchor required")
-        if source.get("ready_by_weekdays") is not None:
-            asset["ready_by_weekdays"] = _ready_day_times(
-                source["ready_by_weekdays"])
-        if repeat == "specific_days" and not asset.get("ready_by_weekdays"):
-            raise ValueError("asset.ready_by_weekdays: specific days required")
-        if source.get("charging_windows") is not None:
-            asset["charging_windows"] = _charging_windows(
-                source["charging_windows"])
-        if source.get("continuous_charging") is not None:
-            if type(source["continuous_charging"]) is not bool:
-                raise ValueError("asset.continuous_charging: expected boolean")
-            asset["continuous_charging"] = source["continuous_charging"]
-        for field in ("minimum_soc_pct", "low_soc_trigger_pct",
-                      "opportunistic_level_pct"):
-            if source.get(field) is None:
-                continue
-            level = _number(source[field], "asset." + field, zero=True)
-            if level > 100:
-                raise ValueError("asset." + field + ": outside 0..100")
-            asset[field] = level
-        for field in ("maximum_price_per_kwh", "low_price_trigger_per_kwh"):
-            if source.get(field) is None:
-                continue
-            quote = source[field]
-            if type(quote) not in (float, int) or not isfinite(quote):
-                raise ValueError("asset." + field + ": finite price required")
-            asset[field] = float(quote)
-        if source.get("opportunistic_kind") is not None:
-            if source["opportunistic_kind"] not in ("off", "type1", "type2"):
-                raise ValueError("asset.opportunistic_kind: off/type1/type2")
-            asset["opportunistic_kind"] = source["opportunistic_kind"]
-        if (asset.get("opportunistic_kind") in ("type1", "type2")
-                and "maximum_price_per_kwh" not in asset):
-            raise ValueError("asset.opportunistic_kind: price cap required")
-        if (any(k in asset for k in (
-                "maximum_price_per_kwh", "low_price_trigger_per_kwh"))
-                or source.get("price_currency") is not None):
-            currency = source.get("price_currency")
-            if (not isinstance(currency, str)
-                    or fullmatch(r"[A-Z]{3}", currency) is None):
-                raise ValueError("asset.price_currency: ISO-4217 required")
-            asset["price_currency"] = currency
-        if (asset.get("minimum_soc_pct") is not None
-                and asset.get("target_soc") is not None
-                and asset["minimum_soc_pct"] > asset["target_soc"]):
-            raise ValueError("asset.minimum_soc_pct: must not exceed target")
-        if source.get("earliest_start_at") is not None:
-            raw_start = _text(source["earliest_start_at"], "asset.earliest_start_at")
-            try:
-                start = datetime.fromisoformat(raw_start.replace("Z", "+00:00"))
-            except ValueError as exc:
-                raise ValueError("asset.earliest_start_at: invalid ISO") from exc
-            if start.utcoffset() is None:
-                raise ValueError("asset.earliest_start_at: timezone required")
-            asset["earliest_start_at"] = start.isoformat()
-        if source.get("ready_by_repeat") is not None:
-            asset["ready_by_repeat"] = repeat
-        ChargeableAsset(uid=uid, name=asset["name"], kind=asset["kind"],
-                        usable_capacity_kwh=asset.get("capacity_kwh"),
-                        target_soc_pct=asset.get("target_soc"),
-                        max_charge_kw=asset.get("max_charge_kw"))
-        assets.append(asset)
+    for index, source in enumerate(value.get("assets", [])):
+        try:
+            _allowed(source, ("id", "name", "kind", "soc_entity",
+                              "soc_stale_entity", "vehicle_control_entity", "vehicle_current_entity",
+                              "capacity_kwh", "target_soc", "max_charge_kw",
+                              "requested_kwh", "requested_duration_minutes",
+                              "requested_budget_amount", "requested_budget_currency", "ready_by",
+                              "ready_by_repeat", "ready_by_weekdays", "charging_windows",
+                "continuous_charging",
+                "minimum_soc_pct", "maximum_price_per_kwh", "price_currency",
+                "low_price_trigger_per_kwh", "low_soc_trigger_pct",
+                "opportunistic_kind", "opportunistic_level_pct",
+                "earliest_start_at",
+                "charge_efficiency", "priority",
+                              "temporary", "expires_at", "expected_connection_at",
+                              "plan_color"), "asset")
+            uid = _text(source.get("id"), "asset.id")
+            if uid in ids:
+                raise ValueError("asset.id: duplicate")
+            ids.add(uid)
+            asset = {"id": uid, "name": _text(source.get("name"), "asset.name"),
+                     "kind": _text(source.get("kind", "car"), "asset.kind")}
+            if source.get("plan_color") is not None:
+                if source["plan_color"] not in PLAN_COLORS:
+                    raise ValueError("asset.plan_color: invalid palette color")
+                asset["plan_color"] = source["plan_color"]
+            if source.get("soc_entity"):
+                asset["soc_entity"] = _entity(source["soc_entity"], "asset.soc_entity")
+            if source.get("soc_stale_entity"):
+                entity_id = _entity(source["soc_stale_entity"], "asset.soc_stale_entity")
+                if not entity_id.startswith("binary_sensor."):
+                    raise ValueError("asset.soc_stale_entity: native binary_sensor required")
+                if not source.get("soc_entity"):
+                    raise ValueError("asset.soc_stale_entity: select a SoC sensor first")
+                asset["soc_stale_entity"] = entity_id
+            for key, domain in (("vehicle_control_entity", "switch"),
+                                ("vehicle_current_entity", "number")):
+                if source.get(key):
+                    selected_entity = _entity(source[key], "asset." + key)
+                    if selected_entity.split(".", 1)[0] != domain:
+                        raise ValueError(f"asset.{key}: expected {domain} entity")
+                    asset[key] = selected_entity
+            for key in ("capacity_kwh", "max_charge_kw"):
+                if source.get(key) is not None:
+                    asset[key] = _number(source[key], "asset." + key)
+            if source.get("target_soc") is not None:
+                asset["target_soc"] = _number(source["target_soc"], "asset.target_soc", zero=True)
+            if source.get("requested_kwh") is not None:
+                asset["requested_kwh"] = _number(
+                    source["requested_kwh"], "asset.requested_kwh", zero=True
+                )
+            if source.get("requested_duration_minutes") is not None:
+                minutes = source["requested_duration_minutes"]
+                if isinstance(minutes, bool) or not isinstance(minutes, int) or minutes <= 0:
+                    raise ValueError("asset.requested_duration_minutes: positive integer required")
+                asset["requested_duration_minutes"] = minutes
+            if source.get("requested_budget_amount") is not None:
+                asset["requested_budget_amount"] = _number(
+                    source["requested_budget_amount"],
+                    "asset.requested_budget_amount",
+                )
+                currency = source.get("requested_budget_currency", "EUR")
+                if (not isinstance(currency, str) or
+                        fullmatch(r"[A-Z]{3}", currency) is None):
+                    raise ValueError("asset.requested_budget_currency: ISO-4217 required")
+                asset["requested_budget_currency"] = currency
+            elif source.get("requested_budget_currency") is not None:
+                raise ValueError("asset.requested_budget_currency: amount required")
+            finite_goals = sum(key in asset for key in (
+                "requested_kwh", "requested_duration_minutes",
+                "requested_budget_amount",
+            ))
+            if finite_goals > 1:
+                raise ValueError("asset: choose kWh, duration OR money")
+            if source.get("temporary") is not None:
+                if type(source["temporary"]) is not bool:
+                    raise ValueError("asset.temporary: expected boolean")
+                if source["temporary"]:
+                    asset["temporary"] = True
+            if source.get("expires_at") is not None:
+                if not asset.get("temporary"):
+                    raise ValueError("asset.expires_at: only temporary assets can expire")
+                raw = _text(source["expires_at"], "asset.expires_at")
+                try:
+                    instant = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                except ValueError as exc:
+                    raise ValueError("asset.expires_at: expected ISO time") from exc
+                if instant.tzinfo is None or instant.utcoffset() is None:
+                    raise ValueError("asset.expires_at: timezone required")
+                asset["expires_at"] = instant.isoformat()
+            if asset.get("temporary") and "expires_at" not in asset:
+                raise ValueError("asset.temporary: expiry required")
+            if source.get("expected_connection_at") is not None:
+                arrival = _text(source["expected_connection_at"], "asset.expected_connection_at")
+                try:
+                    moment = datetime.fromisoformat(arrival.replace("Z", "+00:00"))
+                except ValueError as exc:
+                    raise ValueError("asset.expected_connection_at: invalid ISO timestamp") from exc
+                if moment.tzinfo is None or moment.utcoffset() is None:
+                    raise ValueError("asset.expected_connection_at: timezone required")
+                asset["expected_connection_at"] = moment.isoformat()
+            if source.get("priority") is not None:
+                priority = source["priority"]
+                if isinstance(priority, bool) or not isinstance(priority, int) or not 0 <= priority <= 100:
+                    raise ValueError("asset.priority: expected integer 0..100")
+                asset["priority"] = priority
+            if source.get("charge_efficiency") is not None:
+                efficiency = _number(source["charge_efficiency"], "asset.charge_efficiency")
+                if efficiency > 1:
+                    raise ValueError("asset.charge_efficiency: expected >0 and <=1")
+                asset["charge_efficiency"] = efficiency
+            if source.get("ready_by") is not None:
+                ready = _text(source["ready_by"], "asset.ready_by")
+                try:
+                    parsed = datetime.fromisoformat(ready.replace("Z", "+00:00"))
+                except ValueError as exc:
+                    raise ValueError("asset.ready_by: expected ISO-8601 timestamp") from exc
+                if parsed.tzinfo is None or parsed.utcoffset() is None:
+                    raise ValueError("asset.ready_by: explicit timezone required")
+                asset["ready_by"] = parsed.isoformat()
+            # Legacy weekly is readable for exact time-zone migration on user edit.
+            repeat = source.get("ready_by_repeat", "none")
+            if repeat not in ("none", "daily", "specific_days", "weekly"):
+                raise ValueError("asset.ready_by_repeat: unsupported recurrence")
+            if repeat in ("daily", "weekly") and "ready_by" not in asset:
+                raise ValueError("asset.ready_by_repeat: Ready By anchor required")
+            if source.get("ready_by_weekdays") is not None:
+                asset["ready_by_weekdays"] = _ready_day_times(
+                    source["ready_by_weekdays"])
+            if repeat == "specific_days" and not asset.get("ready_by_weekdays"):
+                raise ValueError("asset.ready_by_weekdays: specific days required")
+            if source.get("charging_windows") is not None:
+                asset["charging_windows"] = _charging_windows(
+                    source["charging_windows"])
+            if source.get("continuous_charging") is not None:
+                if type(source["continuous_charging"]) is not bool:
+                    raise ValueError("asset.continuous_charging: expected boolean")
+                asset["continuous_charging"] = source["continuous_charging"]
+            for field in ("minimum_soc_pct", "low_soc_trigger_pct",
+                          "opportunistic_level_pct"):
+                if source.get(field) is None:
+                    continue
+                level = _number(source[field], "asset." + field, zero=True)
+                if level > 100:
+                    raise ValueError("asset." + field + ": outside 0..100")
+                asset[field] = level
+            for field in ("maximum_price_per_kwh", "low_price_trigger_per_kwh"):
+                if source.get(field) is None:
+                    continue
+                quote = source[field]
+                if type(quote) not in (float, int) or not isfinite(quote):
+                    raise ValueError("asset." + field + ": finite price required")
+                asset[field] = float(quote)
+            if source.get("opportunistic_kind") is not None:
+                if source["opportunistic_kind"] not in ("off", "type1", "type2"):
+                    raise ValueError("asset.opportunistic_kind: off/type1/type2")
+                asset["opportunistic_kind"] = source["opportunistic_kind"]
+            if (asset.get("opportunistic_kind") in ("type1", "type2")
+                    and "maximum_price_per_kwh" not in asset):
+                raise ValueError("asset.opportunistic_kind: price cap required")
+            if (any(k in asset for k in (
+                    "maximum_price_per_kwh", "low_price_trigger_per_kwh"))
+                    or source.get("price_currency") is not None):
+                currency = source.get("price_currency")
+                if (not isinstance(currency, str)
+                        or fullmatch(r"[A-Z]{3}", currency) is None):
+                    raise ValueError("asset.price_currency: ISO-4217 required")
+                asset["price_currency"] = currency
+            if (asset.get("minimum_soc_pct") is not None
+                    and asset.get("target_soc") is not None
+                    and asset["minimum_soc_pct"] > asset["target_soc"]):
+                raise ValueError("asset.minimum_soc_pct: must not exceed target")
+            if source.get("earliest_start_at") is not None:
+                raw_start = _text(source["earliest_start_at"], "asset.earliest_start_at")
+                try:
+                    start = datetime.fromisoformat(raw_start.replace("Z", "+00:00"))
+                except ValueError as exc:
+                    raise ValueError("asset.earliest_start_at: invalid ISO") from exc
+                if start.utcoffset() is None:
+                    raise ValueError("asset.earliest_start_at: timezone required")
+                asset["earliest_start_at"] = start.isoformat()
+            if source.get("ready_by_repeat") is not None:
+                asset["ready_by_repeat"] = repeat
+            ChargeableAsset(uid=uid, name=asset["name"], kind=asset["kind"],
+                            usable_capacity_kwh=asset.get("capacity_kwh"),
+                            target_soc_pct=asset.get("target_soc"),
+                            max_charge_kw=asset.get("max_charge_kw"))
+            assets.append(asset)
+        except ValueError as exc:
+            identifier = source.get("id") if isinstance(source, dict) else None
+            label = f" ({identifier})" if isinstance(identifier, str) else ""
+            errors.append(f"assets[{index}]{label}: {exc}")
 
     chargers = []
     charger_ids = set()
     if not isinstance(value.get("chargers", []), list):
         raise ValueError("chargers: expected list")
-    for source in value.get("chargers", []):
-        _allowed(source, ("id", "name", "kind", "rated_power_kw", "asset",
-                          "control_entity", "connected_entity", "power_entity",
-                          "connected_states", "disconnected_states",
-                          "energy_entity", "session_entity", "min_current_a", "max_current_a",
-                          "phase_count", "control_owner", "physical_commissioned",
-                          "phase_ids", "voltage_v", "current_step_a", "fixed_current_a",
-                          "circuit_id", "circuit_limit_a", "current_control_entity",
-                          "current_readback_entity", "min_charging_power_kw",
-                          "max_charging_power_kw", "plan_color"), "charger")
-        uid = _text(source.get("id"), "charger.id")
-        if uid in charger_ids:
-            raise ValueError("charger.id: duplicate")
-        charger_ids.add(uid)
-        charger = {
-            "id": uid,
-            "name": _text(source.get("name"), "charger.name"),
-            "kind": _text(source.get("kind"), "charger.kind"),
-            "rated_power_kw": _number(source.get("rated_power_kw"), "charger.rated_power_kw"),
-        }
-        if source.get("plan_color") is not None:
-            if source["plan_color"] not in PLAN_COLORS:
-                raise ValueError("charger.plan_color: invalid palette color")
-            charger["plan_color"] = source["plan_color"]
-        owner = source.get("control_owner", "external")
-        if owner not in ("external", "multicharge"):
-            raise ValueError("charger.control_owner: expected external/multicharge")
-        if "physical_commissioned" in source and type(source["physical_commissioned"]) is not bool:
-            raise ValueError("charger.physical_commissioned: expected boolean")
-        commissioned = source.get("physical_commissioned", False)
-        if commissioned and owner != "multicharge":
-            raise ValueError("charger: physical commissioning requires MultiCharge owner")
-        if owner == "multicharge" and (
-            not str(source.get("control_entity", "")).startswith("switch.")
-            or not source.get("connected_entity")
-            or not source.get("power_entity")
-        ):
-            raise ValueError("charger: native switch, connection and power source required")
-        charger["control_owner"] = owner
-        charger["physical_commissioned"] = commissioned
-        if ("connected_states" in source or "disconnected_states" in source):
-            entity = source.get("connected_entity")
-            if not isinstance(entity, str) or not entity.startswith("sensor."):
-                raise ValueError("charger: raw status mapping requires native sensor")
-            for field in ("connected_states", "disconnected_states"):
-                labels = source.get(field)
-                if (not isinstance(labels, list)
-                        or not 1 <= len(labels) <= 24
-                        or any(not isinstance(label, str)
-                               or not label.strip() for label in labels)):
-                    raise ValueError(f"charger.{field}: expected 1..24 state labels")
-                normalized = [label.strip().casefold() for label in labels]
-                if len(normalized) != len(set(normalized)):
-                    raise ValueError(f"charger.{field}: duplicate source status")
-                charger[field] = normalized
-            if set(charger["connected_states"]) & set(charger["disconnected_states"]):
-                raise ValueError("charger: ambiguous overlapping status mapping")
-        if source.get("phase_count") is not None:
-            p = source["phase_count"]
-            if isinstance(p, bool) or not isinstance(p, int) or p not in (1, 2, 3):
-                raise ValueError("charger.phase_count: expected 1, 2 or 3")
-            charger["phase_count"] = p
-        for key in ("min_current_a", "max_current_a", "voltage_v",
-                    "current_step_a", "fixed_current_a", "circuit_limit_a",
-                    "min_charging_power_kw", "max_charging_power_kw"):
-            if source.get(key) is not None:
-                charger[key] = _number(source[key], "charger." + key)
-        if ("min_charging_power_kw" in charger
-                or "max_charging_power_kw" in charger):
-            if charger["kind"] != "variable_current":
-                raise ValueError("charger power preferences require adjustable current")
-            phases = source.get("phase_ids") or []
-            if not phases or not all(key in charger for key in (
-                    "voltage_v", "min_current_a", "max_current_a",
-                    "current_step_a")):
-                raise ValueError("charger power preferences require verified physical limits")
-            factor = charger["voltage_v"] * len(phases) / 1000
-            physical_min = charger["min_current_a"] * factor
-            physical_max = min(charger["rated_power_kw"],
-                               charger["max_current_a"] * factor)
-            chosen_min = charger.get("min_charging_power_kw", physical_min)
-            chosen_max = charger.get("max_charging_power_kw", physical_max)
-            if (chosen_min < physical_min - 1e-6
-                    or chosen_max > physical_max + 1e-6
-                    or chosen_min > chosen_max + 1e-6):
-                raise ValueError("charger charging power limits exceed hardware envelope")
-            # A legal Amp step must exist within the user envelope: never
-            # accept a setting that leaves the Charger with no possible
-            # physical current for its next verified session.
-            minimum, maximum = charger["min_current_a"], charger["max_current_a"]
-            step = charger["current_step_a"]
-            first = max(0, ceil((chosen_min / factor - minimum) / step - 1e-9))
-            last = min(
-                floor((maximum - minimum) / step + 1e-9),
-                floor((chosen_max / factor - minimum) / step + 1e-9),
-            )
-            if first > last:
-                raise ValueError("charger power envelope has no supported current step")
-        if source.get("phase_ids") is not None:
-            phases = source["phase_ids"]
-            if not isinstance(phases, list) or not phases or (
-                len(phases) != len(set(phases))
-                or any(p not in ("L1", "L2", "L3") for p in phases)
+    for index, source in enumerate(value.get("chargers", [])):
+        try:
+            _allowed(source, ("id", "name", "kind", "rated_power_kw", "asset",
+                              "control_entity", "connected_entity", "power_entity",
+                              "connected_states", "disconnected_states",
+                              "energy_entity", "session_entity", "min_current_a", "max_current_a",
+                              "phase_count", "control_owner", "physical_commissioned",
+                              "phase_ids", "voltage_v", "current_step_a", "fixed_current_a",
+                              "circuit_id", "circuit_limit_a", "current_control_entity",
+                              "current_readback_entity", "min_charging_power_kw",
+                              "max_charging_power_kw", "plan_color"), "charger")
+            uid = _text(source.get("id"), "charger.id")
+            if uid in charger_ids:
+                raise ValueError("charger.id: duplicate")
+            charger_ids.add(uid)
+            charger = {
+                "id": uid,
+                "name": _text(source.get("name"), "charger.name"),
+                "kind": _text(source.get("kind"), "charger.kind"),
+                "rated_power_kw": _number(source.get("rated_power_kw"), "charger.rated_power_kw"),
+            }
+            if source.get("plan_color") is not None:
+                if source["plan_color"] not in PLAN_COLORS:
+                    raise ValueError("charger.plan_color: invalid palette color")
+                charger["plan_color"] = source["plan_color"]
+            owner = source.get("control_owner", "external")
+            if owner not in ("external", "multicharge"):
+                raise ValueError("charger.control_owner: expected external/multicharge")
+            if "physical_commissioned" in source and type(source["physical_commissioned"]) is not bool:
+                raise ValueError("charger.physical_commissioned: expected boolean")
+            commissioned = source.get("physical_commissioned", False)
+            if commissioned and owner != "multicharge":
+                raise ValueError("charger: physical commissioning requires MultiCharge owner")
+            if owner == "multicharge" and (
+                not str(source.get("control_entity", "")).startswith("switch.")
+                or not source.get("connected_entity")
+                or not source.get("power_entity")
             ):
-                raise ValueError("charger.phase_ids: expected unique L1/L2/L3")
-            charger["phase_ids"] = list(phases)
-        if source.get("circuit_id"):
-            charger["circuit_id"] = _text(source["circuit_id"], "charger.circuit_id")
-        if owner == "multicharge" and source["kind"] == "variable_current":
-            if not ctl.get("phase_limits_a"):
-                raise ValueError("charger: commissioned variable current requires verified site phase limits")
-            if not all(key in charger for key in (
-                "phase_count", "phase_ids", "voltage_v", "current_step_a",
-                "min_current_a", "max_current_a", "circuit_id", "circuit_limit_a"
-            )) or not str(source.get("current_control_entity", "")).startswith("number.") or not str(
-                source.get("current_readback_entity", "")
-            ).startswith("sensor."):
-                raise ValueError("charger: controlled current requires verified phases, circuit, setpoint and independent current sensor")
-            if charger["voltage_v"] < 200 or charger["voltage_v"] > 260:
-                raise ValueError("charger.voltage_v: expected verified line-neutral voltage")
-        if (source.get("current_readback_entity")
-                and source.get("current_readback_entity") ==
-                source.get("current_control_entity")):
-            raise ValueError("charger: independent current sensor required")
-        if owner == "multicharge" and ctl.get("phase_limits_a"):
-            if not charger.get("phase_ids") or not charger.get("voltage_v"):
-                raise ValueError("charger: verified phase wiring and voltage required")
-            if source["kind"] == "on_off" and not charger.get("fixed_current_a"):
-                raise ValueError("charger: on/off current required for phase protection")
-            if (source["kind"] == "on_off"
-                    and charger.get("fixed_current_a") is not None
-                    and charger["fixed_current_a"] * charger["voltage_v"]
-                    * len(charger["phase_ids"]) + 1e-9
-                    < charger["rated_power_kw"] * 1000):
-                raise ValueError("charger: phase current understates nominal electrical load")
-        for key in ("control_entity", "connected_entity", "power_entity", "energy_entity",
-                    "session_entity", "current_control_entity", "current_readback_entity"):
-            if source.get(key):
-                charger[key] = _entity(source[key], "charger." + key)
-        if source.get("asset"):
-            aid = _text(source["asset"], "charger.asset")
-            if aid not in ids:
-                raise ValueError("charger.asset: unknown asset")
-            charger["asset"] = aid
-        Charger(uid=uid, name=charger["name"], controller_uid=cid,
-                control_kind=charger["kind"], rated_power_kw=charger["rated_power_kw"],
-                min_current_a=charger.get("min_current_a"),
-                max_current_a=charger.get("max_current_a"),
-                phase_count=charger.get("phase_count"),
-                phase_ids=tuple(charger.get("phase_ids", ())),
-                voltage_v=charger.get("voltage_v"),
-                current_step_a=charger.get("current_step_a"),
-                min_charging_power_kw=charger.get("min_charging_power_kw"),
-                max_charging_power_kw=charger.get("max_charging_power_kw"),
-                fixed_current_a=charger.get("fixed_current_a"),
-                circuit_id=charger.get("circuit_id"),
-                circuit_limit_a=charger.get("circuit_limit_a"))
-        chargers.append(charger)
+                raise ValueError("charger: native switch, connection and power source required")
+            charger["control_owner"] = owner
+            charger["physical_commissioned"] = commissioned
+            if ("connected_states" in source or "disconnected_states" in source):
+                entity = source.get("connected_entity")
+                if not isinstance(entity, str) or not entity.startswith("sensor."):
+                    raise ValueError("charger: raw status mapping requires native sensor")
+                for field in ("connected_states", "disconnected_states"):
+                    labels = source.get(field)
+                    if (not isinstance(labels, list)
+                            or not 1 <= len(labels) <= 24
+                            or any(not isinstance(label, str)
+                                   or not label.strip() for label in labels)):
+                        raise ValueError(f"charger.{field}: expected 1..24 state labels")
+                    normalized = [label.strip().casefold() for label in labels]
+                    if len(normalized) != len(set(normalized)):
+                        raise ValueError(f"charger.{field}: duplicate source status")
+                    charger[field] = normalized
+                if set(charger["connected_states"]) & set(charger["disconnected_states"]):
+                    raise ValueError("charger: ambiguous overlapping status mapping")
+            if source.get("phase_count") is not None:
+                p = source["phase_count"]
+                if isinstance(p, bool) or not isinstance(p, int) or p not in (1, 2, 3):
+                    raise ValueError("charger.phase_count: expected 1, 2 or 3")
+                charger["phase_count"] = p
+            for key in ("min_current_a", "max_current_a", "voltage_v",
+                        "current_step_a", "fixed_current_a", "circuit_limit_a",
+                        "min_charging_power_kw", "max_charging_power_kw"):
+                if source.get(key) is not None:
+                    charger[key] = _number(source[key], "charger." + key)
+            if ("min_charging_power_kw" in charger
+                    or "max_charging_power_kw" in charger):
+                if charger["kind"] != "variable_current":
+                    raise ValueError("charger power preferences require adjustable current")
+                phases = source.get("phase_ids") or []
+                if not phases or not all(key in charger for key in (
+                        "voltage_v", "min_current_a", "max_current_a",
+                        "current_step_a")):
+                    raise ValueError("charger power preferences require verified physical limits")
+                factor = charger["voltage_v"] * len(phases) / 1000
+                physical_min = charger["min_current_a"] * factor
+                physical_max = min(charger["rated_power_kw"],
+                                   charger["max_current_a"] * factor)
+                chosen_min = charger.get("min_charging_power_kw", physical_min)
+                chosen_max = charger.get("max_charging_power_kw", physical_max)
+                if (chosen_min < physical_min - 1e-6
+                        or chosen_max > physical_max + 1e-6
+                        or chosen_min > chosen_max + 1e-6):
+                    raise ValueError("charger charging power limits exceed hardware envelope")
+                # A legal Amp step must exist within the user envelope: never
+                # accept a setting that leaves the Charger with no possible
+                # physical current for its next verified session.
+                minimum, maximum = charger["min_current_a"], charger["max_current_a"]
+                step = charger["current_step_a"]
+                first = max(0, ceil((chosen_min / factor - minimum) / step - 1e-9))
+                last = min(
+                    floor((maximum - minimum) / step + 1e-9),
+                    floor((chosen_max / factor - minimum) / step + 1e-9),
+                )
+                if first > last:
+                    raise ValueError("charger power envelope has no supported current step")
+            if source.get("phase_ids") is not None:
+                phases = source["phase_ids"]
+                if not isinstance(phases, list) or not phases or (
+                    len(phases) != len(set(phases))
+                    or any(p not in ("L1", "L2", "L3") for p in phases)
+                ):
+                    raise ValueError("charger.phase_ids: expected unique L1/L2/L3")
+                charger["phase_ids"] = list(phases)
+            if source.get("circuit_id"):
+                charger["circuit_id"] = _text(source["circuit_id"], "charger.circuit_id")
+            if owner == "multicharge" and source["kind"] == "variable_current":
+                if not ctl.get("phase_limits_a"):
+                    raise ValueError("charger: commissioned variable current requires verified site phase limits")
+                if not all(key in charger for key in (
+                    "phase_count", "phase_ids", "voltage_v", "current_step_a",
+                    "min_current_a", "max_current_a", "circuit_id", "circuit_limit_a"
+                )) or not str(source.get("current_control_entity", "")).startswith("number.") or not str(
+                    source.get("current_readback_entity", "")
+                ).startswith("sensor."):
+                    raise ValueError("charger: controlled current requires verified phases, circuit, setpoint and independent current sensor")
+                if charger["voltage_v"] < 200 or charger["voltage_v"] > 260:
+                    raise ValueError("charger.voltage_v: expected verified line-neutral voltage")
+            if (source.get("current_readback_entity")
+                    and source.get("current_readback_entity") ==
+                    source.get("current_control_entity")):
+                raise ValueError("charger: independent current sensor required")
+            if owner == "multicharge" and ctl.get("phase_limits_a"):
+                if not charger.get("phase_ids") or not charger.get("voltage_v"):
+                    raise ValueError("charger: verified phase wiring and voltage required")
+                if source["kind"] == "on_off" and not charger.get("fixed_current_a"):
+                    raise ValueError("charger: on/off current required for phase protection")
+                if (source["kind"] == "on_off"
+                        and charger.get("fixed_current_a") is not None
+                        and charger["fixed_current_a"] * charger["voltage_v"]
+                        * len(charger["phase_ids"]) + 1e-9
+                        < charger["rated_power_kw"] * 1000):
+                    raise ValueError("charger: phase current understates nominal electrical load")
+            for key in ("control_entity", "connected_entity", "power_entity", "energy_entity",
+                        "session_entity", "current_control_entity", "current_readback_entity"):
+                if source.get(key):
+                    charger[key] = _entity(source[key], "charger." + key)
+            if source.get("asset"):
+                aid = _text(source["asset"], "charger.asset")
+                if aid not in ids:
+                    raise ValueError("charger.asset: unknown asset")
+                charger["asset"] = aid
+            Charger(uid=uid, name=charger["name"], controller_uid=cid,
+                    control_kind=charger["kind"], rated_power_kw=charger["rated_power_kw"],
+                    min_current_a=charger.get("min_current_a"),
+                    max_current_a=charger.get("max_current_a"),
+                    phase_count=charger.get("phase_count"),
+                    phase_ids=tuple(charger.get("phase_ids", ())),
+                    voltage_v=charger.get("voltage_v"),
+                    current_step_a=charger.get("current_step_a"),
+                    min_charging_power_kw=charger.get("min_charging_power_kw"),
+                    max_charging_power_kw=charger.get("max_charging_power_kw"),
+                    fixed_current_a=charger.get("fixed_current_a"),
+                    circuit_id=charger.get("circuit_id"),
+                    circuit_limit_a=charger.get("circuit_limit_a"))
+            chargers.append(charger)
+        except ValueError as exc:
+            identifier = source.get("id") if isinstance(source, dict) else None
+            label = f" ({identifier})" if isinstance(identifier, str) else ""
+            errors.append(f"chargers[{index}]{label}: {exc}")
+
+    if errors:
+        raise ValueError("\n".join(errors))
 
     circuits = {}
     for c in chargers:

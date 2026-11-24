@@ -66,6 +66,8 @@ global.document={
   createTextNode:(text)=>{const n=new Element("#text");n.textContent=text;return n;}
 };
 require("../custom_components/robotix_multicharge/frontend/robotix-multicharge.js");
+assert.ok(uiSource.includes('mcEl("ha-icon"') && uiSource.includes("mcSocBar"),
+  "Native semantic icons and qualified battery indicator must remain available");
 assert.ok(uiSource.includes("this.dashboardEditField(parent,scope,record,field)"),
   "Every persisted owner field is edited directly inside MultiCharge");
 assert.ok(uiSource.includes("robotix_multicharge/yaml_configuration")&&

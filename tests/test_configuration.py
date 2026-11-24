@@ -1215,6 +1215,16 @@ class YamlEditorConfigurationTests(unittest.TestCase):
         ]
         return validate_configuration(cfg)
 
+    def test_independent_errors_identify_objects(self):
+        cfg = self.configured_site()
+        cfg["assets"][0]["target_soc"] = 120
+        cfg["chargers"][1]["rated_power_kw"] = -1
+        with self.assertRaises(ValueError) as caught:
+            validate_configuration(cfg)
+        message = str(caught.exception)
+        self.assertIn("assets[0] (family)", message)
+        self.assertIn("chargers[1] (outside)", message)
+
     def test_full_replacement_preserves_existing_id_and_rejects_owner_change(self):
         old = self.configured_site()
         updated = prepare_expert_yaml_revision(old, {

@@ -831,7 +831,7 @@ async def test_native_options_menu_expert_prefill_save_and_reject_unsafe(
         editor["flow_id"], {"yaml_text": 'controller: {}\\ncontroller: {}'},
     )
     assert invalid["type"] == FlowResultType.FORM
-    assert invalid["errors"]["base"] == "invalid_config"
+    assert "YAML" in invalid["errors"]["base"] or "duplicate" in invalid["errors"]["base"]
     assert entry.options.get("configuration") is None
 
     changed = json.loads(json.dumps(cfg))
@@ -866,7 +866,7 @@ async def test_native_options_menu_expert_prefill_save_and_reject_unsafe(
         screen["flow_id"], {"yaml_text": json.dumps(unsafe)},
     )
     assert blocked["type"] == FlowResultType.FORM
-    assert blocked["errors"]["base"] == "invalid_config"
+    assert blocked["errors"]["base"] != "invalid_config"
     assert entry.options["configuration"] == actual
 
     # Concurrent changes cannot be overwritten by an older open form.
@@ -975,7 +975,7 @@ async def test_native_expert_save_four_external_adjustable_chargers_without_gues
         editor["flow_id"], {"yaml_text": json.dumps(unsafe)},
     )
     assert invalid["type"] == FlowResultType.FORM
-    assert invalid["errors"]["base"] == "invalid_config"
+    assert "min_current_a" in invalid["errors"]["base"]
     assert "min_current_a" in invalid["description_placeholders"]["validation_error"]
     assert "max_current_a" in invalid["description_placeholders"]["validation_error"]
     assert entry.options.get("configuration") is None
@@ -1012,6 +1012,13 @@ async def test_native_expert_save_four_external_adjustable_chargers_without_gues
     marker = next(k for k in again["data_schema"].schema
                   if str(k) == "yaml_text")
     assert json.loads(marker.default()) == actual
+    # Real existing options (not only first save from an empty entry).
+    repeated = await hass.config_entries.options.async_configure(
+        again["flow_id"], {"yaml_text": json.dumps(config)},
+    )
+    assert repeated["type"] == FlowResultType.CREATE_ENTRY, repeated.get("errors")
+    await hass.async_block_till_done()
+    assert entry.options["configuration"] == actual
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 
@@ -1979,6 +1986,16 @@ async def test_direct_yaml_save_native_websocket_single_entry_roundtrip(
 
     bad = await yaml_ws('controller: {}\\ncontroller: {}', initial)
     assert bad["success"] is False
+    assert entry.options.get("configuration") is None
+
+    request_id += 1
+    await client.send_json({
+        "id": request_id, "type": "robotix_multicharge/yaml_configuration",
+        "operation": "review", "yaml_text": text, "expected_revision": initial,
+    })
+    legacy = await client.receive_json()
+    assert legacy["success"] is False
+    assert "FRONTEND_VERSION_MISMATCH" in legacy["error"]["message"]
     assert entry.options.get("configuration") is None
 
     updated = await yaml_ws(text, initial)
