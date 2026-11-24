@@ -1549,10 +1549,10 @@ async def test_gui_managed_setup_does_not_register_rejected_yaml_editor(hass: Ho
 
 
 @pytest.mark.asyncio
-async def test_reviewed_yaml_editor_native_websocket_single_entry_roundtrip(
+async def test_direct_yaml_save_native_websocket_single_entry_roundtrip(
     hass: HomeAssistant, hass_ws_client,
 ):
-    """Real HA WS: JSON/YAML Review, guarded Save and authoritative readback.
+    """Real HA WS: one YAML Save with server-side validation and real readback.
 
     This does not simulate physical device or site commissioning.
     """
@@ -1571,6 +1571,7 @@ async def test_reviewed_yaml_editor_native_websocket_single_entry_roundtrip(
             "id": "plug", "name": "External EVSE",
             "kind": "on_off", "rated_power_kw": 3.6,
             "control_entity": "switch.test_plug",
+            "power_entity": "sensor.unverified_plug_power",
             "control_owner": "external", "physical_commissioned": False,
         }],
     })
@@ -1585,18 +1586,15 @@ async def test_reviewed_yaml_editor_native_websocket_single_entry_roundtrip(
     client = await hass_ws_client(hass)
     request_id = 200
 
-    async def yaml_ws(operation, text, baseline, reviewed_revision=None):
+    async def yaml_ws(text, baseline):
         nonlocal request_id
         request_id += 1
         msg = {
             "id": request_id,
             "type": "robotix_multicharge/yaml_configuration",
-            "operation": operation,
             "yaml_text": text,
             "expected_revision": baseline,
         }
-        if reviewed_revision is not None:
-            msg["reviewed_revision"] = reviewed_revision
         await client.send_json(msg)
         result = await client.receive_json()
         assert result["id"] == request_id
@@ -1604,36 +1602,29 @@ async def test_reviewed_yaml_editor_native_websocket_single_entry_roundtrip(
 
     initial = configuration_revision(cfg)
     changed = json.loads(json.dumps(cfg))
-    changed["controller"]["name"] = "Reviewed name"
+    changed["controller"]["name"] = "Saved site name"
+    # This read-only external Charger can be mapped without fake idle evidence.
+    changed["chargers"][0]["connected_entity"] = "sensor.native_connection"
     text = json.dumps(changed, indent=2)
 
-    bad = await yaml_ws("review", 'controller: {}\\ncontroller: {}', initial)
+    bad = await yaml_ws('controller: {}\\ncontroller: {}', initial)
     assert bad["success"] is False
     assert entry.options.get("configuration") is None
 
-    preview = await yaml_ws("review", text, initial)
-    assert preview["success"] is True
-    assert preview["result"]["status"] == "reviewed"
-    assert "Site settings: name" in preview["result"]["summary"]
-    assert entry.options.get("configuration") is None
-    proposed = preview["result"]["proposed_revision"]
-
-    no_review = await yaml_ws("save", text, initial, "not-reviewed")
-    assert no_review["success"] is False
-    assert entry.options.get("configuration") is None
-
-    updated = await yaml_ws("save", text, initial, proposed)
+    updated = await yaml_ws(text, initial)
     assert updated["success"] is True
     assert updated["result"]["status"] == "accepted_unconfirmed"
-    assert updated["result"]["expected_revision"] == proposed
+    proposed = updated["result"]["expected_revision"]
+    assert isinstance(proposed, str)
     await hass.async_block_till_done()
     assert len(hass.config_entries.async_entries(DOMAIN)) == 1
-    assert entry.options["configuration"]["controller"]["name"] == "Reviewed name"
+    assert entry.options["configuration"]["controller"]["name"] == "Saved site name"
+    assert entry.options["configuration"]["chargers"][0]["connected_entity"] == "sensor.native_connection"
     assert entry.options["configuration"]["chargers"][0]["control_owner"] == "external"
     assert entry.options["configuration"]["chargers"][0]["physical_commissioned"] is False
     assert configuration_revision(entry.options["configuration"]) == proposed
 
-    stale = await yaml_ws("review", text, initial)
+    stale = await yaml_ws(text, initial)
     assert stale["success"] is False
     assert "STALE_SETTINGS_REFRESH" in stale["error"]["message"]
 
@@ -1642,7 +1633,7 @@ async def test_reviewed_yaml_editor_native_websocket_single_entry_roundtrip(
     unsafe = json.loads(text)
     unsafe["chargers"][0]["control_owner"] = "multicharge"
     unsafe["chargers"][0]["physical_commissioned"] = True
-    denied = await yaml_ws("review", json.dumps(unsafe), proposed)
+    denied = await yaml_ws(json.dumps(unsafe), proposed)
     assert denied["success"] is False
     assert entry.options["configuration"]["chargers"][0]["control_owner"] == "external"
 
