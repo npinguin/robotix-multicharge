@@ -131,14 +131,13 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
         if row["quickEditable"] != (count if role == "admin" else 0):
             raise AssertionError(f"{label}: read-only resident or admin native select drift: {row}")
     if view == "plan" and count:
-        # Only Charger 0 has qualified measured/planned source data in
-        # this fixture. All other nine lanes intentionally say no slots,
-        # not ten fabricated ApexCharts plots.
+        # Two Chargers have source-qualified plan data; the remaining
+        # lanes must not manufacture charts or measurements.
         if row["apexHosts"] < 1 or row["apexLive"] != row["apexHosts"]:
             raise AssertionError(f"{label}: all source-qualified local ApexCharts must render: {row}")
         if row.get("apexErrors"):
             raise AssertionError(f"{label}: a real browser ApexCharts error occurred: {row}")
-        if not all(row.get(key) for key in ("legendContained", "legendToggle", "priceAndForecast")):
+        if not all(row.get(key) for key in ("legendContained", "legendToggle", "priceAndForecast", "sameRange", "colorAndQuarter")):
             raise AssertionError(f"{label}: price/forecast legend layout or interaction lost: {row}")
     if row["commandButtons"]:
         raise AssertionError(f"{label}: uncommissioned external Charger shows physical writes")
