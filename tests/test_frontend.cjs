@@ -1037,6 +1037,67 @@ async function main(){
   assert.notEqual(typingCard.shadowRoot.children,originalNodes,
     "Explicit Cancel allows a fresh paint");
   assert.equal(typingCard._unsavedInput,false);
+  // Every form family uses the same source-safe repaint path, including
+  // always-visible native Number fields and new Guest/Charger forms.
+  typingCard._settingsOpen="Charging site";
+  typingCard.render();
+  let nativeNumberInput;
+  visit(typingCard.shadowRoot,node=>{
+    if(node.tag==="input"&&node.attributes["aria-label"]==="Parallel chargers")
+      nativeNumberInput=node;
+  });
+  assert.ok(nativeNumberInput,"Native site number exists without a popup");
+  nativeNumberInput.value="9";
+  typingCard.shadowRoot.activeElement=nativeNumberInput;
+  const numberNodes=typingCard.shadowRoot.children;
+  await typingCard.load();
+  assert.equal(typingCard.shadowRoot.children,numberNodes,
+    "A focused native number survives source-only updates");
+  typingCard.shadowRoot.events.input({target:{tagName:"INPUT"}});
+  typingCard.shadowRoot.activeElement=null;
+  await typingCard.load();
+  assert.equal(nativeNumberInput.value,"9",
+    "A blurred but dirty native number is never reset by passive refresh");
+
+  typingCard._tab="Chargeable Assets";
+  typingCard._assetEditor="new";
+  typingCard.render();
+  let guestForm;
+  visit(typingCard.shadowRoot,node=>{
+    if(node.tag==="form"&&content(node).includes("Add a chargeable asset"))
+      guestForm=node;
+  });
+  assert.ok(guestForm);
+  const guestName=find(guestForm,"input");
+  guestName.value="A slow guest name";
+  const guestNodes=typingCard.shadowRoot.children;
+  await typingCard.load();
+  assert.equal(typingCard.shadowRoot.children,guestNodes,
+    "New Guest form must stay mounted with an unsubmitted name");
+  assert.equal(guestName.value,"A slow guest name");
+
+  typingCard._tab="Chargers";
+  typingCard._createCharger=true;
+  typingCard.render();
+  let chargerForm;
+  visit(typingCard.shadowRoot,node=>{
+    if(node.className==="card dashboard-create")chargerForm=node;
+  });
+  assert.ok(chargerForm);
+  const chargerName=find(chargerForm,"input");
+  chargerName.value="My new charger";
+  const chargerNodes=typingCard.shadowRoot.children;
+  await typingCard.load();
+  assert.equal(typingCard.shadowRoot.children,chargerNodes,
+    "New Charger form must stay mounted during sensor refresh");
+  assert.equal(chargerName.value,"My new charger");
+
+  typingCard._createCharger=false;
+  typingCard.render();
+  const normalNodes=typingCard.shadowRoot.children;
+  await typingCard.load();
+  assert.notEqual(typingCard.shadowRoot.children,normalNodes,
+    "After explicit form close, idle tab source refresh must resume");
   typingCard.disconnectedCallback();
 
   // The native sidebar forwards HA's authenticated hass object to the
