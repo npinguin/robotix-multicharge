@@ -992,10 +992,16 @@ class RobotixMultiChargeCard extends HTMLElement {
     // Covers first-click keyboard focus (before an input event), entered
     // drafts even after blur, and editors still open without a focused field.
     const focused=this.shadowRoot?.activeElement;
-    return Boolean(this._unsavedInput||
-      this._editingField||this._assetEditor||this._createCharger||
-      this._commissionEditor||this._assignmentEditor||
-      this._goalEditor||this._scheduleEditor||this._windowsOpen||
+    const tab=this._tab;
+    const scopedEdit=Boolean(this._editingField&&(
+      tab==="Settings"&&this._editingField.startsWith("controller:")||
+      tab==="Chargeable Assets"&&this._editingField.startsWith("asset:")||
+      tab==="Chargers"&&this._editingField.startsWith("charger:")));
+    return Boolean(this._unsavedInput||scopedEdit||this._commissionEditor||
+      tab==="Chargeable Assets"&&(
+        this._assetEditor||this._assignmentEditor||
+        this._goalEditor||this._scheduleEditor||this._windowsOpen)||
+      tab==="Chargers"&&this._createCharger||
       focused&&(focused.isContentEditable||
         ["INPUT","SELECT","TEXTAREA"].includes(
           String(focused.tagName||"").toUpperCase())));
