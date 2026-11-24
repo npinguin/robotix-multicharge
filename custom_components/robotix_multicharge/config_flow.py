@@ -1001,7 +1001,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                     min=1, max=16, step=1, mode=selector.NumberSelectorMode.BOX,
                 )),
             vol.Optional("phase_limits_a", default=",".join(
-                f"{p}:{x}" for p, x in current.get("phase_limits_a", {}).items(),
+                f"{p}:{x}" for p, x in current.get("phase_limits_a", {}).items()
             )): str,
         }
         if current.get("max_power_kw") is not None:
