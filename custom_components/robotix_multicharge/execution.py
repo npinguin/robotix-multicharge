@@ -60,6 +60,7 @@ class NativeSwitchExecutor:
         self._grant_plan_revision = None
         self._last_advance = None
         self._last_power_adjustment_at = None
+        self._regulating = False
         self._completed = {}
         self._inflight = {}
         self._session_history = []
@@ -1052,7 +1053,8 @@ class NativeSwitchExecutor:
         return None, round(kw, 6)
 
 
-    def _highest_safe_current(self, charger, at, *, ceiling=None, plan_slot=None):
+    def _highest_safe_current(self, charger, at, *, ceiling=None, plan_slot=None,
+                              reserve_minima=False):
         """Highest currently qualified safe setpoint, bounded by any slot grant."""
         minimum = charger.get("min_current_a")
         maximum = charger.get("max_current_a")
@@ -1069,12 +1071,14 @@ class NativeSwitchExecutor:
             candidate = round(minimum + index * step, 6)
             reason, kw = self._requested_current(charger, candidate, at)
             if reason is None and self._physical_budget(
-                charger, at, kw, candidate, plan_slot=plan_slot
+                charger, at, kw, candidate, plan_slot=plan_slot,
+                reserve_minima=reserve_minima
             ) is None:
                 return candidate
         return None
 
-    def _physical_budget(self, charger, at, kw, current, *, plan_slot=None):
+    def _physical_budget(self, charger, at, kw, current, *, plan_slot=None,
+                         reserve_minima=False):
         """Conservative site, phase and circuit budget across all configured sources."""
         cfg = self.runtime.configuration
         ctl = cfg["controller"]
@@ -1167,6 +1171,22 @@ class NativeSwitchExecutor:
                             if limit is None:
                                 return "OTHER_CHARGER_CURRENT_RANGE_UNAVAILABLE"
                             amps = max(sensed.value, limit)
+                if reserve_minima:
+                    # A temporarily reduced active charger keeps its admitted
+                    # conservative allocation. Only genuinely unreserved
+                    # headroom can be spent by the normal regulation cycle.
+                    grant = self._accepted.get(other["id"], {}).get("_slot")
+                    session = self._sessions.get(other["id"])
+                    if (grant is not None and session is not None
+                            and grant.asset_uid == session.get("asset_id")
+                            and grant.start <= at < grant.end):
+                        reserved_kw = max(reserved_kw, grant.expected_power_kw)
+                        if needs_amps and other["kind"] == "variable_current":
+                            voltage = other.get("voltage_v")
+                            count = other.get("phase_count")
+                            if amps is None or not voltage or not count:
+                                return "OTHER_CHARGER_CURRENT_UNAVAILABLE"
+                            amps = max(amps, grant.expected_power_kw * 1000 / (voltage * count))
                 reserved += reserved_kw
                 if needs_amps and amps is None:
                     return "OTHER_CHARGER_CURRENT_UNAVAILABLE"
@@ -1575,18 +1595,19 @@ class NativeSwitchExecutor:
     def _record_accepted_current(self, charger, current, at):
         accepted = self._accepted.get(charger["id"])
         if not accepted or not accepted["start"] <= at < accepted["end"]:
-            return
+            return True
         if accepted["current_a"] is None or abs(accepted["current_a"] - current) <= 1e-6:
-            return
+            return True
         power = round(current * charger["voltage_v"] * charger["phase_count"] / 1000, 6)
         receipt = self._accepted_history[(charger["id"], accepted["start"])]
         changes = receipt.setdefault("changes", [])
         if changes and datetime.fromisoformat(changes[-1]["at"]) >= at:
             # Do not fabricate chronology after a clock correction.
             self._persistence_verified = False
-            return
+            return False
         accepted.update(current_a=current, power_kw=power)
         changes.append({"at": at.isoformat(), "current_a": current, "power_kw": power})
+        return True
 
     def _close_accepted_history(self, uid, at):
         accepted = self._accepted.get(uid)
@@ -1643,7 +1664,8 @@ class NativeSwitchExecutor:
             cfg["controller"].pop("power_adjustment_interval_minutes", None)
         if before != after and not is_plan_presentation_only_change(before, after):
             return False
-        if slot.strategy in ("economy", "negative_tariff"):
+        if (slot.strategy in ("economy", "negative_tariff")
+                or self.runtime.configuration["controller"].get("mode") == "Economy"):
             quotes = [row for row in self.runtime.price_slots if row.start <= at < row.end]
             if (self.runtime.observations.get("sources", {}).get("tariff_quality") != "OK"
                     or len(quotes) != 1
@@ -1653,43 +1675,54 @@ class NativeSwitchExecutor:
         return True
 
     async def regulate_active_plan(self):
-        """Restore verified spare capacity within admitted energy quarters.
+        """Spend fresh verified residual capacity in already admitted quarters.
 
-        The existing coalesced minute/event loop calls this after supervision.
-        No unplanned START, new grant, or delayed safety intervention.
+        The same native writer and physical budget requalify each adjustment.
+        The original forecast and minimum reservations are never rewritten.
+        No unplanned START, separate scheduler, or delayed safety intervention.
         """
         at = datetime.now(timezone.utc)
-        if (self._stopped or self._supervising or not self._accepted
-                or not self._power_adjustment_due(at)):
+        if (self._stopped or self._supervising or self._regulating
+                or not self._accepted or not self._power_adjustment_due(at)):
             return
         slots = {
             uid: record["_slot"] for uid, record in self._accepted.items()
             if record.get("_slot") is not None
         }
-        # Release first, then recompute upward candidates using fresh physical
-        # reservations. Another charger's prior grant cannot be borrowed here.
-        for increasing in (False, True):
-            for configured in self.runtime.configuration["chargers"]:
-                uid = configured["id"]
-                slot = slots.get(uid)
-                now = datetime.now(timezone.utc)
-                if (configured.get("kind") != "variable_current"
-                        or slot is None or slot.current_a is None
-                        or not self._active_grant_is_current(slot, now)):
-                    continue
-                charger = self.effective_charger(configured)
-                previous = self._sessions[uid].get("target_current_a")
-                if previous is None or self._session_stop_reason(charger, now):
-                    continue
-                target = self._highest_safe_current(
-                    charger, now, ceiling=slot.current_a, plan_slot=slot,
-                )
-                if target is None or abs(target - previous) <= 1e-6:
-                    continue
-                if (target > previous) != increasing:
-                    continue
-                await self.execute(uid, "set_current", current_a=target,
-                                   plan_slot=slot, active_regulation=True)
+        self._regulating = True
+        try:
+            # Release first, then recompute upward candidates using actual
+            # current readback and every other active minimum reservation.
+            for increasing in (False, True):
+                for configured in self.runtime.configuration["chargers"]:
+                    uid = configured["id"]
+                    slot = slots.get(uid)
+                    now = datetime.now(timezone.utc)
+                    if (configured.get("kind") != "variable_current"
+                            or slot is None or slot.current_a is None
+                            or not self._active_grant_is_current(slot, now)):
+                        continue
+                    charger = self.effective_charger(configured)
+                    previous = self._sessions[uid].get("target_current_a")
+                    if previous is None or self._session_stop_reason(charger, now):
+                        continue
+                    target = self._highest_safe_current(
+                        charger, now, plan_slot=slot, reserve_minima=True,
+                    )
+                    if target is None or abs(target - previous) <= 1e-6:
+                        continue
+                    # Normal redistribution may release boost, not another
+                    # goal's minimum. Protective supervision separately
+                    # enforces actual safety even when minima cannot fit.
+                    factor = charger["voltage_v"] * charger["phase_count"] / 1000
+                    if target * factor + 1e-6 < min(previous * factor, slot.expected_power_kw):
+                        continue
+                    if (target > previous) != increasing:
+                        continue
+                    await self.execute(uid, "set_current", current_a=target,
+                                       plan_slot=slot, active_regulation=True)
+        finally:
+            self._regulating = False
 
     def _quarter_order(self, chargers, slots):
         """Release previous reservations before increasing or starting another load."""
@@ -2111,7 +2144,7 @@ class NativeSwitchExecutor:
                     **recorded, "manual_request": manual_request,
                 }
                 return recorded
-            if active_regulation and (action != "set_current"
+            if active_regulation and (action != "set_current" or not self._regulating
                                       or not self._active_grant_is_current(plan_slot, at)):
                 return result("rejected", "ACTIVE_REGULATION_NOT_AUTHORIZED")
             if charger is None:
@@ -2173,9 +2206,8 @@ class NativeSwitchExecutor:
                             return result("rejected", "PLAN_SLOT_NOT_AUTHORIZED")
                         if active_regulation:
                             if (type(current_a) not in (int, float)
-                                    or not isfinite(current_a) or plan_slot.current_a is None
-                                    or current_a > plan_slot.current_a + 1e-6):
-                                return result("rejected", "ACTIVE_REGULATION_EXCEEDS_GRANT")
+                                    or not isfinite(current_a) or plan_slot.current_a is None):
+                                return result("rejected", "ACTIVE_REGULATION_INVALID_CURRENT")
                         else:
                             current_a = plan_slot.current_a
                             # A boost is optional. If fresh shared capacity has
@@ -2209,14 +2241,16 @@ class NativeSwitchExecutor:
                     if (previous_current is None
                             or (current_a > previous_current + 1e-6
                                 and (not authorized or granted.current_a is None
-                                     or current_a > granted.current_a + 1e-6))):
+                                     or (not active_regulation
+                                         and current_a > granted.current_a + 1e-6)))):
                         return result("rejected", "CURRENT_INCREASE_REQUIRES_ACCEPTED_SLOT")
                 cable = self._connection(charger, at)
                 if cable.quality != "ok" or cable.value is not True:
                     return result("rejected", "PHYSICAL_CONNECTION_UNVERIFIED")
                 effective_slot = plan_slot or self._accepted.get(charger_id, {}).get("_slot")
                 reason = self._physical_budget(charger, at, requested_kw, current_a,
-                                               plan_slot=effective_slot)
+                                               plan_slot=effective_slot,
+                                               reserve_minima=active_regulation)
                 if reason:
                     return result("rejected", reason)
                 self._publish(charger_id, request_id, action, "requested", "REQUESTED", at)
@@ -2232,8 +2266,8 @@ class NativeSwitchExecutor:
                     if self._current_confirmed(charger, current_a, at):
                         self._sessions[charger_id]["target_current_a"] = current_a
                         confirmed_at = datetime.now(timezone.utc)
-                        self._record_accepted_current(charger, current_a, confirmed_at)
-                        if not await self.runtime.persist_control_state():
+                        if (not self._record_accepted_current(charger, current_a, confirmed_at)
+                                or not await self.runtime.persist_control_state()):
                             self._persistence_verified = False
                             await self._protective_stop(charger, context)
                             return result("execution_unknown",

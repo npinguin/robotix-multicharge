@@ -220,7 +220,7 @@ async def websocket_get_plan(
             } | {
                 field: native_entity("number", "controller",
                                      cfg["controller"]["id"], field)
-                for field in ("max_parallel", "max_power_kw")
+                for field in ("max_parallel", "max_power_kw", "power_adjustment_interval_minutes")
             },
             "assets": {
                 row["id"]: {

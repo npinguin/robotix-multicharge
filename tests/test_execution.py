@@ -991,6 +991,72 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         await rt.executor.supervise()
         self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 10)
         self.assertEqual(receipt["changes"][-1]["current_a"], 10)
+        view = rt.read_plan(quarter, quarter+timedelta(minutes=15))
+        segments = [row for row in view["slots"] if row["accepted_power_kw"] is not None]
+        self.assertEqual([row["accepted_current_a"] for row in segments], [10, 15, 10])
+        self.assertEqual(segments[0]["end"], segments[1]["start"])
+        self.assertEqual(segments[1]["end"], segments[2]["start"])
+        saved = rt.executor.export_state()
+        restored = MultiChargeRuntime(rt.hass, rt.configuration)
+        restored.executor.restore_state(saved)
+        self.assertTrue(restored.executor._persistence_verified)
+        self.assertEqual(restored.executor.accepted_slots(), rt.executor.accepted_slots())
+        # Restored history is evidence, not live authorization.
+        self.assertFalse(restored.executor._accepted)
+
+    async def test_interval_requalifies_new_binding_headroom_without_new_start(self):
+        rt, states, services = rig(group_kw=3.6, mode="Automatic")
+        rt.configuration["controller"]["binding_entity"] = "sensor.capacity"
+        charger = rt.configuration["chargers"][0]
+        charger.update(kind="variable_current", rated_power_kw=3.6,
+                       voltage_v=230, min_current_a=6, max_current_a=16,
+                       current_step_a=1, dedicated_asset_id="car",
+                       current_control_entity="number.charge_limit",
+                       current_readback_entity="sensor.actual_current")
+        native = state(6, "A")
+        native.attributes.update(min=6, max=16, step=1)
+        states["number.charge_limit"] = native
+        states["sensor.actual_current"] = state(0, "A")
+        rt.configuration = validate_configuration(rt.configuration)
+        rt.executor._plug_confirmations.clear()
+        at = datetime.now(timezone.utc)
+        quarter = at.replace(minute=at.minute//15*15, second=0, microsecond=0)
+        envelope = state("ready")
+        envelope.attributes.update({
+            "kind": "binding_power_envelope", "authority": "binding",
+            "provider_id": "capacity", "revision": "1",
+            "issued_at": (quarter-timedelta(minutes=1)).isoformat(),
+            "valid_until": (quarter+timedelta(hours=2)).isoformat(),
+            "intervals": [{
+                "start": quarter.isoformat(),
+                "end": (quarter+timedelta(hours=2)).isoformat(),
+                "max_charging_kw": 2.3,
+            }],
+        })
+        states["sensor.capacity"] = envelope
+        for source in states.values():
+            source.last_updated = quarter+timedelta(seconds=1)
+        states["binary_sensor.cable"].last_changed = quarter
+        rt.refresh(quarter)
+        self.assertEqual(rt.assessment.plan.slots[0].current_a, 10)
+        await rt.executor.advance_plan(quarter)
+        self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 10)
+        envelope.attributes["revision"] = "2"
+        envelope.attributes["intervals"][0]["max_charging_kw"] = 3.6
+        envelope.last_updated = datetime.now(timezone.utc)
+        rt.refresh()
+        before = len(services.calls)
+        rt.executor._last_power_adjustment_at = datetime.now(timezone.utc)-timedelta(minutes=4)
+        await rt.executor.regulate_active_plan()
+        self.assertEqual(len(services.calls), before)
+        rt.executor._last_power_adjustment_at = datetime.now(timezone.utc)-timedelta(minutes=5)
+        await rt.executor.regulate_active_plan()
+        self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 15)
+        self.assertEqual(len([call for call in services.calls if call[1] == "turn_on"]), 1)
+        # A missing mandatory binding is still an immediate safety STOP.
+        envelope.state = "unavailable"
+        await rt.executor.supervise()
+        self.assertEqual(states["switch.evse_control"].state, "off")
 
     async def test_quarter_grant_rechecks_changed_configuration_before_start(self):
         rt, states, services = rig(mode="Automatic")

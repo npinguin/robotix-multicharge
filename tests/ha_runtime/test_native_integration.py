@@ -873,7 +873,7 @@ async def test_every_logical_device_auto_creates_own_native_inputs(hass: HomeAss
             "select": ("mode", "plan_color_by", "plan_label_mode",
                        "show_indicative_forecast", "solar_source_kind",
                        "grid_power_direction"),
-            "number": ("max_parallel", "max_power_kw"),
+            "number": ("max_parallel", "max_power_kw", "power_adjustment_interval_minutes"),
             "text": ("name", "price_entity", "solar_entity",
                      "site_power_entity", "binding_entity",
                      "solar_power_entity", "home_power_entity",
@@ -1540,12 +1540,14 @@ async def test_optional_one_click_install_and_native_guided_configure(
         site["flow_id"], {
             "name": "Configured Home", "mode": "Automatic",
             "max_parallel": 2, "max_power_kw": 7.2,
+            "power_adjustment_interval_minutes": 7,
         },
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY, result.get("errors")
     await hass.async_block_till_done()
     assert entry.options["configuration"]["controller"]["name"] == "Configured Home"
     assert entry.options["configuration"]["controller"]["max_parallel"] == 2
+    assert entry.options["configuration"]["controller"]["power_adjustment_interval_minutes"] == 7
 
     choose_charger = await menu_step("charger_pick")
     assert choose_charger["step_id"] == "charger_pick"
@@ -2373,7 +2375,11 @@ async def test_native_ha_service_injects_context_for_real_vehicle_quick_action(
     target = ids.async_get_entity_id(
         "number", DOMAIN, f"{DOMAIN}:asset:b:target_soc",
     )
-    assert all((vehicle, mode, target))
+    interval = ids.async_get_entity_id(
+        "number", DOMAIN, f"{DOMAIN}:controller:site:power_adjustment_interval_minutes",
+    )
+    assert all((vehicle, mode, target, interval))
+    assert float(hass.states.get(interval).state) == 5
     assert hass.states.get(vehicle).state == "Car A"
     assert hass.states.get(mode).state == "off"
     assert hass.states.get(target).state == "90.0"
@@ -2415,8 +2421,21 @@ async def test_native_ha_service_injects_context_for_real_vehicle_quick_action(
         )
         await hass.async_block_till_done()
         assert entry.options["configuration"]["assets"][1]["target_soc"] == 85
+        await hass.services.async_call(
+            "number", "set_value", {"entity_id": interval, "value": 7},
+            blocking=True, context=Context(user_id="admin"),
+        )
+        await hass.async_block_till_done()
+        assert entry.options["configuration"]["controller"]["power_adjustment_interval_minutes"] == 7
+        assert float(hass.states.get(interval).state) == 7
 
         for user_id in ("resident", None):
+            with pytest.raises(RuntimeError, match="administrator"):
+                await hass.services.async_call(
+                    "number", "set_value", {"entity_id": interval, "value": 3},
+                    blocking=True, context=Context(user_id=user_id),
+                )
+            assert entry.options["configuration"]["controller"]["power_adjustment_interval_minutes"] == 7
             with pytest.raises(RuntimeError, match="administrator"):
                 await hass.services.async_call(
                     "select", "select_option",
@@ -2438,6 +2457,9 @@ async def test_native_ha_service_injects_context_for_real_vehicle_quick_action(
             )
         assert entry.options["configuration"]["chargers"][0]["asset"] == "b"
         assert hass.states.get("switch.real_quick").state == "off"
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert float(hass.states.get(interval).state) == 7
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 
