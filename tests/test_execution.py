@@ -1855,9 +1855,12 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
                 break
             await asyncio.sleep(0.005)
         self.assertIn("evse", rt.executor._start_pending)
+        rt.executor._grants["other"] = object()
         pending_b = asyncio.create_task(
             rt.executor.execute("other", "stop", readback_seconds=0.05))
         await asyncio.sleep(0.05)
+        self.assertNotIn("other", rt.executor._grants,
+                         "STOP revokes B's outstanding quarter admission")
         self.assertTrue(any(
             action == "turn_off" and args.get("entity_id") ==
             "switch.other_control"

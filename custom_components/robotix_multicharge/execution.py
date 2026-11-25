@@ -1714,7 +1714,7 @@ class NativeSwitchExecutor:
                 current = actual_target
                 power = round(current * charger["voltage_v"] * charger["phase_count"] / 1000, 6)
         confirmed = max(slot.start, datetime.now(timezone.utc))
-        if confirmed >= slot.end:
+        if confirmed >= slot.end or self._grants.get(charger["id"]) != slot:
             return False
         record = {
             "charger_id": charger["id"], "asset_id": slot.asset_uid,
@@ -2341,6 +2341,16 @@ class NativeSwitchExecutor:
         # owner dispatches STOP after the native write returns, never racing
         # an in-flight turn_on. Only STOP can take this narrow dispatch path.
         pending = self._start_pending | self._current_pending
+        # Revoke a STOP target's current quarter grant before waiting for the
+        # writer lock. The ongoing quarter loop must never re-admit it.
+        if (action == "stop" and request_id not in self._requests
+                and not self._stopped):
+            owned = next((c for c in self.runtime.configuration["chargers"]
+                          if c["id"] == charger_id), None)
+            if (owned is not None
+                    and owned.get("control_owner") == "multicharge"
+                    and owned.get("physical_commissioned") is True):
+                self._grants.pop(charger_id, None)
         if (action == "stop" and charger_id in pending
                 and request_id not in self._requests and not self._stopped):
             self._stop_requested.add(charger_id)
