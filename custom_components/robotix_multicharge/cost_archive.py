@@ -5,7 +5,7 @@ ledger. Civil midnight inside an hour is retained as two exact minute slices.
 """
 from datetime import date, datetime, timedelta, timezone
 from hashlib import sha256
-from math import isfinite
+from math import isclose, isfinite
 from re import fullmatch
 
 from .history import _cost_bucket, _add_cost_bucket
@@ -282,6 +282,27 @@ def restore_pending_archive(snapshot):
             projections[key] = checked
         result[day] = {"start": first, "end": last, "projections": projections}
     return result
+
+
+def archive_projection_matches(original, restored):
+    """Native mean-rate conversion can round; ownership and value must match."""
+    if original.keys() != restored.keys():
+        return False
+    def same(a, b):
+        return isclose(a, b, rel_tol=1e-9, abs_tol=1e-6)
+    for kind, owners in original.items():
+        if owners.keys() != restored[kind].keys():
+            return False
+        for uid, bucket in owners.items():
+            observed = restored[kind][uid]
+            if (bucket.keys() != observed.keys()
+                    or bucket["valuations"].keys() != observed["valuations"].keys()
+                    or any(not same(value, observed[field])
+                           for field, value in bucket.items() if field != "valuations")
+                    or any(not all(same(a, b) for a, b in zip(pair, observed["valuations"][key]))
+                           for key, pair in bucket["valuations"].items())):
+                return False
+    return True
 
 
 def merge_slices(projections):

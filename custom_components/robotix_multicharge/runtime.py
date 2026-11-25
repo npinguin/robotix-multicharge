@@ -22,10 +22,10 @@ from .source_evidence import (
 from .execution import NativeSwitchExecutor
 from .cost_archive import (
     hour_slices, merge_slices, read_archive, write_archive,
-    pending_archive_snapshot, restore_pending_archive,
+    pending_archive_snapshot, restore_pending_archive, archive_projection_matches,
 )
 from .history import (
-    civil_cost_days, civil_period_costs, planned_costs, read_actual_history,
+    civil_cost_days, civil_period_costs, daily_costs, planned_costs, read_actual_history,
     reconcile_power_bindings, reconcile_tariff_bindings, session_costs,
 )
 
@@ -229,20 +229,33 @@ class MultiChargeRuntime:
         if restored is None:
             return
         missing = {key: row for key, row in projections.items() if key not in restored}
+        conflicts = {key for key, row in projections.items() if key in restored
+                     and not archive_projection_matches(row, restored[key])}
+        remaining = {**missing, **{key: projections[key] for key in conflicts}}
         slices = hour_slices(*bounds)
         # A timezone edit may change civil-day geometry; original evidence
-        # is still archived at its exact UTC slice boundaries.
+        # is still archived at its exact UTC slice boundaries. Conflicting
+        # readback is neither acknowledgement nor a qualified cost total.
         if days.get(retry_day) == bounds:
-            self._daily_costs[retry_day] = merge_slices({**projections, **restored})
-            if len(restored) == len(slices):
+            known = {key: row for key, row in {**projections, **restored}.items()
+                     if key not in conflicts}
+            for key, (first, last) in slices.items():
+                if key not in known:
+                    known[key] = daily_costs({}, self.power_bindings, cfg, first, last, (),
+                                             energy_bindings=self.energy_bindings)
+            self._daily_costs[retry_day] = merge_slices(known)
+            if len(restored) == len(slices) and not conflicts:
                 self._closed_cost_days.add(retry_day)
+            else:
+                self._closed_cost_days.discard(retry_day)
         if not self.executor._persistence_verified:
             return
         # A failed write or process restart must never trigger revaluation
-        # from raw data that may already have been purged.
+        # from raw data that may already have been purged. A conflicting
+        # valid native interval must not be overwritten automatically.
         self._archive_pending.pop(retry_day)
-        if missing:
-            self._archive_pending[retry_day] = {**queued, "projections": missing}
+        if remaining:
+            self._archive_pending[retry_day] = {**queued, "projections": remaining}
         if not await self.persist_control_state():
             # Do not retire any original receipt before Store acknowledges.
             self._archive_pending[retry_day] = queued

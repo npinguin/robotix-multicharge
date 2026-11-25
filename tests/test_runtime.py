@@ -860,6 +860,38 @@ class CostArchiveRetryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reader.call_args.args[2], {day: old_bounds})
         self.assertFalse(reader.call_args.kwargs["allow_recompose"])
 
+    async def test_archive_conflicting_readback_retains_original_and_missing_coverage(self):
+        from copy import deepcopy
+        from unittest.mock import AsyncMock, patch
+        from multicharge_runtime_test import runtime as module
+        from multicharge_runtime_test.history import _cost_bucket
+        rt = _ProductionRuntime(None, sample())
+        first = NOW.replace(hour=0)
+        last = first+timedelta(hours=2)
+        day = first.date().isoformat()
+        days = {day: (first, last)}
+        keys = list(module.hour_slices(first, last))
+        bucket = _cost_bucket()
+        bucket.update(expected_seconds=3600, observed_seconds=3600, observed_energy_kwh=1)
+        bucket["valuations"][("EUR", "effective")] = [0.25, 1]
+        original = {"controller": {"site": bucket}, "charger": {}, "asset": {}}
+        conflict = deepcopy(original)
+        conflict["controller"]["site"]["valuations"][("EUR", "effective")][0] = 0.50
+        rt._archive_pending[day] = {"start": first, "end": last,
+                                    "projections": {keys[0]: original}}
+        rt._closed_cost_days.add(day)
+        identity = rt._current_session_cost_identity()
+        with patch.object(module, "read_archive",
+                          new=AsyncMock(return_value={keys[0]: conflict})), \
+                patch.object(module, "write_archive") as writer:
+            await rt._retry_cost_archive(days, rt.configuration, [], identity)
+        writer.assert_not_called()
+        self.assertEqual(rt._archive_pending[day]["projections"], {keys[0]: original})
+        self.assertNotIn(day, rt._closed_cost_days)
+        self.assertIsNone(module.civil_period_costs(
+            days, rt._daily_costs)["controller"]["site"]["today"]["cost"])
+        self.assertEqual(rt._daily_costs[day]["controller"]["site"]["observed_seconds"], 0)
+
     async def test_readback_retries_only_original_missing_slices(self):
         from unittest.mock import AsyncMock, patch
         from multicharge_runtime_test import runtime as module
