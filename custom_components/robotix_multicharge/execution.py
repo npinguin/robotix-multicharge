@@ -1039,16 +1039,18 @@ class NativeSwitchExecutor:
         return None, round(kw, 6)
 
 
-    def _highest_safe_current(self, charger, at):
-        """Force Charge means fastest *qualified safe* current, not a blind max."""
+    def _highest_safe_current(self, charger, at, *, ceiling=None):
+        """Highest currently qualified safe setpoint, bounded by any slot grant."""
         minimum = charger.get("min_current_a")
         maximum = charger.get("max_current_a")
         step = charger.get("current_step_a")
         if not all(isinstance(x, (float, int)) and isfinite(x) and x > 0
                    for x in (minimum, maximum, step)) or maximum < minimum:
             return None
+        if ceiling is not None:
+            maximum = min(maximum, ceiling)
         count = floor((maximum - minimum) / step + 1e-9)
-        if count > 1000:
+        if count > 1000 or count < 0:
             return None
         for index in range(count, -1, -1):
             candidate = round(minimum + index * step, 6)
@@ -1521,10 +1523,19 @@ class NativeSwitchExecutor:
 
     def _accept_slot(self, charger, slot, revision):
         """Accept only a physically confirmed current slot; keep bounded evidence."""
+        # The native writer may have admitted a smaller setpoint than the
+        # proposal. Never publish the proposed ceiling as physical acceptance.
+        current = slot.current_a
+        power = slot.power_kw
+        if charger["kind"] == "variable_current":
+            actual_target = self._sessions.get(charger["id"], {}).get("target_current_a")
+            if actual_target is not None:
+                current = actual_target
+                power = round(current * charger["voltage_v"] * charger["phase_count"] / 1000, 6)
         record = {
             "charger_id": charger["id"], "asset_id": slot.asset_uid,
             "start": slot.start, "end": slot.end,
-            "power_kw": slot.power_kw, "current_a": slot.current_a,
+            "power_kw": power, "current_a": current,
             "revision": revision, "status": "accepted",
         }
         self._accepted[charger["id"]] = record
@@ -1616,7 +1627,7 @@ class NativeSwitchExecutor:
                             continue
                         if abs(target - session.get("target_current_a", 0)) > 1e-6:
                             outcome = await self.execute(
-                                uid, "set_current", current_a=target
+                                uid, "set_current", current_a=target, plan_slot=slot
                             )
                             if outcome["status"] != "confirmed":
                                 continue
@@ -2010,8 +2021,19 @@ class NativeSwitchExecutor:
                         current_a = self._highest_safe_current(charger, at)
                         if current_a is None:
                             return result("rejected", "NO_SAFE_ADJUSTABLE_CURRENT")
-                    if plan_slot is not None and action == "start":
+                    if plan_slot is not None:
+                        if (not self._grant_is_current(plan_slot, at)
+                                or plan_slot.charger_uid != charger_id
+                                or plan_slot.asset_uid != charger.get("asset")):
+                            return result("rejected", "PLAN_SLOT_NOT_AUTHORIZED")
                         current_a = plan_slot.current_a
+                        # A boost is optional. If fresh shared capacity has
+                        # shrunk, preserve the usable part of this authorized
+                        # quarter. No fallback for unbounded manual requests.
+                        if plan_slot.planning_power_kw is not None:
+                            current_a = self._highest_safe_current(charger, at, ceiling=current_a)
+                            if current_a is None:
+                                return result("rejected", "NO_SAFE_ADJUSTABLE_CURRENT")
                     problem, requested_kw = self._requested_current(charger, current_a, at)
                     if problem:
                         return result("rejected", problem)
