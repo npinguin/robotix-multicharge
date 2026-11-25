@@ -62,6 +62,7 @@ class MultiChargeRuntime:
         self.executor = NativeSwitchExecutor(self)
         self._control_store = None
         self.power_bindings = reconcile_power_bindings(None, configuration, datetime.now(timezone.utc))
+        self.energy_bindings = reconcile_power_bindings({}, configuration, datetime.now(timezone.utc), field="energy_entity")
         self._save_lock = asyncio.Lock()
         self._settings_action = None
         self._listeners = set()
@@ -130,6 +131,16 @@ class MultiChargeRuntime:
             _LOGGER.warning("Invalid stored power binding history; earlier intervals are unknown")
             self.power_bindings = reconcile_power_bindings(
                 {}, self.configuration, datetime.now(timezone.utc))
+        previous_energy = snapshot.get("energy_bindings", {}) if isinstance(snapshot, dict) else {}
+        try:
+            self.energy_bindings = reconcile_power_bindings(
+                previous_energy, self.configuration, datetime.now(timezone.utc), field="energy_entity",
+            )
+        except (ValueError, TypeError, KeyError, OverflowError):
+            _LOGGER.warning("Invalid stored energy binding history; earlier meter intervals are unknown")
+            self.energy_bindings = reconcile_power_bindings(
+                {}, self.configuration, datetime.now(timezone.utc), field="energy_entity",
+            )
         recorded = snapshot.get("settings_action") if isinstance(snapshot, dict) else None
         if (isinstance(recorded, dict)
                 and isinstance(recorded.get("expected_revision"), str)
@@ -173,6 +184,7 @@ class MultiChargeRuntime:
                     **self.executor.export_state(),
                     "settings_action": self._settings_action,
                     "power_bindings": self.power_bindings,
+                    "energy_bindings": self.energy_bindings,
                 })
             return True
         except (OSError, ValueError, RuntimeError):

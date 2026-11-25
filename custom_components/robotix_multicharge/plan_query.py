@@ -14,6 +14,66 @@ from .configuration import WEEKDAYS
 from .history import read_actual_history
 
 
+def charger_setup_projection(hass, registry, runtime, charger):
+    """Propose same-device native roles and expose effective current bounds.
+
+    No guessed entity names, no writes, and no automatic electrical limit changes.
+    """
+    from homeassistant.helpers import entity_registry as er
+
+    anchor = registry.async_get(charger.get("control_entity") or "")
+    device_id = anchor.device_id if anchor is not None else None
+    candidates = {}
+    if device_id is not None:
+        for entry in er.async_entries_for_device(registry, device_id, include_disabled_entities=False):
+            state = hass.states.get(entry.entity_id)
+            if state is None:
+                continue
+            domain = entry.entity_id.split(".", 1)[0]
+            unit = state.attributes.get("unit_of_measurement")
+            device_class = state.attributes.get("device_class")
+            role = None
+            if domain == "sensor":
+                if device_class == "power" and unit in ("W", "kW"):
+                    role = "power_entity"
+                elif device_class == "energy" and unit in ("Wh", "kWh"):
+                    role = "energy_entity"
+                elif device_class == "current" and unit == "A":
+                    role = "current_readback_entity"
+            elif domain == "binary_sensor" and device_class == "plug":
+                role = "connected_entity"
+            elif domain == "number" and unit == "A" and charger["kind"] == "variable_current":
+                role = "current_control_entity"
+            if role:
+                candidates.setdefault(role, []).append(entry.entity_id)
+    already_bound = {
+        value for row in runtime.configuration["chargers"]
+        for key, value in row.items() if key.endswith("_entity")
+    }
+    proposals = {
+        field: ids[0] for field, ids in candidates.items()
+        if not charger.get(field) and len(ids) == 1
+        and ids[0] not in already_bound
+    }
+    effective = runtime.executor.effective_charger(charger)
+    preview = runtime.executor.effective_charger({**charger, **proposals})
+    bounds = ("min_current_a", "max_current_a", "current_step_a")
+    native = runtime.executor.effective_charger({
+        key: value for key, value in charger.items() if key not in bounds
+    })
+    for field in bounds:
+        if charger.get(field) is None and preview.get(field) is not None:
+            proposals[field] = preview[field]
+    return {
+        "device_matched": device_id is not None,
+        "candidates": {field: sorted(ids) for field, ids in candidates.items()},
+        "proposed_missing": proposals,
+        "configured_current": {field: charger.get(field) for field in bounds},
+        "effective_current": {field: effective.get(field) for field in bounds},
+        "native_current": {field: native.get(field) for field in bounds},
+    }
+
+
 @websocket_api.websocket_command({
     vol.Required("type"): "robotix_multicharge/get_plan",
     vol.Optional("controller_id"): str,
@@ -23,6 +83,8 @@ from .history import read_actual_history
     vol.Optional("charger_id"): str,
     vol.Optional("asset_id"): str,
     vol.Optional("include_history", default=True): bool,
+    vol.Optional("discover_charger"): {vol.Required("control_entity"): str,
+                                      vol.Required("kind"): vol.In(("on_off", "variable_current"))},
 })
 @websocket_api.async_response
 async def websocket_get_plan(
@@ -63,16 +125,20 @@ async def websocket_get_plan(
             start, end,
             charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
         )
+        receipts = runtime.executor.completed_sessions()
         if msg.get("include_history", True):
-            actual, quality, estimates = await read_actual_history(
+            actual, quality, estimates, observed_sessions, session_metrics = await read_actual_history(
                 hass, result["configuration"], start, end,
                 charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
-                session_receipts=runtime.executor.completed_sessions(),
+                session_receipts=receipts,
                 price_slots=runtime.price_slots, include_valuations=True,
-                power_bindings=runtime.power_bindings,
+                power_bindings=runtime.power_bindings, energy_bindings=runtime.energy_bindings,
+                include_observed_sessions=True, active_sessions=result["active_sessions"],
+                tariff_entity=(result["configuration"]["controller"].get("price_entity") or
+                               result["configuration"]["controller"].get("current_price_entity")),
             )
         else:
-            actual, quality, estimates = [], "NOT_REQUESTED", {}
+            actual, quality, estimates, observed_sessions, session_metrics = [], "NOT_REQUESTED", {}, [], {}
         # A Recorder-based *indicative* variable component belongs in the
         # read-only view only. Never mutate persisted session receipts or
         # convert a power integration into an authoritative billed cost.
@@ -82,6 +148,18 @@ async def websocket_get_plan(
                     receipt["charger_id"], receipt["started_at"],
                     receipt["ended_at"],
                 ), {}))
+        for receipt in result["completed_sessions"]:
+            receipt.update(session_metrics.get((receipt["charger_id"], receipt["started_at"], receipt["ended_at"]), {}))
+        for uid, receipt in result["active_sessions"].items():
+            receipt.update(session_metrics.get((uid, receipt["started_at"], None), {}))
+        result["observed_sessions"] = observed_sessions
+        result["recent_completed_sessions"] = [
+            {**receipt, **session_metrics.get((receipt["charger_id"], receipt["started_at"], receipt["ended_at"]), {}),
+             **estimates.get((receipt["charger_id"], receipt["started_at"], receipt["ended_at"]), {})}
+            for receipt in receipts
+            if (msg.get("charger_id") is None or receipt["charger_id"] == msg["charger_id"])
+            and (msg.get("asset_id") is None or receipt.get("asset_id") == msg["asset_id"])
+        ]
         entry = hass.config_entries.async_get_entry(entry_id)
         result["configuration_managed_by_yaml"] = bool(
             entry is not None and entry.data.get("source") in ("yaml", "json")
@@ -103,6 +181,23 @@ async def websocket_get_plan(
         # Use the same configuration snapshot as the response, even if an
         # asynchronous Recorder query overlapped a settings update.
         cfg = result["configuration"]
+        admin = getattr(getattr(connection, "user", None), "is_admin", False)
+        result["charger_setup"] = {}
+        for row in cfg["chargers"]:
+            projection = charger_setup_projection(hass, registry, runtime, row)
+            if not admin:
+                projection.pop("candidates", None)
+                projection.pop("proposed_missing", None)
+            result["charger_setup"][row["id"]] = projection
+        if "discover_charger" in msg:
+            if not admin:
+                connection.send_error(msg["id"], websocket_api.ERR_UNAUTHORIZED, "Admin required")
+                return
+            # Only an explicitly selected native switch may anchor discovery.
+            draft = msg["discover_charger"]
+            if not draft["control_entity"].startswith("switch."):
+                raise ValueError("native switch required")
+            result["charger_setup_draft"] = charger_setup_projection(hass, registry, runtime, draft)
         result["preference_entities"] = {
             "controller": {
                 field: native_select("controller", cfg["controller"]["id"], field)

@@ -552,6 +552,15 @@ def intervals(hass, entity_id: str | None, kind: str, now: datetime, *,
     obj, evidence = _state(hass, entity_id, now, timedelta(hours=24))
     if obj is None:
         return (), evidence.reason
+    return intervals_from_state(hass, obj, kind, now, coverage_details=coverage_details)
+
+
+def intervals_from_state(hass, obj, kind, now, *, coverage_details=None):
+    """Same native interval contract for live and recorded provider snapshots."""
+    if obj.state in ("unknown", "unavailable", None, ""):
+        return (), "SOURCE_UNAVAILABLE"
+    if obj.attributes.get("snapshot_stale") not in (None, False):
+        return (), "INTERVAL_SOURCE_STALE"
     expected = {"price": "effective_price_kwh", "solar": "solar_limit_kw"}
     if kind not in expected:
         raise ValueError("unsupported interval kind")

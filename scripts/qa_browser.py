@@ -30,8 +30,11 @@ CASES = [
     (390, 4, "admin", "charger", True),
     (390, 2, "resident", "charger", False),
     (1024, 4, "admin", "asset", False),
+    (1024, 4, "admin", "overview", False),
     (1024, 2, "resident", "asset", True),
+    (390, 2, "admin", "plan", False),
     (1024, 10, "admin", "plan", True),
+    (1600, 2, "resident", "plan", False),
     (1600, 10, "resident", "overview", True),
     (1600, 10, "admin", "charger", False),
     (1600, 4, "admin", "overview", False),
@@ -80,6 +83,15 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
         raise AssertionError(f"{label}: horizontal page overflow: {row}")
     if row["viewport"] != size:
         raise AssertionError(f"{label}: requested width not actually honored: {row}")
+    if view == "setup":
+        required = ("observed", "prefilled", "progressive", "noWrite",
+                    "reviewed", "denied", "active")
+        if not all(row.get(key) is True for key in required):
+            raise AssertionError(f"{label}: setup/activation/session journey failed: {row}")
+        if not screenshot.is_file() or screenshot.stat().st_size < 2000:
+            raise AssertionError(f"{label}: charger setup screenshot missing")
+        print(f"BROWSER PASS {label}: reviewed native setup, observed session, busy refusal and retry")
+        return
     if view == "goal":
         required = ("initial", "compact", "actionable", "allDays", "noImplicitWrite",
                     "saved", "reopened", "shared", "variants")
@@ -123,7 +135,7 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
         if row["goalEditable"] != (role == "admin"):
             raise AssertionError(f"{label}: novice goal or resident auth drift: {row}")
     if view == "overview":
-        if not row["siteFirst"] or row["quickSelectors"] != 0 or row["assetAssignmentActions"] != (count if role == "admin" else 0):
+        if not row["siteFirst"] or not row["overviewGrid"] or row["quickSelectors"] != 0 or row["assetAssignmentActions"] != (count if role == "admin" else 0):
             raise AssertionError(f"{label}: site-first asset assignment hierarchy lost: {row}")
     if view == "charger":
         if row["quickSelectors"] != count:
@@ -137,7 +149,7 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
             raise AssertionError(f"{label}: all source-qualified local ApexCharts must render: {row}")
         if row.get("apexErrors"):
             raise AssertionError(f"{label}: a real browser ApexCharts error occurred: {row}")
-        if not all(row.get(key) for key in ("legendContained", "legendToggle", "priceAndForecast", "sameRange", "colorAndQuarter")):
+        if not all(row.get(key) for key in ("legendContained", "legendToggle", "priceAndForecast", "sameRange", "colorAndQuarter", "pixelAligned")):
             raise AssertionError(f"{label}: price/forecast legend layout or interaction lost: {row}")
     if row["commandButtons"]:
         raise AssertionError(f"{label}: uncommissioned external Charger shows physical writes")
@@ -173,11 +185,13 @@ def main():
             run_case(chrome, base, width, 4, "admin", "yaml", False)
         for width in (390, 1024, 1600):
             run_case(chrome, base, width, 2, "admin", "goal", False)
+        for width in (390, 1024, 1600):
+            run_case(chrome, base, width, 1, "admin", "setup", False)
     finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
-    print(f"Real Chromium responsive source-UX PASS: {len(CASES) + 9} cases "
+    print(f"Real Chromium responsive source-UX PASS: {len(CASES) + 12} cases "
           "(simulated HA input; installed target HA and real EVSE separately unqualified)")
 
 

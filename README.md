@@ -8,9 +8,9 @@
 
 Robotix MultiCharge is an open-source Home Assistant integration being built to coordinate charging for electric cars, e-bikes and other compatible rechargeable assets. The goal: make smart use of electricity prices, solar energy, available power and charging deadlines—without locking you to a vehicle, charger or energy provider.
 
-> **HACS TEST candidate v0.1.20 — independent Community integration, not STABLE or field-qualified.**
+> **HACS TEST candidate v0.1.21 — independent Community integration, not STABLE or field-qualified.**
 >
-> Unified charging graphs and goal bars use the same selected local time range and owner palette; planned quarters remain visible, and conditional plans are explicitly not reserved. Overview presents site metrics first with direct per-asset assignment and explicit identity confirmation. Compact vehicle outcome cards show actual battery state, target, deadline, goal coverage, required/planned/shortfall energy and the planner's selected charging windows. Conditional plans never reserve capacity. Simple weekday scheduling and one-save battery data, creation-only defaults and authoritative settings readback, recovered plan views, serialized execution grants and historical meter binding provenance. Preserves v0.1.18 tariff handling and physical guards. Install only after immutable HACS publication. See [releases](https://github.com/npinguin/robotix-multicharge/releases) and [Issue #1](https://github.com/npinguin/robotix-multicharge/issues/1) for actual evidence.
+> Charger setup now proposes real same-device sources and exposes configured/native current limits; activation is an explicit inline Save with precise idle-handover feedback. Recent externally observed charging runs expose energy, duration, mean/peak power and reference cost estimates without inventing attribution. Responsive object cards, local edits and the aligned chart/goal-bar pixel domain reduce navigation and scrolling. Unified charging graphs and goal bars use the same selected local time range and owner palette; planned quarters remain visible, and conditional plans are explicitly not reserved. Overview presents site metrics first with direct per-asset assignment and explicit identity confirmation. Compact vehicle outcome cards show actual battery state, target, deadline, goal coverage, required/planned/shortfall energy and the planner's selected charging windows. Conditional plans never reserve capacity. Simple weekday scheduling and one-save battery data, creation-only defaults and authoritative settings readback, recovered plan views, serialized execution grants and historical meter binding provenance. Preserves v0.1.18 tariff handling and physical guards. Install only after immutable HACS publication. See [releases](https://github.com/npinguin/robotix-multicharge/releases) and [Issue #1](https://github.com/npinguin/robotix-multicharge/issues/1) for actual evidence.
 
 ## Functional product authority
 
@@ -35,7 +35,7 @@ One existing **Details** disclosure on each object also shows **every persisted 
 
 **Input stability:** Every native and in-dashboard Controller, Charger, Asset, Guest, schedule, YAML textarea and activation field stays open while the user focuses or enters data. Background Home Assistant sensor updates, the source-refresh coalescer and delayed get_plan responses continue updating observations without replacing the active form, erasing unsubmitted input or dismissing an iPad keyboard. There is **no inactivity-based editor timeout**. Only explicit Save, Cancel, navigation or Refresh may repaint the user's open form; rejected Save preserves the typed value and shows an in-place error. This is covered by automated source/browser regressions; actual Wessels Safari acceptance is separate.
 
-**Release distinction:** source, isolated-HA and Chromium tests do not establish actual Safari/iPad behavior, real provider readings or physical STOP. Immutable v0.1.17 remains the rollback TEST for the v0.1.18 corrective batch; publishing TEST requires exact-dev, merged-main and artifact qualification.
+**Release distinction:** source, isolated-HA and Chromium tests do not establish actual Safari/iPad behavior, real provider readings or physical STOP. The previously published immutable release remains the rollback; publishing TEST requires exact-dev, merged-main and artifact qualification.
 
 ### Beginner-first UX and combined charging graph (dev)
 
@@ -82,8 +82,7 @@ hardware. Existing imported file-owned configurations remain read-only.
 The automatic sidebar at `/robotix-multicharge` uses the same five
 tabs for novice and expert use:
 
-- **Overview:** actual status, source quality, strategy and direct vehicle
-  assignment for each Charger without opening Details, plus STOP where allowed.
+- **Overview:** site status and mode first, then per-vehicle goals, schedule, charger assignment and explicit connection confirmation, all without leaving the vehicle card. STOP is visible where allowed.
 - **Charging Plan:** source-qualified measured, accepted, proposed and indicative
   15-minute timelines in locally bundled ApexCharts, with independently labelled
   tariff information. Unavailable measurements are never fabricated.
@@ -92,9 +91,14 @@ tabs for novice and expert use:
   limits, battery capacity and charge speed, native OEM SoC and health sources.
 - **Chargers:** create/remove Charger objects, assign vehicles directly on the
   card, manage controlled one-off sessions, and edit all native cable, power,
-  energy, current, electrical phase and circuit bindings inside foldable Details.
-  Newly configured Chargers remain external/monitor-only until expressly
-  explicitly activated by the user.
+  energy and current sources directly in a reviewed setup editor. Advanced electrical
+  limits remain in the owning details. Native device discovery proposes unambiguous
+  sources and current metadata; it never writes automatically. Active is the creation
+  default when a native control switch is selected; users can choose Inactive.
+  Existing ownership and explicit limits are retained. Changing activation is an
+  explicit Save with idle handover checks and authoritative readback. Observed external
+  charging runs show measured energy or a power-derived portion, duration, power and
+  qualified reference cost estimates without guessing vehicle identity.
 - **Settings:** Controller site name, strategy, site power and parallel limits,
   Solar, tariff, whole-home and grid native entity sources, meter direction,
   safety, diagnostics and **Edit YAML → Save**.
@@ -123,7 +127,7 @@ no other charging integration is required, inspected or managed.
 Robotix MultiCharge is a **single MIT-licensed community integration**. It installs
 from source; no precompiled runtime, paid Robotix services or separate mirror.
 
-For the v0.1.20 HACS TEST candidate (v0.1.19 is the rollback), after its GitHub prerelease is available, open HACS in Home Assistant and add
+For the v0.1.21 HACS TEST candidate (v0.1.20 is the rollback), after its GitHub prerelease is available, open HACS in Home Assistant and add
 `https://github.com/npinguin/robotix-multicharge` as a **custom Integration
 repository**, enable prerelease/beta versions where applicable, and install
 the published TEST prerelease. Restart Home Assistant and use the MultiCharge dashboard to configure all objects; do not create a second integration entry.

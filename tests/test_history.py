@@ -76,6 +76,67 @@ class NativeMeasuredHistoryTests(unittest.TestCase):
         self.assertEqual(mod._binding_for_interval(deleted["drive"], NOW-timedelta(minutes=15), NOW),
                          "sensor.old")
 
+    def test_external_run_energy_and_tariff_overlap_without_attribution(self):
+        start = NOW - timedelta(minutes=30)
+        mid = start + timedelta(minutes=15)
+        first = start - timedelta(minutes=5)
+        states = [recorded(first, 0), recorded(start, 2000),
+                  recorded(mid, 4000), recorded(NOW, 0)]
+        bindings = {"drive": [{"start": None, "entity": "sensor.power"}]}
+        quotes = [self._price(start, mid, 0.20, basis="spot"),
+                  self._price(mid, NOW, 0.32, basis="spot")]
+        rows = mod._observed_session_rows(
+            {"sensor.power": states}, bindings, ["drive"], first,
+            NOW, NOW, [], {}, quotes)
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertTrue(row["complete_observed_window"])
+        self.assertTrue(row["end_known"])
+        self.assertIsNone(row["asset_id"])
+        self.assertAlmostEqual(row["observed_energy_kwh"], 1.5)
+        self.assertAlmostEqual(row["average_power_kw"], 3)
+        self.assertAlmostEqual(row["peak_power_kw"], 4)
+        self.assertAlmostEqual(row["estimated_cost"], 0.42)
+        self.assertEqual(row["estimated_cost_basis"], "spot")
+        duplicate = mod._observed_session_rows(
+            {"sensor.power": states}, bindings, ["drive"], first,
+            NOW, NOW, [self._receipt(start, NOW)], {}, quotes)
+        self.assertEqual(duplicate, [])
+        # Partial ownership never discards the rest of a real external run.
+        owned_start = start + timedelta(minutes=5)
+        owned_end = NOW - timedelta(minutes=5)
+        parts = mod._observed_session_rows(
+            {"sensor.power": states}, bindings, ["drive"], first, NOW, NOW,
+            [self._receipt(owned_start, owned_end)], {}, quotes)
+        self.assertEqual(len(parts), 2)
+        self.assertEqual(parts[0]["ended_at"], owned_start.isoformat())
+        self.assertEqual(parts[1]["started_at"], owned_end.isoformat())
+        self.assertFalse(any(part["complete_observed_window"] for part in parts))
+        self.assertAlmostEqual(sum(part["observed_energy_kwh"] for part in parts), 0.5)
+        incomplete = mod._observed_session_rows(
+            {"sensor.power": states}, bindings, ["drive"], first,
+            NOW, NOW, [], {}, quotes[:1])
+        self.assertIsNone(incomplete[0]["estimated_cost"])
+
+    def test_stale_observed_run_does_not_invent_completion(self):
+        start = NOW - timedelta(hours=2)
+        runs = mod._observed_runs(
+            [recorded(start-timedelta(minutes=5), 0), recorded(start, 2000)],
+            start-timedelta(minutes=5), NOW, NOW)
+        self.assertEqual(len(runs), 1)
+        self.assertFalse(runs[0]["end_known"])
+        self.assertFalse(runs[0]["ongoing"])
+        self.assertEqual(runs[0]["segments"][0][1], start+mod.MAX_OBSERVATION_AGE)
+
+    def test_cumulative_meter_delta_requires_monotonic_qualified_boundaries(self):
+        start = NOW - timedelta(minutes=15)
+        power = [recorded(start, 2000), recorded(NOW, 0)]
+        meter = [recorded(start, 10, "kWh"), recorded(NOW, 10.5, "kWh")]
+        self.assertAlmostEqual(mod._meter_delta(
+            meter, power, start, NOW, NOW, False)["meter_energy_kwh"], 0.5)
+        reset = [meter[0], recorded(NOW, 0.5, "kWh")]
+        self.assertIsNone(mod._meter_delta(reset, power, start, NOW, NOW, False))
+
     def test_real_meter_integrates_recorded_power_changes(self):
         start = NOW - timedelta(minutes=15)
         row = actual_quarters([

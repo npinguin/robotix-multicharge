@@ -72,6 +72,10 @@ for(const [locale,translations] of Object.entries({
   de:{"Configure in Home Assistant":"In Home Assistant konfigurieren","Selected":"Ausgewählt"},
   es:{"Configure in Home Assistant":"Configurar en Home Assistant","Selected":"Seleccionado"}
 }))Object.assign(MC_TEXT[locale],translations);
+// Native setup and observed-session labels reuse the existing card locale map.
+for(const [locale,terms] of Object.entries({"nl":{"Review charger setup":"Laadpaalconfiguratie","Save charger setup":"Configuratie opslaan","Discover native sources":"Native bronnen zoeken","Native device current range":"Stroomgebied apparaat","Configured current range":"Ingesteld stroomgebied","Effective current range":"Effectief stroomgebied","Observed charging now":"Laden gemeten","Observed charging run":"Gemeten laadsessie","Earlier observed runs":"Eerdere gemeten sessies","Power-derived energy":"Energie uit vermogen","Average power":"Gemiddeld vermogen","Peak power":"Piekvermogen","Estimated energy cost":"Geschatte energiekosten","Verified energy cost":"Bevestigde energiekosten","Electrical limits & optional sources":"Elektrische limieten en optionele bronnen","Stop charging with the current owner before changing activation":"Stop het laden via de huidige eigenaar vóór activering","Incomplete start/end or source coverage · observed portion only":"Onvolledig begin/einde of brongegevens · alleen gemeten deel","Save not confirmed; refresh and retry":"Opslaan niet bevestigd; vernieuw en probeer opnieuw","suggestions":"voorstellen"},"fr":{"Review charger setup":"Configuration de la borne","Save charger setup":"Enregistrer la configuration","Discover native sources":"Détecter les sources natives","Native device current range":"Plage native de courant","Configured current range":"Plage de courant configurée","Effective current range":"Plage effective de courant","Observed charging now":"Charge observée en cours","Observed charging run":"Charge observée","Earlier observed runs":"Charges précédentes observées","Power-derived energy":"Énergie déduite de la puissance","Average power":"Puissance moyenne","Peak power":"Puissance de pointe","Estimated energy cost":"Coût énergétique estimé","Verified energy cost":"Coût énergétique confirmé","Electrical limits & optional sources":"Limites électriques et sources facultatives","Stop charging with the current owner before changing activation":"Arrêtez la charge via le contrôleur actuel avant activation","Incomplete start/end or source coverage · observed portion only":"Début/fin ou données incomplets · portion observée uniquement","Save not confirmed; refresh and retry":"Enregistrement non confirmé ; actualisez et réessayez","suggestions":"suggestions"},"de":{"Review charger setup":"Ladepunkt konfigurieren","Save charger setup":"Konfiguration speichern","Discover native sources":"Native Quellen suchen","Native device current range":"Nativer Strombereich","Configured current range":"Konfigurierter Strombereich","Effective current range":"Effektiver Strombereich","Observed charging now":"Aktuell beobachtete Ladung","Observed charging run":"Beobachteter Ladevorgang","Earlier observed runs":"Frühere beobachtete Vorgänge","Power-derived energy":"Energie aus Leistung","Average power":"Durchschnittsleistung","Peak power":"Spitzenleistung","Estimated energy cost":"Geschätzte Energiekosten","Verified energy cost":"Bestätigte Energiekosten","Electrical limits & optional sources":"Elektrische Grenzen und optionale Quellen","Stop charging with the current owner before changing activation":"Ladevorgang über den aktuellen Besitzer vor Aktivierung stoppen","Incomplete start/end or source coverage · observed portion only":"Start/Ende oder Quellen unvollständig · nur beobachteter Abschnitt","Save not confirmed; refresh and retry":"Speichern nicht bestätigt; aktualisieren und erneut versuchen","suggestions":"Vorschläge"},"es":{"Review charger setup":"Configurar cargador","Save charger setup":"Guardar configuración","Discover native sources":"Buscar fuentes nativas","Native device current range":"Rango de corriente nativo","Configured current range":"Rango de corriente configurado","Effective current range":"Rango de corriente efectivo","Observed charging now":"Carga observada en curso","Observed charging run":"Carga observada","Earlier observed runs":"Cargas observadas anteriores","Power-derived energy":"Energía derivada de potencia","Average power":"Potencia media","Peak power":"Potencia máxima","Estimated energy cost":"Coste energético estimado","Verified energy cost":"Coste energético confirmado","Electrical limits & optional sources":"Límites eléctricos y fuentes opcionales","Stop charging with the current owner before changing activation":"Detenga la carga con el controlador actual antes de activar","Incomplete start/end or source coverage · observed portion only":"Inicio/fin o datos incompletos · solo tramo observado","Save not confirmed; refresh and retry":"Guardado no confirmado; actualice e inténtelo de nuevo","suggestions":"sugerencias"},"da":{"Review charger setup":"Konfigurer lader","Save charger setup":"Gem konfiguration","Discover native sources":"Find native kilder","Native device current range":"Enhedens strømområde","Configured current range":"Konfigureret strømområde","Effective current range":"Effektivt strømområde","Observed charging now":"Observeret opladning nu","Observed charging run":"Observeret opladning","Earlier observed runs":"Tidligere observerede opladninger","Power-derived energy":"Energi ud fra effekt","Average power":"Gennemsnitseffekt","Peak power":"Spidseffekt","Estimated energy cost":"Estimeret energiomkostning","Verified energy cost":"Bekræftet energiomkostning","Electrical limits & optional sources":"Elektriske grænser og valgfrie kilder","Stop charging with the current owner before changing activation":"Stop opladning via nuværende ejer før aktivering","Incomplete start/end or source coverage · observed portion only":"Ufuldstændig start/slut eller kildedata · kun observeret del","Save not confirmed; refresh and retry":"Lagring ikke bekræftet; opdater og prøv igen","suggestions":"forslag"},"nb":{"Review charger setup":"Konfigurer lader","Save charger setup":"Lagre konfigurasjon","Discover native sources":"Finn native kilder","Native device current range":"Enhetens strømområde","Configured current range":"Konfigurert strømområde","Effective current range":"Effektivt strømområde","Observed charging now":"Observert lading nå","Observed charging run":"Observert lading","Earlier observed runs":"Tidligere observerte ladinger","Power-derived energy":"Energi fra effekt","Average power":"Gjennomsnittlig effekt","Peak power":"Toppeffekt","Estimated energy cost":"Estimert energikostnad","Verified energy cost":"Bekreftet energikostnad","Electrical limits & optional sources":"Elektriske grenser og valgfrie kilder","Stop charging with the current owner before changing activation":"Stopp lading via nåværende eier før aktivering","Incomplete start/end or source coverage · observed portion only":"Ufullstendig start/slutt eller kildedata · bare observert del","Save not confirmed; refresh and retry":"Lagring ikke bekreftet; oppdater og prøv igjen","suggestions":"forslag"},"sv":{"Review charger setup":"Konfigurera laddare","Save charger setup":"Spara konfiguration","Discover native sources":"Hitta inbyggda källor","Native device current range":"Enhetens strömområde","Configured current range":"Konfigurerat strömområde","Effective current range":"Effektivt strömområde","Observed charging now":"Observerad laddning nu","Observed charging run":"Observerad laddning","Earlier observed runs":"Tidigare observerade laddningar","Power-derived energy":"Energi från effekt","Average power":"Medeleffekt","Peak power":"Toppeffekt","Estimated energy cost":"Beräknad energikostnad","Verified energy cost":"Bekräftad energikostnad","Electrical limits & optional sources":"Elektriska gränser och valfria källor","Stop charging with the current owner before changing activation":"Stoppa laddning via nuvarande ägare före aktivering","Incomplete start/end or source coverage · observed portion only":"Ofullständig start/slut eller källdata · endast observerad del","Save not confirmed; refresh and retry":"Sparande inte bekräftat; uppdatera och försök igen","suggestions":"förslag"}}))
+  Object.assign(MC_TEXT[locale],terms);
+
 // One Asset-side chooser; all writes still target the Charger-owned Config Entry.
 for(const [locale,terms] of Object.entries({
   nl:{"Assign charger":"Laadpaal toewijzen","Change charger":"Laadpaal wijzigen","Select charger":"Kies laadpaal","Assign selected charger":"Laadpaal toewijzen","Unassign charger":"Laadpaal loskoppelen","No free charger":"Geen vrije laadpaal","Close assignment":"Sluiten","Idle-only reassignment. Stop charging separately before moving a vehicle.":"Alleen bij stilstand. Stop het laden apart vóór de overdracht."},
@@ -222,6 +226,7 @@ const MC_STYLE = [
   ".legend{display:flex;flex-wrap:wrap;gap:8px;font-size:12px;color:var(--secondary-text-color,#65717e)}.legend-toggle{font-size:12px;border:0;padding:4px;min-height:30px;background:transparent;color:inherit}.legend-toggle[aria-pressed=false]{opacity:.5;text-decoration:line-through}",
   ".dot{display:inline-block;width:11px;height:11px;margin-right:5px;border-radius:2px}",
   ".plan-lane{margin:10px 0;border:1px solid var(--divider-color,#d8dde3);border-radius:11px;padding:11px}",
+  ".object-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:10px;margin:9px 0;align-items:start}.object-grid>.card{margin:0;min-width:0}.object-grid>.expanded{grid-column:1/-1}.charger-state-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;padding:8px 0}.charger-power{padding:8px 0;border-bottom:1px solid var(--divider-color,#ddd)}@media(min-width:800px){.charger-state-grid{grid-template-columns:repeat(auto-fit,minmax(105px,1fr))}}.setup-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:0 12px}.setup-fields .field{min-width:0}.setup-fields>p{grid-column:1/-1}.goal-track,.goal-ticks{box-sizing:border-box}.session-summary{margin:8px 0;padding:8px 0;border-top:1px solid var(--divider-color,#ddd)}.session-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:7px;margin:7px 0}",
   ".plan-lane svg{display:block;min-width:680px;width:100%;height:auto}",
   ".plan-lane .chart{margin-top:5px}",
   ".owner-inventory{margin-top:14px;border-top:1px solid var(--divider-color,#bbb);padding-top:12px}.owner-inventory>h4{font-size:15px;margin:0 0 9px}.owner-group{margin:7px 0 12px;padding:8px 10px;border:1px solid var(--divider-color,#ccc);border-radius:8px;min-width:0}.owner-group h4{font-size:13px;margin:0 0 8px}.owner-group .pair{word-break:break-word}.owner-configure{margin-top:8px}.owner-configure a{display:inline-block;margin-top:4px}.owner-hint{font-size:12px}.owner-inventory .row{flex-wrap:wrap}",
@@ -366,6 +371,63 @@ function mcEnsureApex(){
   }).catch(error=>{mcApexLibrary=null;throw error;});
   return mcApexLibrary;
 }
+// Align the *rendered* time axes, not just their timestamp ranges. The
+// right-hand price axis, labels and responsive card padding consume different
+// amounts of space. Reuse Apex's actual grid geometry and its native padding.
+function mcPlotBounds(plot){
+  const lines=[...plot.querySelectorAll(".apexcharts-gridline")];
+  const horizontal=lines.map(el=>el.getBoundingClientRect())
+    .filter(r=>r.width>20&&r.height<3).sort((a,b)=>b.width-a.width)[0];
+  if(horizontal)return {left:horizontal.left,right:horizontal.right};
+  return null;
+}
+function mcSchedulePlanAlignment(root){
+  if(!root?.querySelectorAll||typeof window==="undefined")return;
+  if(root._mcAlignBusy){root._mcAlignPending=true;return;}
+  if(root._mcAlignTimer!=null)return;
+  root._mcAlignTimer=setTimeout(async()=>{
+    root._mcAlignTimer=null;root._mcAlignBusy=true;
+    try{
+      for(let pass=0;pass<4;pass++){
+        const plots=[...root.querySelectorAll(".mc-apex")];
+        if(!plots.length||plots.some(p=>!p._mcApex||!mcPlotBounds(p)))return;
+        const bounds=plots.map(p=>({p,...mcPlotBounds(p)}));
+        // Recover natural grid edges before our additional padding. This
+        // allows axes to expand again after resizing or changing series.
+        const left=Math.max(...bounds.map(b=>b.left-(b.p._mcExtraLeft||0)));
+        const right=Math.min(...bounds.map(b=>b.right+(b.p._mcExtraRight||0)));
+        if(right-left<40)return;
+        const updates=[];
+        for(const b of bounds){
+          const l=Math.max(0,Math.round(left-(b.left-(b.p._mcExtraLeft||0))));
+          const r=Math.max(0,Math.round((b.right+(b.p._mcExtraRight||0))-right));
+          if(Math.abs(l-(b.p._mcExtraLeft||0))<=1&&Math.abs(r-(b.p._mcExtraRight||0))<=1)continue;
+          b.p._mcExtraLeft=l;b.p._mcExtraRight=r;
+          updates.push(b.p._mcApex.updateOptions({grid:{padding:{left:3+l,right:8+r}}},false,false,false));
+        }
+        if(updates.length)await Promise.all(updates);
+        else break;
+      }
+      const bounds=[...root.querySelectorAll(".mc-apex")].map(mcPlotBounds).filter(Boolean);
+      if(!bounds.length)return;
+      const left=Math.max(...bounds.map(b=>b.left)),right=Math.min(...bounds.map(b=>b.right));
+      for(const block of root.querySelectorAll(".goal-timeline")){
+        const box=block.getBoundingClientRect();
+        for(const el of block.querySelectorAll(".goal-track,.goal-ticks")){
+          el.style.marginLeft=Math.max(0,left-box.left)+"px";
+          el.style.marginRight=Math.max(0,box.right-right)+"px";
+        }
+      }
+    }catch(error){
+      // Chart rendering stays usable; a failed alignment is not hidden from
+      // browser acceptance (which compares actual geometry).
+      console.warn("MultiCharge plot alignment",error);
+    }finally{
+      root._mcAlignBusy=false;
+      if(root._mcAlignPending){root._mcAlignPending=false;mcSchedulePlanAlignment(root);}
+    }
+  },0);
+}
 function mcMountApex(plot,options){
   plot.className+=" mc-apex";
   plot.setAttribute("role","img");
@@ -389,9 +451,12 @@ function mcMountApex(plot,options){
     return;
   void mcEnsureApex().then(Chart=>{
     if(plot.isConnected===false)return;
+    options.chart.events={...options.chart.events,
+      mounted:()=>mcSchedulePlanAlignment(plot.getRootNode()),
+      updated:()=>mcSchedulePlanAlignment(plot.getRootNode())};
     const chart=new Chart(plot,options);
     plot._mcApex=chart;
-    return chart.render().catch(error=>{
+    return chart.render().then(()=>mcSchedulePlanAlignment(plot.getRootNode())).catch(error=>{
       chart.destroy();plot._mcApex=null;
       plot.append(mcEl("p","plan-caution","ApexCharts render failed: "+String(error?.stack||error?.message||error).slice(0,650)));
     });
@@ -530,11 +595,13 @@ function mcPlanChartOptions(data,series,height,title,price=null){
   options.xaxis={...options.xaxis,type:"numeric",tickAmount:4,decimalsInFloat:0,
     labels:{formatter:value=>mcPlanTickText(value,data)}};
   options.tooltip.x={formatter:value=>mcPlanTickText(value,data)};
-  options.yaxis[0].title.text="Charging power · kW";
+  options.yaxis[0].title.text="";
+  // Units are already visible in chart headings, legend and hover readback.
+  // Avoid a second vertical title stealing scarce mobile plot width.
   if(price){
     options.yaxis[0].seriesName=series.map(s=>s.name);
     options.yaxis[1].seriesName=price.name;
-    options.yaxis[1].title.text="Price · "+price.currency+"/kWh";
+    options.yaxis[1].title.text="";
     if(!series.length)options.yaxis=[options.yaxis[1]];
   }
   options.tooltip.shared=false;options.tooltip.intersect=false;
@@ -1133,7 +1200,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       tab==="Chargers"&&this._editingField.startsWith("charger:")));
     return Boolean(this._unsavedInput||scopedEdit||this._yamlEditorOpen||
       (this._batteryEditor&&["Overview","Chargeable Assets","Charging Plan"].includes(tab))||
-      tab==="Overview"&&this._assignmentEditor||
+      tab==="Overview"&&(this._assignmentEditor||this._goalEditor||this._scheduleEditor||this._assetEditor)||
       tab==="Chargeable Assets"&&(
         this._assetEditor||this._assignmentEditor||
         this._goalEditor||this._scheduleEditor||this._windowsOpen)||
@@ -1158,9 +1225,11 @@ class RobotixMultiChargeCard extends HTMLElement {
     const existing=typeof target.querySelector==="function"?
       target.querySelector("[data-mc-edit-error]"):null;
     const message=existing||mcEl("p","message error");
-    message.setAttribute("role","alert");
+    const pending=this._settingsFeedback?.status==="accepted_unconfirmed";
+    message.className="message "+(pending?"pending":"error");
+    message.setAttribute("role",pending?"status":"alert");
     message.setAttribute("data-mc-edit-error","");
-    message.textContent=this._settingsFeedback?.message||"Unavailable";
+    message.textContent=mcTr(this._settingsFeedback?.message||"Unavailable");
     if(!existing)target.append(message);
   }
   scheduleSourceRefresh(){
@@ -1203,7 +1272,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     const queryFilter=requestedTab==="Charging Plan"?requestedFilter:"";
     try {
       const historyKey=requestedDay+"|"+queryFilter;
-      const wantsHistory=["Charging Plan","Chargeable Assets","Chargers"].includes(this._tab);
+      const wantsHistory=["Overview","Charging Plan","Chargeable Assets","Chargers"].includes(this._tab);
       const beforeData=this._data;
       const cmd={type:"robotix_multicharge/get_plan",day:requestedDay,
         include_history:wantsHistory&&(!beforeData||this._historyKey!==historyKey||
@@ -1234,14 +1303,20 @@ class RobotixMultiChargeCard extends HTMLElement {
         beforeData.configuration_revision===nextData.configuration_revision){
         nextData.actual_slots=beforeData.actual_slots;
         nextData.actual_history_quality=beforeData.actual_history_quality;
+        nextData.observed_sessions=beforeData.observed_sessions;
         const key=r=>r.charger_id+"|"+r.started_at+"|"+r.ended_at;
-        const prior=new Map((beforeData.completed_sessions||[]).map(r=>[key(r),r]));
-        for(const row of nextData.completed_sessions||[]){
+        const prior=new Map([...(beforeData.completed_sessions||[]),...(beforeData.recent_completed_sessions||[])].map(r=>[key(r),r]));
+        const fields=["estimated_variable_cost","estimated_variable_cost_currency","estimated_variable_cost_quality",
+          "estimated_cost","estimated_cost_currency","estimated_cost_basis","observed_energy_kwh",
+          "elapsed_minutes","average_power_kw","peak_power_kw"];
+        for(const row of [...(nextData.completed_sessions||[]),...(nextData.recent_completed_sessions||[])]){
           const earlier=prior.get(key(row));
-          if(earlier&&earlier.estimated_variable_cost!==undefined){
-            for(const k of ["estimated_variable_cost","estimated_variable_cost_currency","estimated_variable_cost_quality"])
-              if(earlier[k]!==undefined)row[k]=earlier[k];
-          }
+          if(earlier)for(const k of fields)if(earlier[k]!==undefined)row[k]=earlier[k];
+        }
+        for(const [uid,row] of Object.entries(nextData.active_sessions||{})){
+          const earlier=beforeData.active_sessions?.[uid];
+          if(earlier?.started_at===row.started_at)
+            for(const k of fields)if(earlier[k]!==undefined)row[k]=earlier[k];
         }
       }else if(wantsHistory&&!cmd.include_history){
         this._historyFetchedAt=0;this._refreshPending=true;
@@ -1266,8 +1341,17 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(this._pendingSettings&&
          this._data.configuration_revision===this._pendingSettings.expected_revision){
         const pending=this._pendingSettings;
-        this._settingsFeedback={status:"confirmed",message:"Saved"};
+        this._settingsFeedback={status:"confirmed",message:"Saved",scope:pending.scope,targetId:pending.targetId};
         this._pendingSettings=null;
+        this._unsavedInput=false;
+        if(pending.action==="create"&&pending.scope==="charger"){
+          this._createCharger=false;this._open=pending.targetId;
+        }
+        if(pending.action==="create"&&pending.scope==="asset")this._assetEditor="";
+        const prefix=pending.scope+":"+pending.targetId+":";
+        if(this._editingField.startsWith(prefix)&&
+            (pending.fields.includes(this._editingField.slice(prefix.length))||
+             this._editingField===prefix+"setup"))this._editingField="";
         if(pending.scope==="asset"){
           const id=pending.targetId,fields=pending.fields||[];
           if(fields.includes("capacity_kwh")&&fields.includes("charge_efficiency")){
@@ -1280,6 +1364,13 @@ class RobotixMultiChargeCard extends HTMLElement {
             delete this._goalDrafts[id];if(this._goalEditor===id)this._goalEditor="";
           }
         }
+      }
+      if(this._pendingSettings){
+        if(Date.now()-this._pendingSettings.requestedAt>15000){
+          this._pendingSettings=null;
+          this._settingsFeedback={status:"rejected",message:"Save not confirmed; refresh and retry"};
+          if(this.editingInProgress())this.showEditError();
+        }else this._refreshPending=true;
       }
       this._last=Date.now();
     }catch(error){
@@ -1325,7 +1416,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     }finally{this._commandBusy=false;this.render();}
   }
   async saveSettings(scope,targetId,changes,action,structural=false){
-    if(this._settingsBusy||!this._hass||!this._data||!this.canEditSettings())return;
+    if(this._settingsBusy||this._pendingSettings||!this._hass||!this._data||!this.canEditSettings())return;
     const preserveDraft=this.editingInProgress();
     if(!this._data.configuration_revision){
       this._settingsFeedback={status:"rejected",message:"Unavailable"};
@@ -1345,15 +1436,15 @@ class RobotixMultiChargeCard extends HTMLElement {
       });
       if(receipt.status!=="accepted_unconfirmed"||!receipt.expected_revision)
         throw new Error("Settings change was not admitted");
-      this._pendingSettings={expected_revision:receipt.expected_revision,scope,targetId,fields:Object.keys(changes)};
+      this._pendingSettings={expected_revision:receipt.expected_revision,scope,targetId,action:action||"save",fields:Object.keys(changes),requestedAt:Date.now()};
       this._settingsFeedback={status:"accepted_unconfirmed",message:"Pending"};
       this._last=0;
       admitted=true;
       return true;
     }catch(error){
-      const detail=String(error?.message||error?.code||"");
+      const detail=[error?.message,error?.code].filter(Boolean).join(" ");
       const reason=detail.includes("CHARGER_BUSY_STOP_FIRST")?
-        "Stop charging before changing charger":
+        (Object.hasOwn(changes,"control_owner")?"Stop charging with the current owner before changing activation":"Stop charging before changing charger"):
         detail.includes("CHARGER_HAS_OTHER_ASSET")?
           "Unassign the other vehicle first":
         (detail.includes("STALE_SETTINGS_REFRESH")||detail.includes("stale_settings"))?
@@ -1365,8 +1456,8 @@ class RobotixMultiChargeCard extends HTMLElement {
       return false;
     }finally{
       this._settingsBusy=false;
-      if(this._pendingSettings)await this.load();
-      if(!admitted&&preserveDraft)this.showEditError();
+      if(this._pendingSettings){if(this._loading)this._refreshPending=true;else await this.load();}
+      if(preserveDraft&&(!admitted||this._pendingSettings))this.showEditError();
       else this.render();
     }
   }
@@ -1451,9 +1542,10 @@ class RobotixMultiChargeCard extends HTMLElement {
         pairs.unshift([String(prior),String(prior)]);
       const choice=this.field(container,MC_OWNER_NAMES[field]||field,
         prior===undefined?"":String(prior),null,pairs);
-      return ()=>MC_EDIT_BOOLEAN.has(field)?
+      const read=()=>MC_EDIT_BOOLEAN.has(field)?
         choice.value==="true":MC_EDIT_NUMBERS.has(field)?
-        Number(choice.value):choice.value||null;
+        (choice.value===""?null:Number(choice.value)):choice.value||null;
+      read.setValue=value=>{choice.value=String(value??"");};return read;
     }
     const type=MC_EDIT_NUMBERS.has(field)?"number":"text";
     const fieldInput=this.field(container,MC_OWNER_NAMES[field]||field,
@@ -1482,7 +1574,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       container.append(mcEl("p","muted small",
         mcTr("Use an ISO timestamp with an explicit timezone")));
     }
-    return ()=>{
+    const read=()=>{
       const value=fieldInput.value.trim();
       if(!value)return null;
       if(MC_EDIT_NUMBERS.has(field)){
@@ -1492,6 +1584,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       }
       return /currency$/.test(field)?value.toUpperCase():value;
     };
+    read.setValue=value=>{fieldInput.value=String(value??"");};return read;
   }
   dashboardEditField(container,scope,record,field){
     const body=mcEl("div","dashboard-field-edit");
@@ -1504,9 +1597,9 @@ class RobotixMultiChargeCard extends HTMLElement {
         this.showEditError(body);return;
       }
       const ok=await this.saveSettings(scope,record.id,{[field]:value},"save",true);
-      if(ok){this._editingField="";this.render();}
+      if(ok&&this._settingsFeedback?.status==="confirmed"){this._editingField="";this.render();}
     });
-    submit.disabled=this._settingsBusy;
+    submit.disabled=this._settingsBusy||Boolean(this._pendingSettings);
     actions.append(submit,mcButton(mcTr("Cancel"),()=>{
       this._editingField="";this.render();
     }));
@@ -1895,6 +1988,14 @@ class RobotixMultiChargeCard extends HTMLElement {
     mcLanguage=String(this._hass?.locale?.language||this._hass?.language||"en").slice(0,2).toLowerCase();
     if(!this.shadowRoot)return;
     const root=this.shadowRoot;
+    const oldCard=typeof root.querySelectorAll==="function"?
+      [...root.querySelectorAll("[data-mc-object]")].find(el=>{
+        const rect=el.getBoundingClientRect?.();
+        return rect&&rect.bottom>0&&rect.top<(globalThis.innerHeight||900);
+      }):null;
+    const anchor=oldCard&&this._renderedTab===this._tab?
+      {id:oldCard.getAttribute("data-mc-object"),top:oldCard.getBoundingClientRect().top}:null;
+    this._renderedTab=this._tab;
     const previousCharts=typeof root.querySelectorAll==="function"?[...root.querySelectorAll(".mc-apex")]:[];
     root.replaceChildren();
     this._fieldSequence=0;
@@ -1951,6 +2052,25 @@ class RobotixMultiChargeCard extends HTMLElement {
       }
     }
     for(const old of previousCharts){try{old._mcApex?.destroy();}catch(_){}old._mcApex=null;}
+    if(this._tab==="Charging Plan")mcSchedulePlanAlignment(root);
+    if(anchor&&typeof root.querySelectorAll==="function"){
+      const replacement=[...root.querySelectorAll("[data-mc-object]")].find(
+        node=>node.getAttribute("data-mc-object")===anchor.id);
+      if(replacement){
+        const delta=replacement.getBoundingClientRect().top-anchor.top;
+        if(Math.abs(delta)>1){
+          let parent=this;
+          while(parent){
+            if(parent.scrollHeight>parent.clientHeight+1&&
+                /auto|scroll/.test(globalThis.getComputedStyle?.(parent)?.overflowY||"")){
+              parent.scrollTop+=delta;break;
+            }
+            parent=parent.parentElement||parent.getRootNode?.().host;
+          }
+          if(!parent)globalThis.scrollBy?.(0,delta);
+        }
+      }
+    }
   }
   overview(container){
     const d=this._data,c=d.configuration||{},assets=c.assets||[],chargers=c.chargers||[];
@@ -1998,13 +2118,28 @@ class RobotixMultiChargeCard extends HTMLElement {
     const site=mcEl("section","card charging-site-overview");
     site.append(mcEl("h3","",mcTr("Charging site")),metrics,chips);container.append(site);
     this.feedback(container);
-    if(assets.length)container.append(mcEl("h3","",mcTr("Chargeable Assets")));
+    for(const charger of chargers){
+      if(!(d.observed_sessions||[]).some(row=>row.charger_id===charger.id&&row.ongoing))continue;
+      const activity=mcEl("div","card");activity.append(mcEl("h3","",charger.name));
+      this.observedChargerActivity(activity,charger,true);container.append(activity);
+    }
+    const assetHeader=mcEl("div","row");
+    assetHeader.append(mcEl("h3","",mcTr("Chargeable Assets")));
+    if(this.canEditSettings()&&this._assetEditor!=="new")
+      assetHeader.append(mcButton(mcTr("Add guest or vehicle"),()=>{
+        this._assetEditor="new";this.render();
+      }));
+    container.append(assetHeader);this.assetCreate(container);
+    const assetCards=mcEl("div","object-grid");container.append(assetCards);
     for(const a of assets){
-      const card=mcEl("div","card");
+      const card=mcEl("div","card");card.setAttribute("data-mc-object","asset:"+a.id);
+      if(this._goalEditor===a.id||this._scheduleEditor===a.id||this._assignmentEditor===a.id||this._batteryEditor===a.id)card.className+=" expanded";
       const charger=chargers.find(x=>x.asset===a.id);
       card.append(mcIconLabel(mcEl("h3","",a.name),a.name,mcAssetIcon(a)));
       this.vehicleSummary(card,a,charger);
       this.goalAssessment(card,a,charger);
+      const running=charger&&d.active_sessions?.[charger.id];
+      if(running?.asset_id===a.id)this.sessionMetrics(card,running,false);
       if(a.temporary)card.append(mcEl("p","small",mcTr("Guest")+" · "+mcTime(a.expires_at,d.timezone)));
       const controls=mcEl("div","overview-actions");
       controls.append(mcButton(mcTr("Charging plan"),()=>{
@@ -2012,14 +2147,12 @@ class RobotixMultiChargeCard extends HTMLElement {
       }));
       if(this.canEditSettings()){
         controls.append(mcButton(mcTr("Set charging goal"),()=>{
-          this._tab="Chargeable Assets";this._open="";
-          this._focusAsset=a.id;
-          this._goalEditor=a.id;
+          this._goalEditor=a.id;this._scheduleEditor="";this._assignmentEditor="";
           this.render();
         }));
         controls.append(mcButton(mcTr("Schedule charging"),()=>{
-          this._tab="Chargeable Assets";this._focusAsset=a.id;
-          this._scheduleEditor=a.id;this.render();
+          this._scheduleEditor=this._scheduleEditor===a.id?"":a.id;
+          this._goalEditor="";this._assignmentEditor="";this.render();
         }));
       }
       if(charger&&this.canManage()){
@@ -2034,17 +2167,17 @@ class RobotixMultiChargeCard extends HTMLElement {
         }
       }
       card.append(controls);
+      if(this._goalEditor===a.id&&this.canEditSettings())this.assetGoalEditor(card,a);
+      if(this._scheduleEditor===a.id&&this.canEditSettings()){
+        const schedule=mcEl("div","details schedule-editor");
+        schedule.append(mcEl("h4","",mcTr("When should the vehicle be ready?")));
+        this.nativeRepeatEditor(schedule,a);card.append(schedule);
+      }
       this.assetChargerAssignment(card,a,charger,chargers);
       this.assetConnectionConfirmation(card,a,charger);
-      container.append(card);
+      assetCards.append(card);
     }
     if(!assets.length&&chargers.length)this.notice(container,"No vehicles",false);
-    if(this.canEditSettings()){
-      const add=mcButton(mcTr("Add guest or vehicle"),()=>{
-        this._tab="Chargeable Assets";this._assetEditor="new";this.render();
-      });
-      container.append(add);
-    }
     const next=mcEl("div","card");next.append(mcEl("h3","","Next action"));
     next.append(mcEl("p","",!chargers.length?"Configure a charger to begin":d.status==="unavailable"?"Not ready":"Plan"));
     if(!chargers.length&&this.canEditSettings())
@@ -2331,7 +2464,8 @@ class RobotixMultiChargeCard extends HTMLElement {
           mcOwnerReadValue(record[field],field,this._data?.timezone)));
       line.append(info);
       const key=scope+":"+record.id+":"+field;
-      if(this.canEditSettings()&&!["id","physical_commissioned"].includes(field)){
+      if(this.canEditSettings()&&!["id","physical_commissioned"].includes(field)&&
+          !(scope==="charger"&&primaryFields.includes(field))){
         const edit=mcButton(mcTr("Edit"),()=>{
           if(primaryFields.includes(field)){
             this._settingsOpen=field==="phase_limits_a"?"Safety & limits":"Sources & bindings";
@@ -2650,7 +2784,13 @@ class RobotixMultiChargeCard extends HTMLElement {
   assets(container){
     const d=this._data,assets=d.configuration.assets||[],chargers=d.configuration.chargers||[];
     this.title(container,mcTr("Chargeable Assets")+" ("+assets.length+")");
+    this.feedback(container);
     if(!assets.length)this.notice(container,"No vehicles",false);
+    if(this.canEditSettings()&&this._assetEditor!=="new")container.append(mcButton("Add asset",()=>{
+      this._assetEditor="new";this.render();
+    }));
+    this.assetCreate(container);
+    const assetCards=mcEl("div","object-grid");container.append(assetCards);
     const arranged=this._focusAsset?
       [...assets].sort((a,b)=>(a.id===this._focusAsset?-1:0)-
                             (b.id===this._focusAsset?-1:0)):
@@ -2661,9 +2801,11 @@ class RobotixMultiChargeCard extends HTMLElement {
         mcTr("Selected vehicle")+" · "+selected.name));
     }
     for(const a of arranged){
-      const card=mcEl("div","card object-card");const charger=chargers.find(x=>x.asset===a.id);
+      const card=mcEl("div","card object-card");card.setAttribute("data-mc-object","asset:"+a.id);const charger=chargers.find(x=>x.asset===a.id);
       const obs=((d.observations||{}).assets||{})[a.id]||{};
       const header=mcEl("div","row");header.append(mcIconLabel(mcEl("h3","",a.name),a.name,mcAssetIcon(a)),mcButton(this._open===a.id?"Hide details":"Details",()=>{this._open=this._open===a.id?"":a.id;this.render();}));
+      if(this._open===a.id||this._goalEditor===a.id||this._scheduleEditor===a.id||
+          this._assignmentEditor===a.id||this._batteryEditor===a.id||this._editingField.startsWith("asset:"+a.id+":"))card.className+=" expanded";
       card.append(header);
       this.vehicleSummary(card,a,charger);
       this.goalAssessment(card,a,charger);
@@ -2799,7 +2941,7 @@ class RobotixMultiChargeCard extends HTMLElement {
           detail.append(row);
         }
         this.ownerFacts(detail,"asset",a);
-        const recent=(d.completed_sessions||[])
+        const recent=(d.recent_completed_sessions||d.completed_sessions||[])
           .filter(entry=>entry.asset_id===a.id&&entry.physical_stop_confirmed===true)
           .slice(-3).reverse();
         const historyPanel=mcEl("div","history-values");
@@ -2811,9 +2953,7 @@ class RobotixMultiChargeCard extends HTMLElement {
             chargers.find(ch=>ch.id===receipt.charger_id)?.name||
               receipt.charger_id||mcTr("Unknown"));
           mcPair(row,mcTr("Completed"),mcTime(receipt.ended_at,d.timezone));
-          mcPair(row,mcTr("Measured energy"),
-            receipt.actual_energy_kwh===null||receipt.actual_energy_kwh===undefined?
-              mcTr("Unknown"):receipt.actual_energy_kwh+" kWh");
+          this.sessionMetrics(row,receipt,false);
           mcPair(row,mcTr("Physical STOP confirmed"),mcTr("Yes"));
           if(receipt.stop_reason)mcPair(row,mcTr("Session stop reason"),
             mcReason(receipt.stop_reason));
@@ -2824,10 +2964,13 @@ class RobotixMultiChargeCard extends HTMLElement {
           recent.length+" "+mcTr("configured fields"));
         card.append(detail);
       }
-      container.append(card);
+      assetCards.append(card);
     }
+  }
+  assetCreate(container){
+    const d=this._data;
     if(this.canEditSettings()&&this._assetEditor==="new"){
-      const form=mcEl("form","card");form.append(mcEl("h3","","Add a chargeable asset"));
+      const form=mcEl("form","card dashboard-create");form.append(mcEl("h3","","Add a chargeable asset"));
       const name=this.field(form,"Asset name","","text");
       const kind=this.field(form,"Asset type","car",null,[
         ["car",mcTr("Car")],["bicycle",mcTr("Bicycle")],
@@ -2883,12 +3026,9 @@ class RobotixMultiChargeCard extends HTMLElement {
         }
         this.saveSettings("asset",id,changes,"create");
       }));
+      form.append(mcButton(mcTr("Cancel"),()=>{this._assetEditor="";this.render();}));
       container.append(form);
     }
-    this.feedback(container);
-    if(this.canEditSettings())container.append(mcButton(this._assetEditor==="new"?"Cancel adding":"Add asset",()=>{
-      this._assetEditor=this._assetEditor==="new"?"":"new";this.render();
-    }));
   }
   dashboardChargerCreate(container){
     if(!this.canEditSettings())return;
@@ -2921,7 +3061,30 @@ class RobotixMultiChargeCard extends HTMLElement {
       "min_current_a","max_current_a","current_step_a","fixed_current_a",
       "circuit_id","circuit_limit_a"
     ])readers[field]=this.dashboardFieldControl(panel,"charger",draft,field);
-    tech.append(panel);box.append(tech);
+    tech.append(panel);
+    const discovery=mcEl("div","small muted");
+    const discover=mcButton("Discover native sources",async()=>{
+      const control=readSwitch();
+      if(!control){discovery.textContent="Select the native charger switch first.";return;}
+      const selectedKind=kind.value;
+      discover.disabled=true;
+      try{
+        const response=await this._hass.callWS({type:"robotix_multicharge/get_plan",
+          day:this._day,include_history:false,discover_charger:{control_entity:control,kind:selectedKind}});
+        if(readSwitch()!==control||kind.value!==selectedKind)return;
+        const setup=response.charger_setup_draft;
+        if(!setup)throw Error("Native discovery unavailable");
+        let count=0;
+        for(const [field,value] of Object.entries(setup.proposed_missing||{})){
+          if(readers[field]?.setValue&&readers[field]()===null){readers[field].setValue(value);count++;}
+        }
+        discovery.textContent=setup.device_matched?count+" suggested fields populated. Review before Save.":
+          "No native device match. Select the source entities manually.";
+        tech.open=true;
+      }catch(error){discovery.textContent=String(error?.message||"Native discovery unavailable");}
+      finally{discover.disabled=false;}
+    });
+    box.append(discover,discovery,tech);
     const actions=mcEl("div","dashboard-edit-actions");
     const save=mcButton(mcTr("Add charger"),async()=>{
       const uid=id.value.trim()||name.value.trim().toLowerCase()
@@ -2943,8 +3106,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         this._settingsFeedback={status:"rejected",message:String(error.message)};
         this.showEditError(box);return;
       }
-      const ok=await this.saveSettings("charger",uid,changes,"create",true);
-      if(ok){this._createCharger=false;this._open=uid;this.render();}
+      await this.saveSettings("charger",uid,changes,"create",true);
     });
     save.disabled=this._settingsBusy;
     actions.append(save,mcButton(mcTr("Cancel"),()=>{
@@ -2952,14 +3114,146 @@ class RobotixMultiChargeCard extends HTMLElement {
     }));
     box.append(actions);container.append(box);
   }
+  sessionMetrics(container,row,observed){
+    const num=(v,unit,dec=2)=>typeof v==="number"&&Number.isFinite(v)?v.toFixed(dec)+" "+unit:mcTr("Unknown");
+    const meter=observed?row.meter_energy_kwh:row.actual_energy_kwh;
+    const derived=row.observed_energy_kwh;
+    const duration=observed?row.observed_duration_minutes:(row.duration_minutes??row.elapsed_minutes);
+    const avg=row.average_power_kw??(typeof meter==="number"&&duration>0?meter*60/duration:null);
+    const grid=mcEl("div","session-metrics");
+    const metrics=[
+      [typeof meter!=="number"&&typeof derived==="number"?"Power-derived energy":"Measured energy",num(meter??derived,"kWh")],
+      ["Duration",num(duration,"min",0)],
+      ["Average power",num(avg,"kW")],["Peak power",num(row.peak_power_kw,"kW")],
+      [typeof row.cost==="number"?"Verified energy cost":typeof row.estimated_variable_cost==="number"?"Indicative variable energy cost":"Estimated energy cost",
+        num(row.cost??row.estimated_cost??row.estimated_variable_cost,
+        row.currency??row.estimated_cost_currency??row.estimated_variable_cost_currency??"")]];
+    for(const [label,value] of metrics){
+      const cell=mcEl("div","goal-metric");cell.append(mcEl("span","muted small",mcTr(label)),mcEl("strong","",value));grid.append(cell);
+    }
+    container.append(grid);
+    if(typeof row.cost!=="number"&&(typeof row.estimated_cost==="number"||typeof row.estimated_variable_cost==="number"))
+      container.append(mcEl("p","muted small",mcTr("Power-derived estimate, not a bill")+" · "+
+        (row.estimated_cost_basis||"effective")));
+    if(observed&&row.meter_observed_at)container.append(mcEl("p","muted small",
+      "Meter reading · "+mcTime(row.meter_observed_at,this._data.timezone)));
+    if(observed&&!row.complete_observed_window)container.append(mcEl("p","plan-caution",
+      "Incomplete start/end or source coverage · observed portion only"));
+  }
+  observedChargerActivity(card,charger,latestOnly=false){
+    const rows=(this._data.observed_sessions||[]).filter(row=>row.charger_id===charger.id)
+      .sort((a,b)=>String(b.ended_at).localeCompare(String(a.ended_at)));
+    if(!rows.length)return;
+    const render=row=>{
+      const panel=mcEl("div","session-summary");
+      const fresh=this._data.observations?.chargers?.[charger.id]?.power_kw;
+      const charging=row.ongoing&&fresh?.quality==="ok"&&fresh.value>0.05;
+      panel.append(mcEl("strong","",charging?"Observed charging now":"Observed charging run"),
+        mcEl("p","muted small",mcTime(row.started_at,this._data.timezone)+" – "+
+          mcTime(row.ended_at,this._data.timezone)+" · "+mcTr("Vehicle unknown")));
+      this.sessionMetrics(panel,row,true);return panel;
+    };
+    card.append(render(rows[0]));
+    if(!latestOnly&&rows.length>1){
+      const history=mcEl("div");
+      for(const row of rows.slice(1))history.append(render(row));
+      this.disclosure(card,"charger:"+charger.id+":observed","Earlier observed runs",history,
+        (rows.length-1)+" · up to 48h");
+    }
+  }
+  chargerSetup(card,charger){
+    const setup=this._data.charger_setup?.[charger.id];
+    if(!setup)return;
+    const key="charger:"+charger.id+":setup";
+    const proposal=setup.proposed_missing||{};
+    const fields=Object.keys(proposal);
+    const bounds=setup.effective_current||{};
+    if(charger.kind==="variable_current"){
+      const format=b=>b?.min_current_a!=null&&b?.max_current_a!=null?
+        b.min_current_a+"–"+b.max_current_a+" A"+(b.current_step_a!=null?" · "+b.current_step_a+" A step":""):mcTr("Unknown");
+      mcPair(card,"Effective current range",format(bounds));
+      if(this._editingField===key){
+        mcPair(card,"Native device current range",format(setup.native_current));
+        mcPair(card,"Configured current range",format(setup.configured_current));
+      }
+      if(setup.native_current?.max_current_a!=null&&bounds.max_current_a>setup.native_current.max_current_a)
+        card.append(mcEl("p","plan-caution","Configured maximum exceeds native hardware range; correct the setting."));
+    }
+    const required=["control_entity","power_entity"];
+    if(charger.kind==="variable_current")required.push("current_control_entity","connected_entity");
+    const absent=required.filter(f=>!charger[f]);
+    if(absent.length)card.append(mcEl("p","muted small","Unbound sources · "+
+      absent.map(f=>mcTr(MC_OWNER_NAMES[f]||f)).join(", ")));
+    if(this._editingField===key&&!charger.energy_entity)card.append(mcEl("p","muted small","Optional cumulative meter: power-derived energy remains available when measured coverage is sufficient."));
+    if(this._editingField===key&&charger.kind==="variable_current"&&!charger.current_readback_entity)
+      card.append(mcEl("p","muted small","Independent current sensor optional when qualified power readback suffices."));
+    if(this._editingField!==key){
+      card.append(mcButton(mcTr("Review charger setup")+(fields.length?" ("+fields.length+" "+mcTr("suggestions")+")":""),()=>{
+        this._editingField=key;this._settingsFeedback=null;this.render();
+      }));
+      return;
+    }
+    const panel=mcEl("div","dashboard-field-edit");
+    panel.append(mcEl("h4","","Charger setup"));
+    panel.append(mcEl("p","muted small",setup.device_matched?
+      "Native device matched. Review proposed sources and limits before Save.":
+      "No native device match; choose sources explicitly."));
+    const readers={};
+    const draft={...charger,...proposal};
+    const primary=mcEl("div","setup-fields");
+    const advanced=mcEl("details","owner-group");
+    advanced.append(mcEl("summary","","Electrical limits & optional sources"));
+    const secondary=mcEl("div","setup-fields");advanced.append(secondary);
+    const editable=["control_entity","connected_entity","power_entity","energy_entity","session_entity"];
+    if(charger.kind==="variable_current")editable.push("current_control_entity",
+      "current_readback_entity","min_current_a","max_current_a","current_step_a");
+    editable.push("rated_power_kw","phase_count","voltage_v");
+    for(const field of editable){
+      if(Object.hasOwn(proposal,field))
+        panel.append(mcEl("p","muted small","Suggested · "+mcTr(MC_OWNER_NAMES[field]||field)));
+      else if((setup.candidates?.[field]||[]).length>1&&!charger[field])
+        panel.append(mcEl("p","muted small","Multiple native candidates · "+
+          setup.candidates[field].join(", ")));
+      const target=["control_entity","connected_entity","power_entity","current_control_entity","energy_entity"].includes(field)?primary:secondary;
+      readers[field]=this.dashboardFieldControl(target,"charger",draft,field);
+    }
+    panel.append(primary,advanced);
+    const actions=mcEl("div","dashboard-edit-actions");
+    const save=mcButton("Save charger setup",async()=>{
+      const changes={};
+      try{
+        for(const [field,read] of Object.entries(readers)){
+          const value=read();
+          if((charger[field]??null)!==value)changes[field]=value;
+        }
+        if(!Object.keys(changes).length){this._editingField="";this.render();return;}
+        await this.saveSettings("charger",charger.id,changes,"save",true);
+      }catch(error){
+        this._settingsFeedback={status:"rejected",message:String(error.message)};
+        this.showEditError(panel);
+      }
+    });
+    save.disabled=this._settingsBusy||Boolean(this._pendingSettings);
+    actions.append(save,mcButton("Cancel",()=>{this._editingField="";this.render();}));
+    panel.append(actions);card.append(panel);
+  }
   chargers(container){
     const d=this._data,chargers=d.configuration.chargers||[],observations=(d.observations||{}).chargers||{};
     this.title(container,mcTr("Chargers")+" ("+chargers.length+")");
     this.feedback(container);
     if(!chargers.length)this.notice(container,"No charging points",false);
+    if(this.canEditSettings()){
+      if(this._createCharger)this.dashboardChargerCreate(container);
+      else container.append(mcButton(mcTr("Add charger"),()=>{
+        this._createCharger=true;this.render();
+      }));
+    }
+    const chargerCards=mcEl("div","object-grid");container.append(chargerCards);
     for(const c of chargers){
       const obs=observations[c.id]||{};
       const card=mcEl("div","card object-card");
+      card.setAttribute("data-mc-object","charger:"+c.id);
+      if(this._open===c.id||this._editingField.startsWith("charger:"+c.id+":"))card.className+=" expanded";
       const head=mcEl("div","row");head.append(mcIconLabel(mcEl("h3","",c.name),c.name,c.kind==="on_off"?"power-socket-eu":"ev-station"),mcButton(this._open===c.id?"Hide details":"Details",()=>{this._open=this._open===c.id?"":c.id;this.render();}));
       card.append(head);
       const chip=mcEl("div","plan-key"),dot=mcEl("span","plan-swatch");
@@ -2973,25 +3267,39 @@ class RobotixMultiChargeCard extends HTMLElement {
         states.connection_state==="no_asset_connected"?"No asset connected":"Unknown";
       const activity={charging:"Charging",paused:"Paused",stopped:"Stopped"}[states.charging_session]||"Unknown";
       const readiness={ready:"Ready",waiting:"Waiting",error:"Error",unavailable:"Unavailable"}[states.charging_state]||"Unknown";
-      mcPair(card,mcTr("Activation"),mcTr(activation));
-      mcPair(card,mcTr("Connection state"),mcTr(connection));
-      mcPair(card,mcTr("Charging session"),mcTr(activity));
-      mcPair(card,mcTr("Charging state"),mcTr(readiness));
+      const stateGrid=mcEl("div","charger-state-grid");
+      for(const [label,value] of [["Activation",activation],["Connection state",connection],
+          ["Charging session",activity],["Charging state",readiness]]){
+        const cell=mcEl("div","goal-metric");
+        cell.append(mcEl("span","muted small",mcTr(label)),mcEl("strong","",mcTr(value)));
+        stateGrid.append(cell);
+      }
+      card.append(stateGrid);
+      if(this._settingsFeedback?.status==="confirmed"&&this._settingsFeedback.scope==="charger"&&
+          this._settingsFeedback.targetId===c.id)this.feedback(card);
       if(states.reason&&states.charging_state!=="ready")
         card.append(mcEl("p","muted small",mcReason(states.reason)));
       if(states.switch_state==="on"&&activity==="Unknown")
         card.append(mcEl("p","muted small",mcTr("Switch on · charging not measured")));
-      mcPair(card,"Effective charging power",mcValue(obs.power_kw," kW"));
-      mcPair(card,"Control type",c.kind==="on_off"?"On/off":"Variable current");
-      if(this.canEditSettings())card.append(mcButton(
-        mcTr("Change activation"),()=>this.openNative("charger",c.id,"control_owner")
-      ));
+      const powerLine=mcEl("div","row charger-power");
+      powerLine.append(mcEl("span","muted small",mcTr("Effective charging power")),
+        mcEl("strong","value",mcValue(obs.power_kw," kW")));
+      card.append(powerLine);
+      if(this.canEditSettings()){
+        const activationKey="charger:"+c.id+":control_owner";
+        if(this._editingField===activationKey){
+          if(states.switch_state==="on"||(obs.power_kw?.quality==="ok"&&obs.power_kw.value>0.05))
+            card.append(mcEl("p","plan-caution",mcTr("Stop charging with the current owner before changing activation")));
+          this.dashboardEditField(card,"charger",c,"control_owner");
+        }else card.append(mcButton(mcTr("Change activation"),()=>{
+          this._settingsFeedback=null;this._editingField=activationKey;this.render();
+        }));
+        this.chargerSetup(card,c);
+      }
       const session=(d.active_sessions||{})[c.id];
       if(session){
         mcPair(card,"Active session",mcTime(session.started_at,d.timezone));
-        mcPair(card,"Measured session energy",
-               session.actual_energy_kwh===null||session.actual_energy_kwh===undefined?
-                 mcTr("Unknown"):session.actual_energy_kwh+" kWh");
+        this.sessionMetrics(card,session,false);
         const intent=session.requested_budget_amount!=null?
           session.requested_budget_amount+" "+
             (session.requested_budget_currency||"EUR"):
@@ -3011,7 +3319,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       }
       const selectedAsset=(d.configuration.assets||[]).find(a=>a.id===c.asset);
       this.chargerQuickSelection(card,c);
-      mcPair(card,"Assigned asset",selectedAsset?selectedAsset.name:mcTr("Not assigned"));
+      // The owning native chooser already displays the assigned vehicle.
       const identity=(d.connection_identity||{})[c.id]||null;
       const confirmed=(identity&&identity.asset_id===c.asset);
       mcPair(card,mcTr("Connected vehicle"),confirmed?
@@ -3023,37 +3331,39 @@ class RobotixMultiChargeCard extends HTMLElement {
         confirm.disabled=this._settingsBusy;
         card.append(confirm);
       }
-      const history=(d.completed_sessions||[]).filter(x=>x.charger_id===c.id);
+      const history=(d.recent_completed_sessions||d.completed_sessions||[]).filter(x=>x.charger_id===c.id);
       const latest=history.length?history[history.length-1]:null;
       if(latest){
         const historyPanel=mcEl("div","history-values");
         mcPair(historyPanel,"Last confirmed session",mcTime(latest.ended_at,d.timezone));
-        mcPair(historyPanel,"Measured energy",latest.actual_energy_kwh===null?"Unknown":latest.actual_energy_kwh+" kWh");
-        mcPair(historyPanel,"Verified cost",latest.cost===null?
-          mcTr("Unknown"):latest.cost+" "+latest.currency);
+        this.sessionMetrics(historyPanel,latest,false);
+        // Cost is shown once in the shared session metrics.
         mcPair(historyPanel,mcTr("Original vehicle at session time"),
           latest.asset_id||mcTr("Anonymous charger-only session"));
         mcPair(historyPanel,mcTr("Physical STOP confirmed"),
           latest.physical_stop_confirmed===true?mcTr("Yes"):mcTr("Unknown"));
         if(latest.stop_reason)
           mcPair(historyPanel,mcTr("Session stop reason"),mcReason(latest.stop_reason));
-        if(latest.cost===null && latest.estimated_variable_cost!==undefined){
-          mcPair(historyPanel,mcTr("Indicative variable energy cost"),
-            latest.estimated_variable_cost+" "+
-            latest.estimated_variable_cost_currency);
-          historyPanel.append(mcEl("p","muted small",
-            mcTr("Power-derived estimate, not a bill")));
+
+        for(const earlier of history.slice(-4,-1).reverse()){
+          const row=mcEl("div","session-summary");
+          row.append(mcEl("strong","",mcTime(earlier.ended_at,d.timezone)));
+          this.sessionMetrics(row,earlier,false);historyPanel.append(row);
         }
         this.disclosure(card,"charger:"+c.id+":history",
           "Last charging session",historyPanel,
           mcTime(latest.ended_at,d.timezone));
       }
+      this.observedChargerActivity(card,c);
       if(this._open===c.id){
         const detail=mcEl("div","details");
         detail.append(mcEl("h4","",mcTr("Physical Charger & verified sources")));
+        mcPair(detail,"Control type",c.kind==="on_off"?"On/off":"Variable current");
         mcPair(detail,"Rated power",c.rated_power_kw+" kW");
         mcPair(detail,"Phases",c.phase_count||"Unverified");
-        mcPair(detail,"Current range",c.min_current_a&&c.max_current_a?c.min_current_a+"–"+c.max_current_a+" A":"Unknown");
+        const bounds=d.charger_setup?.[c.id]?.effective_current||c;
+        mcPair(detail,"Current range",bounds.min_current_a!=null&&bounds.max_current_a!=null?
+          bounds.min_current_a+"–"+bounds.max_current_a+" A":"Unknown");
         if(c.kind==="variable_current"){
           for(const [field,label] of [
             ["min_charging_power_kw","Minimum charging power"],
@@ -3078,7 +3388,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         if(actual.reason)mcPair(detail,"Reason",mcReason(actual.reason));
         if(actual.readback_at)mcPair(detail,"Measured confirmation",mcTime(actual.readback_at,d.timezone));
         if(this.canEditSettings())this.ownerColorControl(detail,"charger",c);
-        this.ownerFacts(detail,"charger",c);
+        this.ownerFacts(detail,"charger",c,["control_owner"]);
         card.append(detail);
       }
       const capability=(d.command_capabilities||{})[c.id]||{};
@@ -3161,14 +3471,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         status.setAttribute("role",bad?"alert":"status");
         card.append(status);
       }
-      container.append(card);
-    }
-    if(this.canEditSettings()){
-      container.append(mcButton(this._createCharger?
-        mcTr("Cancel adding charger"):mcTr("Add charger"),()=>{
-        this._createCharger=!this._createCharger;this.render();
-      }));
-      if(this._createCharger)this.dashboardChargerCreate(container);
+      chargerCards.append(card);
     }
   }
 
