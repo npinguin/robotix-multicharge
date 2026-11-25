@@ -81,6 +81,7 @@ for(const [locale,labels] of Object.entries({"nl":["Laadkosten vandaag","Laadkos
   for(const [i,key] of ["Charging cost today","Charging cost this month","Charging cost this year","Average charging price today","Average charging price this month","Average charging price this year","Average charging price","Partial coverage","Days checked"].entries())MC_TEXT[locale][key]=labels[i];
 }
 for(const [locale,label] of Object.entries({"nl":"Indicatieve laadkosten","fr":"Coût de recharge indicatif","da":"Indikative ladeomkostninger","nb":"Indikativ ladekostnad","sv":"Indikativ laddkostnad","de":"Indikative Ladekosten","es":"Coste de carga indicativo"}))MC_TEXT[locale]["Indicative charging cost"]=label;
+for(const [locale,label] of Object.entries({"nl":"Laadkosten","fr":"Coûts de recharge","da":"Ladeomkostninger","nb":"Ladekostnader","sv":"Laddkostnader","de":"Ladekosten","es":"Costes de carga"}))MC_TEXT[locale]["Charging costs"]=label;
 // Native setup and observed-session labels reuse the existing card locale map.
 for(const [locale,terms] of Object.entries({"nl":{"Review charger setup":"Laadpaalconfiguratie","Save charger setup":"Configuratie opslaan","Discover native sources":"Native bronnen zoeken","Native device current range":"Stroomgebied apparaat","Configured current range":"Ingesteld stroomgebied","Effective current range":"Effectief stroomgebied","Observed charging now":"Laden gemeten","Observed charging run":"Gemeten laadsessie","Earlier observed runs":"Eerdere gemeten sessies","Power-derived energy":"Energie uit vermogen","Average power":"Gemiddeld vermogen","Peak power":"Piekvermogen","Estimated energy cost":"Geschatte energiekosten","Verified energy cost":"Bevestigde energiekosten","Electrical limits & optional sources":"Elektrische limieten en optionele bronnen","Stop charging with the current owner before changing activation":"Stop het laden via de huidige eigenaar vóór activering","Incomplete start/end or source coverage · observed portion only":"Onvolledig begin/einde of brongegevens · alleen gemeten deel","Save not confirmed; refresh and retry":"Opslaan niet bevestigd; vernieuw en probeer opnieuw","suggestions":"voorstellen"},"fr":{"Review charger setup":"Configuration de la borne","Save charger setup":"Enregistrer la configuration","Discover native sources":"Détecter les sources natives","Native device current range":"Plage native de courant","Configured current range":"Plage de courant configurée","Effective current range":"Plage effective de courant","Observed charging now":"Charge observée en cours","Observed charging run":"Charge observée","Earlier observed runs":"Charges précédentes observées","Power-derived energy":"Énergie déduite de la puissance","Average power":"Puissance moyenne","Peak power":"Puissance de pointe","Estimated energy cost":"Coût énergétique estimé","Verified energy cost":"Coût énergétique confirmé","Electrical limits & optional sources":"Limites électriques et sources facultatives","Stop charging with the current owner before changing activation":"Arrêtez la charge via le contrôleur actuel avant activation","Incomplete start/end or source coverage · observed portion only":"Début/fin ou données incomplets · portion observée uniquement","Save not confirmed; refresh and retry":"Enregistrement non confirmé ; actualisez et réessayez","suggestions":"suggestions"},"de":{"Review charger setup":"Ladepunkt konfigurieren","Save charger setup":"Konfiguration speichern","Discover native sources":"Native Quellen suchen","Native device current range":"Nativer Strombereich","Configured current range":"Konfigurierter Strombereich","Effective current range":"Effektiver Strombereich","Observed charging now":"Aktuell beobachtete Ladung","Observed charging run":"Beobachteter Ladevorgang","Earlier observed runs":"Frühere beobachtete Vorgänge","Power-derived energy":"Energie aus Leistung","Average power":"Durchschnittsleistung","Peak power":"Spitzenleistung","Estimated energy cost":"Geschätzte Energiekosten","Verified energy cost":"Bestätigte Energiekosten","Electrical limits & optional sources":"Elektrische Grenzen und optionale Quellen","Stop charging with the current owner before changing activation":"Ladevorgang über den aktuellen Besitzer vor Aktivierung stoppen","Incomplete start/end or source coverage · observed portion only":"Start/Ende oder Quellen unvollständig · nur beobachteter Abschnitt","Save not confirmed; refresh and retry":"Speichern nicht bestätigt; aktualisieren und erneut versuchen","suggestions":"Vorschläge"},"es":{"Review charger setup":"Configurar cargador","Save charger setup":"Guardar configuración","Discover native sources":"Buscar fuentes nativas","Native device current range":"Rango de corriente nativo","Configured current range":"Rango de corriente configurado","Effective current range":"Rango de corriente efectivo","Observed charging now":"Carga observada en curso","Observed charging run":"Carga observada","Earlier observed runs":"Cargas observadas anteriores","Power-derived energy":"Energía derivada de potencia","Average power":"Potencia media","Peak power":"Potencia máxima","Estimated energy cost":"Coste energético estimado","Verified energy cost":"Coste energético confirmado","Electrical limits & optional sources":"Límites eléctricos y fuentes opcionales","Stop charging with the current owner before changing activation":"Detenga la carga con el controlador actual antes de activar","Incomplete start/end or source coverage · observed portion only":"Inicio/fin o datos incompletos · solo tramo observado","Save not confirmed; refresh and retry":"Guardado no confirmado; actualice e inténtelo de nuevo","suggestions":"sugerencias"},"da":{"Review charger setup":"Konfigurer lader","Save charger setup":"Gem konfiguration","Discover native sources":"Find native kilder","Native device current range":"Enhedens strømområde","Configured current range":"Konfigureret strømområde","Effective current range":"Effektivt strømområde","Observed charging now":"Observeret opladning nu","Observed charging run":"Observeret opladning","Earlier observed runs":"Tidligere observerede opladninger","Power-derived energy":"Energi ud fra effekt","Average power":"Gennemsnitseffekt","Peak power":"Spidseffekt","Estimated energy cost":"Estimeret energiomkostning","Verified energy cost":"Bekræftet energiomkostning","Electrical limits & optional sources":"Elektriske grænser og valgfrie kilder","Stop charging with the current owner before changing activation":"Stop opladning via nuværende ejer før aktivering","Incomplete start/end or source coverage · observed portion only":"Ufuldstændig start/slut eller kildedata · kun observeret del","Save not confirmed; refresh and retry":"Lagring ikke bekræftet; opdater og prøv igen","suggestions":"forslag"},"nb":{"Review charger setup":"Konfigurer lader","Save charger setup":"Lagre konfigurasjon","Discover native sources":"Finn native kilder","Native device current range":"Enhetens strømområde","Configured current range":"Konfigurert strømområde","Effective current range":"Effektivt strømområde","Observed charging now":"Observert lading nå","Observed charging run":"Observert lading","Earlier observed runs":"Tidligere observerte ladinger","Power-derived energy":"Energi fra effekt","Average power":"Gjennomsnittlig effekt","Peak power":"Toppeffekt","Estimated energy cost":"Estimert energikostnad","Verified energy cost":"Bekreftet energikostnad","Electrical limits & optional sources":"Elektriske grenser og valgfrie kilder","Stop charging with the current owner before changing activation":"Stopp lading via nåværende eier før aktivering","Incomplete start/end or source coverage · observed portion only":"Ufullstendig start/slutt eller kildedata · bare observert del","Save not confirmed; refresh and retry":"Lagring ikke bekreftet; oppdater og prøv igjen","suggestions":"forslag"},"sv":{"Review charger setup":"Konfigurera laddare","Save charger setup":"Spara konfiguration","Discover native sources":"Hitta inbyggda källor","Native device current range":"Enhetens strömområde","Configured current range":"Konfigurerat strömområde","Effective current range":"Effektivt strömområde","Observed charging now":"Observerad laddning nu","Observed charging run":"Observerad laddning","Earlier observed runs":"Tidigare observerade laddningar","Power-derived energy":"Energi från effekt","Average power":"Medeleffekt","Peak power":"Toppeffekt","Estimated energy cost":"Beräknad energikostnad","Verified energy cost":"Bekräftad energikostnad","Electrical limits & optional sources":"Elektriska gränser och valfria källor","Stop charging with the current owner before changing activation":"Stoppa laddning via nuvarande ägare före aktivering","Incomplete start/end or source coverage · observed portion only":"Ofullständig start/slut eller källdata · endast observerad del","Save not confirmed; refresh and retry":"Sparande inte bekräftat; uppdatera och försök igen","suggestions":"förslag"}}))
   Object.assign(MC_TEXT[locale],terms);
@@ -223,7 +224,7 @@ const MC_STYLE = [
   ".grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}",
   ".card{border:1px solid var(--divider-color,#e1e4e8);border-radius:10px;padding:14px;min-width:0;margin:8px 0}.settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px}.settings-card{margin:0;min-height:0}.settings-card.expanded{grid-column:1/-1}.schedule-days{gap:4px}.schedule-days button{min-width:0;padding:7px 9px}.settings-heading{min-width:0;flex:1}.settings-heading p{margin-top:5px}.settings-card .row{align-items:flex-start}.config-code{white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;border:1px solid var(--divider-color,#e1e4e8);border-radius:8px;background:var(--secondary-background-color,#f7f8fa);font-size:12px;line-height:1.5}",
   ".mc-icon{--mdc-icon-size:20px;display:inline-block;vertical-align:middle;margin-right:6px;flex:none;color:var(--primary-color,#1976d2)}.mc-icon.good{color:var(--success-color,#278355)}.mc-icon.warn{color:var(--warning-color,#b57418)}.mc-icon.bad{color:var(--error-color,#d43b38)}.mc-icon.quiet{color:var(--secondary-text-color,#65717e)}.mc-icon.solar{color:var(--warning-color,#b57418)}button .mc-icon{--mdc-icon-size:18px;color:inherit}.tabs .mc-icon{color:inherit}.metric .mc-icon{--mdc-icon-size:24px}.soc-track{height:8px;border-radius:6px;background:var(--divider-color,#ddd);overflow:hidden;margin:7px 0}.soc-fill{height:100%;background:var(--primary-color,#1976d2);border-radius:6px}.message[role=alert]{color:var(--error-color,#d43b38);white-space:pre-wrap;overflow-wrap:anywhere}",
-  ".metric{background:var(--secondary-background-color,#f6f8fa);border:1px solid var(--divider-color,#e1e4e8);border-radius:10px;padding:15px;min-width:0}",
+  ".metric{background:var(--secondary-background-color,#f6f8fa);border:1px solid var(--divider-color,#e1e4e8);border-radius:8px;padding:10px;min-width:0}",
   ".row{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}",
   ".details{margin-top:10px;padding-top:9px;border-top:1px solid var(--divider-color,#ddd)}.assignment-editor{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.assignment-editor p{flex-basis:100%}.assignment-editor select{width:100%;min-width:0;max-width:100%;box-sizing:border-box}",
   ".pair{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:5px 0}",
@@ -239,9 +240,9 @@ const MC_STYLE = [
   ".plan-lane svg{display:block;min-width:680px;width:100%;height:auto}",
   ".plan-lane .chart{margin-top:5px}",
   ".owner-inventory{margin-top:14px;border-top:1px solid var(--divider-color,#bbb);padding-top:12px}.owner-inventory>h4{font-size:15px;margin:0 0 9px}.owner-group{margin:7px 0 12px;padding:8px 10px;border:1px solid var(--divider-color,#ccc);border-radius:8px;min-width:0}.owner-group h4{font-size:13px;margin:0 0 8px}.owner-group .pair{word-break:break-word}.owner-configure{margin-top:8px}.owner-configure a{display:inline-block;margin-top:4px}.owner-hint{font-size:12px}.owner-inventory .row{flex-wrap:wrap}",
-  ".combined-plan{margin:12px 0 18px}.combined-plan svg{display:block;width:100%;height:auto;min-width:0}.combined-plan .chart{overflow:hidden}.lane-summary{overflow-wrap:anywhere}.quick-goal{margin:10px 0;padding:10px;border:1px solid var(--divider-color,#ddd);border-radius:9px;background:var(--secondary-background-color,#f6f8fa)}.quick-goal h4{font-size:14px;margin:0 0 6px}.goal-controls{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(90px,1fr);gap:10px}.quick-goal button{margin-top:6px}.schedule-editor{margin:8px 0}.overview-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}",
+  ".combined-plan{margin:12px 0 18px}.combined-plan svg{display:block;width:100%;height:auto;min-width:0}.combined-plan .chart{overflow:hidden}.lane-summary{overflow-wrap:anywhere}.quick-goal{margin:10px 0;padding:10px;border:1px solid var(--divider-color,#ddd);border-radius:9px;background:var(--secondary-background-color,#f6f8fa)}.quick-goal h4{font-size:14px;margin:0 0 6px}.goal-controls{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(90px,1fr);gap:10px}.quick-goal button{margin-top:6px}.schedule-editor{margin:8px 0}.overview-actions{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}.goal-timing{line-height:1.4}.financial-details{padding:4px 0}",
   "@media(max-width:600px){.goal-controls{grid-template-columns:1fr}.quick-goal{padding:9px}.combined-plan svg text{font-size:10px}.plan-lane{padding:8px}}",
-  ".vehicle-summary{margin:8px 0}.vehicle-target{display:flex;align-items:baseline;gap:6px}.vehicle-soc{font-size:26px;line-height:1.2}.vehicle-state{text-align:right}.vehicle-deadline{font-size:13px}.goal-outcome{border-top:1px solid var(--divider-color,#ddd);padding-top:9px;margin:9px 0}.goal-status{display:block;font-size:14px}.goal-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0}.goal-metric{display:flex;flex-direction:column;gap:2px;overflow-wrap:anywhere}.goal-metric strong{font-size:15px}.goal-track{position:relative;height:28px;margin:8px 3px 5px;background:var(--secondary-background-color,#eaecef);border-radius:5px}.goal-window{position:absolute;top:5px;bottom:5px;border-radius:3px;box-sizing:border-box}.goal-window.conditional{opacity:.65;border:1px dashed currentColor}.goal-deadline-marker{position:absolute;top:-3px;bottom:-3px;border-left:2px dashed var(--primary-text-color,#222)}.goal-ticks{position:relative;height:17px;font-size:10px;display:block}.goal-ticks>span{position:absolute;white-space:nowrap}.schedule-days button{border-radius:20px;flex:1}.schedule-modes{gap:4px}.schedule-modes button{flex:1;min-width:0;padding:7px}.schedule-actions{justify-content:space-between}.schedule-time .field{display:flex;flex-direction:row;justify-content:space-between;align-items:center}.schedule-time input{width:auto;max-width:100%;min-width:0}.goal-timeline{margin:9px 0}",
+  ".vehicle-summary{margin:8px 0}.vehicle-target{display:flex;align-items:baseline;gap:6px}.vehicle-soc{font-size:26px;line-height:1.2}.vehicle-state{text-align:right}.vehicle-deadline{font-size:13px}.goal-outcome{border-top:1px solid var(--divider-color,#ddd);padding-top:6px;margin:6px 0}.goal-status{display:block;font-size:14px}.goal-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:6px 0}.goal-metric{display:flex;flex-direction:column;gap:2px;overflow-wrap:anywhere}.goal-metric strong{font-size:15px}.goal-track{position:relative;height:20px;margin:5px 3px 4px;background:var(--secondary-background-color,#eaecef);border-radius:5px}.goal-window{position:absolute;top:5px;bottom:5px;border-radius:3px;box-sizing:border-box}.goal-window.conditional{opacity:.65;border:1px dashed currentColor}.goal-deadline-marker{position:absolute;top:-3px;bottom:-3px;border-left:2px dashed var(--primary-text-color,#222)}.goal-ticks{position:relative;height:17px;font-size:10px;display:block}.goal-ticks>span{position:absolute;white-space:nowrap}.schedule-days button{border-radius:20px;flex:1}.schedule-modes{gap:4px}.schedule-modes button{flex:1;min-width:0;padding:7px}.schedule-actions{justify-content:space-between}.schedule-time .field{display:flex;flex-direction:row;justify-content:space-between;align-items:center}.schedule-time input{width:auto;max-width:100%;min-width:0}.goal-timeline{margin:9px 0}",
   ".plan-key{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:6px 0;font-size:12px}",
   ".plan-swatch{width:12px;height:12px;border-radius:3px;display:inline-block;margin-right:4px}",
   ".plan-caution{font-size:12px;color:var(--secondary-text-color,#65717e);line-height:1.5}",
@@ -2018,6 +2019,10 @@ class RobotixMultiChargeCard extends HTMLElement {
     for(const item of MC_TABS){
       const btn=mcButton(item,()=>{
         this._tab=item;
+        // A main tab is a top-level destination, not the previous object drill-down.
+        if(item==="Charging Plan"){
+          this._filter="";this._restoredFilter=null;this.rememberViewPreferences();
+        }
         this._yamlEditorOpen=false;
         this._yamlCommittedRevision=null;
         this.render();
@@ -2177,6 +2182,10 @@ class RobotixMultiChargeCard extends HTMLElement {
           controls.append(stop);
         }
       }
+      // Keep the everyday action cluster together, including assignment and
+      // explicit connected-vehicle confirmation; editors remain outside it.
+      this.assetChargerAssignment(card,a,charger,chargers,controls);
+      this.assetConnectionConfirmation(controls,a,charger);
       card.append(controls);
       if(this._goalEditor===a.id&&this.canEditSettings())this.assetGoalEditor(card,a);
       if(this._scheduleEditor===a.id&&this.canEditSettings()){
@@ -2184,8 +2193,6 @@ class RobotixMultiChargeCard extends HTMLElement {
         schedule.append(mcEl("h4","",mcTr("When should the vehicle be ready?")));
         this.nativeRepeatEditor(schedule,a);card.append(schedule);
       }
-      this.assetChargerAssignment(card,a,charger,chargers);
-      this.assetConnectionConfirmation(card,a,charger);
       assetCards.append(card);
     }
     if(!assets.length&&chargers.length)this.notice(container,"No vehicles",false);
@@ -2228,7 +2235,9 @@ class RobotixMultiChargeCard extends HTMLElement {
     }
     filter.value=this._filter;
     filter.addEventListener("change",()=>{this.selectViewRange(this._day,filter.value);});
-    day.append(filter);container.append(day);
+    day.append(filter);
+    if(this._filter)day.append(mcButton("All chargers",()=>this.selectViewRange(this._day,"")));
+    container.append(day);
     const visibleCosts=[[d.view_planned_cost,"Planned charging cost"],
         [forecastVisible?d.view_indicative_cost:null,"Indicative charging cost"]]
       .filter(([row])=>row&&row.quality!=="no_planned_energy");
@@ -2339,12 +2348,14 @@ class RobotixMultiChargeCard extends HTMLElement {
         mcTime(readback.next_ready_by??selected?.ready_by,d.timezone)+
         (next?" · "+mcTr("Next charge")+" "+
           mcTime(next.start,d.timezone)+" · "+next.proposed_power_kw+" kW":""));
+      const hasGoal=!pastOnly&&selected&&d.goal_assessments?.[charger.id]?.asset_id===selected.id;
       if(!pastOnly&&selected){this.vehicleSummary(card,selected,charger);this.goalAssessment(card,selected,charger);}
       else card.append(summary);
       if(typeof shortfall==="number"&&shortfall>0&&!d.goal_assessments?.[charger.id])
         card.append(mcEl("p","plan-caution",mcTr("Shortfall")+" · "+
           shortfall.toFixed(2)+" kWh"));
-      if(reason&&reason!=="PROPOSED"&&reason!=="TARGET_MET")
+      if(reason&&reason!=="PROPOSED"&&reason!=="TARGET_MET"&&
+          (!hasGoal||d.goal_assessments[charger.id].reason!==reason))
         card.append(mcEl("p","plan-caution",mcReason(reason)));
       if(!assumptions[charger.id]&&forecastVisible&&d.forecast_reasons?.[charger.id]&&d.forecast_reasons[charger.id]!==reason)
         card.append(mcEl("p","plan-caution",mcTr("Indicative")+" · "+mcReason(d.forecast_reasons[charger.id])));
@@ -2356,7 +2367,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       }else{
         card.append(mcApexLane(d,charger,activeRows,actualRows,previewRows));
       }
-      if(assumptions[charger.id]&&forecastVisible){
+      if(assumptions[charger.id]&&forecastVisible&&(!hasGoal||!d.goal_assessments[charger.id].conditional)){
         if(previewNext)card.append(mcEl("p","small",mcTr("Indicative")+" · "+mcTime(previewNext.start,d.timezone)+" · "+previewNext.indicative_power_kw+" kW"));
         const forecastReason=d.forecast_reasons?.[charger.id];
         if(forecastReason&&forecastReason!=="PROPOSED")card.append(mcEl("p","plan-caution",mcReason(forecastReason)));
@@ -2393,7 +2404,8 @@ class RobotixMultiChargeCard extends HTMLElement {
           " · "+(window.length?window.length+" × 15 min":mcTr("Unavailable"))+
           (result?" · "+mcReason(result):"")));
       }
-      container.append(forecastInfo);
+      this.disclosure(container,"plan:forecast-summary","Indicative forecasting",forecastInfo,
+        mcTr("Not reserved"));
     }
     if(!measured.some(row=>typeof row.actual_power_kw==="number")){
       this.notice(container,"Measured power unavailable",false);
@@ -2408,7 +2420,8 @@ class RobotixMultiChargeCard extends HTMLElement {
       "No active plan"));
     const reasons=Object.entries(d.reasons||{}).filter(([,v])=>v!=="PROPOSED");
     if(reasons.length)next.append(mcEl("p","muted small",
-      reasons.map(([k,val])=>k+" · "+mcReason(val)).slice(0,4).join("; ")));
+      reasons.filter(([k])=>shown.some(charger=>charger.id===k))
+        .map(([k,val])=>(chargers.find(charger=>charger.id===k)?.name||k)+" · "+mcReason(val)).join("; ")));
     container.append(next);
   }
   // One visible resident-readable goal control, one authorized atomic
@@ -2586,8 +2599,6 @@ class RobotixMultiChargeCard extends HTMLElement {
       labels.append(tick);
     }
     block.append(labels);
-    if(Number.isFinite(deadline)&&deadline>=start&&deadline<=end)
-      block.append(mcEl("div","muted small",mcTr("Ready By")+" · "+mcTime(goal.deadline,this._data.timezone)));
     container.append(block);
   }
   goalAssessment(card,asset,charger){
@@ -2611,12 +2622,13 @@ class RobotixMultiChargeCard extends HTMLElement {
       metrics.append(cell);
     }
     result.append(metrics);
-    if(!goal.conditional||this._data.configuration?.controller?.show_indicative_forecast!==false)
+    if((goal.timeline_windows||[]).length&&
+        (!goal.conditional||this._data.configuration?.controller?.show_indicative_forecast!==false))
       this.goalTimeline(result,goal,mcPlanOwnerColor(this._data,asset.id,charger.id));
-    if(goal.next_charge_at)result.append(mcEl("p","small",
-      mcTr("Next charge")+" · "+mcTime(goal.next_charge_at,this._data.timezone)));
-    if(goal.planned_finish_at)result.append(mcEl("p","small",
-      mcTr("Planned finish")+" · "+mcTime(goal.planned_finish_at,this._data.timezone)));
+    const timing=[];
+    if(goal.next_charge_at)timing.push(mcTr("Next charge")+" · "+mcTime(goal.next_charge_at,this._data.timezone));
+    if(goal.planned_finish_at)timing.push(mcTr("Planned finish")+" · "+mcTime(goal.planned_finish_at,this._data.timezone));
+    if(timing.length)result.append(mcEl("p","small goal-timing",timing.join("  |  ")));
     if(goal.conditional){
       const assumption={IF_ACTIVATED:"If activated",IF_CONNECTED_NOW:"If connected now",
         IF_SELECTED_VEHICLE_CONFIRMED:"If selected vehicle is confirmed",IF_CAPABILITY_VERIFIED:"If charger capability is verified",USER_EXPECTED_CONNECTION_TIME:"Expected connection"};
@@ -2749,7 +2761,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     confirm.disabled=this._settingsBusy;
     card.append(confirm);
   }
-  assetChargerAssignment(card,a,charger,chargers){
+  assetChargerAssignment(card,a,charger,chargers,actions=card){
   if(this.canEditSettings()&&chargers.length){
     const change=mcButton(
       mcTr(charger?"Change charger":"Assign charger"),()=>{
@@ -2758,7 +2770,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       }
     );
     change.disabled=this._settingsBusy;
-    card.append(change);
+    actions.append(change);
     if(this._assignmentEditor===a.id){
       // A selected Vehicle belongs to exactly one Charger Config Entry
       // field. Do not silently replace a different assigned Vehicle.
@@ -3136,6 +3148,11 @@ class RobotixMultiChargeCard extends HTMLElement {
   }
   financialSummary(container,kind,id){
     const periods=this._data.period_costs?.[kind]?.[id]||{};
+    const sessions=this._data.session_costs?.[kind]?.[id]||{};
+    const planned=this._data.planned_costs?.[kind]?.[id];
+    if(!Object.keys(periods).length&&!Object.keys(sessions).length&&
+        (!planned||planned.quality==="no_planned_energy"))return;
+    const details=mcEl("div","financial-details");
     const money=(value,currency)=>typeof value==="number"&&currency?
       new Intl.NumberFormat(undefined,{style:"currency",currency}).format(value):mcTr("Unknown");
     for(const [period,label] of [["today","Charging cost today"],["month","Charging cost this month"],["year","Charging cost this year"]]){
@@ -3143,27 +3160,32 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(!row)continue;
       const partial=row.cost==null&&row.covered_cost!=null;
       const amount=money(partial?row.covered_cost:row.cost,row.currency);
-      mcPair(container,mcTr(label),amount+(partial?" · "+mcTr("Partial coverage"):""));
+      mcPair(details,mcTr(label),amount+(partial?" · "+mcTr("Partial coverage"):""));
       if(row.average_price_per_kwh!=null&&row.currency)
-        container.append(mcEl("p","muted small",mcTr("Average charging price")+" · "+
+        details.append(mcEl("p","muted small",mcTr("Average charging price")+" · "+
           row.average_price_per_kwh.toFixed(4)+" "+row.currency+"/kWh · "+
           Number(row.covered_energy_kwh).toFixed(2)+" kWh"+(partial?" · "+mcTr("Partial coverage"):"")));
       if(row.cost==null&&row.days_expected>0)
-        container.append(mcEl("p","muted small",String(row.days_available)+"/"+
+        details.append(mcEl("p","muted small",String(row.days_available)+"/"+
           String(row.days_expected)+" "+mcTr("Days checked")));
     }
-    const sessions=this._data.session_costs?.[kind]?.[id]||{};
     for(const [phase,label] of [["active","Active session cost"],["last","Last session cost"]]){
       const session=sessions[phase];
       if(!session)continue;
       const partial=session.cost==null&&session.covered_cost!=null;
       const amount=money(partial?session.covered_cost:session.cost,session.currency);
-      mcPair(container,mcTr(label),amount+(partial?" · "+mcTr("Partial coverage"):"")+
+      mcPair(details,mcTr(label),amount+(partial?" · "+mcTr("Partial coverage"):"")+
         (session.basis?" · "+session.basis:""));
-      if(session.quality==="partial_observation")container.append(mcEl("p","muted small",mcTr("Incomplete start/end or source coverage · observed portion only")));
+      if(session.quality==="partial_observation")details.append(mcEl("p","muted small",mcTr("Incomplete start/end or source coverage · observed portion only")));
     }
-    const row=this._data.planned_costs?.[kind]?.[id];
-    if(row&&row.quality!=="no_planned_energy")this.planCostLine(container,row,"Planned charging cost");
+    if(planned&&planned.quality!=="no_planned_energy")this.planCostLine(details,planned,"Planned charging cost");
+    // One headline, all period/session detail available in one disclosure.
+    const choice=[["Active session cost",sessions.active],["Charging cost today",periods.today],
+      ["Last session cost",sessions.last],["Planned charging cost",planned]]
+      .find(([,row])=>row&&(row.cost!=null||row.covered_cost!=null));
+    const hint=choice?mcTr(choice[0])+" · "+money(choice[1].cost??choice[1].covered_cost,choice[1].currency)+
+      (choice[1].cost==null?" · "+mcTr("Partial coverage"):""):mcTr("Unknown");
+    this.disclosure(container,kind+":"+id+":finance","Charging costs",details,hint);
   }
   planCostLine(container,row,label){
     const value=typeof row.cost==="number"&&row.currency?
