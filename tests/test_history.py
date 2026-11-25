@@ -182,6 +182,52 @@ class NativeMeasuredHistoryTests(unittest.TestCase):
         self.assertIsNone(period["controller"]["site"]["today"]["cost"])
         self.assertAlmostEqual(period["controller"]["site"]["today"]["covered_cost"], 0.2)
 
+    def test_constant_power_gap_uses_exact_cumulative_meter_without_double_counting(self):
+        first = NOW-timedelta(hours=2)
+        middle = first+timedelta(hours=1)
+        cfg = {"chargers": [{"id": "a"}], "assets": [{"id": "car"}]}
+        power = {"a": [{"start": None, "entity": "sensor.a"}]}
+        energy = {"a": [{"start": None, "entity": "sensor.meter"}]}
+        states = {"sensor.a": [recorded(first, 3000)],
+                  "sensor.meter": [recorded(first, 10, "kWh"),
+                                   recorded(middle, 13, "kWh"),
+                                   recorded(NOW, 16, "kWh")]}
+        receipts = [{"charger_id": "a", "asset_id": "car",
+                     "started_at": first.isoformat(), "ended_at": NOW.isoformat(),
+                     "physical_stop_confirmed": True}]
+        quotes = [self._price(first, middle, 0.2), self._price(middle, NOW, 0.4)]
+        result = mod.daily_costs(states, power, cfg, first, NOW, quotes, receipts,
+                                 energy_bindings=energy)
+        site = result["controller"]["site"]
+        self.assertEqual(site["observed_seconds"], 7200)
+        self.assertAlmostEqual(site["observed_energy_kwh"], 6)
+        self.assertAlmostEqual(site["valuations"][("EUR", "effective")][0], 1.8)
+        self.assertEqual(result["asset"]["car"]["observed_energy_kwh"], 6)
+        self.assertEqual(site["unattributed_energy_kwh"], 0)
+        # No boundary reading: the known whole meter delta cannot be
+        # distributed between differing tariffs by assuming constant power.
+        states["sensor.meter"].pop(1)
+        mixed = mod.daily_costs(states, power, cfg, first, NOW, quotes, receipts,
+                                energy_bindings=energy)["controller"]["site"]
+        self.assertEqual(mixed["observed_energy_kwh"], 6)
+        self.assertEqual(mixed["unpriced_energy_kwh"], 6)
+        self.assertFalse(mixed["valuations"])
+        # A reset, conflicting meter or shared source must not repair the gap.
+        states["sensor.meter"][-1] = recorded(NOW, 8, "kWh")
+        reset = mod.daily_costs(states, power, cfg, first, NOW, quotes, receipts,
+                                energy_bindings=energy)["controller"]["site"]
+        self.assertEqual(reset["observed_seconds"], 1800)
+        self.assertAlmostEqual(reset["observed_energy_kwh"], 1.5)
+        states["sensor.meter"][-1] = recorded(NOW, 16, "kWh")
+        energy["other"] = [{"start": middle.isoformat(), "entity": "sensor.meter"}]
+        ambiguous = mod.daily_costs(states, power, cfg, first, NOW, quotes, receipts,
+                                    energy_bindings=energy)["controller"]["site"]
+        self.assertEqual(ambiguous["observed_seconds"], 1800)
+        # No interpolation of a meter increment crossing an archive boundary.
+        clipped = mod.daily_costs(states, power, cfg, first, middle, quotes, receipts,
+                                  energy_bindings={"a": energy["a"]})["controller"]["site"]
+        self.assertEqual(clipped["observed_seconds"], 1800)
+
     def test_civil_costs_do_not_combine_currencies_or_missing_tariff(self):
         start = NOW-timedelta(minutes=30)
         mid = start+timedelta(minutes=15)

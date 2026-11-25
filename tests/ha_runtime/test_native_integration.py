@@ -2770,6 +2770,38 @@ async def test_native_finance_archive_survives_raw_history_absence(hass: HomeAss
     del raw[next(uid for uid in raw if uid.endswith("_cost_eur_spot"))]
     assert len(decode_archive("original-entry", slices, raw, owner_map(cfg, binding, []))) < 3
 
+    # Persist original, unacknowledged evidence through a new runtime and
+    # the real HA Store. No raw state exists to revalue after restart.
+    from homeassistant.helpers.storage import Store
+    from custom_components.robotix_multicharge.runtime import MultiChargeRuntime
+    full_cfg = validate_configuration({
+        "controller": {"id": "site", "name": "Site"},
+        "chargers": [{"id": "drive", "name": "Drive", "kind": "on_off",
+                      "rated_power_kw": 3, "power_entity": "sensor.not_in_recorder"}],
+        "assets": [],
+    })
+    store = Store(hass, 1, "multicharge_pending_archive_regression")
+    pending = MultiChargeRuntime(hass, full_cfg)
+    pending.attach_control_store(store, None)
+    day = first.date().isoformat()
+    pending._archive_pending[day] = {"start": first, "end": end,
+                                     "projections": projections}
+    assert await pending.persist_control_state()
+    restarted = MultiChargeRuntime(hass, full_cfg)
+    restarted.statistics_namespace = "pending-entry"
+    restarted.attach_control_store(store, await store.async_load())
+    assert restarted._archive_pending == pending._archive_pending
+    identity = restarted._current_session_cost_identity()
+    await restarted._retry_cost_archive({}, full_cfg, [], identity)
+    assert day in restarted._archive_pending
+    await recorder.async_block_till_done()
+    await restarted._retry_cost_archive({}, full_cfg, [], identity)
+    assert restarted._archive_pending == {}
+    assert (await store.async_load())["pending_cost_archive"] == {}
+    recovered = await read_archive(hass, "pending-entry", {day: (first, end)},
+                                   full_cfg, binding, [])
+    assert merge_slices(recovered)["controller"]["site"]["observed_energy_kwh"] == pytest.approx(6.0)
+
 
 @pytest.mark.asyncio
 async def test_observed_external_session_from_actual_ha_recorder(hass: HomeAssistant):

@@ -368,8 +368,8 @@ def planned_costs(slots, price_slots, at, *, until=None):
     return result
 
 
-def _meter_delta(states, power_states, start, end, now, ongoing):
-    """Use cumulative kWh only with known idle boundaries and no meter reset."""
+def _energy_samples(states):
+    """Native cumulative kWh observations; invalid values split evidence."""
     samples = []
     for state in states:
         try:
@@ -387,6 +387,12 @@ def _meter_delta(states, power_states, start, end, now, ongoing):
             value = None
         samples.append((stamp.astimezone(timezone.utc), value))
     samples.sort(key=lambda row: row[0])
+    return samples
+
+
+def _meter_delta(states, power_states, start, end, now, ongoing):
+    """Use cumulative kWh only with known idle boundaries and no meter reset."""
+    samples = _energy_samples(states)
     if not samples or len({row[0] for row in samples}) != len(samples):
         return None
     before = [row for row in samples if row[0] <= start]
@@ -830,8 +836,82 @@ def _price_spans(quotes, first, last):
     return result
 
 
+def _source_claims(bindings, first, last):
+    """Physical source ownership intervals, including historical remaps."""
+    claims = {}
+    for uid, epochs in bindings.items():
+        for i, epoch in enumerate(epochs):
+            if not epoch["entity"]:
+                continue
+            a = max(first, datetime.fromisoformat(epoch["start"])) if epoch["start"] else first
+            b = min(last, datetime.fromisoformat(epochs[i+1]["start"])) if i+1 < len(epochs) else last
+            if a < b:
+                claims.setdefault(epoch["entity"], []).append((uid, a, b))
+    return claims
+
+
+def _meter_gap_blocks(historical, meter_epochs, uid, start, end,
+                      meter_claims, other_claims, spans, span_edges, price_spans,
+                      attribution, cache):
+    """Exact whole meter increments repair missing energy coverage, not power.
+
+    No interpolation at a tariff, source, session or archive boundary. A
+    multi-price increment remains unpriced; an ambiguous session is not
+    attributed. Fully covered power intervals retain the existing estimate.
+    """
+    blocks = []
+    for epoch in meter_epochs:
+        entity = epoch["entity"]
+        if not entity:
+            continue
+        if entity not in cache:
+            samples = _energy_samples(historical.get(entity, ()))
+            # Duplicate stamps, including conflicting readings, cannot bound
+            # an independently measured interval.
+            cache[entity] = samples if len({a for a, _ in samples}) == len(samples) else []
+        samples = cache[entity]
+        for (a, initial), (b, final) in zip(samples, samples[1:]):
+            if (not start <= a < b <= end or initial is None or final is None
+                    or final < initial
+                    or _binding_for_interval(meter_epochs, a, b) != entity
+                    or any(left < b and right > a for left, right in other_claims)
+                    or any(other != uid and left < b and right > a
+                           for other, left, right in meter_claims.get(entity, ()))):
+                continue
+            index = max(0, bisect_right(span_edges, a)-1)
+            known = 0.0
+            gap = False
+            for left, right, power in spans[index:]:
+                if left >= b:
+                    break
+                seconds = (min(right, b)-max(left, a)).total_seconds()
+                if seconds <= 0:
+                    continue
+                if power is None:
+                    gap = True
+                else:
+                    known += power*seconds/3600
+            delta = final-initial
+            if not gap or known > delta+0.00001:
+                continue  # preserve complete power evidence or expose conflict
+            prices = [p for left, right, p in price_spans if left < b and right > a]
+            signatures = {(p.currency, p.basis, p.effective_price_per_kwh)
+                          for p in prices if p is not None}
+            price = (prices[0] if prices and all(p is not None for p in prices)
+                     and len(signatures) == 1 else None)
+            overlapping = [(left, right, asset) for left, right, asset in attribution
+                           if left < b and right > a]
+            asset = (overlapping[0][2] if len(overlapping) == 1
+                     and overlapping[0][0] <= a and overlapping[0][1] >= b else None)
+            blocks.append((a, b, delta, price, asset))
+    # A repeated source epoch can reference the same samples. Retain each
+    # physical increment once; overlapping source claims were rejected above.
+    return sorted({(a, b): (a, b, e, p, uid)
+                   for a, b, e, p, uid in blocks}.values(), key=lambda row: row[0])
+
+
 def daily_costs(historical, bindings, configuration, first, last, quotes,
-                receipts=(), active_sessions=None):
+                receipts=(), active_sessions=None, *, energy_bindings=None):
     """Project one civil day from native power and the original tariff intervals.
 
     Every physical span is counted once at Charger/Site, then attributed to
@@ -866,17 +946,29 @@ def daily_costs(historical, bindings, configuration, first, last, quotes,
     # A physical source may be reused sequentially, never charged twice for
     # overlapping historic claims. Keep the exclusive portions and disclose
     # ambiguous periods as missing coverage, without assigning an arbitrary owner.
-    claims = {}
-    for uid, epochs in bindings.items():
-        for i, epoch in enumerate(epochs):
-            if not epoch["entity"]:
-                continue
-            a = max(first, datetime.fromisoformat(epoch["start"])) if epoch["start"] else first
-            b = min(last, datetime.fromisoformat(epochs[i+1]["start"])) if i+1 < len(epochs) else last
-            if a < b:
-                claims.setdefault(epoch["entity"], []).append((uid, a, b))
-
+    claims = _source_claims(bindings, first, last)
+    energy_bindings = energy_bindings or {}
+    meter_claims = _source_claims(energy_bindings, first, last)
+    meter_cache = {}
     power_cache = {}
+
+    def record_energy(bucket, energy, price, asset):
+        if energy == 0:
+            return  # verified zero has no tariff requirement
+        targets = [bucket]
+        if asset is not None:
+            targets.append(groups["asset"].setdefault(asset, _cost_bucket()))
+        else:
+            bucket["unattributed_energy_kwh"] += energy
+        for target in targets:
+            target["observed_energy_kwh"] += energy
+            if price is None:
+                target["unpriced_energy_kwh"] += energy
+            else:
+                key = (price.currency, price.basis)
+                value = target["valuations"].setdefault(key, [0.0, 0.0])
+                value[0] += energy*price.effective_price_per_kwh
+                value[1] += energy
     for uid in sorted(cfg_chargers | set(bindings)):
         bucket = groups["charger"].setdefault(uid, _cost_bucket())
         epochs = bindings.get(uid, ()) or ({"start": None, "entity": None},)
@@ -904,6 +996,16 @@ def daily_costs(historical, bindings, configuration, first, last, quotes,
             other_claims = [(a, b) for other, a, b in claims.get(entity, ()) if other != uid
                             and a < end and b > start]
             claim_edges = sorted({edge for a, b in other_claims for edge in (a, b)})
+            blocks = _meter_gap_blocks(
+                historical, energy_bindings.get(uid, ()), uid, start, end,
+                meter_claims, other_claims, spans, span_edges, price_spans,
+                attribution, meter_cache,
+            )
+            block_starts = [row[0] for row in blocks]
+            block_edges = sorted({edge for a, b, *_ in blocks for edge in (a, b)})
+            for a, b, energy, price, asset in blocks:
+                bucket["observed_seconds"] += (b-a).total_seconds()
+                record_energy(bucket, energy, price, asset)
             for left, right, power in spans[index:]:
                 if left >= end:
                     break
@@ -918,10 +1020,15 @@ def daily_costs(historical, bindings, configuration, first, last, quotes,
                     edge for edge in owner_edges[bisect_right(owner_edges, a):bisect_left(owner_edges, b)]
                 } | {
                     edge for edge in price_edges[bisect_right(price_edges, a):bisect_left(price_edges, b)]
+                } | {
+                    edge for edge in block_edges[bisect_right(block_edges, a):bisect_left(block_edges, b)]
                 })
                 for x, y in zip(edges, edges[1:]):
                     if any(left < y and right > x for left, right in other_claims):
                         continue
+                    block_index = bisect_right(block_starts, x)-1
+                    if block_index >= 0 and blocks[block_index][1] >= y:
+                        continue  # this exact native meter increment was already counted
                     bucket["observed_seconds"] += (y-x).total_seconds()
                     if power == 0:
                         continue  # proven idle does not require a tariff
@@ -931,20 +1038,7 @@ def daily_costs(historical, bindings, configuration, first, last, quotes,
                     asset = matching[0] if len(matching) == 1 else None
                     price_index = bisect_right(price_edges, x)-1
                     price = price_spans[price_index][2] if price_index >= 0 else None
-                    targets = [bucket]
-                    if asset is not None:
-                        targets.append(groups["asset"].setdefault(asset, _cost_bucket()))
-                    else:
-                        bucket["unattributed_energy_kwh"] += energy
-                    for target in targets:
-                        target["observed_energy_kwh"] += energy
-                        if price is None:
-                            target["unpriced_energy_kwh"] += energy
-                        else:
-                            key = (price.currency, price.basis)
-                            value = target["valuations"].setdefault(key, [0.0, 0.0])
-                            value[0] += energy*price.effective_price_per_kwh
-                            value[1] += energy
+                    record_energy(bucket, energy, price, asset)
         _add_cost_bucket(groups["controller"]["site"], bucket)
     # Asset attribution completeness depends on all site observations, not
     # only the periods where an asset could already be identified.
@@ -1087,6 +1181,7 @@ async def read_actual_history(hass, configuration, start, end, *,
                     day: daily_costs(
                         historical or {}, bindings, configuration, a, min(b, history_end),
                         quotes if historical is not None else (), session_receipts, active_sessions,
+                        energy_bindings=energy_bindings,
                     )
                     for day, (a, b) in financial_days.items()
                     if history_first <= a <= b <= history_end
@@ -1161,10 +1256,13 @@ async def read_actual_history(hass, configuration, start, end, *,
         if tariff_bindings is None and tariff_entity:
             tariff_sources.add(tariff_entity)
         entities.extend(sorted(tariff_sources - set(entities)))
-    if include_observed_sessions:
+    if include_observed_sessions or financial_days is not None:
         for uid in selected:
-            for epoch in (energy_bindings or {}).get(uid, ()):
-                if epoch["entity"] and epoch["entity"] not in entities:
+            for index, epoch in enumerate((energy_bindings or {}).get(uid, ())):
+                if (epoch["entity"] and epoch["entity"] not in entities
+                        and (epoch["start"] is None or datetime.fromisoformat(epoch["start"]) < history_end)
+                        and (index+1 == len(energy_bindings[uid])
+                             or datetime.fromisoformat(energy_bindings[uid][index+1]["start"]) > history_first)):
                     entities.append(epoch["entity"])
     if "recorder" not in hass.config.components:
         return await reply([], "RECORDER_NOT_LOADED")
@@ -1174,7 +1272,7 @@ async def read_actual_history(hass, configuration, start, end, *,
         # Use the Recorder's own executor, preserving the native DB lifecycle.
         historical = await get_instance(hass).async_add_executor_job(
             history.get_significant_states,
-            hass, history_first, history_end, entities,
+            hass, history_first, min(now, history_end+timedelta(microseconds=1)), entities,
             None, True, False, False, False, False,
         )
     except (ImportError, RuntimeError, ValueError, OSError, KeyError):
