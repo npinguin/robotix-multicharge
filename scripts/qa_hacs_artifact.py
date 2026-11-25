@@ -136,11 +136,53 @@ print("Native artifact checkpoint", mode, version, "PASS")
 """
 
 
+# Invoke the native HA Core archive writer and startup restoration on
+# disposable test directories only. No production .storage access.
+BACKUP_TEST = r"""
+import asyncio
+import json
+from pathlib import Path
+import sys
+from homeassistant.backup_restore import restore_backup, RESTORE_BACKUP_FILE
+from homeassistant.components.backup.manager import CoreBackupReaderWriter
+from homeassistant.const import __version__ as HA_VERSION
+from homeassistant.core import HomeAssistant
+
+action, config, archive = sys.argv[1:]
+config = Path(config)
+archive = Path(archive)
+assert config.is_dir() and archive.parent != config
+if action == "backup":
+    async def run():
+        hass = HomeAssistant(str(config))
+        writer = CoreBackupReaderWriter(hass)
+        metadata = {
+            "compressed": True, "date": "2026-11-25T00:00:00+00:00",
+            "extra": {}, "homeassistant": {
+                "exclude_database": False, "version": HA_VERSION},
+            "name": "MultiCharge checkpoint QA", "protected": False,
+            "slug": archive.stem, "type": "partial", "version": 2,
+        }
+        path, size = await hass.async_add_executor_job(
+            writer._mkdir_and_generate_backup_contents, metadata, True, None, archive)
+        assert path == archive and size > 0
+    asyncio.run(run())
+else:
+    assert action == "restore" and archive.is_file()
+    (config / RESTORE_BACKUP_FILE).write_text(json.dumps({
+        "path": str(archive), "password": None, "remove_after_restore": False,
+        "restore_database": True, "restore_homeassistant": True,
+    }))
+    assert restore_backup(str(config))
+    assert archive.is_file()
+    assert not (config / RESTORE_BACKUP_FILE).exists()
+print("Native HA Core", action, archive.name, "PASS")
+"""
+
+
 def verify_rollback_checkpoint(candidate, manifest, work):
     request = json.loads((ROOT / "release/TEST_REQUEST.json").read_text())
-    rollback = request.get("next_candidate_rollback_evidence")
-    if not rollback:
-        return  # Historical release request, before this evidence requirement.
+    rollback = request["rollback_evidence"]
     tag, filename = rollback["tag"], rollback["artifact"]
     if tag != "v"+filename.removeprefix("robotix_multicharge-").removesuffix(".zip"):
         raise ValueError("rollback artifact identity mismatch")
@@ -170,15 +212,48 @@ def verify_rollback_checkpoint(candidate, manifest, work):
         subprocess.run([sys.executable, "-c", CHECKPOINT_TEST, action, str(state), version],
                        cwd=code, check=True)
 
+    def backup(action, state, archive):
+        subprocess.run([sys.executable, "-c", BACKUP_TEST, action, str(state), str(archive)],
+                       cwd=work, check=True)
+
+    def install(code, state):
+        target = state / PREFIX
+        if target.exists():
+            shutil.rmtree(target)
+        shutil.copytree(code / PREFIX, target, ignore=shutil.ignore_patterns("__pycache__"))
+
+    def verify_installed(code, state):
+        expected = {p.relative_to(code / PREFIX): p.read_bytes()
+                    for p in (code / PREFIX).rglob("*")
+                    if p.is_file() and "__pycache__" not in p.parts}
+        actual = {p.relative_to(state / PREFIX): p.read_bytes()
+                  for p in (state / PREFIX).rglob("*")
+                  if p.is_file() and "__pycache__" not in p.parts}
+        assert actual == expected, "Restored integration differs from exact artifact"
+
     run(prior, "seed", pre, tag[1:])
+    install(prior, pre)
+    before = work / "pre-upgrade.tar"
+    after = work / "upgraded.tar"
+    backup("backup", pre, before)
     shutil.copytree(pre, upgraded)
+    install(candidate, upgraded)
     run(candidate, "upgrade", upgraded, manifest["version"])
+    backup("backup", upgraded, after)
     run(prior, "reject_direct", upgraded, tag[1:])
-    shutil.copytree(pre, restored)
+
+    # Restore into a genuinely upgraded directory, not an empty or prior
+    # directory. The actual native HA startup restore must replace code/state.
+    shutil.copytree(upgraded, restored)
+    backup("restore", restored, before)
+    verify_installed(prior, restored)
     run(prior, "rollback", restored, tag[1:])
-    run(candidate, "forward", upgraded, manifest["version"])
-    print("Exact immutable rollback artifact + candidate native Store checkpoint roundtrip PASS")
-    print("Full HA backup/restore and preservation of intervening live changes are separate gates")
+    backup("restore", restored, after)
+    verify_installed(candidate, restored)
+    run(candidate, "forward", restored, manifest["version"])
+    assert before.is_file() and after.is_file()
+    print("Exact predecessor/candidate native Core backup/restore and Store checkpoint PASS")
+    print("Actual site backup UI, EVSE STOP and physical acceptance are separate gates")
 
 
 def main() -> None:
@@ -230,7 +305,7 @@ print('Extracted HACS source Home Assistant API imports PASS: ' + str(ha_version
     print(f"Source artifact SHA256: {hashlib.sha256(content).hexdigest()}")
     print(f"Source artifact file count: {len(names)}")
     print("HACS source artifact + native HA module import PASS")
-    print("Installed HA UI, EVSE physical readback and rollback remain separate TEST qualification")
+    print("Installed HA UI and physical/site readback remain separate qualification")
 
 
 if __name__ == "__main__":
