@@ -827,5 +827,34 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(rt._listeners, set())
 
 
+class CostArchiveRetryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_readback_retries_only_original_missing_slices(self):
+        from unittest.mock import AsyncMock, patch
+        from multicharge_runtime_test import runtime as module
+
+        rt = _ProductionRuntime(None, sample())
+        rt.statistics_namespace = "entry"
+        first = NOW.replace(hour=0)
+        last = first+timedelta(hours=2)
+        day = first.date().isoformat()
+        days = {day: (first, last)}
+        keys = list(module.hour_slices(first, last))
+        original = {keys[0]: {"original": 1}, keys[1]: {"original": 2}}
+        rt._archive_pending[day] = dict(original)
+        identity = rt._current_session_cost_identity()
+        with patch.object(module, "read_archive", new=AsyncMock(side_effect=[
+                None, {keys[0]: original[keys[0]]}, dict(original)])), \
+                patch.object(module, "write_archive") as writer:
+            await rt._retry_cost_archive(days, rt.configuration, [], identity)
+            self.assertEqual(rt._archive_pending[day], original)
+            writer.assert_not_called()
+            await rt._retry_cost_archive(days, rt.configuration, [], identity)
+            self.assertEqual(rt._archive_pending[day], {keys[1]: original[keys[1]]})
+            self.assertEqual(writer.call_args.args[-1], {keys[1]: original[keys[1]]})
+            await rt._retry_cost_archive(days, rt.configuration, [], identity)
+            self.assertFalse(rt._archive_pending)
+            self.assertEqual(writer.call_count, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

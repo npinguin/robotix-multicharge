@@ -172,6 +172,7 @@ async def read_archive(hass, entry_id, days, cfg, bindings, receipts):
         from homeassistant.components.recorder.statistics import get_metadata, statistics_during_period
         recorder = get_instance(hass)
         prefix = _prefix(entry_id)
+        owners = owner_map(cfg, bindings, receipts)
 
         def read():
             metadata = get_metadata(hass, statistic_source="robotix_multicharge")
@@ -181,10 +182,10 @@ async def read_archive(hass, entry_id, days, cfg, bindings, receipts):
             first = min(a for a, _ in slices.values()).replace(minute=0)
             last = max(b for _, b in slices.values())
             end = last.replace(minute=0)+timedelta(hours=1)
-            return statistics_during_period(hass, first, end, ids, "hour", None, {"mean"})
+            raw = statistics_during_period(hass, first, end, ids, "hour", None, {"mean"})
+            return decode_archive(entry_id, slices, raw, owners)
 
-        raw = await recorder.async_add_executor_job(read)
-        return decode_archive(entry_id, slices, raw, owner_map(cfg, bindings, receipts))
+        return await recorder.async_add_executor_job(read)
     except (ImportError, RuntimeError, ValueError, OSError, KeyError):
         return None
 

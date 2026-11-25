@@ -156,31 +156,9 @@ class MultiChargeRuntime:
                     elif pieces:
                         self._archive_partial[day] = pieces
 
-        # Confirm queued native statistics before declaring retention complete.
-        # Retain the exact original derived slices in memory until readback;
-        # retries never recalculate them using a newer tariff or owner.
-        retry_day = next(iter(self._archive_pending), None)
-        if retry_day is not None:
-            queued = self._archive_pending[retry_day]
-            restored = await read_archive(
-                self.hass, self.statistics_namespace, {retry_day: days[retry_day]},
-                cfg, self.power_bindings, receipts,
-            )
-            if not self.active or identity != self._current_session_cost_identity():
-                return
-            if restored is not None:
-                missing_rows = {key: row for key, row in queued.items() if key not in restored}
-                if not missing_rows:
-                    self._archive_pending.pop(retry_day, None)
-                else:
-                    try:
-                        write_archive(self.hass, self.statistics_namespace,
-                                      hour_slices(*days[retry_day]), missing_rows)
-                    except (ImportError, RuntimeError, ValueError, OSError):
-                        _LOGGER.exception("Native charging cost retention retry failed")
-                    # Rotate, so one failed day does not starve other readbacks.
-                    self._archive_pending.pop(retry_day)
-                    self._archive_pending[retry_day] = missing_rows
+        await self._retry_cost_archive(days, cfg, receipts, identity)
+        if not self.active or identity != self._current_session_cost_identity():
+            return
 
         missing = next((day for day in reversed(days) if day != today
                         and day not in self._closed_cost_days
@@ -210,6 +188,32 @@ class MultiChargeRuntime:
                         _LOGGER.exception("Native charging cost retention unavailable")
         self.period_costs = civil_period_costs(days, self._daily_costs)
         self.notify()
+
+    async def _retry_cost_archive(self, days, cfg, receipts, identity):
+        """One bounded readback/retry using the original, not revalued, evidence."""
+        retry_day = next(iter(self._archive_pending), None)
+        if retry_day is None:
+            return
+        queued = self._archive_pending[retry_day]
+        restored = await read_archive(
+            self.hass, self.statistics_namespace, {retry_day: days[retry_day]},
+            cfg, self.power_bindings, receipts,
+        )
+        if not self.active or identity != self._current_session_cost_identity():
+            return
+        if restored is None:
+            return
+        missing = {key: row for key, row in queued.items() if key not in restored}
+        if missing:
+            try:
+                write_archive(self.hass, self.statistics_namespace,
+                              hour_slices(*days[retry_day]), missing)
+            except (ImportError, RuntimeError, ValueError, OSError):
+                _LOGGER.exception("Native charging cost retention retry failed")
+        # Rotate, so a failed day does not starve other readbacks.
+        self._archive_pending.pop(retry_day)
+        if missing:
+            self._archive_pending[retry_day] = missing
 
     def native_surplus_power(self, at):
         """Compute strictly current, not forecast solar/export capacity.

@@ -177,6 +177,11 @@ def build_diagnostics(runtime, entry, captured_at=None):
                 _action(row) for row in runtime.executor.completed_sessions()
             ],
         },
+        "finance_retention": {
+            "pending_days": len(runtime._archive_pending),
+            "projected_days": len(runtime._daily_costs),
+            "pending_slices": sum(len(rows) for rows in runtime._archive_pending.values()),
+        },
         "settings_action": (
             _action(runtime.settings_action_snapshot())
             if runtime.settings_action_snapshot() else None
