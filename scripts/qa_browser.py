@@ -31,7 +31,9 @@ CASES = [
     (390, 2, "resident", "charger", False),
     (1024, 4, "admin", "asset", False),
     (1024, 2, "resident", "asset", True),
+    (390, 2, "admin", "plan", False),
     (1024, 10, "admin", "plan", True),
+    (1600, 2, "resident", "plan", False),
     (1600, 10, "resident", "overview", True),
     (1600, 10, "admin", "charger", False),
     (1600, 4, "admin", "overview", False),
@@ -137,7 +139,7 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
             raise AssertionError(f"{label}: all source-qualified local ApexCharts must render: {row}")
         if row.get("apexErrors"):
             raise AssertionError(f"{label}: a real browser ApexCharts error occurred: {row}")
-        if not all(row.get(key) for key in ("legendContained", "legendToggle", "priceAndForecast", "sameRange", "colorAndQuarter")):
+        if not all(row.get(key) for key in ("legendContained", "legendToggle", "priceAndForecast", "sameRange", "colorAndQuarter", "pixelAligned")):
             raise AssertionError(f"{label}: price/forecast legend layout or interaction lost: {row}")
     if row["commandButtons"]:
         raise AssertionError(f"{label}: uncommissioned external Charger shows physical writes")
