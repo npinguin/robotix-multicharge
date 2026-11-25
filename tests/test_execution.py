@@ -1523,7 +1523,9 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         rt, states, services = rig(group_kw=3.6, mode="Automatic")
         charger = rt.configuration["chargers"][0]
         charger.update(kind="variable_current", rated_power_kw=3.6,
-                       voltage_v=230, current_control_entity="number.charge_limit")
+                       current_control_entity="number.charge_limit")
+        charger.pop("phase_count", None)
+        rt.executor._plug_confirmations.clear()
         native = state(16, "A")
         native.attributes.update(min=0, max=16, step=1)
         states["number.charge_limit"] = native
@@ -1543,6 +1545,41 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await rt.executor.execute("evse", "stop"))["status"], "confirmed")
         self.assertNotIn("min_current_a", charger)
         self.assertNotIn("dedicated_asset_id", charger)
+        self.assertNotIn("phase_count", charger)
+        self.assertNotIn("voltage_v", charger)
+        self.assertEqual((effective["phase_count"], effective["voltage_v"]), (1, 230))
+        # A fresh runtime with the unchanged existing config needs no button.
+        restarted = MultiChargeRuntime(rt.hass, rt.configuration)
+        restarted.refresh(quarter)
+        self.assertTrue(restarted.assessment.plan.slots)
+        self.assertEqual(restarted.executor.connection_confirmation(charger, quarter)["basis"],
+                         "user_assignment")
+
+    async def test_ac_defaults_respect_native_floor_and_configured_topology(self):
+        rt, states, services = rig()
+        charger = rt.configuration["chargers"][0]
+        charger.pop("phase_count", None)
+        charger.update(kind="variable_current", current_control_entity="number.limit")
+        native = state(16, "A")
+        native.attributes.update(min=2, max=16, step=1)
+        states["number.limit"] = native
+        effective = rt.executor.effective_charger(charger)
+        self.assertEqual((effective["min_current_a"], effective["phase_count"],
+                          effective["voltage_v"]), (6, 1, 230))
+        native.attributes.update(min=8)
+        self.assertEqual(rt.executor.effective_charger(charger)["min_current_a"], 8)
+        charger.update(phase_count=3, voltage_v=240)
+        effective = rt.executor.effective_charger(charger)
+        self.assertEqual((effective["phase_count"], effective["voltage_v"]), (3, 240))
+        charger.pop("phase_count")
+        charger.pop("voltage_v")
+        charger["circuit_id"] = "shared"
+        effective = rt.executor.effective_charger(charger)
+        self.assertIsNone(effective.get("phase_count"))
+        self.assertIsNone(effective.get("voltage_v"))
+        self.assertEqual(rt.executor._requested_current(effective, 8,
+                         datetime.now(timezone.utc))[0], "ELECTRICAL_WIRING_UNVERIFIED")
+        self.assertEqual(services.calls, [])
 
     async def test_zero_origin_grid_respects_native_step_and_no_positive_range(self):
         rt, states, services = rig()

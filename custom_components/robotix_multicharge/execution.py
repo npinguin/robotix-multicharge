@@ -1020,12 +1020,23 @@ class NativeSwitchExecutor:
                 return charger
         except (KeyError, TypeError, ValueError, OverflowError):
             return charger
+        # The owner-approved nominal defaults complete the ordinary aggregate
+        # AC model. Explicit phase/circuit protection requires actual topology.
+        # Do not persist a default or claim it is a measured wiring fact.
+        strict_wiring = bool(self.runtime.configuration["controller"].get("phase_limits_a")
+                             or charger.get("circuit_id") or charger.get("circuit_limit_a"))
+        if not strict_wiring:
+            charger = {**charger}
+            if charger.get("phase_count") is None:
+                charger["phase_count"] = 1
+            if charger.get("voltage_v") is None:
+                charger["voltage_v"] = 230.0
         # Both the configured ceiling and the actual native setpoint grid
         # constrain planning. Never propose a current the executor will reject.
         # Zero is a valid native setpoint, not a charging allocation. For
         # AC EVSEs without a declared positive minimum, start at the 6 A
         # operating floor (IEC 61851), rounded onto the actual native grid.
-        declared_min = charger.get("min_current_a", lo if lo > 0 else 6.0)
+        declared_min = max(6.0, lo, charger.get("min_current_a", 6.0))
         declared_max = charger.get("max_current_a", hi)
         declared_step = charger.get("current_step_a")
         origin = charger.get("min_current_a", lo)
@@ -1156,6 +1167,7 @@ class NativeSwitchExecutor:
         for other in cfg["chargers"]:
             if other["id"] == charger["id"]:
                 continue
+            other = self.effective_charger(other)
             power = number(self.runtime.hass, other.get("power_entity"), "power", at)
             state = self._switch(self.runtime.hass, other.get("control_entity"))
             # Use the declared rating as a reservation, not a fabricated measurement.

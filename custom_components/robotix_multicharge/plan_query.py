@@ -71,6 +71,13 @@ def charger_setup_projection(hass, registry, runtime, charger):
         "configured_current": {field: charger.get(field) for field in bounds},
         "effective_current": {field: effective.get(field) for field in bounds},
         "native_current": {field: native.get(field) for field in bounds},
+        "effective_electrical": {field: effective.get(field)
+                                 for field in ("phase_count", "voltage_v")},
+        "nominal_electrical_defaults": [
+            field for field in ("phase_count", "voltage_v")
+            if charger.get(field) is None and effective.get(field) is not None
+            and not (field == "phase_count" and charger.get("phase_ids"))
+        ],
     }
 
 

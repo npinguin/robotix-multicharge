@@ -3378,6 +3378,11 @@ class RobotixMultiChargeCard extends HTMLElement {
       const format=b=>b?.min_current_a!=null&&b?.max_current_a!=null?
         b.min_current_a+"–"+b.max_current_a+" A"+(b.current_step_a!=null?" · "+b.current_step_a+" A step":""):mcTr("Unknown");
       mcPair(card,"Effective current range",format(bounds));
+      const electrical=setup.effective_electrical||{};
+      if(electrical.phase_count!=null&&electrical.voltage_v!=null)
+        mcPair(card,mcTr("Electrical limits & optional sources"),
+          electrical.phase_count+" × "+electrical.voltage_v+" V"+
+          (setup.nominal_electrical_defaults?.length?" · "+mcTr("Default"):""));
       if(this._editingField===key){
         mcPair(card,"Native device current range",format(setup.native_current));
         mcPair(card,"Configured current range",format(setup.configured_current));
