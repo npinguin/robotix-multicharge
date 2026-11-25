@@ -23,6 +23,7 @@ _LOGGER = logging.getLogger(__name__)
 START_POWER_KW = 0.10
 STOP_POWER_KW = 0.05
 READBACK_SECONDS = 45
+NATIVE_SERVICE_TIMEOUT_SECONDS = 45
 
 
 def stop_power_limit(charger):
@@ -53,6 +54,9 @@ class NativeSwitchExecutor:
         self._supervising = False
         self._sessions = {}
         self._start_pending = set()
+        self._current_pending = set()
+        self._stop_requested = set()
+        self._urgent_stop_requests = set()
         self._accepted = {}
         self._accepted_history = {}
         self._grants = {}
@@ -1251,12 +1255,20 @@ class NativeSwitchExecutor:
                 return "CIRCUIT_CURRENT_EXCEEDED"
         return None
 
+    async def _native_service(self, domain, service, data, context):
+        """Bound the native service wait independently of physical readback."""
+        await asyncio.wait_for(
+            self.runtime.hass.services.async_call(
+                domain, service, data, blocking=True, context=context,
+            ), timeout=NATIVE_SERVICE_TIMEOUT_SECONDS,
+        )
+
     async def _set_native_current(self, charger, current, context):
         """Native HA write only, not confirmation of physical charging current."""
-        await self.runtime.hass.services.async_call(
+        await self._native_service(
             "number", "set_value",
             {"entity_id": charger["current_control_entity"], "value": float(current)},
-            blocking=True, context=context,
+            context,
         )
 
     def _current_confirmed(self, charger, current, requested_at):
@@ -1287,10 +1299,8 @@ class NativeSwitchExecutor:
     async def _protective_stop(self, charger, context):
         """Best-effort real STOP on an unconfirmed START, never claim it succeeded."""
         try:
-            await self.runtime.hass.services.async_call(
-                "switch", "turn_off",
-                {"entity_id": charger["control_entity"]},
-                blocking=True, context=context
+            await self._native_service(
+                "switch", "turn_off", {"entity_id": charger["control_entity"]}, context,
             )
             return True
         except Exception:
@@ -2172,16 +2182,19 @@ class NativeSwitchExecutor:
         request_id = request_id or uuid4().hex
         if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
             raise ValueError("request ID must be 1..128 characters")
-        # An independently owned and already-active B must not wait for A's
-        # potentially 45s unconfirmed START readback. Only use the existing
-        # protective STOP writer when the global lock is demonstrably held
-        # by a DIFFERENT pending START. This is NOT a second executor and
-        # never fabricates confirmed physical STOP or races same-EVSE START.
+        # A STOP may preempt another charger's pending START/current
+        # readback. Same-charger STOP revokes the pending operation; its
+        # owner dispatches STOP after the native write returns, never racing
+        # an in-flight turn_on. Only STOP can take this narrow dispatch path.
+        pending = self._start_pending | self._current_pending
+        if (action == "stop" and charger_id in pending
+                and request_id not in self._requests and not self._stopped):
+            self._stop_requested.add(charger_id)
         urgent_cross_charger_stop = (
             action == "stop" and self._lock.locked()
-            and bool(self._start_pending)
-            and charger_id not in self._start_pending
+            and bool(pending) and charger_id not in pending
             and request_id not in self._requests
+            and request_id not in self._urgent_stop_requests
             and not self._stopped
         )
         if urgent_cross_charger_stop:
@@ -2201,8 +2214,10 @@ class NativeSwitchExecutor:
                     ).state == "on"):
                 # Physical STOP dispatch only; later serialized execute()
                 # still verifies independent power readback and persistence.
+                self._urgent_stop_requests.add(request_id)
                 await self._protective_stop(candidate, context)
         async with self._lock:
+            self._urgent_stop_requests.discard(request_id)
             previous = self._requests.get(request_id)
             if previous is not None:
                 if (previous["charger_id"] != charger_id
@@ -2333,49 +2348,67 @@ class NativeSwitchExecutor:
                                                reserve_minima=active_regulation)
                 if reason:
                     return result("rejected", reason)
-                self._publish(charger_id, request_id, action, "requested", "REQUESTED", at)
+                self._current_pending.add(charger_id)
                 try:
-                    await self._set_native_current(charger, current_a, context)
-                except Exception as exc:
-                    await self._protective_stop(charger, context)
-                    return result("execution_unknown",
-                                  "NATIVE_CURRENT_SERVICE_EXCEPTION:" + type(exc).__name__,
-                                  service_sent=True)
-                deadline = asyncio.get_running_loop().time() + readback_seconds
-                while True:
-                    if self._current_confirmed(charger, current_a, at):
-                        confirmed_at = datetime.now(timezone.utc)
-                        if effective_slot is not None and (
-                                confirmed_at >= effective_slot.end
-                                or not self._slot_tariff_is_current(
-                                    effective_slot, confirmed_at,
-                                    self._grant_prices if not active_regulation and plan_slot is not None
-                                    else self._accepted.get(charger_id, {}).get("_prices", ()),
-                                )):
-                            await self._protective_stop(charger, context)
-                            return result("execution_unknown", "GRANT_EXPIRED_OR_CHANGED_DURING_READBACK;PROTECTIVE_STOP_SENT",
-                                          service_sent=True)
-                        self._sessions[charger_id]["target_current_a"] = current_a
-                        if (not self._record_accepted_current(charger, current_a, confirmed_at)
-                                or not await self.runtime.persist_control_state()):
-                            self._persistence_verified = False
-                            await self._protective_stop(charger, context)
-                            return result("execution_unknown",
-                                          "CURRENT_HISTORY_NOT_PERSISTED;PROTECTIVE_STOP_SENT",
-                                          service_sent=True)
-                        out = result("confirmed", ("INDEPENDENT_CURRENT_READBACK" if charger.get("current_readback_entity")
-                            else "NATIVE_SETPOINT_AND_POWER_READBACK"),
-                            observed_at=datetime.now(timezone.utc),
-                            measured_kw=number(self.runtime.hass,
-                                charger.get("power_entity"), "power",
-                                datetime.now(timezone.utc)).value, service_sent=True)
-                        self._requests[request_id]["requested_current_a"] = current_a
-                        return out
-                    if asyncio.get_running_loop().time() >= deadline:
+                    self._publish(charger_id, request_id, action, "requested", "REQUESTED", at)
+                    try:
+                        await self._set_native_current(charger, current_a, context)
+                    except Exception as exc:
                         await self._protective_stop(charger, context)
-                        return result("execution_unknown", "CURRENT_READBACK_TIMEOUT;PROTECTIVE_STOP_SENT",
+                        return result("execution_unknown",
+                                      "NATIVE_CURRENT_SERVICE_EXCEPTION:" + type(exc).__name__,
                                       service_sent=True)
-                    await asyncio.sleep(0.25)
+                    deadline = asyncio.get_running_loop().time() + readback_seconds
+                    while True:
+                        now = datetime.now(timezone.utc)
+                        current_problem, kw = self._requested_current(self.effective_charger(charger), current_a, now)
+                        issue = ("STOP_REQUESTED_DURING_CURRENT_CHANGE"
+                                 if charger_id in self._stop_requested else
+                                 self._session_stop_reason(charger, now) or current_problem
+                                 or self._physical_budget(charger, now, kw, current_a,
+                                                          plan_slot=effective_slot,
+                                                          reserve_minima=active_regulation))
+                        if issue:
+                            protective = await self._protective_stop(charger, context)
+                            return result("execution_unknown", issue
+                                          + (";PROTECTIVE_STOP_SENT" if protective
+                                             else ";PROTECTIVE_STOP_UNCONFIRMED"), service_sent=True)
+                        if self._current_confirmed(charger, current_a, at):
+                            confirmed_at = datetime.now(timezone.utc)
+                            if effective_slot is not None and (
+                                    confirmed_at >= effective_slot.end
+                                    or not self._slot_tariff_is_current(
+                                        effective_slot, confirmed_at,
+                                        self._grant_prices if not active_regulation and plan_slot is not None
+                                        else self._accepted.get(charger_id, {}).get("_prices", ()),
+                                    )):
+                                await self._protective_stop(charger, context)
+                                return result("execution_unknown", "GRANT_EXPIRED_OR_CHANGED_DURING_READBACK;PROTECTIVE_STOP_SENT",
+                                              service_sent=True)
+                            self._sessions[charger_id]["target_current_a"] = current_a
+                            if (not self._record_accepted_current(charger, current_a, confirmed_at)
+                                    or not await self.runtime.persist_control_state()):
+                                self._persistence_verified = False
+                                await self._protective_stop(charger, context)
+                                return result("execution_unknown",
+                                              "CURRENT_HISTORY_NOT_PERSISTED;PROTECTIVE_STOP_SENT",
+                                              service_sent=True)
+                            out = result("confirmed", ("INDEPENDENT_CURRENT_READBACK" if charger.get("current_readback_entity")
+                                else "NATIVE_SETPOINT_AND_POWER_READBACK"),
+                                observed_at=datetime.now(timezone.utc),
+                                measured_kw=number(self.runtime.hass,
+                                    charger.get("power_entity"), "power",
+                                    datetime.now(timezone.utc)).value, service_sent=True)
+                            self._requests[request_id]["requested_current_a"] = current_a
+                            return out
+                        if asyncio.get_running_loop().time() >= deadline:
+                            await self._protective_stop(charger, context)
+                            return result("execution_unknown", "CURRENT_READBACK_TIMEOUT;PROTECTIVE_STOP_SENT",
+                                          service_sent=True)
+                        await asyncio.sleep(0.25)
+                finally:
+                    self._current_pending.discard(charger_id)
+                    self._stop_requested.discard(charger_id)
             if action == "start":
                 if state.state != "off":
                     return result("rejected", "SWITCH_ALREADY_ON")
@@ -2457,11 +2490,15 @@ class NativeSwitchExecutor:
                     await self._set_native_current(charger, current_a, context)
                 if action == "start":
                     command_at = datetime.now(timezone.utc)
-                    issue = self._pending_start_issue(
-                        charger, command_at, plan_slot, current_a, manual_request, start_configuration,
-                    )
+                    issue = ("STOP_REQUESTED_DURING_START"
+                             if charger_id in self._stop_requested else
+                             self._pending_start_issue(
+                                 charger, command_at, plan_slot, current_a, manual_request,
+                                 start_configuration,
+                             ))
                     if issue:
                         self._start_pending.discard(charger_id)
+                        self._stop_requested.discard(charger_id)
                         if plan_slot is None:
                             self._inflight.pop(hold_key, None)
                             if not await self.runtime.persist_control_state():
@@ -2471,9 +2508,9 @@ class NativeSwitchExecutor:
                                       "energy", command_at)
                     identity = self.connection_confirmation(charger, command_at)
                     plug_epoch = identity["connected_at"] if identity else None
-                await self.runtime.hass.services.async_call(
+                await self._native_service(
                     "switch", "turn_on" if action == "start" else "turn_off",
-                    {"entity_id": entity}, blocking=True, context=context
+                    {"entity_id": entity}, context,
                 )
             except asyncio.CancelledError:
                 self._start_pending.discard(charger_id)
@@ -2497,6 +2534,13 @@ class NativeSwitchExecutor:
                           at, service_sent=True)
             deadline = asyncio.get_running_loop().time() + readback_seconds
             while True:
+                if action == "start" and charger_id in self._stop_requested:
+                    self._start_pending.discard(charger_id)
+                    self._stop_requested.discard(charger_id)
+                    protective = await self._protective_stop(charger, context)
+                    return result("execution_unknown", "STOP_REQUESTED_DURING_START"
+                                  + (";PROTECTIVE_STOP_SENT" if protective
+                                     else ";PROTECTIVE_STOP_UNCONFIRMED"), service_sent=True)
                 if self._stopped:
                     self._start_pending.discard(charger_id)
                     return result("execution_unknown", "INTEGRATION_UNLOADED_PENDING",
@@ -2518,6 +2562,7 @@ class NativeSwitchExecutor:
                                 baseline=baseline, plug_epoch=plug_epoch,
                             )
                         self._start_pending.discard(charger_id)
+                        self._stop_requested.discard(charger_id)
                         if reason is None and charger["kind"] == "variable_current":
                             self._sessions[charger_id]["target_current_a"] = current_a
                         if reason is not None:

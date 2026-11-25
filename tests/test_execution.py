@@ -1315,7 +1315,8 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         original = services.async_call
         async def vehicle_draw(domain, service, data, **kwargs):
             await original(domain, service, data, **kwargs)
-            if service in ("turn_on", "set_value"):
+            if service == "turn_on" or (service == "set_value"
+                                        and states["switch.evse_control"].state == "on"):
                 states["sensor.actual_current"].state = "7"
                 states["sensor.actual_current"].last_updated = datetime.now(timezone.utc)
                 states["sensor.actual_power"].state = "1610"
@@ -1801,6 +1802,74 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(result_a["status"], "confirmed")
         self.assertNotEqual(result_b["status"], "confirmed")
         # A second request cannot bypass physical confirmation of B's STOP.
+
+    async def test_other_charger_stop_preempts_pending_current_readback(self):
+        rt, states, services = rig(group_kw=8)
+        rt.configuration["controller"]["max_parallel"] = 2
+        rt.configuration["chargers"][0].update(
+            kind="variable_current", rated_power_kw=3.68, voltage_v=230,
+            min_current_a=6, max_current_a=16, current_step_a=1,
+            current_control_entity="number.charge_limit",
+            current_readback_entity="sensor.actual_current",
+        )
+        native = state(6, "A")
+        native.attributes.update(min=6, max=16, step=1)
+        states["number.charge_limit"] = native
+        states["sensor.actual_current"] = state(0, "A")
+        self.assertEqual((await rt.executor.execute("evse", "start", current_a=6))["status"],
+                         "confirmed")
+        rt.configuration["chargers"].append({
+            "id": "other", "name": "Other", "kind": "on_off",
+            "rated_power_kw": 2, "phase_count": 1, "control_owner": "multicharge",
+            "physical_commissioned": True, "control_entity": "switch.other",
+            "power_entity": "sensor.other_power",
+        })
+        states["switch.other"] = state("on")
+        states["sensor.other_power"] = state(1600, "W")
+        original = services.async_call
+
+        async def slow_current(domain, service, data, **kwargs):
+            if data["entity_id"] == "switch.other":
+                services.calls.append((domain, service, dict(data), True, None))
+                states["switch.other"].state = "off"
+                states["sensor.other_power"].state = "0"
+                states["sensor.other_power"].last_updated = datetime.now(timezone.utc)
+            elif domain == "number":
+                services.calls.append((domain, service, dict(data), True, None))
+            else:
+                await original(domain, service, data, **kwargs)
+        services.async_call = slow_current
+        pending = asyncio.create_task(rt.executor.execute(
+            "evse", "set_current", current_a=10, readback_seconds=0.6))
+        for _ in range(80):
+            if rt.executor._current_pending:
+                break
+            await asyncio.sleep(0.005)
+        self.assertIn("evse", rt.executor._current_pending)
+        stop = asyncio.create_task(rt.executor.execute("other", "stop"))
+        await asyncio.sleep(0.03)
+        self.assertEqual(states["switch.other"].state, "off")
+        self.assertFalse(pending.done())
+        first, second = await asyncio.gather(pending, stop)
+        self.assertEqual(first["status"], "execution_unknown")
+        self.assertEqual(second["status"], "confirmed")
+        self.assertFalse(rt.executor._current_pending)
+
+    async def test_same_charger_stop_revokes_pending_start_readback(self):
+        rt, states, services = rig()
+        services.reconcile_observations = False
+        start = asyncio.create_task(rt.executor.execute("evse", "start", readback_seconds=2))
+        for _ in range(80):
+            if rt.executor._start_pending:
+                break
+            await asyncio.sleep(0.005)
+        self.assertIn("evse", rt.executor._start_pending)
+        stop = asyncio.create_task(rt.executor.execute("evse", "stop"))
+        result, _ = await asyncio.wait_for(asyncio.gather(start, stop), timeout=1.5)
+        self.assertNotEqual(result["status"], "confirmed")
+        self.assertIn("STOP_REQUESTED_DURING_START", result["reason"])
+        self.assertFalse(rt.executor._sessions)
+        self.assertFalse(rt.executor._start_pending)
 
     async def test_qualified_eur_budget_physically_stops_with_measured_kwh(self):
         rt, states, service = rig()
