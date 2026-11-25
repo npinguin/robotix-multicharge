@@ -2500,3 +2500,122 @@ async def test_direct_yaml_save_native_websocket_single_entry_roundtrip(
 
     await client.close()
     assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
+async def test_native_discovery_activation_and_reload_through_websocket(
+    hass: HomeAssistant, hass_ws_client,
+):
+    """Installed HA registry, typed Save, busy refusal and persistent readback.
+
+    Native HA states here are controlled test inputs, not EVSE field evidence.
+    """
+    from homeassistant.helpers import entity_registry as er
+
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    provider = MockConfigEntry(domain="demo", title="Native source")
+    provider.add_to_hass(hass)
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=provider.entry_id, identifiers={("demo", "native_evse")},
+    )
+    registry = er.async_get(hass)
+
+    def native(domain, uid, value, attrs=None):
+        row = registry.async_get_or_create(
+            domain, "demo", uid, config_entry=provider,
+            device_id=device.id, suggested_object_id=uid,
+        )
+        hass.states.async_set(row.entity_id, value, attrs or {})
+        return row.entity_id
+
+    switch = native("switch", "native_enable", "off")
+    power_attrs = {"device_class": "power", "unit_of_measurement": "W"}
+    power = native("sensor", "native_power", "0", power_attrs)
+    plug = native("binary_sensor", "native_plug", "off", {"device_class": "plug"})
+    current = native("number", "native_current", "16", {
+        "unit_of_measurement": "A", "min": 6, "max": 32, "step": 1,
+    })
+    meter = native("sensor", "native_meter", "10", {
+        "device_class": "energy", "unit_of_measurement": "kWh",
+        "state_class": "total_increasing",
+    })
+    cfg = validate_configuration({
+        "controller": {"id": "home", "name": "Home", "mode": "Off", "max_parallel": 1},
+        "assets": [],
+        "chargers": [{"id": "native", "name": "Native EVSE", "kind": "variable_current",
+                      "rated_power_kw": 7.4, "control_entity": switch,
+                      "control_owner": "external", "physical_commissioned": False}],
+    })
+    entry = MockConfigEntry(domain=DOMAIN, title="MultiCharge",
+                            data={"source": "ui", "configuration": cfg}, unique_id=DOMAIN)
+    entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+    client = await hass_ws_client(hass)
+    request_id = 700
+
+    async def ws(kind, **fields):
+        nonlocal request_id
+        request_id += 1
+        await client.send_json({"id": request_id, "type": f"robotix_multicharge/{kind}", **fields})
+        reply = await client.receive_json()
+        assert reply["id"] == request_id
+        return reply
+
+    async def read(**fields):
+        reply = await ws("get_plan", day="today", include_history=False, **fields)
+        assert reply["success"], reply
+        return reply["result"]
+
+    initial = await read(discover_charger={"control_entity": switch, "kind": "variable_current"})
+    proposal = initial["charger_setup"]["native"]["proposed_missing"]
+    assert proposal["power_entity"] == power
+    assert proposal["connected_entity"] == plug
+    assert proposal["current_control_entity"] == current
+    assert proposal["energy_entity"] == meter
+    assert (proposal["min_current_a"], proposal["max_current_a"], proposal["current_step_a"]) == (6, 32, 1)
+    assert initial["charger_setup_draft"]["proposed_missing"] == proposal
+    assert entry.options.get("configuration") is None  # discovery never writes
+    saved = await ws("update_settings", scope="charger", target_id="native",
+                     structural=True, changes={**proposal, "max_current_a": 16,
+                                                "phase_count": 1, "voltage_v": 230},
+                     expected_revision=initial["configuration_revision"])
+    assert saved["success"], saved
+    await hass.async_block_till_done()
+    readback = await read()
+    assert readback["configuration_revision"] == saved["result"]["expected_revision"]
+    setup = readback["charger_setup"]["native"]
+    assert setup["configured_current"]["max_current_a"] == 16
+    assert setup["native_current"]["max_current_a"] == 32
+    assert setup["effective_current"]["max_current_a"] == 16
+    assert "current_control_entity" not in setup["proposed_missing"]
+    hass.states.async_set(switch, "on")
+    hass.states.async_set(power, "2000", power_attrs)
+    await hass.async_block_till_done()
+    denied = await ws("update_settings", scope="charger", target_id="native",
+                      structural=True, changes={"control_owner": "multicharge"},
+                      expected_revision=readback["configuration_revision"])
+    assert not denied["success"] and "CHARGER_BUSY_STOP_FIRST" in denied["error"]["message"]
+    assert entry.options["configuration"]["chargers"][0]["control_owner"] == "external"
+    hass.states.async_set(switch, "off")
+    hass.states.async_set(power, "0", power_attrs)
+    await hass.async_block_till_done()
+    enabled = await ws("update_settings", scope="charger", target_id="native",
+                       structural=True, changes={"control_owner": "multicharge"},
+                       expected_revision=readback["configuration_revision"])
+    assert enabled["success"], enabled
+    await hass.async_block_till_done()
+    confirmed = await read()
+    assert confirmed["configuration_revision"] == enabled["result"]["expected_revision"]
+    assert confirmed["charger_states"]["native"]["activation"] == "active"
+    assert hass.states.get(switch).state == "off"  # Save is not a START
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    after = await read()
+    assert after["configuration_revision"] == confirmed["configuration_revision"]
+    assert after["charger_setup"]["native"]["configured_current"]["max_current_a"] == 16
+    await client.close()
+    assert await hass.config_entries.async_unload(entry.entry_id)
