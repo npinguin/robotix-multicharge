@@ -177,7 +177,7 @@ def build_diagnostics(runtime, entry, captured_at=None):
                 for uid, result in runtime.executor.session_snapshot().items()
             },
             "completed_sessions": [
-                _action(row) for row in runtime.executor.completed_sessions()
+                _action(row) for row in runtime.executor.completed_sessions(limit=200)
             ],
         },
         "finance_retention": {

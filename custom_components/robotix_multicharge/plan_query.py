@@ -160,7 +160,7 @@ async def websocket_get_plan(
             for receipt in receipts
             if (msg.get("charger_id") is None or receipt["charger_id"] == msg["charger_id"])
             and (msg.get("asset_id") is None or receipt.get("asset_id") == msg["asset_id"])
-        ]
+        ][-200:]
         entry = hass.config_entries.async_get_entry(entry_id)
         result["configuration_managed_by_yaml"] = bool(
             entry is not None and entry.data.get("source") in ("yaml", "json")

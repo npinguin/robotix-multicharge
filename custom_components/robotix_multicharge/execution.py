@@ -331,7 +331,7 @@ class NativeSwitchExecutor:
                     or any(not isinstance(uid, str) or uid not in configured
                            for uid in paused)):
                 raise ValueError("invalid paused charger state")
-            if not isinstance(sessions, list) or len(sessions) > 200:
+            if not isinstance(sessions, list):
                 raise ValueError("invalid session history")
             if not isinstance(completed, dict) or not isinstance(inflight, dict):
                 raise ValueError("invalid persisted intents")
@@ -417,7 +417,7 @@ class NativeSwitchExecutor:
             "schema_major": 1,
             "completed": dict(self._completed),
             "paused": sorted(self._paused),
-            "sessions": list(self._session_history[-200:]),
+            "sessions": list(self._session_history),
             "inflight": dict(self._inflight),
             "accepted": [
                 {**record, "start": record["start"].isoformat(),
@@ -443,9 +443,10 @@ class NativeSwitchExecutor:
             for uid, record in self._sessions.items()
         }
 
-    def completed_sessions(self):
-        """Durable measured session receipts with stable logical attribution."""
-        return [dict(row) for row in self._session_history]
+    def completed_sessions(self, *, limit=None):
+        """Durable receipts; only presentation callers may limit the view."""
+        rows = self._session_history if limit is None else self._session_history[-limit:]
+        return [dict(row) for row in rows]
 
     def _archive_session(self, charger_id, finished_at, reason):
         """Only a physically confirmed STOP may produce a completed receipt."""
@@ -509,7 +510,6 @@ class NativeSwitchExecutor:
             "budget_cost_quality": session.get("budget_quality", "not_applicable"),
             "budget_currency": session.get("requested_budget_currency"),
         })
-        self._session_history = self._session_history[-200:]
 
     def accepted_slots(self):
         """Actual admitted slots only, never future proposals masquerading as execution."""

@@ -540,6 +540,38 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(asset["id"], rt.executor._inflight,
                       "Unmeasured energy must not permit automatic replay")
 
+    async def test_receipts_beyond_ui_limit_preserve_original_intent_and_identity(self):
+        rt, sources, _ = rig()
+        asset = rt.configuration["assets"][0]
+        charger = rt.configuration["chargers"][0]
+        asset["requested_kwh"] = 1
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"],
+                         "confirmed")
+        sources["sensor.meter"].state = "5.8"
+        sources["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        self.assertEqual((await rt.executor.execute("evse", "stop"))["status"],
+                         "confirmed")
+        original = rt.executor.completed_sessions()[0]
+        # Other real historical receipt identities must not evict progress
+        # of the original still-valid finite intent.
+        for index in range(205):
+            a = datetime.now(timezone.utc)-timedelta(days=1, minutes=206-index)
+            rt.executor._session_history.append({
+                **original, "asset_id": "retired_car", "intent_key": "other",
+                "started_at": a.isoformat(),
+                "ended_at": (a+timedelta(seconds=30)).isoformat(),
+            })
+        snapshot = rt.executor.export_state()
+        self.assertEqual(len(snapshot["sessions"]), 206)
+        restored = MultiChargeRuntime(rt.hass, rt.configuration)
+        restored.executor.restore_state(snapshot)
+        self.assertTrue(restored.executor._persistence_verified)
+        self.assertEqual(restored.executor.completed_sessions()[0], original)
+        self.assertEqual(len(restored.executor.completed_sessions(limit=200)), 200)
+        self.assertAlmostEqual(restored.executor.measured_intent_usage(
+            asset, charger, None)["energy_kwh"], 0.8)
+        self.assertEqual(restored.executor.export_state()["sessions"], snapshot["sessions"])
+
     async def test_verified_vehicle_energy_follows_asset_not_charger(self):
         rt, states, services = rig()
         asset = rt.configuration["assets"][0]

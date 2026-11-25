@@ -1164,7 +1164,7 @@ class MultiChargeRuntime:
             ),
             "command_outcomes": self.executor.snapshot(),
             "active_sessions": self.executor.session_snapshot(),
-            "completed_sessions": self.executor.completed_sessions(),
+            "completed_sessions": self.executor.completed_sessions(limit=200),
             "accepted_slots": [{
                 **row, "start": row["start"].isoformat(),
                 "end": row["end"].isoformat(),
