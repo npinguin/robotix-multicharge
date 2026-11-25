@@ -672,11 +672,14 @@ class MultiChargeRuntime:
                 draw_at = wall
             draw = (self.executor.qualified_session_draw(raw, asset, draw_at, power, reading)
                     if amount is not None and not disconnected else None)
+            if draw is None and amount is not None:
+                draw = self.executor.prior_session_draw(raw, asset, draw_at, reading)
             if draw is not None:
                 self.observations["chargers"][uid]["session_draw_estimate"] = draw
             request = ChargeDemand(
                 asset_uid=asset["id"], charger_uid=uid,
                 observed_session_draw_kw=draw["power_kw"] if draw else None,
+                observed_draw_setpoint_kw=draw["setpoint_kw"] if draw else None,
                 remaining_grid_kwh=amount, ready_by=deadline,
                 priority=asset.get("priority", 0),
                 continuous_charging=asset.get("continuous_charging", False),

@@ -1401,6 +1401,63 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         states["number.charge_limit"].state = "10"
         self.assertIsNone(estimate(7))
 
+    async def test_prior_session_draw_receipt_reuse_and_changed_context(self):
+        rt, states, _ = rig(group_kw=3.6)
+        charger = rt.configuration["chargers"][0]
+        charger.update(kind="variable_current", rated_power_kw=3.68,
+                       voltage_v=230, min_current_a=6, max_current_a=16, current_step_a=1,
+                       current_control_entity="number.charge_limit",
+                       current_readback_entity="sensor.actual_current")
+        asset = rt.configuration["assets"][0]
+        asset["soc_entity"] = "sensor.car_soc"
+        states["number.charge_limit"] = native = state(6, "A")
+        native.attributes.update(min=6, max=16, step=1)
+        states["sensor.actual_current"] = state(0, "A")
+        states["sensor.car_soc"] = state(50, "%")
+        self.assertEqual((await rt.executor.execute("evse", "start", current_a=15))["status"],
+                         "confirmed")
+        from multicharge_physical_execution_test.source_evidence import number, Evidence
+        now = datetime.now(timezone.utc)
+        # Clock-controlled source reports in a completed six-minute window.
+        session = rt.executor._sessions["evse"]
+        session["started_at"] = session["confirmed_at"] = now-timedelta(minutes=6)
+        for minute in (6, 4, 2, 0):
+            at = now-timedelta(minutes=minute)
+            states["sensor.actual_power"].state = "1610"
+            states["sensor.actual_current"].state = "7"
+            for source in states.values():
+                source.last_updated = at
+            draw = rt.executor.qualified_session_draw(
+                charger, asset, at, number(rt.hass, "sensor.actual_power", "power", at),
+                Evidence(50, "ok", at, "NATIVE_SOC"),
+            )
+        self.assertIsNotNone(draw)
+        self.assertAlmostEqual(draw["setpoint_kw"], 3.45)
+        stopped = await rt.executor.execute("evse", "stop")
+        self.assertEqual(stopped["status"], "confirmed")
+        self.assertEqual(len(rt.executor.completed_sessions()), 1)
+        snapshot = rt.executor.export_state()
+        rt.executor.restore_state(snapshot)
+        at = datetime.now(timezone.utc)
+        def prior(c=charger, a=asset, level=52, stamp=at):
+            return rt.executor.prior_session_draw(
+                c, a, stamp, Evidence(level, "ok", stamp, "NATIVE_SOC"),
+            )
+        self.assertEqual(prior()["basis"], "qualified_prior_session")
+        self.assertAlmostEqual(prior()["power_kw"], 1.61)
+        self.assertIsNone(prior(level=70))
+        self.assertIsNone(prior(c={**charger, "voltage_v": 240}))
+        self.assertIsNone(prior(a={**asset, "id": "different"}))
+        self.assertIsNone(prior(a={**asset, "soc_entity": "sensor.other_soc"}))
+        self.assertIsNone(prior(stamp=at+timedelta(days=31)))
+        # Unknown/missing context does not inherit a prior observation.
+        self.assertIsNone(rt.executor.prior_session_draw(
+            charger, asset, at, Evidence(None, "unknown", None, "NO_SOC")))
+        rt.executor._session_history.append({
+            **rt.executor._session_history[-1], "draw_evidence": None,
+        })
+        self.assertIsNone(prior())
+
     async def test_adjustable_native_ceiling_accepts_lower_actual_vehicle_draw(self):
         rt, states, services = rig(group_kw=3.6)
         charger = rt.configuration["chargers"][0]

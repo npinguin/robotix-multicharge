@@ -509,6 +509,8 @@ class NativeSwitchExecutor:
             ),
             "budget_cost_quality": session.get("budget_quality", "not_applicable"),
             "budget_currency": session.get("requested_budget_currency"),
+            **({"draw_evidence": session["draw_evidence"]}
+               if session.get("draw_evidence") and reason != "NATIVE_SWITCH_STATE" else {}),
         })
 
     def accepted_slots(self):
@@ -1627,6 +1629,69 @@ class NativeSwitchExecutor:
             energized=energized,
         )
 
+    def _draw_binding(self, charger, asset):
+        """Fingerprint only the existing identity and electrical source context."""
+        fields = ("id", "asset", "kind", "control_entity", "connected_entity",
+                  "connected_states", "disconnected_states", "power_entity",
+                  "current_control_entity", "current_readback_entity", "phase_count",
+                  "voltage_v", "phase_ids", "min_current_a", "max_current_a",
+                  "current_step_a", "rated_power_kw", "min_charging_power_kw",
+                  "max_charging_power_kw", "circuit_id", "circuit_limit_a")
+        asset_fields = ("id", "kind", "soc_entity", "soc_stale_entity", "max_charge_kw",
+                        "capacity_kwh", "charge_efficiency", "temporary")
+        epochs = self.runtime.power_bindings.get(charger["id"], [])
+        return sha256(dumps([
+            {field: charger.get(field) for field in fields},
+            {field: asset.get(field) for field in asset_fields},
+            epochs[-1] if epochs else None,
+        ], sort_keys=True).encode()).hexdigest()
+
+    def prior_session_draw(self, charger, asset, at, soc):
+        """Reuse a bounded observation, not a learned vehicle maximum.
+
+        The newest same-owner receipt must itself contain qualified evidence.
+        Old or changed source/wiring/SoC context returns to ordinary planning.
+        The estimate never authorizes a command or changes reserved current.
+        """
+        if (charger["kind"] != "variable_current" or asset.get("temporary")
+                or not asset.get("soc_entity") or soc.quality != "ok"
+                or charger["id"] in self._sessions):
+            return None
+        for receipt in reversed(self._session_history):
+            if (receipt["charger_id"] != charger["id"]
+                    or receipt["asset_id"] != asset["id"]):
+                continue
+            draw = receipt.get("draw_evidence")
+            if receipt.get("physical_stop_confirmed") is not True or not isinstance(draw, dict):
+                return None
+            try:
+                stamp = datetime.fromisoformat(draw["observed_at"])
+                begun = datetime.fromisoformat(receipt["started_at"])
+                ended = datetime.fromisoformat(receipt["ended_at"])
+                if (not begun <= stamp <= ended <= at
+                        or at-stamp > timedelta(days=30)
+                        or draw["binding"] != self._draw_binding(charger, asset)
+                        or type(draw["sample_count"]) is not int or draw["sample_count"] < 3):
+                    return None
+                values = [draw[key] for key in ("power_kw", "setpoint_kw", "current_a",
+                                                "soc_min", "soc_max")]
+                if any(type(v) not in (int, float) or not isfinite(v) for v in values):
+                    return None
+                power_kw, setpoint_kw, current, soc_min, soc_max = values
+                issue, qualified_kw = self._requested_current(charger, current, at)
+                if (issue is not None or abs(qualified_kw-setpoint_kw) > 1e-6
+                        or not 0 < power_kw <= setpoint_kw*1.10
+                        or not 0 <= soc_min <= soc_max <= 100
+                        or soc_max-soc_min > 5
+                        or not soc_min-5 <= soc.value <= soc_max+5):
+                    return None
+            except (KeyError, TypeError, ValueError, OverflowError):
+                return None
+            return {"power_kw": power_kw, "setpoint_kw": setpoint_kw,
+                    "observed_at": draw["observed_at"], "sample_count": draw["sample_count"],
+                    "basis": "qualified_prior_session"}
+        return None
+
     def qualified_session_draw(self, charger, asset, at, power, soc):
         """Short-lived same-session evidence, never a learned EV maximum.
 
@@ -1648,7 +1713,8 @@ class NativeSwitchExecutor:
                 or power.value <= start_power_limit(charger)):
             return clear()
         target = session.get("target_current_a")
-        if self._requested_current(charger, target, at)[0] is not None:
+        issue, setpoint_kw = self._requested_current(charger, target, at)
+        if issue is not None:
             return clear()
         identity = self.connection_confirmation(charger, at)
         if (not identity or identity["connected_at"] != session.get("connection_epoch")
@@ -1698,9 +1764,18 @@ class NativeSwitchExecutor:
                 or max(row[1] for row in rows)-min(row[1] for row in rows)
                    > max(0.1, min(row[1] for row in rows)*0.15)):
             return None
-        return {"power_kw": round(min(row[1] for row in rows), 6),
-                "observed_at": rows[-1][0].isoformat(),
+        draw = {"power_kw": round(min(row[1] for row in rows), 6),
+                "setpoint_kw": setpoint_kw, "observed_at": rows[-1][0].isoformat(),
                 "sample_count": len(rows), "basis": "sustained_current_session"}
+        # Keep a single qualified summary in the original session receipt;
+        # no historical raw samples, separate model, or persistence owner.
+        if soc_value is not None and asset.get("soc_entity") and not asset.get("temporary"):
+            session["draw_evidence"] = {
+                **draw, "binding": self._draw_binding(charger, asset), "current_a": target,
+                "soc_min": min(row[2] for row in rows),
+                "soc_max": max(row[2] for row in rows),
+            }
+        return draw
 
     def _accept_slot(self, charger, slot, revision):
         """Accept only a physically confirmed current slot; keep bounded evidence."""

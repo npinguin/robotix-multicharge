@@ -71,6 +71,24 @@ class PlannerTests(unittest.TestCase):
                             for slot in result.plan.slots))
         self.assertTrue(any(slot.power_kw > slot.expected_power_kw for slot in result.plan.slots))
 
+    def test_curtailed_draw_does_not_cap_higher_verified_setpoints(self):
+        ctl, chargers = build(power=3.6, limit=3.6)
+        chargers["c0"] = Charger(uid="c0", name="Drive", controller_uid="home",
+                                 control_kind="variable_current", rated_power_kw=3.6,
+                                 min_current_a=6, max_current_a=16, phase_count=1,
+                                 voltage_v=230, current_step_a=1)
+        result = compile_plan(ctl, chargers, [ChargeDemand(
+            asset_uid="car", charger_uid="c0", remaining_grid_kwh=3,
+            ready_by=NOW+timedelta(hours=1), observed_session_draw_kw=1.1,
+            observed_draw_setpoint_kw=1.38,
+        )], NOW, mode="Ready By")
+        self.assertTrue(any(slot.power_kw > 1.38 for slot in result.plan.slots))
+        for slot in result.plan.slots:
+            if slot.power_kw > 1.38:
+                self.assertAlmostEqual(slot.expected_power_kw, slot.power_kw)
+            else:
+                self.assertLessEqual(slot.expected_power_kw, 1.1)
+
     def test_indicative_slots_use_residual_capacity_without_changing_firm_slots(self):
         controller, chargers = build(n=2, power=4.0, limit=4.0)
         at = NOW

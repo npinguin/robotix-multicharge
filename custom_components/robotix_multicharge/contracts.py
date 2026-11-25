@@ -103,6 +103,7 @@ class ChargeDemand:
     opportunistic_kind: str = "off"
     opportunistic_level_pct: float | None = None
     observed_session_draw_kw: float | None = None
+    observed_draw_setpoint_kw: float | None = None
 
     def __post_init__(self) -> None:
         if self.observed_session_draw_kw is not None and (
@@ -111,6 +112,13 @@ class ChargeDemand:
                 or self.observed_session_draw_kw <= 0
                 or self.remaining_grid_kwh is None):
             raise ValueError("qualified draw estimate requires an energy demand")
+        if self.observed_draw_setpoint_kw is not None and (
+                type(self.observed_draw_setpoint_kw) not in (int, float)
+                or not isfinite(self.observed_draw_setpoint_kw)
+                or self.observed_draw_setpoint_kw <= 0
+                or self.observed_session_draw_kw is None
+                or self.observed_session_draw_kw > self.observed_draw_setpoint_kw*1.10):
+            raise ValueError("draw estimate requires a qualified setpoint")
         if not self.asset_uid.strip():
             raise ValueError("asset identity required")
         if type(self.continuous_charging) is not bool:

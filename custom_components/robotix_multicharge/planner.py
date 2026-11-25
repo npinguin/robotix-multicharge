@@ -439,10 +439,14 @@ def compile_plan(
             coverage[uid] = "UNAVAILABLE"
             continue
         def expected_power(reserved):
-            # A session-local observation affects energy feasibility and cost,
-            # not the electrical/phase/circuit reservation or command ceiling.
-            return (min(reserved, demand.observed_session_draw_kw)
-                    if demand.observed_session_draw_kw is not None else reserved)
+            # A qualified observation affects energy feasibility and cost,
+            # never the electrical/phase/circuit reservation or command ceiling.
+            # A curtailed setpoint does not establish draw at higher current.
+            if (demand.observed_session_draw_kw is not None
+                    and (demand.observed_draw_setpoint_kw is None
+                         or reserved <= demand.observed_draw_setpoint_kw+1e-6)):
+                return min(reserved, demand.observed_session_draw_kw)
+            return reserved
 
         possible = []
         blocked_price = set()
