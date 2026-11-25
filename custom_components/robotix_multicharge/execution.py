@@ -1020,17 +1020,9 @@ class NativeSwitchExecutor:
                 return charger
         except (KeyError, TypeError, ValueError, OverflowError):
             return charger
-        # The owner-approved nominal defaults complete the ordinary aggregate
-        # AC model. Explicit phase/circuit protection requires actual topology.
-        # Do not persist a default or claim it is a measured wiring fact.
-        strict_wiring = bool(self.runtime.configuration["controller"].get("phase_limits_a")
-                             or charger.get("circuit_id") or charger.get("circuit_limit_a"))
-        if not strict_wiring:
-            charger = {**charger}
-            if charger.get("phase_count") is None:
-                charger["phase_count"] = 1
-            if charger.get("voltage_v") is None:
-                charger["voltage_v"] = 230.0
+        # A nominal 1-phase/230 V forecast cannot prove installed topology.
+        # Keep unknown wiring out of physical conversion and let the existing
+        # installer setup supply the missing installation facts once.
         # Both the configured ceiling and the actual native setpoint grid
         # constrain planning. Never propose a current the executor will reject.
         # Zero is a valid native setpoint, not a charging allocation. For

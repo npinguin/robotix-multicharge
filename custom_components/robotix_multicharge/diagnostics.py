@@ -88,7 +88,6 @@ def build_diagnostics(runtime, entry, captured_at=None):
             "electrical_basis": {
                 key: ("configured" if item.get(key) is not None
                       else "phase_ids" if key == "phase_count" and item.get("phase_ids")
-                      else "nominal_default" if runtime.executor.effective_charger(item).get(key) is not None
                       else "unknown")
                 for key in ("phase_count", "voltage_v")
             },

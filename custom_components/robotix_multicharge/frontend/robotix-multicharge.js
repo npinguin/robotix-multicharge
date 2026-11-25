@@ -3381,8 +3381,10 @@ class RobotixMultiChargeCard extends HTMLElement {
       const electrical=setup.effective_electrical||{};
       if(electrical.phase_count!=null&&electrical.voltage_v!=null)
         mcPair(card,mcTr("Electrical limits & optional sources"),
-          electrical.phase_count+" × "+electrical.voltage_v+" V"+
-          (setup.nominal_electrical_defaults?.length?" · "+mcTr("Default"):""));
+          electrical.phase_count+" × "+electrical.voltage_v+" V");
+      if(setup.missing_electrical?.length)
+        card.append(mcEl("p","plan-caution",mcTr("Check charger phases and voltage")+" · "+
+          setup.missing_electrical.map(f=>mcTr(MC_OWNER_NAMES[f]||f)).join(", ")));
       if(this._editingField===key){
         mcPair(card,"Native device current range",format(setup.native_current));
         mcPair(card,"Configured current range",format(setup.configured_current));
@@ -3413,6 +3415,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     const draft={...charger,...proposal};
     const primary=mcEl("div","setup-fields");
     const advanced=mcEl("details","owner-group");
+    advanced.open=Boolean(setup.missing_electrical?.length);
     advanced.append(mcEl("summary","","Electrical limits & optional sources"));
     const secondary=mcEl("div","setup-fields");advanced.append(secondary);
     const editable=["control_entity","connected_entity","power_entity","energy_entity","session_entity"];

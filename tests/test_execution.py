@@ -1524,7 +1524,8 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         charger = rt.configuration["chargers"][0]
         charger.update(kind="variable_current", rated_power_kw=3.6,
                        current_control_entity="number.charge_limit")
-        charger.pop("phase_count", None)
+        # Known installation facts, no duplicate current or resident settings.
+        charger["voltage_v"] = 230
         rt.executor._plug_confirmations.clear()
         native = state(16, "A")
         native.attributes.update(min=0, max=16, step=1)
@@ -1545,8 +1546,6 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await rt.executor.execute("evse", "stop"))["status"], "confirmed")
         self.assertNotIn("min_current_a", charger)
         self.assertNotIn("dedicated_asset_id", charger)
-        self.assertNotIn("phase_count", charger)
-        self.assertNotIn("voltage_v", charger)
         self.assertEqual((effective["phase_count"], effective["voltage_v"]), (1, 230))
         # A fresh runtime with the unchanged existing config needs no button.
         restarted = MultiChargeRuntime(rt.hass, rt.configuration)
@@ -1564,8 +1563,16 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         native.attributes.update(min=2, max=16, step=1)
         states["number.limit"] = native
         effective = rt.executor.effective_charger(charger)
-        self.assertEqual((effective["min_current_a"], effective["phase_count"],
-                          effective["voltage_v"]), (6, 1, 230))
+        self.assertEqual(effective["min_current_a"], 6)
+        self.assertIsNone(effective.get("phase_count"))
+        self.assertIsNone(effective.get("voltage_v"))
+        rt.refresh()
+        self.assertEqual(rt.excluded["evse"], "ELECTRICAL_WIRING_UNVERIFIED")
+        self.assertFalse(rt.assessment.plan.slots)
+        self.assertEqual(services.calls, [])
+        charger["min_current_a"] = 2
+        charger["max_current_a"] = 16
+        self.assertEqual(rt.executor.effective_charger(charger)["min_current_a"], 6)
         native.attributes.update(min=8)
         self.assertEqual(rt.executor.effective_charger(charger)["min_current_a"], 8)
         charger.update(phase_count=3, voltage_v=240)
