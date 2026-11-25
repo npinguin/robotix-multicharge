@@ -1717,6 +1717,38 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(services.calls, [])
         self.assertTrue(rt.executor.capabilities()["evse"]["stop_allowed"])
 
+    async def test_corrupt_store_is_not_overwritten_by_physical_stop_or_settings_save(self):
+        from copy import deepcopy
+        from unittest.mock import AsyncMock
+        for corrupt_binding in (False, True):
+            rt, states, services = rig()
+            snapshot = rt.executor.export_state()
+            if corrupt_binding:
+                snapshot["power_bindings"] = {"evse": [
+                    {"start": "bad-time", "entity": "sensor.actual_power"},
+                ]}
+            else:
+                snapshot["sessions"] = [{"charger_id": "evse", "asset_id": "car",
+                                         "started_at": "bad-time"}]
+            original = deepcopy(snapshot)
+            store = SimpleNamespace(async_save=AsyncMock())
+            rt.attach_control_store(store, snapshot)
+            self.assertFalse(rt.executor._persistence_verified)
+            self.assertEqual((await rt.executor.execute("evse", "start"))["reason"],
+                             "CONTROL_STATE_UNVERIFIED")
+            # An already energized owned charger must still be stoppable.
+            states["switch.evse_control"] = state("on")
+            states["sensor.actual_power"] = state(1600, "W")
+            stopped = await rt.executor.execute("evse", "stop")
+            self.assertEqual(stopped["status"], "confirmed")
+            self.assertEqual(states["sensor.actual_power"].state, "0")
+            self.assertEqual([call[1] for call in services.calls], ["turn_off"])
+            self.assertFalse(await rt.persist_control_state())
+            store.async_save.assert_not_called()
+            self.assertEqual(snapshot, original)
+            self.assertTrue(await rt.executor.shutdown())
+            store.async_save.assert_not_called()
+
     async def test_minimal_unassigned_charger_exposes_specific_manual_start_holds(self):
         """UC05/11/17: no SoC, price or PV prerequisite; no fake cable proof."""
         rt, sources, services = rig(owner="external", commissioned=False)

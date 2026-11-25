@@ -80,6 +80,7 @@ class MultiChargeRuntime:
         self.nordpool_prices = None
         self.executor = NativeSwitchExecutor(self)
         self._control_store = None
+        self._control_restore_failed = False
         self.power_bindings = reconcile_power_bindings(None, configuration, datetime.now(timezone.utc))
         self.energy_bindings = reconcile_power_bindings({}, configuration, datetime.now(timezone.utc), field="energy_entity")
         self.tariff_bindings = reconcile_tariff_bindings(None, configuration, datetime.now(timezone.utc))
@@ -321,11 +322,13 @@ class MultiChargeRuntime:
     def attach_control_store(self, store, snapshot):
         self._control_store = store
         self.executor.restore_state(snapshot)
+        self._control_restore_failed = not self.executor._persistence_verified
         previous = snapshot.get("power_bindings") if isinstance(snapshot, dict) else None
         try:
             self.power_bindings = reconcile_power_bindings(
                 previous, self.configuration, datetime.now(timezone.utc))
         except (ValueError, TypeError, KeyError, OverflowError):
+            self._control_restore_failed = True
             _LOGGER.warning("Invalid stored power binding history; earlier intervals are unknown")
             self.power_bindings = reconcile_power_bindings(
                 {}, self.configuration, datetime.now(timezone.utc))
@@ -335,6 +338,7 @@ class MultiChargeRuntime:
                 previous_energy, self.configuration, datetime.now(timezone.utc), field="energy_entity",
             )
         except (ValueError, TypeError, KeyError, OverflowError):
+            self._control_restore_failed = True
             _LOGGER.warning("Invalid stored energy binding history; earlier meter intervals are unknown")
             self.energy_bindings = reconcile_power_bindings(
                 {}, self.configuration, datetime.now(timezone.utc), field="energy_entity",
@@ -344,9 +348,13 @@ class MultiChargeRuntime:
             self.tariff_bindings = reconcile_tariff_bindings(
                 previous_tariffs, self.configuration, datetime.now(timezone.utc))
         except (ValueError, TypeError, KeyError, OverflowError):
+            self._control_restore_failed = True
             _LOGGER.warning("Invalid stored tariff binding history; earlier valuations are unknown")
             self.tariff_bindings = reconcile_tariff_bindings(
                 {}, self.configuration, datetime.now(timezone.utc))
+        if self._control_restore_failed:
+            self.executor._persistence_verified = False
+            _LOGGER.error("Original control Store retained; restore valid evidence and reload")
         if isinstance(snapshot, dict):
             pending = snapshot.get("pending_cost_archive", {})
             try:
@@ -393,6 +401,11 @@ class MultiChargeRuntime:
             return True  # isolated developer tests, never a production HA fallback
         try:
             async with self._save_lock:
+                # A STOP is still physically available after failed restore.
+                # Neither that STOP nor an unrelated settings audit may
+                # replace the only recoverable original control evidence.
+                if self._control_restore_failed:
+                    return False
                 await self._control_store.async_save({
                     **self.executor.export_state(),
                     "settings_action": self._settings_action,

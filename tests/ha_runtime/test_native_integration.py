@@ -2724,6 +2724,51 @@ async def test_native_discovery_activation_and_reload_through_websocket(
 
 
 @pytest.mark.asyncio
+async def test_native_control_store_failed_restore_keeps_original_receipts(hass: HomeAssistant):
+    """Use HA's actual Store and reopen it, never replace invalid evidence."""
+    from datetime import datetime, timedelta, timezone
+    from homeassistant.helpers.storage import Store
+    from custom_components.robotix_multicharge.runtime import MultiChargeRuntime
+    cfg = validate_configuration({
+        "controller": {"id": "site", "name": "Site", "mode": "Off"},
+        "chargers": [], "assets": [],
+    })
+    initial = MultiChargeRuntime(hass, cfg)
+    valid = initial.executor.export_state()
+    stamp = datetime.now(timezone.utc)-timedelta(days=1)
+    valid["sessions"] = [
+        {"charger_id": "retired", "asset_id": "car",
+         "started_at": (stamp+timedelta(minutes=i*2)).isoformat(),
+         "ended_at": (stamp+timedelta(minutes=i*2+1)).isoformat(),
+         "duration_minutes": 1.0, "actual_energy_kwh": 0.1,
+         "physical_stop_confirmed": True}
+        for i in range(201)
+    ]
+    for field, corrupted in (
+        ("sessions", [*valid["sessions"], {"started_at": "corrupt"}]),
+        ("power_bindings", {"retired": [{"start": "corrupt", "entity": "sensor.old"}]}),
+    ):
+        key = "multicharge_recovery_"+field
+        store = Store(hass, 1, key)
+        original = {**valid, field: corrupted}
+        await store.async_save(original)
+        runtime = MultiChargeRuntime(hass, cfg)
+        runtime.attach_control_store(store, await store.async_load())
+        assert not runtime.executor._persistence_verified
+        assert not await runtime.persist_control_state()
+        reopened = Store(hass, 1, key)
+        assert await reopened.async_load() == original
+        # Explicit recovery of valid state, followed by a fresh runtime.
+        await reopened.async_save(valid)
+        recovered = MultiChargeRuntime(hass, cfg)
+        recovered.attach_control_store(reopened, await reopened.async_load())
+        assert recovered.executor._persistence_verified
+        assert len(recovered.executor.completed_sessions()) == 201
+        assert await recovered.persist_control_state()
+        assert (await Store(hass, 1, key).async_load())["sessions"] == valid["sessions"]
+
+
+@pytest.mark.asyncio
 async def test_native_finance_archive_survives_raw_history_absence(hass: HomeAssistant):
     """Real HA long-term statistics, independent of raw history and control Store."""
     from datetime import datetime, timedelta, timezone
