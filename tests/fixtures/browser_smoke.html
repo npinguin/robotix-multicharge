@@ -346,6 +346,16 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
       laneOpts.every(o=>o.series.some((s,i)=>s.name.includes("Indicative")&&
         ["#3779B9","#D98B39"].includes(o.colors[i])));
   })();
+  // Measure actual rendered horizontal SVG grid lines and goal bars, not
+  // matching metadata alone. All quarter positions must share one pixel axis.
+  const gridBounds=host=>[...host.querySelectorAll(".apexcharts-gridline")]
+    .map(el=>el.getBoundingClientRect()).filter(r=>r.width>20&&r.height<3)
+    .sort((a,b)=>b.width-a.width)[0];
+  const geometry=[...apexHosts.map(gridBounds),
+    ...timelines.map(el=>el.querySelector(".goal-track").getBoundingClientRect())];
+  const pixelAligned=view!=="plan"||geometry.length>1&&geometry.every(Boolean)&&
+    Math.max(...geometry.map(r=>r.left))-Math.min(...geometry.map(r=>r.left))<=3&&
+    Math.max(...geometry.map(r=>r.right))-Math.min(...geometry.map(r=>r.right))<=3;
   const toggle=chartLegend?.querySelector("button");
   if(toggle)toggle.click();
   const report={
@@ -354,7 +364,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     documentWidth:document.documentElement.scrollWidth,
     tabs:[...root.querySelectorAll(".tabs button")].map(b=>b.textContent),
     cards:cards.length,folds:folds.length,
-    apexHosts:apexHosts.length,apexLive,sameRange,colorAndQuarter,
+    apexHosts:apexHosts.length,apexLive,sameRange,colorAndQuarter,pixelAligned,geometry:geometry.map(r=>r?[r.left,r.right]:null),
     legendContained:!!chartLegend&&chartLegend.getBoundingClientRect().top>=chartHost.getBoundingClientRect().bottom-1,
     legendToggle:toggle?.getAttribute("aria-pressed")==="false",
     priceAndForecast:!!chartLegend&&chartLegend.textContent.includes("Reference price")&&chartLegend.textContent.includes("Indicative"),
