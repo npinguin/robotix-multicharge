@@ -565,6 +565,9 @@
       },
       "actual_current": {
         "name": "Aktuell ström"
+      },
+      "current_import_price": {
+        "name": "Aktuellt inköpspris"
       }
     },
     "text": {

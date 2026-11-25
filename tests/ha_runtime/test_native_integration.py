@@ -592,6 +592,18 @@ async def test_native_setup_registry_diagnostics_and_unload(hass: HomeAssistant)
             (DOMAIN, f"{kind}/{uid}"), entry.entry_id
         )
         assert registry.async_get(entity_id).device_id == owning.id
+    for kind, uid in (("controller", "site"), ("charger", "charger"), ("asset", "asset")):
+        entity_id = registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{DOMAIN}:{kind}:{uid}:current_import_price",
+        )
+        assert entity_id is not None
+        owning = devices.async_get_device_by_identifier(
+            (DOMAIN, f"{kind}/{uid}"), entry.entry_id,
+        )
+        assert registry.async_get(entity_id).device_id == owning.id
+        state = hass.states.get(entity_id)
+        assert state.state == "unknown"
+        assert state.attributes["shared_site_import_rate"] is True
     named = [registry.async_get_entity_id("sensor", DOMAIN, f"{DOMAIN}:charger:charger:{field}") for field in ("power", "readiness", "command_status", "selected_vehicle")]
     names = [registry.async_get(entity_id).original_name for entity_id in named]
     assert all(names) and len(set(names)) == len(names), names

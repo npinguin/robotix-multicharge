@@ -67,9 +67,17 @@ async def async_setup_entry(
         if charger.get("energy_entity"):
             entities.append(_LogicalSessionEnergySensor(charger, runtime))
             entities.append(_LastSessionEnergySensor(charger, runtime))
+    # The shared import price is projected on the existing three owner devices.
+    # It is a read-only rate, not a claim of actual charging cost.
+    for kind, rows in (
+        ("controller", [cfg["controller"]]),
+        ("asset", cfg["assets"]),
+        ("charger", cfg["chargers"]),
+    ):
+        entities.extend(_CurrentImportPriceSensor(kind, row, runtime) for row in rows)
     # Localized native sensor titles and states, without altering unique IDs
     # or the stable machine values consumed by existing HA automations.
-    names = {"readiness":"readiness","plan_status":"plan_status","power":"actual_power","soc":"battery_level","connected":"connection","session_energy":"session_energy","command_status":"command_status","last_session_energy":"last_session_energy","mode":"charging_mode","configuration_revision":"settings_revision","connected_chargers":"connected_chargers","charging_chargers":"charging_chargers","action_health":"action_health","last_action":"last_physical_action","last_settings_action":"last_settings_action","selected_vehicle":"selected_vehicle","intent":"charging_intention","confirmed_current":"confirmed_current_setpoint","actual_current":"actual_current"}
+    names = {"current_import_price":"current_import_price","readiness":"readiness","plan_status":"plan_status","power":"actual_power","soc":"battery_level","connected":"connection","session_energy":"session_energy","command_status":"command_status","last_session_energy":"last_session_energy","mode":"charging_mode","configuration_revision":"settings_revision","connected_chargers":"connected_chargers","charging_chargers":"charging_chargers","action_health":"action_health","last_action":"last_physical_action","last_settings_action":"last_settings_action","selected_vehicle":"selected_vehicle","intent":"charging_intention","confirmed_current":"confirmed_current_setpoint","actual_current":"actual_current"}
     for entity in entities:
         key = names.get(entity.unique_id.rsplit(":", 1)[-1])
         if key is not None:
@@ -118,6 +126,35 @@ class _NativeMultiChargeSensor(SensorEntity):
 
     def _update_value(self):
         raise NotImplementedError
+
+
+class _CurrentImportPriceSensor(_NativeMultiChargeSensor):
+    """Read-only shared import rate, never a session valuation."""
+
+    def __init__(self, kind, data, runtime):
+        super().__init__(kind, data, runtime)
+        self._attr_name = "Current import price"
+        self._attr_unique_id = f"{DOMAIN}:{kind}:{data['id']}:current_import_price"
+        self._update_value()
+
+    def _update_value(self):
+        sources = self.runtime.observations.get("sources", {})
+        price = sources.get("current_price", {})
+        currency = price.get("currency")
+        self._attr_native_value = price.get("value") if price.get("quality") == "ok" and currency else None
+        self._attr_native_unit_of_measurement = f"{currency}/kWh" if currency else None
+        self._attr_extra_state_attributes = {
+            "quality": price.get("quality", "unknown"),
+            "basis": price.get("basis"),
+            "currency": currency,
+            "reason": price.get("reason"),
+            "source_entity_id": (
+                self.runtime.configuration["controller"].get("current_price_entity")
+                if price.get("basis") == "current_only"
+                else sources.get("tariff_source")
+            ),
+            "shared_site_import_rate": True,
+        }
 
 
 class _OwnerConfigurationSensor(_NativeMultiChargeSensor):

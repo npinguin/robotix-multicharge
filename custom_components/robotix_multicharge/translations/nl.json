@@ -565,6 +565,9 @@
       },
       "actual_current": {
         "name": "Gemeten stroom"
+      },
+      "current_import_price": {
+        "name": "Actuele afnameprijs"
       }
     },
     "text": {

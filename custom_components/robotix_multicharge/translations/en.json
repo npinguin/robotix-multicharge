@@ -564,6 +564,9 @@
       },
       "actual_current": {
         "name": "Actual current"
+      },
+      "current_import_price": {
+        "name": "Current import price"
       }
     },
     "text": {

@@ -564,6 +564,9 @@
       },
       "actual_current": {
         "name": "Gemessener Strom"
+      },
+      "current_import_price": {
+        "name": "Aktueller Bezugspreis"
       }
     },
     "text": {

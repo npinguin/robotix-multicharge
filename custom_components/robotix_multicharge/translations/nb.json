@@ -565,6 +565,9 @@
       },
       "actual_current": {
         "name": "Faktisk strøm"
+      },
+      "current_import_price": {
+        "name": "Gjeldende innkjøpspris"
       }
     },
     "text": {

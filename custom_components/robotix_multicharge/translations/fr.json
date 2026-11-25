@@ -565,6 +565,9 @@
       },
       "actual_current": {
         "name": "Courant mesuré"
+      },
+      "current_import_price": {
+        "name": "Prix d'achat actuel"
       }
     },
     "text": {

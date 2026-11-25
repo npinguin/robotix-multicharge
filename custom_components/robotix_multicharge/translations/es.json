@@ -564,6 +564,9 @@
       },
       "actual_current": {
         "name": "Corriente medida"
+      },
+      "current_import_price": {
+        "name": "Precio actual de importación"
       }
     },
     "text": {
