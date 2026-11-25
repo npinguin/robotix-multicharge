@@ -421,11 +421,104 @@ def _observed_session_rows(historical, bindings, selected, first, last, now,
     return sorted(rows, key=lambda row: (row["ended_at"], row["charger_id"]))
 
 
+
+def _historical_reference_quotes(hass, historical, entity, current, first, last):
+    """Only explicit native historical tariff intervals, never a settled bill.
+
+    A changed/revised price for the same interval remains ambiguous instead
+    of silently replacing an earlier quote. Current selected source history
+    is a reference valuation, not proof that it was the billing tariff.
+    """
+    from .source_evidence import intervals_from_state
+    unique = {}
+    for state in historical.get(entity, ()):
+        try:
+            stamp = state.last_updated
+            if stamp.utcoffset() is None or stamp > last:
+                continue
+            quotes, quality = intervals_from_state(hass, state, "price", stamp)
+            if quality != "OK":
+                continue
+        except (AttributeError, TypeError, ValueError, OverflowError, KeyError):
+            continue
+        for row in quotes:
+            if row.end > first and row.start < last and stamp < row.end:
+                unique[(row.start, row.end, row.currency, row.basis,
+                        row.effective_price_per_kwh)] = row
+    for row in current:
+        if row.end > first and row.start < last:
+            unique[(row.start, row.end, row.currency, row.basis,
+                    row.effective_price_per_kwh)] = row
+    return tuple(unique.values())
+
+
+def _covered_power_segments(states, start, end):
+    """A complete, timestamp-qualified power trajectory within a known receipt."""
+    samples = sorted((item for state in states if (item := _sample(state))),
+                     key=lambda item: item[0])
+    if not samples or end <= start:
+        return None
+    stamps = [row[0] for row in samples]
+    if len(set(stamps)) != len(stamps):
+        return None
+    idx = bisect_right(stamps, start)
+    active = samples[idx-1] if idx else None
+    events = samples[idx:bisect_left(stamps, end)]
+    cursor = start
+    segments = []
+    for next_stamp, value in (*events, (end, None)):
+        if (active is None or active[1] is None or active[0] > cursor
+                or next_stamp-active[0] > MAX_OBSERVATION_AGE):
+            return None
+        if next_stamp > cursor:
+            segments.append((cursor, next_stamp, active[1]))
+        cursor = next_stamp
+        active = (next_stamp, value)
+    return segments
+
+
+def _receipt_view_metrics(historical, bindings, selected, first, last, now,
+                          receipts, active_sessions, quotes, asset_id):
+    """Enrich the existing receipt/readback, never create a second receipt."""
+    result = {}
+    for receipt in [*receipts, *active_sessions.values()]:
+        uid = receipt.get("charger_id")
+        if uid not in selected or (asset_id is not None and receipt.get("asset_id") != asset_id):
+            continue
+        try:
+            a = datetime.fromisoformat(receipt["started_at"])
+            b = datetime.fromisoformat(receipt["ended_at"]) if receipt.get("ended_at") else now
+            if a.utcoffset() is None or b.utcoffset() is None or not a < b <= now:
+                continue
+        except (ValueError, KeyError, TypeError, OverflowError):
+            continue
+        if b < first or a > last:
+            continue
+        duration = (b-a).total_seconds()/60
+        metrics = {"elapsed_minutes": round(duration, 3)}
+        energy = receipt.get("actual_energy_kwh")
+        if type(energy) in (int, float) and isfinite(energy) and energy >= 0:
+            metrics["average_power_kw"] = round(energy*60/duration, 6)
+        if a >= first and b <= last:
+            source = _binding_for_interval(bindings.get(uid, ()), a, b)
+            segments = _covered_power_segments(historical.get(source, ()), a, b) if source else None
+            if segments:
+                metrics["peak_power_kw"] = round(max(power for _, _, power in segments), 6)
+                measured = sum(power*(right-left).total_seconds()/3600 for left, right, power in segments)
+                if energy is None:
+                    metrics["observed_energy_kwh"] = round(measured, 6)
+                    metrics["average_power_kw"] = round(measured*60/duration, 6)
+                metrics.update(_run_valuation(segments, quotes) or {})
+        result[(uid, receipt["started_at"], receipt.get("ended_at"))] = metrics
+    return result
+
+
 async def read_actual_history(hass, configuration, start, end, *,
                               charger_id=None, asset_id=None,
                               session_receipts=(), price_slots=(),
                               include_valuations=False, power_bindings=None,
-                              include_observed_sessions=False, active_sessions=None):
+                              include_observed_sessions=False, active_sessions=None,
+                              tariff_entity=None):
     """Query the installed native Recorder once for exact configured chargers."""
     now = datetime.now(timezone.utc)
     first, last = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
@@ -473,11 +566,20 @@ async def read_actual_history(hass, configuration, start, end, *,
                     valued[(charger, receipt["started_at"],
                             receipt["ended_at"])] = evidence
         if include_observed_sessions:
+            quotes = price_slots
+            if historical is not None and tariff_entity:
+                quotes = _historical_reference_quotes(
+                    hass, historical, tariff_entity, price_slots, history_first, history_end,
+                )
             observed = (_observed_session_rows(
                 historical, bindings, selected, history_first, history_end, now,
-                session_receipts, active_sessions, price_slots,
+                session_receipts, active_sessions, quotes,
             ) if historical is not None and asset_id is None else [])
-            return rows, quality, valued, observed
+            metrics = (_receipt_view_metrics(
+                historical, bindings, selected, history_first, history_end, now,
+                session_receipts, active_sessions, quotes, asset_id,
+            ) if historical is not None else {})
+            return rows, quality, valued, observed, metrics
         return rows, quality, valued
     if not selected:
         return reply([], "NO_MATCHING_CHARGER")
@@ -495,6 +597,8 @@ async def read_actual_history(hass, configuration, start, end, *,
         return reply([], "POWER_METER_NOT_CONFIGURED")
     if history_first >= history_end:
         return reply([], "FUTURE_ONLY")
+    if include_observed_sessions and tariff_entity and tariff_entity not in entities:
+        entities.append(tariff_entity)
     if "recorder" not in hass.config.components:
         return reply([], "RECORDER_NOT_LOADED")
     try:
@@ -514,7 +618,8 @@ async def read_actual_history(hass, configuration, start, end, *,
     by_source = {
         entity: {row["start"]: row for row in _quarter_actuals(
             historical.get(entity, []), first, last, now)}
-        for entity in entities
+        for entity in entities if entity != tariff_entity or any(
+            epoch["entity"] == entity for uid in selected for epoch in bindings.get(uid, ()))
     }
     result = []
     for uid in selected:
