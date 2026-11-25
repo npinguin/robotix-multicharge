@@ -437,6 +437,11 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     priceAndForecast:!!chartLegend&&chartLegend.textContent.includes("Reference price")&&chartLegend.textContent.includes("Indicative"),
     apexErrors:apexHosts.filter(x=>!x.querySelector(".apexcharts-svg")).map(x=>x.textContent.slice(0,220)),
     quickSelectors:quick.length,
+    overviewGrid:view!=="overview"||count<2||innerWidth<900||(()=>{
+      const cards=[...root.querySelectorAll(".object-grid > .card")];
+      const a=cards[0]?.getBoundingClientRect(),b=cards[1]?.getBoundingClientRect();
+      return !!a&&!!b&&Math.abs(a.top-b.top)<2&&b.left>a.left;
+    })(),
     siteFirst:view!=="overview"||!!root.querySelector(".charging-site-overview")&&
       (!count||root.querySelector(".charging-site-overview").getBoundingClientRect().top<
         root.querySelector(".vehicle-summary").getBoundingClientRect().top),

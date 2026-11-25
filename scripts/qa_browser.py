@@ -30,6 +30,7 @@ CASES = [
     (390, 4, "admin", "charger", True),
     (390, 2, "resident", "charger", False),
     (1024, 4, "admin", "asset", False),
+    (1024, 4, "admin", "overview", False),
     (1024, 2, "resident", "asset", True),
     (390, 2, "admin", "plan", False),
     (1024, 10, "admin", "plan", True),
@@ -134,7 +135,7 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
         if row["goalEditable"] != (role == "admin"):
             raise AssertionError(f"{label}: novice goal or resident auth drift: {row}")
     if view == "overview":
-        if not row["siteFirst"] or row["quickSelectors"] != 0 or row["assetAssignmentActions"] != (count if role == "admin" else 0):
+        if not row["siteFirst"] or not row["overviewGrid"] or row["quickSelectors"] != 0 or row["assetAssignmentActions"] != (count if role == "admin" else 0):
             raise AssertionError(f"{label}: site-first asset assignment hierarchy lost: {row}")
     if view == "charger":
         if row["quickSelectors"] != count:

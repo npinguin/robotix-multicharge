@@ -1,8 +1,8 @@
 {
   "status": "AUTHORIZED_FOR_TEST",
   "distribution": "open_source_community",
-  "expected_tag": "v0.1.20",
+  "expected_tag": "v0.1.21",
   "precompile": false,
-  "qualification_scope": "Owner-authorized HACS TEST after PR #25: site-first overview, asset-side charger assignment and explicit connected vehicle confirmation; shared owner-colored combined/detail charging intervals and goal bars on the selected local civil-day range, isolated quarter visibility, separate price/conditional semantics and retained qualified site totals. Exact candidate qualification required.",
-  "limitations": "TEST only, not STABLE or field acceptance. Actual site Safari, latency, native providers and EVSE physical readback remain separate. Immutable v0.1.19 rollback."
+  "qualification_scope": "Owner-authorized full PR #26 batch (25 November): direct Active/Inactive with safe idle handover and Config Entry readback; native device source/current-bound discovery with explicit Save; measured external and owned charging history, energy, duration, power and qualified reference cost; compact responsive local setup, goal/schedule and session UX; rendered horizontal chart/goal-bar alignment. Full exact candidate qualification required.",
+  "limitations": "TEST only, not STABLE or full UC01–29 field acceptance. Actual Wessels Safari, real provider latency, physical EVSE response and hardware-specific preconditioning parity remain separate. Immutable v0.1.20 rollback."
 }
