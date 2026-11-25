@@ -69,6 +69,7 @@ class MultiChargeRuntime:
         self.session_costs = {}
         self.period_costs = {}
         self._daily_costs = {}
+        self._cost_time_zone = None
         self._archive_checked_days = set()
         self._archive_partial = {}
         self._archive_pending = {}
@@ -92,6 +93,7 @@ class MultiChargeRuntime:
         """Invalidate stale projections on source, ownership or session changes."""
         return (
             configuration_revision(self.configuration),
+            getattr(getattr(self.hass, "config", None), "time_zone", "UTC"),
             tuple(sorted((uid, row.get("started_at"), row.get("asset_id"))
                          for uid, row in self.executor.session_snapshot().items())),
             self.executor.session_history_revision,
@@ -110,6 +112,15 @@ class MultiChargeRuntime:
         receipts = self.executor.completed_sessions()
         active = self.executor.session_snapshot()
         zone = getattr(getattr(self.hass, "config", None), "time_zone", "UTC")
+        if zone != self._cost_time_zone:
+            # A civil date is not an interval identity. Recover projections
+            # for the new local boundaries, preserving pending original UTC
+            # writes and all native Recorder statistics.
+            self._daily_costs.clear()
+            self._archive_checked_days.clear()
+            self._closed_cost_days.clear()
+            self._archive_partial.clear()
+            self._cost_time_zone = zone
         days = civil_cost_days(at, zone)
         today = next(reversed(days))
         self._daily_costs = {day: row for day, row in self._daily_costs.items()
@@ -211,7 +222,7 @@ class MultiChargeRuntime:
         projections = queued["projections"]
         restored = await read_archive(
             self.hass, self.statistics_namespace, {retry_day: bounds},
-            cfg, self.power_bindings, receipts,
+            cfg, self.power_bindings, receipts, allow_recompose=False,
         )
         if not self.active or identity != self._current_session_cost_identity():
             return

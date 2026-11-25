@@ -125,6 +125,9 @@ async def websocket_get_plan(
             start, end,
             charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
         )
+        recent = runtime.executor.completed_sessions(
+            limit=200, charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
+        )
         if msg.get("include_history", True):
             now = datetime.now(timezone.utc)
             history_end = min(end.astimezone(timezone.utc), now)
@@ -162,9 +165,7 @@ async def websocket_get_plan(
         result["recent_completed_sessions"] = [
             {**receipt, **session_metrics.get((receipt["charger_id"], receipt["started_at"], receipt["ended_at"]), {}),
              **estimates.get((receipt["charger_id"], receipt["started_at"], receipt["ended_at"]), {})}
-            for receipt in runtime.executor.completed_sessions(
-                limit=200, charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
-            )
+            for receipt in recent
         ]
         entry = hass.config_entries.async_get_entry(entry_id)
         result["configuration_managed_by_yaml"] = bool(

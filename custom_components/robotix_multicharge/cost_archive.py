@@ -118,7 +118,7 @@ def archive_records(entry_id, slices, projections):
     return result
 
 
-def decode_archive(entry_id, slices, raw, owners):
+def decode_archive(entry_id, slices, raw, owners, *, allow_recompose=True):
     """Reject incomplete writes and never infer absent statistics."""
     prefix = _prefix(entry_id)
     indexed = {}
@@ -134,14 +134,11 @@ def decode_archive(entry_id, slices, raw, owners):
             if (type(stamp) not in (int, float) or type(value) not in (int, float)
                     or not isfinite(stamp) or not isfinite(value)):
                 continue
-            indexed.setdefault((stamp, part), {}).setdefault(owner, {})[metric] = value
-    result = {}
-    for key, (first, last) in slices.items():
-        hour, part = _part(first, last)
-        seconds = (last-first).total_seconds()
-        series = indexed.get((hour.timestamp(), part), {})
+            indexed.setdefault(stamp, {}).setdefault(part, {}).setdefault(owner, {})[metric] = value
+
+    def decode_part(series, seconds):
         if not series or series.get("s", {}).get("owners") != len(series):
-            continue
+            return None
         groups = {"controller": {}, "charger": {}, "asset": {}}
         valid = True
         for owner, metrics in series.items():
@@ -172,8 +169,39 @@ def decode_archive(entry_id, slices, raw, owners):
             if owner in owners:
                 kind, uid = owners[owner]
                 groups[kind][uid] = bucket
-        if valid and "site" in groups["controller"]:
-            result[key] = groups
+        return groups if valid and "site" in groups["controller"] else None
+
+    result = {}
+    for key, (first, last) in slices.items():
+        hour, part = _part(first, last)
+        candidates = indexed.get(hour.timestamp(), {})
+        exact = decode_part(candidates.get(part), (last-first).total_seconds())
+        if exact is not None:
+            result[key] = exact
+            continue
+        if not allow_recompose:
+            continue
+        # Timezone changes can turn two archived partial UTC-hour slices
+        # into one full hour. Only a unique, complete, non-overlapping
+        # partition is evidence; never prorate a larger interval.
+        lower, upper = map(int, part.split("_"))
+        qualified = []
+        for candidate, series in candidates.items():
+            a, b = map(int, candidate.split("_"))
+            if lower <= a < b <= upper and candidate != part:
+                groups = decode_part(series, (b-a)*60)
+                if groups is not None:
+                    qualified.append((a, b, groups))
+        paths = {lower: [()]}
+        for a, b, groups in sorted(qualified, key=lambda item: item[:2]):
+            if a not in paths:
+                continue
+            destination = paths.setdefault(b, [])
+            for chain in paths[a]:
+                if len(destination) < 2:
+                    destination.append((*chain, (a, groups)))
+        if len(paths.get(upper, [])) == 1:
+            result[key] = merge_slices(dict(paths[upper][0]))
     return result
 
 
@@ -265,7 +293,7 @@ def merge_slices(projections):
     return result
 
 
-async def read_archive(hass, entry_id, days, cfg, bindings, receipts):
+async def read_archive(hass, entry_id, days, cfg, bindings, receipts, *, allow_recompose=True):
     """Bounded native statistic read; None is unavailable, {} is absent."""
     if not entry_id or "recorder" not in hass.config.components:
         return None
@@ -290,7 +318,8 @@ async def read_archive(hass, entry_id, days, cfg, bindings, receipts):
             end = last.replace(minute=0)+timedelta(hours=1)
             raw = statistics_during_period(hass, first, end, ids, "hour", None, {"mean"})
             return decode_archive(entry_id, slices, raw,
-                                  archived_owner_map(entry_id, metadata, owners))
+                                  archived_owner_map(entry_id, metadata, owners),
+                                  allow_recompose=allow_recompose)
 
         return await recorder.async_add_executor_job(read)
     except (ImportError, RuntimeError, ValueError, OSError, KeyError):

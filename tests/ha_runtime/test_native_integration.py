@@ -2775,6 +2775,27 @@ async def test_native_finance_archive_survives_raw_history_absence(hass: HomeAss
     assert old["observed_energy_kwh"] == pytest.approx(6.0)
     assert old["valuations"][("EUR", "spot")][0] == pytest.approx(-1.2)
     assert await read_archive(hass, "other-entry", {"day": (first, end)}, cfg, binding, []) == {}
+
+    # A timezone change can remove a civil-midnight split inside the UTC hour.
+    # Native statistics retain both exact halves; reconstruct the full hour
+    # without raw telemetry or double counting. The reverse is not inferable.
+    whole_start = first.replace(minute=0)+timedelta(hours=1)
+    middle = whole_start+timedelta(minutes=30)
+    whole_end = whole_start+timedelta(hours=1)
+    split = {**hour_slices(whole_start, middle), **hour_slices(middle, whole_end)}
+    split_values = {key: daily_costs(states, binding, cfg, a, b, rates, receipts)
+                    for key, (a, b) in split.items()}
+    write_archive(hass, "split-entry", split, split_values)
+    await recorder.async_block_till_done()
+    recomposed = await read_archive(hass, "split-entry", {"day": (whole_start, whole_end)},
+                                    cfg, binding, [])
+    combined = merge_slices(recomposed)["controller"]["site"]
+    assert combined["observed_energy_kwh"] == pytest.approx(3.0)
+    assert combined["valuations"][("EUR", "spot")][0] == pytest.approx(-0.6)
+    assert await read_archive(hass, "split-entry", {"day": (whole_start, whole_end)},
+                              cfg, binding, [], allow_recompose=False) == {}
+    assert await read_archive(hass, "original-entry", {"day": (whole_start, middle)},
+                              cfg, binding, []) == {}
     records = archive_records("original-entry", slices, projections)
     raw = {uid: [{"start": r["start"].timestamp(), "mean": r["mean"]} for r in s["rows"]]
            for uid, s in records.items()}

@@ -828,6 +828,38 @@ class RuntimeTests(unittest.TestCase):
 
 
 class CostArchiveRetryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_civil_timezone_change_invalidates_cached_days_not_pending_utc_writes(self):
+        from unittest.mock import AsyncMock, patch
+        from multicharge_runtime_test import runtime as module
+        rt = _ProductionRuntime(None, sample())
+        rt.hass = SimpleNamespace(config=SimpleNamespace(time_zone="Europe/Brussels"))
+        now = datetime.now(timezone.utc)
+        old_days = module.civil_cost_days(now, "Europe/Brussels")
+        day = list(old_days)[-2]
+        old_bounds = old_days[day]
+        rt._cost_time_zone = "Europe/Brussels"
+        rt._daily_costs[day] = {"old": "projection"}
+        rt._archive_checked_days.add(day)
+        rt._closed_cost_days.add(day)
+        rt._archive_partial[day] = {"old": "partial"}
+        rt._archive_pending[day] = {"start": old_bounds[0], "end": old_bounds[1],
+                                    "projections": {}}
+        original = rt._archive_pending[day].copy()
+        identity = rt._current_session_cost_identity()
+        rt.hass.config.time_zone = "Asia/Kolkata"
+        self.assertNotEqual(identity, rt._current_session_cost_identity())
+        with patch.object(module, "read_actual_history",
+                          new=AsyncMock(return_value=([], "RECORDER_NOT_LOADED", {}, [], {}, {}))), \
+                patch.object(module, "read_archive", new=AsyncMock(return_value=None)) as reader:
+            await rt.refresh_session_costs()
+        self.assertNotIn(day, rt._daily_costs)
+        self.assertNotIn(day, rt._archive_checked_days)
+        self.assertNotIn(day, rt._closed_cost_days)
+        self.assertNotIn(day, rt._archive_partial)
+        self.assertEqual(rt._archive_pending[day], original)
+        self.assertEqual(reader.call_args.args[2], {day: old_bounds})
+        self.assertFalse(reader.call_args.kwargs["allow_recompose"])
+
     async def test_readback_retries_only_original_missing_slices(self):
         from unittest.mock import AsyncMock, patch
         from multicharge_runtime_test import runtime as module
