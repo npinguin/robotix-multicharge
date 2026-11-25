@@ -92,14 +92,46 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
   }
   const card=document.querySelector("robotix-multicharge-card");
   card.setConfig({});
+  const requests=[];
+  if(view==="overview"&&count){
+    const period={cost:2.4,currency:"EUR",basis:"spot",average_price_per_kwh:0.24,covered_energy_kwh:10,days_available:1,days_expected:1};
+    const periods={today:period,month:{...period,cost:12},year:{...period,cost:null,covered_cost:80,days_available:10,days_expected:300}};
+    data.period_costs={controller:{site:periods},asset:Object.fromEntries(assets.map(a=>[a.id,periods]))};
+  }
   card.hass={user:{is_admin:role==="admin"},language:"en",states:{},
-    callWS:async request=>data,callService:async()=>{}};
+    callWS:async request=>{requests.push(request);return data;},callService:async()=>{}};
   await new Promise(resolve=>setTimeout(resolve,400));
   if(!card._data)throw Error("real browser failed to receive backend sample");
   card._tab=view==="asset"?"Chargeable Assets":
             view==="charger"?"Chargers":
             view==="plan"?"Charging Plan":"Overview";
   card.render();
+  let navigationReset=true,financeCompact=true;
+  if(view==="overview"&&count){
+    const root=card.shadowRoot;
+    const finance=[...root.querySelectorAll('details[data-disclosure$=":finance"]')];
+    financeCompact=finance.length===count+1&&finance.every(el=>!el.open&&
+      el.querySelector("summary")?.textContent.includes("Charging cost today")&&
+      el.querySelector(".financial-details")?.getBoundingClientRect().height===0);
+    const first=finance[0];
+    first.querySelector("summary").click();
+    financeCompact=financeCompact&&first.open&&
+      first.querySelector(".financial-details").textContent.includes("Charging cost this year")&&
+      first.querySelector(".financial-details").getBoundingClientRect().height>0;
+    first.querySelector("summary").click();
+    const action=[...root.querySelectorAll(".object-grid button")].find(b=>b.textContent==="Charging plan");
+    action.click();
+    await new Promise(resolve=>setTimeout(resolve,80));
+    const filtered=card._filter==="asset:vehicle_0"&&requests.at(-1).asset_id==="vehicle_0"&&
+      !![...root.querySelectorAll("button")].find(b=>b.textContent==="All chargers");
+    const tab=label=>[...root.querySelectorAll(".tabs button")].find(b=>b.textContent===label);
+    tab("Charging Plan").click();
+    await new Promise(resolve=>setTimeout(resolve,80));
+    navigationReset=filtered&&card._filter===""&&!requests.at(-1).asset_id&&
+      !requests.at(-1).charger_id&&root.querySelectorAll(".plan-lane").length===count;
+    tab("Overview").click();
+    await new Promise(resolve=>setTimeout(resolve,80));
+  }
   if(view==="setup"){
     const c=devices[0];c.kind="variable_current";c.control_entity="switch.native_evse";
     c.max_current_a=16;
@@ -426,7 +458,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
   const toggle=chartLegend?.querySelector("button");
   if(toggle)toggle.click();
   const report={
-    count,role,view,viewport:innerWidth,
+    count,role,view,viewport:innerWidth,navigationReset,financeCompact,
     render:!!frame,frameWidth:Math.round(rect?.width||0),
     documentWidth:document.documentElement.scrollWidth,
     tabs:[...root.querySelectorAll(".tabs button")].map(b=>b.textContent),
