@@ -218,7 +218,8 @@ def _assert_safe_yaml_ui_commit(runtime, updated):
                     measured.quality == "ok" and measured.value > stop_power_limit(old)):
                 raise ValueError(f"charger_busy: {old['name']} ({uid}) stop before changing activation")
         # Selection/attribution is independent of names and user preferences.
-        if new is None or old.get("asset") == new.get("asset"):
+        if new is None or (old.get("asset") == new.get("asset")
+                           and old.get("dedicated_asset_id") == new.get("dedicated_asset_id")):
             continue
         executor = runtime.executor
         if uid in executor._sessions or uid in executor._start_pending:

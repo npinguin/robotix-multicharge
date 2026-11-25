@@ -152,6 +152,7 @@ def build_diagnostics(runtime, entry, captured_at=None):
                 "asset_id": _alias(receipt["asset_id"]) if receipt else None,
                 "connection_started_at": receipt["connected_at"] if receipt else None,
                 "confirmed_at": receipt["confirmed_at"] if receipt else None,
+                "basis": receipt.get("basis") if receipt else None,
             }
             for c in cfg["chargers"]
             for receipt in [runtime.executor.connection_confirmation(c, when)]

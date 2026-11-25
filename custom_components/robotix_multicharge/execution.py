@@ -163,7 +163,11 @@ class NativeSwitchExecutor:
         return changed_at
 
     def connection_confirmation(self, charger, at):
-        """Return only an explicit confirmation for the current plug instance."""
+        """Qualify a fresh plug by explicit confirmation or dedicated assignment.
+
+        A dedicated assignment is a resident declaration, not OEM identification.
+        It never substitutes for a fresh physical connection or electrical checks.
+        """
         uid = charger["id"]
         observed = self._connection(charger, at)
         epoch = self.observe_connection(charger, observed)
@@ -174,8 +178,15 @@ class NativeSwitchExecutor:
                 or receipt["asset_id"] != charger.get("asset")
                 or receipt["connected_at"] != epoch):
             self._plug_confirmations.pop(uid, None)
-            return None
-        return dict(receipt)
+            asset_id = charger.get("asset")
+            asset = next((a for a in self.runtime.configuration["assets"]
+                          if a["id"] == asset_id), None)
+            if (not asset or asset.get("temporary")
+                    or charger.get("dedicated_asset_id") != asset_id):
+                return None
+            return {"asset_id": asset_id, "connected_at": epoch,
+                    "confirmed_at": epoch, "basis": "dedicated_assignment"}
+        return {**receipt, "basis": "manual_confirmation"}
 
     def confirm_current_connection(self, charger_id, *, at=None):
         """Confirm the selected vehicle against one presently observed plug.
@@ -1280,9 +1291,11 @@ class NativeSwitchExecutor:
         else:
             if asset is None or charger.get("asset") != session["asset_id"]:
                 return "ACTIVE_SESSION_ASSIGNMENT_CHANGED"
-            if (not session.get("duration_without_connection")
-                    and self.connection_confirmation(charger, now) is None):
-                return "CURRENT_PLUG_ASSET_UNCONFIRMED"
+            if not session.get("duration_without_connection"):
+                identity = self.connection_confirmation(charger, now)
+                if (identity is None or (session.get("connection_epoch") is not None
+                        and identity["connected_at"] != session["connection_epoch"])):
+                    return "CURRENT_PLUG_ASSET_UNCONFIRMED"
             if (asset.get("temporary")
                     and datetime.fromisoformat(asset["expires_at"]) <= now):
                 return "TEMPORARY_ASSET_EXPIRED"
@@ -1455,8 +1468,11 @@ class NativeSwitchExecutor:
             if due is None:
                 return "READY_BY_UNAVAILABLE"
             end = min(end, due)
+        identity = self.connection_confirmation(charger, now) if asset is not None else None
         self._sessions[charger["id"]] = {
             "asset_id": asset["id"] if asset is not None else None,
+            "connection_epoch": identity["connected_at"] if identity else None,
+            "identity_basis": identity["basis"] if identity else None,
             "intent_key": intent_key,
             "manual_duration": manual_request is not None and duration is not None,
             "duration_without_connection": charger["kind"] == "on_off" and duration is not None,

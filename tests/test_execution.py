@@ -826,6 +826,33 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(rt.executor.accepted_slots())
         self.assertEqual(rt.executor.session_snapshot(), {})
 
+    async def test_dedicated_vehicle_reconnects_without_manual_confirmation(self):
+        rt, states, services = rig(mode="Automatic")
+        charger = rt.configuration["chargers"][0]
+        charger["dedicated_asset_id"] = "car"
+        rt.configuration = validate_configuration(rt.configuration)
+        rt.executor._plug_confirmations.clear()
+        states["binary_sensor.cable"].state = "off"
+        rt.refresh()
+        self.assertFalse(rt.assessment.plan.slots)
+        states["binary_sensor.cable"].state = "on"
+        at = datetime.now(timezone.utc)
+        quarter = at.replace(minute=at.minute//15*15, second=0, microsecond=0)
+        for source in states.values():
+            source.last_updated = quarter+timedelta(seconds=1)
+        states["binary_sensor.cable"].last_changed = quarter
+        rt.refresh(quarter)
+        self.assertTrue(rt.assessment.plan.slots)
+        self.assertEqual(rt.executor.connection_confirmation(
+            rt.configuration["chargers"][0], quarter)["basis"], "dedicated_assignment")
+        await rt.executor.advance_plan(quarter)
+        self.assertEqual([row[1] for row in services.calls], ["turn_on"])
+        self.assertTrue(rt.executor.accepted_slots())
+        # Replug during a running session must stop the old intent, not adopt it.
+        states["binary_sensor.cable"].last_changed = datetime.now(timezone.utc)+timedelta(seconds=1)
+        self.assertEqual(rt.executor._session_stop_reason(rt.configuration["chargers"][0],
+            datetime.now(timezone.utc)), "CURRENT_PLUG_ASSET_UNCONFIRMED")
+
     async def test_automatic_quarter_applies_only_physically_confirmed_plan(self):
         rt, states, services = rig(mode="Automatic")
         at = datetime.now(timezone.utc)
