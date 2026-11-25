@@ -154,6 +154,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.error("MultiCharge configuration rejected: %s", exc)
         return False
     runtime = MultiChargeRuntime(hass, cfg)
+    runtime.statistics_namespace = entry.entry_id
     store = Store(hass, 1, f"{DOMAIN}_{entry.entry_id}_control")
     try:
         saved = await store.async_load()

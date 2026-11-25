@@ -20,6 +20,7 @@ from .source_evidence import (
     live_power, live_price, soc_with_health,
 )
 from .execution import NativeSwitchExecutor
+from .cost_archive import hour_slices, merge_slices, read_archive, write_archive
 from .history import (
     civil_cost_days, civil_period_costs, planned_costs, read_actual_history,
     reconcile_power_bindings, reconcile_tariff_bindings, session_costs,
@@ -65,7 +66,10 @@ class MultiChargeRuntime:
         self.session_costs = {}
         self.period_costs = {}
         self._daily_costs = {}
-        self._daily_cost_identity = None
+        self._archive_checked_days = set()
+        self._archive_partial = {}
+        self._closed_cost_days = set()
+        self.statistics_namespace = None
         self._session_cost_identity = None
         self.nordpool_prices = None
         self.executor = NativeSwitchExecutor(self)
@@ -104,14 +108,11 @@ class MultiChargeRuntime:
         zone = getattr(getattr(self.hass, "config", None), "time_zone", "UTC")
         days = civil_cost_days(at, zone)
         today = next(reversed(days))
-        self._daily_costs = {day: row for day, row in self._daily_costs.items() if day in days}
-        recent_days = {today: days[today]}
-        if len(days) > 1:
-            yesterday = list(days)[-2]
-            if yesterday not in self._daily_costs or identity != self._daily_cost_identity:
-                recent_days[yesterday] = days[yesterday]
-        first = min(at-timedelta(hours=48), *(a for a, _ in recent_days.values()))
-        last = min(at+timedelta(minutes=1), first+timedelta(hours=49))
+        self._daily_costs = {day: row for day, row in self._daily_costs.items()
+                             if day in days and (day == today or day in self._closed_cost_days)}
+        self._archive_checked_days.intersection_update(days)
+        self._closed_cost_days.intersection_update(days)
+        self._archive_partial = {day: row for day, row in self._archive_partial.items() if day in days}
         common = dict(
             session_receipts=receipts, price_slots=self.price_slots,
             power_bindings=self.power_bindings, energy_bindings=self.energy_bindings,
@@ -120,32 +121,66 @@ class MultiChargeRuntime:
                            cfg["controller"].get("current_price_entity")),
         )
         _, _, estimates, observed, metrics, daily = await read_actual_history(
-            self.hass, cfg, first, last, include_valuations=True,
-            include_observed_sessions=True, financial_days=recent_days, **common,
+            self.hass, cfg, at-timedelta(hours=48), at+timedelta(minutes=1),
+            include_valuations=True, include_observed_sessions=True,
+            financial_days={today: days[today]}, **common,
         )
         if not self.active or identity != self._current_session_cost_identity():
             return
         self._daily_costs.update(daily)
-        self._daily_cost_identity = identity
         self.period_costs = civil_period_costs(days, self._daily_costs)
         self.session_costs = session_costs(receipts, active, observed, estimates, metrics)
         self._session_cost_identity = identity
         self.notify()
-        # Recent data first. Read one bounded historical civil day per cycle;
-        # retain the derived in-memory projection, not another durable ledger.
-        missing = next((day for day in reversed(days) if day not in self._daily_costs), None)
-        if missing is None or not self.active:
-            return
-        a, b = days[missing]
-        if b <= a:
-            return
-        _, _, older = await read_actual_history(
-            self.hass, cfg, a, b, financial_days={missing: (a, b)}, **common,
-        )
-        if self.active and identity == self._current_session_cost_identity():
-            self._daily_costs.update(older)
-            self.period_costs = civil_period_costs(days, self._daily_costs)
-            self.notify()
+
+        # Recover native statistics in bounded month-sized windows; reconstruct
+        # one absent raw civil day per cycle, never query a year of raw states.
+        unchecked = [day for day in reversed(days)
+                     if day != today and day not in self._archive_checked_days]
+        if unchecked:
+            window = {day: days[day] for day in unchecked[:31]}
+            archived = await read_archive(self.hass, self.statistics_namespace, window,
+                                          cfg, self.power_bindings, receipts)
+            if not self.active or identity != self._current_session_cost_identity():
+                return
+            if archived is not None:
+                self._archive_checked_days.update(window)
+                for day, (a, b) in window.items():
+                    keys = hour_slices(a, b)
+                    pieces = {key: archived[key] for key in keys if key in archived}
+                    if len(pieces) == len(keys):
+                        self._daily_costs[day] = merge_slices(pieces)
+                        self._closed_cost_days.add(day)
+                    elif pieces:
+                        self._archive_partial[day] = pieces
+
+        missing = next((day for day in reversed(days) if day != today
+                        and day not in self._closed_cost_days
+                        and day in self._archive_checked_days), None)
+        if missing:
+            a, b = days[missing]
+            slices = hour_slices(a, b)
+            previous = self._archive_partial.get(missing, {})
+            pending = {key: pair for key, pair in slices.items() if key not in previous}
+            _, quality, older = await read_actual_history(
+                self.hass, cfg, a, b, financial_days=pending, **common,
+            )
+            if not self.active or identity != self._current_session_cost_identity():
+                return
+            if quality not in ("RECORDER_UNAVAILABLE", "RECORDER_NOT_LOADED"):
+                self._daily_costs[missing] = merge_slices({**older, **previous})
+                self._closed_cost_days.add(missing)
+                self._archive_partial.pop(missing, None)
+                if quality == "FINANCIAL_DAY" and any(
+                        row["controller"]["site"]["observed_seconds"] > 0 for row in older.values()):
+                    # Native rows already recovered are immutable; only absent
+                    # slices are written. Never rewrite them from today's tariff.
+                    try:
+                        write_archive(self.hass, self.statistics_namespace, pending, older)
+                    except (ImportError, RuntimeError, ValueError, OSError):
+                        _LOGGER.exception("Native charging cost retention unavailable")
+        self.period_costs = civil_period_costs(days, self._daily_costs)
+        self.notify()
 
     def native_surplus_power(self, at):
         """Compute strictly current, not forecast solar/export capacity.

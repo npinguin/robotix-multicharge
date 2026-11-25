@@ -2702,6 +2702,54 @@ async def test_native_discovery_activation_and_reload_through_websocket(
 
 
 @pytest.mark.asyncio
+async def test_native_finance_archive_survives_raw_history_absence(hass: HomeAssistant):
+    """Real HA long-term statistics, independent of raw history and control Store."""
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+    from homeassistant.components.recorder import get_instance
+    from homeassistant.helpers.recorder import DATA_RECORDER, async_initialize_recorder
+    from custom_components.robotix_multicharge.contracts import PriceSlot
+    from custom_components.robotix_multicharge.history import daily_costs
+    from custom_components.robotix_multicharge.cost_archive import (
+        hour_slices, write_archive, read_archive, merge_slices, archive_records,
+        decode_archive, owner_map,
+    )
+    if DATA_RECORDER not in hass.data:
+        async_initialize_recorder(hass)
+    assert await async_setup_component(hass, "recorder", {
+        "recorder": {"db_url": f"sqlite:///{Path(hass.config.config_dir) / 'mc-costs.db'}", "commit_interval": 0},
+    })
+    recorder = get_instance(hass)
+    await recorder.async_recorder_ready.wait()
+    await hass.async_block_till_done()
+    first = (datetime.now(timezone.utc)-timedelta(days=40)).replace(minute=30, second=0, microsecond=0)
+    end = first+timedelta(hours=2)
+    cfg = {"chargers": [{"id": "drive"}], "assets": []}
+    binding = {"drive": [{"start": None, "entity": "sensor.not_in_recorder"}]}
+    states = {"sensor.not_in_recorder": [
+        SimpleNamespace(state="3000", last_updated=first+timedelta(minutes=i),
+                        attributes={"unit_of_measurement": "W"})
+        for i in range(0, 120, 15)]}
+    slices = hour_slices(first, end)
+    rates = [PriceSlot(first, end, -0.2, "EUR", basis="spot")]
+    projections = {key: daily_costs(states, binding, cfg, a, b, rates)
+                   for key, (a, b) in slices.items()}
+    write_archive(hass, "original-entry", slices, projections)
+    await recorder.async_block_till_done()
+    result = await read_archive(hass, "original-entry", {"day": (first, end)}, cfg, binding, [])
+    assert result is not None and len(result) == 3
+    site = merge_slices(result)["controller"]["site"]
+    assert site["observed_energy_kwh"] == pytest.approx(6.0)
+    assert site["valuations"][("EUR", "spot")][0] == pytest.approx(-1.2)
+    assert await read_archive(hass, "other-entry", {"day": (first, end)}, cfg, binding, []) == {}
+    records = archive_records("original-entry", slices, projections)
+    raw = {uid: [{"start": r["start"].timestamp(), "mean": r["mean"]} for r in s["rows"]]
+           for uid, s in records.items()}
+    del raw[next(uid for uid in raw if uid.endswith("_cost_eur_spot"))]
+    assert len(decode_archive("original-entry", slices, raw, owner_map(cfg, binding, []))) < 3
+
+
+@pytest.mark.asyncio
 async def test_observed_external_session_from_actual_ha_recorder(hass: HomeAssistant):
     """Real HA Recorder database/state events, not a replacement history API."""
     import asyncio
