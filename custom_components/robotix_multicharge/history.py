@@ -613,7 +613,7 @@ def _covered_power_segments(states, start, end):
 
 
 def _receipt_view_metrics(historical, bindings, selected, first, last, now,
-                          receipts, active_sessions, quotes, asset_id):
+                          receipts, active_sessions, quotes, asset_id, energy_bindings=None):
     """Enrich the existing receipt/readback, never create a second receipt."""
     result = {}
     for receipt in [*receipts, *active_sessions.values()]:
@@ -646,6 +646,37 @@ def _receipt_view_metrics(historical, bindings, selected, first, last, now,
                 if energy is None:
                     metrics["average_power_kw"] = round(measured*60/duration, 6)
                 metrics.update(_run_valuation(segments, quotes) or {})
+            elif energy_bindings and uid in energy_bindings:
+                # Same source/ownership/price reconciliation as civil costs.
+                # No peak power from cumulative energy or guessed time split.
+                bucket = daily_costs(
+                    historical, bindings, {"chargers": [{"id": uid}], "assets": []},
+                    a, b, quotes, energy_bindings=energy_bindings,
+                    selected_chargers={uid},
+                )["charger"][uid]
+                measured = bucket["observed_energy_kwh"]
+                complete = abs(bucket["observed_seconds"]-(b-a).total_seconds()) < 0.001
+                # Independent session receipt can reveal an incompatible
+                # integral. Do not label conflicting energy as full coverage.
+                if type(energy) in (int, float) and isfinite(energy) and abs(measured-energy) > 0.0001:
+                    complete = False
+                if complete:
+                    metrics["observed_energy_kwh"] = round(measured, 6)
+                    if energy is None:
+                        metrics["average_power_kw"] = round(measured*60/duration, 6)
+                    metrics["energy_evidence"] = "reconciled_native_meter"
+                pairs = bucket["valuations"]
+                if len(pairs) == 1:
+                    (currency, basis), (cost, priced) = next(iter(pairs.items()))
+                    if complete and bucket["unpriced_energy_kwh"] < 0.000001:
+                        metrics.update(estimated_cost=round(cost, 6),
+                                       estimated_cost_currency=currency,
+                                       estimated_cost_basis=basis)
+                    elif priced > 0:
+                        metrics.update(estimated_covered_cost=round(cost, 6),
+                                       estimated_covered_energy_kwh=round(priced, 6),
+                                       estimated_cost_currency=currency,
+                                       estimated_cost_basis=basis)
         result[(uid, receipt["started_at"], receipt.get("ended_at"))] = metrics
     return result
 
@@ -684,6 +715,12 @@ def session_costs(receipts, active_sessions, observed, estimates, metrics):
                 basis = "effective" if cost is not None else None
                 energy = evidence.get("estimated_variable_cost_energy_kwh")
             quality = "reference_estimate"
+            if cost is None and evidence.get("estimated_covered_cost") is not None:
+                cost = evidence["estimated_covered_cost"]
+                energy = evidence.get("estimated_covered_energy_kwh")
+                currency = evidence.get("estimated_cost_currency")
+                basis = evidence.get("estimated_cost_basis")
+                quality = "partial_observation"
             if observed_only and not row.get("complete_observed_window"):
                 quality = "partial_observation"
         if (type(cost) not in (int, float) or not isfinite(cost)
@@ -982,8 +1019,7 @@ def reconciled_quarter_history(historical, bindings, energy_bindings, selected,
                                actual_power_kw=round(energy*4, 6),
                                quality="measured_energy_delta")
             attributed = (_session_asset_at_time(receipts, uid, since, until)
-                          if row["quality"] in ("measured_power_integral", "measured_energy_delta")
-                          else None)
+                          if (source or meter) and not overlaps and not remap else None)
             row.update(charger_id=uid, asset_id=attributed,
                        asset_provenance=("confirmed_closed_session" if attributed is not None
                                          else "unattributed_charger_actual"))
@@ -993,7 +1029,8 @@ def reconciled_quarter_history(historical, bindings, energy_bindings, selected,
 
 
 def daily_costs(historical, bindings, configuration, first, last, quotes,
-                receipts=(), active_sessions=None, *, energy_bindings=None):
+                receipts=(), active_sessions=None, *, energy_bindings=None,
+                selected_chargers=None):
     """Project one civil day from native power and the original tariff intervals.
 
     Every physical span is counted once at Charger/Site, then attributed to
@@ -1052,6 +1089,8 @@ def daily_costs(historical, bindings, configuration, first, last, quotes,
                 value[0] += energy*price.effective_price_per_kwh
                 value[1] += energy
     for uid in sorted(cfg_chargers | set(bindings)):
+        if selected_chargers is not None and uid not in selected_chargers:
+            continue
         bucket = groups["charger"].setdefault(uid, _cost_bucket())
         epochs = bindings.get(uid, ()) or ({"start": None, "entity": None},)
         attribution = sessions.get(uid, ())
@@ -1305,9 +1344,9 @@ async def read_actual_history(hass, configuration, start, end, *,
                 historical, bindings, selected, history_first, history_end, now,
                 session_receipts, active_sessions, quotes, energy_bindings,
             ) if historical is not None and asset_id is None else [])
-            metrics = (_receipt_view_metrics(
-                historical, bindings, selected, history_first, history_end, now,
-                session_receipts, active_sessions, quotes, asset_id,
+            metrics = (await hass.async_add_executor_job(
+                _receipt_view_metrics, historical, bindings, selected, history_first, history_end, now,
+                session_receipts, active_sessions, quotes, asset_id, energy_bindings,
             ) if historical is not None else {})
             result = (rows, quality, valued, observed, metrics)
         else:

@@ -260,6 +260,35 @@ class NativeMeasuredHistoryTests(unittest.TestCase):
                                               receipts, None, first, NOW, NOW)
         self.assertTrue(all(r["actual_energy_kwh"] is None for r in rows))
 
+    def test_owned_session_valuation_reuses_exact_meter_reconciliation(self):
+        first = NOW-timedelta(hours=2)
+        middle = first+timedelta(hours=1)
+        binding = {"a": [{"start": None, "entity": "sensor.power"}]}
+        meter = {"a": [{"start": None, "entity": "sensor.meter"}]}
+        states = {"sensor.power": [recorded(first, 3000)],
+                  "sensor.meter": [recorded(first, 10, "kWh"),
+                                   recorded(middle, 13, "kWh"),
+                                   recorded(NOW, 16, "kWh")]}
+        receipt = {"charger_id": "a", "asset_id": "car",
+                   "started_at": first.isoformat(), "ended_at": NOW.isoformat(),
+                   "physical_stop_confirmed": True, "actual_energy_kwh": 6}
+        quotes = [self._price(first, middle, 0.2), self._price(middle, NOW, 0.4)]
+        metrics = mod._receipt_view_metrics(states, binding, ["a"], first, NOW, NOW,
+                                            [receipt], {}, quotes, None, meter)
+        row = next(iter(metrics.values()))
+        self.assertEqual(row["energy_evidence"], "reconciled_native_meter")
+        self.assertNotIn("peak_power_kw", row)
+        self.assertAlmostEqual(row["estimated_cost"], 1.8)
+        cost = mod.session_costs([receipt], {}, [], {}, metrics)["asset"]["car"]["last"]
+        self.assertAlmostEqual(cost["cost"], 1.8)
+        self.assertAlmostEqual(cost["average_price_per_kwh"], 0.3)
+        # Missing exact tariff boundary: report no complete or guessed cost.
+        states["sensor.meter"].pop(1)
+        metrics = mod._receipt_view_metrics(states, binding, ["a"], first, NOW, NOW,
+                                            [receipt], {}, quotes, None, meter)
+        cost = mod.session_costs([receipt], {}, [], {}, metrics)["asset"]["car"]["last"]
+        self.assertIsNone(cost["cost"])
+
     def test_civil_costs_do_not_combine_currencies_or_missing_tariff(self):
         start = NOW-timedelta(minutes=30)
         mid = start+timedelta(minutes=15)
