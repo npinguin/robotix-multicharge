@@ -2630,7 +2630,7 @@ async def test_observed_external_session_from_actual_ha_recorder(hass: HomeAssis
     from custom_components.robotix_multicharge.history import read_actual_history
 
     assert await async_setup_component(hass, "recorder", {
-        "recorder": {"db_url": "sqlite://", "commit_interval": 0},
+        "recorder": {"db_url": f"sqlite:///{Path(hass.config.config_dir) / 'mc-history.db'}", "commit_interval": 0},
     })
     recorder = get_instance(hass)
     await hass.async_block_till_done()

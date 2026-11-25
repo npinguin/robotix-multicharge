@@ -102,6 +102,17 @@ class NativeMeasuredHistoryTests(unittest.TestCase):
             {"sensor.power": states}, bindings, ["drive"], first,
             NOW, NOW, [self._receipt(start, NOW)], {}, quotes)
         self.assertEqual(duplicate, [])
+        # Partial ownership never discards the rest of a real external run.
+        owned_start = start + timedelta(minutes=5)
+        owned_end = NOW - timedelta(minutes=5)
+        parts = mod._observed_session_rows(
+            {"sensor.power": states}, bindings, ["drive"], first, NOW, NOW,
+            [self._receipt(owned_start, owned_end)], {}, quotes)
+        self.assertEqual(len(parts), 2)
+        self.assertEqual(parts[0]["ended_at"], owned_start.isoformat())
+        self.assertEqual(parts[1]["started_at"], owned_end.isoformat())
+        self.assertFalse(any(part["complete_observed_window"] for part in parts))
+        self.assertAlmostEqual(sum(part["observed_energy_kwh"] for part in parts), 0.5)
         incomplete = mod._observed_session_rows(
             {"sensor.power": states}, bindings, ["drive"], first,
             NOW, NOW, [], {}, quotes[:1])

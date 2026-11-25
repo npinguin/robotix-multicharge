@@ -421,6 +421,36 @@ def _meter_delta(states, power_states, start, end, now, ongoing):
             "meter_observed_at": b.isoformat()}
 
 
+def _unowned_run_parts(run, owned):
+    """Retain external portions without counting any owned receipt twice."""
+    original = run["segments"]
+    remaining = []
+    for start, end, power in original:
+        pieces = [(start, end)]
+        for left, right in owned:
+            clipped = []
+            for a, b in pieces:
+                if left >= b or right <= a:
+                    clipped.append((a, b))
+                else:
+                    if a < left:
+                        clipped.append((a, left))
+                    if right < b:
+                        clipped.append((right, b))
+            pieces = clipped
+        for a, b in pieces:
+            if remaining and remaining[-1][-1][1] == a:
+                remaining[-1].append((a, b, power))
+            else:
+                remaining.append([(a, b, power)])
+    return [{
+        "segments": segments,
+        "start_known": run["start_known"] and segments[0][0] == original[0][0],
+        "end_known": run["end_known"] and segments[-1][1] == original[-1][1],
+        "ongoing": run["ongoing"] and segments[-1][1] == original[-1][1],
+    } for segments in remaining]
+
+
 def _observed_session_rows(historical, bindings, selected, first, last, now,
                            receipts, active_sessions, price_slots, energy_bindings=None):
     """Project native charging observations using existing source epochs.
@@ -451,11 +481,10 @@ def _observed_session_rows(historical, bindings, selected, first, last, now,
             end = min(last, datetime.fromisoformat(epochs[i+1]["start"])) if i+1 < len(epochs) else last
             if start >= end:
                 continue
-            for run in _observed_runs(historical.get(entity, ()), start, end, now):
+            runs = _observed_runs(historical.get(entity, ()), start, end, now)
+            for run in (part for observed in runs for part in _unowned_run_parts(observed, owned)):
                 segments = run["segments"]
                 a, b = segments[0][0], segments[-1][1]
-                if any(left < b and right > a for left, right in owned):
-                    continue
                 hours = sum((right-left).total_seconds()/3600 for left, right, _ in segments)
                 kwh = sum(power*(right-left).total_seconds()/3600 for left, right, power in segments)
                 complete = run["start_known"] and (run["end_known"] or run["ongoing"])

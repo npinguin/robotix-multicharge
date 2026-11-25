@@ -35,7 +35,7 @@ One existing **Details** disclosure on each object also shows **every persisted 
 
 **Input stability:** Every native and in-dashboard Controller, Charger, Asset, Guest, schedule, YAML textarea and activation field stays open while the user focuses or enters data. Background Home Assistant sensor updates, the source-refresh coalescer and delayed get_plan responses continue updating observations without replacing the active form, erasing unsubmitted input or dismissing an iPad keyboard. There is **no inactivity-based editor timeout**. Only explicit Save, Cancel, navigation or Refresh may repaint the user's open form; rejected Save preserves the typed value and shows an in-place error. This is covered by automated source/browser regressions; actual Wessels Safari acceptance is separate.
 
-**Release distinction:** source, isolated-HA and Chromium tests do not establish actual Safari/iPad behavior, real provider readings or physical STOP. Immutable v0.1.17 remains the rollback TEST for the v0.1.18 corrective batch; publishing TEST requires exact-dev, merged-main and artifact qualification.
+**Release distinction:** source, isolated-HA and Chromium tests do not establish actual Safari/iPad behavior, real provider readings or physical STOP. The previously published immutable release remains the rollback; publishing TEST requires exact-dev, merged-main and artifact qualification.
 
 ### Beginner-first UX and combined charging graph (dev)
 
@@ -82,8 +82,7 @@ hardware. Existing imported file-owned configurations remain read-only.
 The automatic sidebar at `/robotix-multicharge` uses the same five
 tabs for novice and expert use:
 
-- **Overview:** actual status, source quality, strategy and direct vehicle
-  assignment for each Charger without opening Details, plus STOP where allowed.
+- **Overview:** site status and mode first, then per-vehicle goals, schedule, charger assignment and explicit connection confirmation, all without leaving the vehicle card. STOP is visible where allowed.
 - **Charging Plan:** source-qualified measured, accepted, proposed and indicative
   15-minute timelines in locally bundled ApexCharts, with independently labelled
   tariff information. Unavailable measurements are never fabricated.
@@ -92,9 +91,14 @@ tabs for novice and expert use:
   limits, battery capacity and charge speed, native OEM SoC and health sources.
 - **Chargers:** create/remove Charger objects, assign vehicles directly on the
   card, manage controlled one-off sessions, and edit all native cable, power,
-  energy, current, electrical phase and circuit bindings inside foldable Details.
-  Newly configured Chargers remain external/monitor-only until expressly
-  explicitly activated by the user.
+  energy and current sources directly in a reviewed setup editor. Advanced electrical
+  limits remain in the owning details. Native device discovery proposes unambiguous
+  sources and current metadata; it never writes automatically. Active is the creation
+  default when a native control switch is selected; users can choose Inactive.
+  Existing ownership and explicit limits are retained. Changing activation is an
+  explicit Save with idle handover checks and authoritative readback. Observed external
+  charging runs show measured energy or a power-derived portion, duration, power and
+  qualified reference cost estimates without guessing vehicle identity.
 - **Settings:** Controller site name, strategy, site power and parallel limits,
   Solar, tariff, whole-home and grid native entity sources, meter direction,
   safety, diagnostics and **Edit YAML → Save**.
