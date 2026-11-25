@@ -1134,7 +1134,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       tab==="Chargers"&&this._editingField.startsWith("charger:")));
     return Boolean(this._unsavedInput||scopedEdit||this._yamlEditorOpen||
       (this._batteryEditor&&["Overview","Chargeable Assets","Charging Plan"].includes(tab))||
-      tab==="Overview"&&this._assignmentEditor||
+      tab==="Overview"&&(this._assignmentEditor||this._goalEditor||this._scheduleEditor)||
       tab==="Chargeable Assets"&&(
         this._assetEditor||this._assignmentEditor||
         this._goalEditor||this._scheduleEditor||this._windowsOpen)||
@@ -2060,14 +2060,12 @@ class RobotixMultiChargeCard extends HTMLElement {
       }));
       if(this.canEditSettings()){
         controls.append(mcButton(mcTr("Set charging goal"),()=>{
-          this._tab="Chargeable Assets";this._open="";
-          this._focusAsset=a.id;
-          this._goalEditor=a.id;
+          this._goalEditor=a.id;this._scheduleEditor="";this._assignmentEditor="";
           this.render();
         }));
         controls.append(mcButton(mcTr("Schedule charging"),()=>{
-          this._tab="Chargeable Assets";this._focusAsset=a.id;
-          this._scheduleEditor=a.id;this.render();
+          this._scheduleEditor=this._scheduleEditor===a.id?"":a.id;
+          this._goalEditor="";this._assignmentEditor="";this.render();
         }));
       }
       if(charger&&this.canManage()){
@@ -2082,6 +2080,12 @@ class RobotixMultiChargeCard extends HTMLElement {
         }
       }
       card.append(controls);
+      if(this._goalEditor===a.id&&this.canEditSettings())this.assetGoalEditor(card,a);
+      if(this._scheduleEditor===a.id&&this.canEditSettings()){
+        const schedule=mcEl("div","details schedule-editor");
+        schedule.append(mcEl("h4","",mcTr("When should the vehicle be ready?")));
+        this.nativeRepeatEditor(schedule,a);card.append(schedule);
+      }
       this.assetChargerAssignment(card,a,charger,chargers);
       this.assetConnectionConfirmation(card,a,charger);
       container.append(card);
@@ -3031,8 +3035,9 @@ class RobotixMultiChargeCard extends HTMLElement {
       [typeof meter!=="number"&&typeof derived==="number"?"Power-derived energy":"Measured energy",num(meter??derived,"kWh")],
       ["Duration",num(duration,"min",0)],
       ["Average power",num(avg,"kW")],["Peak power",num(row.peak_power_kw,"kW")],
-      ["Estimated energy cost",num(row.estimated_cost??row.estimated_variable_cost,
-        row.estimated_cost_currency??row.estimated_variable_cost_currency??"")]];
+      [typeof row.cost==="number"?"Verified energy cost":"Estimated energy cost",
+        num(row.cost??row.estimated_cost??row.estimated_variable_cost,
+        row.currency??row.estimated_cost_currency??row.estimated_variable_cost_currency??"")]];
     for(const [label,value] of metrics){
       const cell=mcEl("div","goal-metric");cell.append(mcEl("span","muted small",mcTr(label)),mcEl("strong","",value));grid.append(cell);
     }
