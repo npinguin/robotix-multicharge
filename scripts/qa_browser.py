@@ -82,6 +82,15 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
         raise AssertionError(f"{label}: horizontal page overflow: {row}")
     if row["viewport"] != size:
         raise AssertionError(f"{label}: requested width not actually honored: {row}")
+    if view == "setup":
+        required = ("observed", "prefilled", "progressive", "noWrite",
+                    "reviewed", "denied", "active")
+        if not all(row.get(key) is True for key in required):
+            raise AssertionError(f"{label}: setup/activation/session journey failed: {row}")
+        if not screenshot.is_file() or screenshot.stat().st_size < 2000:
+            raise AssertionError(f"{label}: charger setup screenshot missing")
+        print(f"BROWSER PASS {label}: reviewed native setup, observed session, busy refusal and retry")
+        return
     if view == "goal":
         required = ("initial", "compact", "actionable", "allDays", "noImplicitWrite",
                     "saved", "reopened", "shared", "variants")
@@ -175,11 +184,13 @@ def main():
             run_case(chrome, base, width, 4, "admin", "yaml", False)
         for width in (390, 1024, 1600):
             run_case(chrome, base, width, 2, "admin", "goal", False)
+        for width in (390, 1024, 1600):
+            run_case(chrome, base, width, 1, "admin", "setup", False)
     finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
-    print(f"Real Chromium responsive source-UX PASS: {len(CASES) + 9} cases "
+    print(f"Real Chromium responsive source-UX PASS: {len(CASES) + 12} cases "
           "(simulated HA input; installed target HA and real EVSE separately unqualified)")
 
 
