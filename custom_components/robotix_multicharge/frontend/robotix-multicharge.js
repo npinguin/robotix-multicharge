@@ -222,7 +222,7 @@ const MC_STYLE = [
   ".legend{display:flex;flex-wrap:wrap;gap:8px;font-size:12px;color:var(--secondary-text-color,#65717e)}.legend-toggle{font-size:12px;border:0;padding:4px;min-height:30px;background:transparent;color:inherit}.legend-toggle[aria-pressed=false]{opacity:.5;text-decoration:line-through}",
   ".dot{display:inline-block;width:11px;height:11px;margin-right:5px;border-radius:2px}",
   ".plan-lane{margin:10px 0;border:1px solid var(--divider-color,#d8dde3);border-radius:11px;padding:11px}",
-  ".setup-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:0 12px}.setup-fields .field{min-width:0}.setup-fields>p{grid-column:1/-1}.goal-track,.goal-ticks{box-sizing:border-box}.session-summary{margin:8px 0;padding:8px 0;border-top:1px solid var(--divider-color,#ddd)}.session-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:7px;margin:7px 0}",
+  ".charger-state-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;padding:8px 0}.charger-power{padding:8px 0;border-bottom:1px solid var(--divider-color,#ddd)}@media(min-width:800px){.charger-state-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}.setup-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:0 12px}.setup-fields .field{min-width:0}.setup-fields>p{grid-column:1/-1}.goal-track,.goal-ticks{box-sizing:border-box}.session-summary{margin:8px 0;padding:8px 0;border-top:1px solid var(--divider-color,#ddd)}.session-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:7px;margin:7px 0}",
   ".plan-lane svg{display:block;min-width:680px;width:100%;height:auto}",
   ".plan-lane .chart{margin-top:5px}",
   ".owner-inventory{margin-top:14px;border-top:1px solid var(--divider-color,#bbb);padding-top:12px}.owner-inventory>h4{font-size:15px;margin:0 0 9px}.owner-group{margin:7px 0 12px;padding:8px 10px;border:1px solid var(--divider-color,#ccc);border-radius:8px;min-width:0}.owner-group h4{font-size:13px;margin:0 0 8px}.owner-group .pair{word-break:break-word}.owner-configure{margin-top:8px}.owner-configure a{display:inline-block;margin-top:4px}.owner-hint{font-size:12px}.owner-inventory .row{flex-wrap:wrap}",
@@ -1335,6 +1335,11 @@ class RobotixMultiChargeCard extends HTMLElement {
         const pending=this._pendingSettings;
         this._settingsFeedback={status:"confirmed",message:"Saved"};
         this._pendingSettings=null;
+        this._unsavedInput=false;
+        if(pending.action==="create"&&pending.scope==="charger"){
+          this._createCharger=false;this._open=pending.targetId;
+        }
+        if(pending.action==="create"&&pending.scope==="asset")this._assetEditor="";
         const prefix=pending.scope+":"+pending.targetId+":";
         if(this._editingField.startsWith(prefix)&&
             (pending.fields.includes(this._editingField.slice(prefix.length))||
@@ -1396,7 +1401,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     }finally{this._commandBusy=false;this.render();}
   }
   async saveSettings(scope,targetId,changes,action,structural=false){
-    if(this._settingsBusy||!this._hass||!this._data||!this.canEditSettings())return;
+    if(this._settingsBusy||this._pendingSettings||!this._hass||!this._data||!this.canEditSettings())return;
     const preserveDraft=this.editingInProgress();
     if(!this._data.configuration_revision){
       this._settingsFeedback={status:"rejected",message:"Unavailable"};
@@ -1416,7 +1421,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       });
       if(receipt.status!=="accepted_unconfirmed"||!receipt.expected_revision)
         throw new Error("Settings change was not admitted");
-      this._pendingSettings={expected_revision:receipt.expected_revision,scope,targetId,fields:Object.keys(changes)};
+      this._pendingSettings={expected_revision:receipt.expected_revision,scope,targetId,action:action||"save",fields:Object.keys(changes)};
       this._settingsFeedback={status:"accepted_unconfirmed",message:"Pending"};
       this._last=0;
       admitted=true;
@@ -3036,10 +3041,12 @@ class RobotixMultiChargeCard extends HTMLElement {
     const discover=mcButton("Discover native sources",async()=>{
       const control=readSwitch();
       if(!control){discovery.textContent="Select the native charger switch first.";return;}
+      const selectedKind=kind.value;
       discover.disabled=true;
       try{
         const response=await this._hass.callWS({type:"robotix_multicharge/get_plan",
-          day:this._day,include_history:false,discover_charger:{control_entity:control,kind:kind.value}});
+          day:this._day,include_history:false,discover_charger:{control_entity:control,kind:selectedKind}});
+        if(readSwitch()!==control||kind.value!==selectedKind)return;
         const setup=response.charger_setup_draft;
         if(!setup)throw Error("Native discovery unavailable");
         let count=0;
@@ -3074,8 +3081,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         this._settingsFeedback={status:"rejected",message:String(error.message)};
         this.showEditError(box);return;
       }
-      const ok=await this.saveSettings("charger",uid,changes,"create",true);
-      if(ok){this._createCharger=false;this._open=uid;this.render();}
+      await this.saveSettings("charger",uid,changes,"create",true);
     });
     save.disabled=this._settingsBusy;
     actions.append(save,mcButton(mcTr("Cancel"),()=>{
@@ -3137,14 +3143,23 @@ class RobotixMultiChargeCard extends HTMLElement {
     const proposal=setup.proposed_missing||{};
     const fields=Object.keys(proposal);
     const bounds=setup.effective_current||{};
-    if(charger.kind==="variable_current"&&bounds.min_current_a!=null&&bounds.max_current_a!=null)
-      mcPair(card,"Effective current range",bounds.min_current_a+"–"+bounds.max_current_a+" A"+
-        (bounds.current_step_a!=null?" · step "+bounds.current_step_a+" A":""));
-    const required=["control_entity","connected_entity","power_entity"];
-    if(charger.kind==="variable_current")required.push("current_control_entity");
+    if(charger.kind==="variable_current"){
+      const format=b=>b?.min_current_a!=null&&b?.max_current_a!=null?
+        b.min_current_a+"–"+b.max_current_a+" A"+(b.current_step_a!=null?" · "+b.current_step_a+" A step":""):mcTr("Unknown");
+      mcPair(card,"Effective current range",format(bounds));
+      if(this._editingField===key){
+        mcPair(card,"Native device current range",format(setup.native_current));
+        mcPair(card,"Configured current range",format(setup.configured_current));
+      }
+      if(setup.native_current?.max_current_a!=null&&bounds.max_current_a>setup.native_current.max_current_a)
+        card.append(mcEl("p","plan-caution","Configured maximum exceeds native hardware range; correct the setting."));
+    }
+    const required=["control_entity","power_entity"];
+    if(charger.kind==="variable_current")required.push("current_control_entity","connected_entity");
     const absent=required.filter(f=>!charger[f]);
     if(absent.length)card.append(mcEl("p","muted small","Unbound sources · "+
       absent.map(f=>mcTr(MC_OWNER_NAMES[f]||f)).join(", ")));
+    if(this._editingField===key&&!charger.energy_entity)card.append(mcEl("p","muted small","Optional cumulative meter: power-derived energy remains available when measured coverage is sufficient."));
     if(this._editingField!==key){
       card.append(mcButton("Review charger setup"+(fields.length?" ("+fields.length+" suggestions)":""),()=>{
         this._editingField=key;this._settingsFeedback=null;this.render();
@@ -3224,16 +3239,22 @@ class RobotixMultiChargeCard extends HTMLElement {
         states.connection_state==="no_asset_connected"?"No asset connected":"Unknown";
       const activity={charging:"Charging",paused:"Paused",stopped:"Stopped"}[states.charging_session]||"Unknown";
       const readiness={ready:"Ready",waiting:"Waiting",error:"Error",unavailable:"Unavailable"}[states.charging_state]||"Unknown";
-      mcPair(card,mcTr("Activation"),mcTr(activation));
-      mcPair(card,mcTr("Connection state"),mcTr(connection));
-      mcPair(card,mcTr("Charging session"),mcTr(activity));
-      mcPair(card,mcTr("Charging state"),mcTr(readiness));
+      const stateGrid=mcEl("div","charger-state-grid");
+      for(const [label,value] of [["Activation",activation],["Connection state",connection],
+          ["Charging session",activity],["Charging state",readiness]]){
+        const cell=mcEl("div","goal-metric");
+        cell.append(mcEl("span","muted small",mcTr(label)),mcEl("strong","",mcTr(value)));
+        stateGrid.append(cell);
+      }
+      card.append(stateGrid);
       if(states.reason&&states.charging_state!=="ready")
         card.append(mcEl("p","muted small",mcReason(states.reason)));
       if(states.switch_state==="on"&&activity==="Unknown")
         card.append(mcEl("p","muted small",mcTr("Switch on · charging not measured")));
-      mcPair(card,"Effective charging power",mcValue(obs.power_kw," kW"));
-      mcPair(card,"Control type",c.kind==="on_off"?"On/off":"Variable current");
+      const powerLine=mcEl("div","row charger-power");
+      powerLine.append(mcEl("span","muted small",mcTr("Effective charging power")),
+        mcEl("strong","value",mcValue(obs.power_kw," kW")));
+      card.append(powerLine);
       if(this.canEditSettings()){
         const activationKey="charger:"+c.id+":control_owner";
         if(this._editingField===activationKey){
@@ -3307,6 +3328,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(this._open===c.id){
         const detail=mcEl("div","details");
         detail.append(mcEl("h4","",mcTr("Physical Charger & verified sources")));
+        mcPair(detail,"Control type",c.kind==="on_off"?"On/off":"Variable current");
         mcPair(detail,"Rated power",c.rated_power_kw+" kW");
         mcPair(detail,"Phases",c.phase_count||"Unverified");
         const bounds=d.charger_setup?.[c.id]?.effective_current||c;
