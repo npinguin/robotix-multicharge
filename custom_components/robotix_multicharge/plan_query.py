@@ -121,11 +121,12 @@ async def websocket_get_plan(
             start, end,
             charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
         )
+        receipts = runtime.executor.completed_sessions()
         if msg.get("include_history", True):
             actual, quality, estimates, observed_sessions, session_metrics = await read_actual_history(
                 hass, result["configuration"], start, end,
                 charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
-                session_receipts=runtime.executor.completed_sessions(),
+                session_receipts=receipts,
                 price_slots=runtime.price_slots, include_valuations=True,
                 power_bindings=runtime.power_bindings,
                 include_observed_sessions=True, active_sessions=result["active_sessions"],
@@ -148,6 +149,13 @@ async def websocket_get_plan(
         for uid, receipt in result["active_sessions"].items():
             receipt.update(session_metrics.get((uid, receipt["started_at"], None), {}))
         result["observed_sessions"] = observed_sessions
+        result["recent_completed_sessions"] = [
+            {**receipt, **session_metrics.get((receipt["charger_id"], receipt["started_at"], receipt["ended_at"]), {}),
+             **estimates.get((receipt["charger_id"], receipt["started_at"], receipt["ended_at"]), {})}
+            for receipt in receipts
+            if (msg.get("charger_id") is None or receipt["charger_id"] == msg["charger_id"])
+            and (msg.get("asset_id") is None or receipt.get("asset_id") == msg["asset_id"])
+        ]
         entry = hass.config_entries.async_get_entry(entry_id)
         result["configuration_managed_by_yaml"] = bool(
             entry is not None and entry.data.get("source") in ("yaml", "json")
@@ -174,6 +182,9 @@ async def websocket_get_plan(
             for row in cfg["chargers"]
         }
         if "discover_charger" in msg:
+            if not getattr(getattr(connection, "user", None), "is_admin", False):
+                connection.send_error(msg["id"], websocket_api.ERR_UNAUTHORIZED, "Admin required")
+                return
             # Only an explicitly selected native switch may anchor discovery.
             draft = msg["discover_charger"]
             if not draft["control_entity"].startswith("switch."):
