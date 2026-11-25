@@ -868,9 +868,13 @@ def _meter_gap_blocks(historical, meter_epochs, uid, start, end,
             samples = _energy_samples(historical.get(entity, ()))
             # Duplicate stamps, including conflicting readings, cannot bound
             # an independently measured interval.
-            cache[entity] = samples if len({a for a, _ in samples}) == len(samples) else []
-        samples = cache[entity]
-        for (a, initial), (b, final) in zip(samples, samples[1:]):
+            samples = samples if len({a for a, _ in samples}) == len(samples) else []
+            cache[entity] = (samples, [a for a, _ in samples])
+        samples, stamps = cache[entity]
+        # Bounded indexed slice: a high-frequency native meter must not be
+        # rescanned from the start of the day for each quarter/hour.
+        relevant = samples[bisect_left(stamps, start):bisect_right(stamps, end)]
+        for (a, initial), (b, final) in zip(relevant, relevant[1:]):
             if (not start <= a < b <= end or initial is None or final is None
                     or final < initial
                     or _binding_for_interval(meter_epochs, a, b) != entity
@@ -908,6 +912,84 @@ def _meter_gap_blocks(historical, meter_epochs, uid, start, end,
     # physical increment once; overlapping source claims were rejected above.
     return sorted({(a, b): (a, b, e, p, uid)
                    for a, b, e, p, uid in blocks}.values(), key=lambda row: row[0])
+
+
+def _interval_power_evidence(spans, edges, first, last):
+    """Measured power integral and seconds, not a filled/assumed gap."""
+    energy, observed = 0.0, 0.0
+    for index in range(max(0, bisect_right(edges, first)-1), len(spans)):
+        a, b, power = spans[index]
+        if a >= last:
+            break
+        seconds = (min(b, last)-max(a, first)).total_seconds()
+        if power is not None and seconds > 0:
+            observed += seconds
+            energy += power*seconds/3600
+    return energy, observed
+
+
+def reconciled_quarter_history(historical, bindings, energy_bindings, selected,
+                               receipts, asset_id, first, last, now):
+    """One physical quarter per owner; exact native meter repair only.
+
+    A recovered average is labelled as energy-derived, never represented
+    as an independently measured instantaneous power. Unknown source
+    remaps, shared owners, resets and cross-quarter meter deltas stay gaps.
+    """
+    empty = _quarter_actuals([], first, last, now)
+    power_claims = _source_claims(bindings, first, last)
+    meter_claims = _source_claims(energy_bindings, first, last)
+    power_cache, meter_cache, by_source = {}, {}, {}
+    result = []
+    for uid in selected:
+        epochs = bindings.get(uid, ())
+        meter_epochs = energy_bindings.get(uid, ())
+        for unknown in empty:
+            since = datetime.fromisoformat(unknown["start"])
+            until = datetime.fromisoformat(unknown["end"])
+            source = _binding_for_interval(epochs, since, until)
+            meter = _binding_for_interval(meter_epochs, since, until)
+            overlaps = [(a, b) for other, a, b in power_claims.get(source, ())
+                        if other != uid and a < until and b > since]
+            row = dict(unknown)
+            if source and not overlaps:
+                if source not in by_source:
+                    by_source[source] = {r["start"]: r for r in _quarter_actuals(
+                        historical.get(source, ()), first, last, now)}
+                row = dict(by_source[source].get(unknown["start"], unknown))
+            # An ambiguous power remap or overlapping physical owner is not
+            # repaired by assigning its kWh to an arbitrary logical owner.
+            remap = any(epoch["start"] is not None and
+                        since < datetime.fromisoformat(epoch["start"]) < until
+                        for epoch in epochs)
+            if (row["quality"] != "measured_power_integral" and meter
+                    and not overlaps and not remap):
+                if source not in power_cache:
+                    spans = _power_spans(historical.get(source, ()), first, last)
+                    power_cache[source] = (spans, [r[0] for r in spans])
+                spans, edges = power_cache[source]
+                blocks = _meter_gap_blocks(
+                    historical, meter_epochs, uid, since, until, meter_claims,
+                    overlaps, spans, edges, (), (), meter_cache,
+                )
+                energy, observed = _interval_power_evidence(spans, edges, since, until)
+                for a, b, delta, _, _ in blocks:
+                    already, seconds = _interval_power_evidence(spans, edges, a, b)
+                    energy += delta-already
+                    observed += (b-a).total_seconds()-seconds
+                if blocks and abs(observed-(until-since).total_seconds()) < 0.001:
+                    row.update(actual_energy_kwh=round(energy, 6),
+                               actual_power_kw=round(energy*4, 6),
+                               quality="measured_energy_delta")
+            attributed = (_session_asset_at_time(receipts, uid, since, until)
+                          if row["quality"] in ("measured_power_integral", "measured_energy_delta")
+                          else None)
+            row.update(charger_id=uid, asset_id=attributed,
+                       asset_provenance=("confirmed_closed_session" if attributed is not None
+                                         else "unattributed_charger_actual"))
+            if asset_id is None or asset_id == attributed:
+                result.append(row)
+    return result
 
 
 def daily_costs(historical, bindings, configuration, first, last, quotes,
@@ -1150,6 +1232,9 @@ async def read_actual_history(hass, configuration, start, end, *,
     bindings = (power_bindings if power_bindings is not None else
                 {c["id"]: [{"start": None, "entity": c.get("power_entity")}]
                  for c in configuration["chargers"]})
+    energy_bindings = (energy_bindings if energy_bindings is not None else
+                       {c["id"]: [{"start": None, "entity": c.get("energy_entity")}]
+                        for c in configuration["chargers"]})
     selected = [c["id"] for c in configuration["chargers"]
                 if charger_id is None or c["id"] == charger_id]
     if charger_id is not None and charger_id in bindings and not selected:
@@ -1240,11 +1325,17 @@ async def read_actual_history(hass, configuration, start, end, *,
         and (index + 1 == len(bindings[uid])
              or datetime.fromisoformat(bindings[uid][index + 1]["start"]) > history_first)
     })
-    if not entities:
-        return await reply([], "POWER_METER_NOT_CONFIGURED")
     if history_first >= history_end:
         return await reply([], "FUTURE_ONLY")
-    power_entities = tuple(entities)
+    for uid in selected:
+        for index, epoch in enumerate(energy_bindings.get(uid, ())):
+            if (epoch["entity"] and epoch["entity"] not in entities
+                    and (epoch["start"] is None or datetime.fromisoformat(epoch["start"]) < history_end)
+                    and (index+1 == len(energy_bindings[uid])
+                         or datetime.fromisoformat(energy_bindings[uid][index+1]["start"]) > history_first)):
+                entities.append(epoch["entity"])
+    if not entities:
+        return await reply([], "POWER_METER_NOT_CONFIGURED")
     if include_observed_sessions or include_valuations or financial_days is not None:
         tariff_sources = {
             epoch["entity"] for i, epoch in enumerate((tariff_bindings or {}).get("site", ()))
@@ -1256,14 +1347,6 @@ async def read_actual_history(hass, configuration, start, end, *,
         if tariff_bindings is None and tariff_entity:
             tariff_sources.add(tariff_entity)
         entities.extend(sorted(tariff_sources - set(entities)))
-    if include_observed_sessions or financial_days is not None:
-        for uid in selected:
-            for index, epoch in enumerate((energy_bindings or {}).get(uid, ())):
-                if (epoch["entity"] and epoch["entity"] not in entities
-                        and (epoch["start"] is None or datetime.fromisoformat(epoch["start"]) < history_end)
-                        and (index+1 == len(energy_bindings[uid])
-                             or datetime.fromisoformat(energy_bindings[uid][index+1]["start"]) > history_first)):
-                    entities.append(epoch["entity"])
     if "recorder" not in hass.config.components:
         return await reply([], "RECORDER_NOT_LOADED")
     try:
@@ -1281,38 +1364,20 @@ async def read_actual_history(hass, configuration, start, end, *,
         return await reply([], "FINANCIAL_DAY", historical)
     if first >= now:
         return await reply([], "FUTURE_ONLY", historical)
-    # Integrate each physical source once; only then assign the measured
-    # quarter to the logical Charger that owned that source at that time.
-    empty = _quarter_actuals([], first, last, now)
-    by_source = {
-        entity: {row["start"]: row for row in _quarter_actuals(
-            historical.get(entity, []), first, last, now)}
-        for entity in power_entities
-    }
-    result = []
-    for uid in selected:
-        epochs = bindings.get(uid, ())
-        for unknown in empty:
-            since = datetime.fromisoformat(unknown["start"])
-            until = datetime.fromisoformat(unknown["end"])
-            source = _binding_for_interval(epochs, since, until)
-            row = dict(by_source.get(source, {}).get(unknown["start"], unknown))
-            attributed = (_session_asset_at_time(session_receipts, uid, since, until)
-                          if source else None)
-            row.update({
-                "charger_id": uid, "asset_id": attributed,
-                "asset_provenance": (
-                    "confirmed_closed_session" if attributed is not None
-                    else "unattributed_charger_actual"
-                ),
-            })
-            if asset_id is None or asset_id == attributed:
-                result.append(row)
+    # The same bounded Recorder evidence feeds both measured and exact
+    # energy-reconciled quarters, off the HA event loop.
+    result = await hass.async_add_executor_job(
+        reconciled_quarter_history, historical, bindings, energy_bindings, selected,
+        session_receipts, asset_id, first, last, now,
+    )
     if not result:
         return await reply([], (
             "NO_CONFIRMED_ASSET_HISTORY" if asset_id is not None
             else "NO_RECORDED_QUARTERS"
         ), historical)
-    if any(row["quality"] != "measured_power_integral" for row in result):
+    if any(row["quality"] not in ("measured_power_integral", "measured_energy_delta")
+           for row in result):
         return await reply(result, "INCOMPLETE_POWER_HISTORY", historical)
+    if any(row["quality"] == "measured_energy_delta" for row in result):
+        return await reply(result, "MEASURED_ENERGY_HISTORY", historical)
     return await reply(result, "MEASURED_POWER_HISTORY", historical)

@@ -228,6 +228,38 @@ class NativeMeasuredHistoryTests(unittest.TestCase):
                                   energy_bindings={"a": energy["a"]})["controller"]["site"]
         self.assertEqual(clipped["observed_seconds"], 1800)
 
+    def test_quarter_history_reconciles_exact_meter_gap_without_proration_or_duplicate_owner(self):
+        first = NOW-timedelta(hours=1)
+        mid = first+timedelta(minutes=30)
+        power = {"a": [{"start": None, "entity": "sensor.power"}]}
+        energy = {"a": [{"start": None, "entity": "sensor.meter"}]}
+        states = {"sensor.power": [recorded(first, 2000)],
+                  "sensor.meter": [recorded(first, 5, "kWh"),
+                                   recorded(mid, 6, "kWh"),
+                                   recorded(mid+timedelta(minutes=15), 6.5, "kWh"),
+                                   recorded(NOW, 7, "kWh")]}
+        receipts = [{"charger_id": "a", "asset_id": "car",
+                     "started_at": first.isoformat(), "ended_at": NOW.isoformat(),
+                     "physical_stop_confirmed": True}]
+        rows = mod.reconciled_quarter_history(states, power, energy, ["a"],
+                                              receipts, None, first, NOW, NOW)
+        self.assertEqual([r["quality"] for r in rows],
+                         ["measured_power_integral", "measured_power_integral",
+                          "measured_energy_delta", "measured_energy_delta"])
+        self.assertEqual([r["actual_energy_kwh"] for r in rows], [0.5]*4)
+        self.assertTrue(all(r["asset_id"] == "car" for r in rows))
+        # A single meter increment straddles the quarter boundary:
+        # do not split the kWh or falsely represent a measured average.
+        states["sensor.meter"].pop(2)
+        rows = mod.reconciled_quarter_history(states, power, energy, ["a"],
+                                              receipts, None, first, NOW, NOW)
+        self.assertIsNone(rows[2]["actual_energy_kwh"])
+        self.assertIsNone(rows[3]["actual_energy_kwh"])
+        power["other"] = [{"start": None, "entity": "sensor.power"}]
+        rows = mod.reconciled_quarter_history(states, power, energy, ["a", "other"],
+                                              receipts, None, first, NOW, NOW)
+        self.assertTrue(all(r["actual_energy_kwh"] is None for r in rows))
+
     def test_civil_costs_do_not_combine_currencies_or_missing_tariff(self):
         start = NOW-timedelta(minutes=30)
         mid = start+timedelta(minutes=15)
