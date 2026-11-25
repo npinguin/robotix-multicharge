@@ -93,6 +93,9 @@ for(const [locale,labels] of Object.entries({
 })){
   ["Fixed assignment","Use fixed assignment","Require plug confirmation","Shared charger","Fixed vehicle assignment","Use fixed assignment only when this charger is reserved for this vehicle. Other vehicles require changing the assignment first."].forEach((key,i)=>MC_TEXT[locale][key]=labels[i]);
 }
+for(const [locale,labels] of Object.entries({nl:["Rust","Probleem"],fr:["En attente","Problème"],da:["I ro","Problem"],nb:["Inaktiv","Problem"],sv:["Vilande","Problem"],de:["Ruhezustand","Problem"],es:["En reposo","Problema"]})){
+  MC_TEXT[locale]["Idle"]=labels[0];MC_TEXT[locale]["Problem"]=labels[1];
+}
 // Native setup and observed-session labels reuse the existing card locale map.
 for(const [locale,terms] of Object.entries({"nl":{"Review charger setup":"Laadpaalconfiguratie","Save charger setup":"Configuratie opslaan","Discover native sources":"Native bronnen zoeken","Native device current range":"Stroomgebied apparaat","Configured current range":"Ingesteld stroomgebied","Effective current range":"Effectief stroomgebied","Observed charging now":"Laden gemeten","Observed charging run":"Gemeten laadsessie","Earlier observed runs":"Eerdere gemeten sessies","Power-derived energy":"Energie uit vermogen","Average power":"Gemiddeld vermogen","Peak power":"Piekvermogen","Estimated energy cost":"Geschatte energiekosten","Verified energy cost":"Bevestigde energiekosten","Electrical limits & optional sources":"Elektrische limieten en optionele bronnen","Stop charging with the current owner before changing activation":"Stop het laden via de huidige eigenaar vóór activering","Incomplete start/end or source coverage · observed portion only":"Onvolledig begin/einde of brongegevens · alleen gemeten deel","Save not confirmed; refresh and retry":"Opslaan niet bevestigd; vernieuw en probeer opnieuw","suggestions":"voorstellen"},"fr":{"Review charger setup":"Configuration de la borne","Save charger setup":"Enregistrer la configuration","Discover native sources":"Détecter les sources natives","Native device current range":"Plage native de courant","Configured current range":"Plage de courant configurée","Effective current range":"Plage effective de courant","Observed charging now":"Charge observée en cours","Observed charging run":"Charge observée","Earlier observed runs":"Charges précédentes observées","Power-derived energy":"Énergie déduite de la puissance","Average power":"Puissance moyenne","Peak power":"Puissance de pointe","Estimated energy cost":"Coût énergétique estimé","Verified energy cost":"Coût énergétique confirmé","Electrical limits & optional sources":"Limites électriques et sources facultatives","Stop charging with the current owner before changing activation":"Arrêtez la charge via le contrôleur actuel avant activation","Incomplete start/end or source coverage · observed portion only":"Début/fin ou données incomplets · portion observée uniquement","Save not confirmed; refresh and retry":"Enregistrement non confirmé ; actualisez et réessayez","suggestions":"suggestions"},"de":{"Review charger setup":"Ladepunkt konfigurieren","Save charger setup":"Konfiguration speichern","Discover native sources":"Native Quellen suchen","Native device current range":"Nativer Strombereich","Configured current range":"Konfigurierter Strombereich","Effective current range":"Effektiver Strombereich","Observed charging now":"Aktuell beobachtete Ladung","Observed charging run":"Beobachteter Ladevorgang","Earlier observed runs":"Frühere beobachtete Vorgänge","Power-derived energy":"Energie aus Leistung","Average power":"Durchschnittsleistung","Peak power":"Spitzenleistung","Estimated energy cost":"Geschätzte Energiekosten","Verified energy cost":"Bestätigte Energiekosten","Electrical limits & optional sources":"Elektrische Grenzen und optionale Quellen","Stop charging with the current owner before changing activation":"Ladevorgang über den aktuellen Besitzer vor Aktivierung stoppen","Incomplete start/end or source coverage · observed portion only":"Start/Ende oder Quellen unvollständig · nur beobachteter Abschnitt","Save not confirmed; refresh and retry":"Speichern nicht bestätigt; aktualisieren und erneut versuchen","suggestions":"Vorschläge"},"es":{"Review charger setup":"Configurar cargador","Save charger setup":"Guardar configuración","Discover native sources":"Buscar fuentes nativas","Native device current range":"Rango de corriente nativo","Configured current range":"Rango de corriente configurado","Effective current range":"Rango de corriente efectivo","Observed charging now":"Carga observada en curso","Observed charging run":"Carga observada","Earlier observed runs":"Cargas observadas anteriores","Power-derived energy":"Energía derivada de potencia","Average power":"Potencia media","Peak power":"Potencia máxima","Estimated energy cost":"Coste energético estimado","Verified energy cost":"Coste energético confirmado","Electrical limits & optional sources":"Límites eléctricos y fuentes opcionales","Stop charging with the current owner before changing activation":"Detenga la carga con el controlador actual antes de activar","Incomplete start/end or source coverage · observed portion only":"Inicio/fin o datos incompletos · solo tramo observado","Save not confirmed; refresh and retry":"Guardado no confirmado; actualice e inténtelo de nuevo","suggestions":"sugerencias"},"da":{"Review charger setup":"Konfigurer lader","Save charger setup":"Gem konfiguration","Discover native sources":"Find native kilder","Native device current range":"Enhedens strømområde","Configured current range":"Konfigureret strømområde","Effective current range":"Effektivt strømområde","Observed charging now":"Observeret opladning nu","Observed charging run":"Observeret opladning","Earlier observed runs":"Tidligere observerede opladninger","Power-derived energy":"Energi ud fra effekt","Average power":"Gennemsnitseffekt","Peak power":"Spidseffekt","Estimated energy cost":"Estimeret energiomkostning","Verified energy cost":"Bekræftet energiomkostning","Electrical limits & optional sources":"Elektriske grænser og valgfrie kilder","Stop charging with the current owner before changing activation":"Stop opladning via nuværende ejer før aktivering","Incomplete start/end or source coverage · observed portion only":"Ufuldstændig start/slut eller kildedata · kun observeret del","Save not confirmed; refresh and retry":"Lagring ikke bekræftet; opdater og prøv igen","suggestions":"forslag"},"nb":{"Review charger setup":"Konfigurer lader","Save charger setup":"Lagre konfigurasjon","Discover native sources":"Finn native kilder","Native device current range":"Enhetens strømområde","Configured current range":"Konfigurert strømområde","Effective current range":"Effektivt strømområde","Observed charging now":"Observert lading nå","Observed charging run":"Observert lading","Earlier observed runs":"Tidligere observerte ladinger","Power-derived energy":"Energi fra effekt","Average power":"Gjennomsnittlig effekt","Peak power":"Toppeffekt","Estimated energy cost":"Estimert energikostnad","Verified energy cost":"Bekreftet energikostnad","Electrical limits & optional sources":"Elektriske grenser og valgfrie kilder","Stop charging with the current owner before changing activation":"Stopp lading via nåværende eier før aktivering","Incomplete start/end or source coverage · observed portion only":"Ufullstendig start/slutt eller kildedata · bare observert del","Save not confirmed; refresh and retry":"Lagring ikke bekreftet; oppdater og prøv igjen","suggestions":"forslag"},"sv":{"Review charger setup":"Konfigurera laddare","Save charger setup":"Spara konfiguration","Discover native sources":"Hitta inbyggda källor","Native device current range":"Enhetens strömområde","Configured current range":"Konfigurerat strömområde","Effective current range":"Effektivt strömområde","Observed charging now":"Observerad laddning nu","Observed charging run":"Observerad laddning","Earlier observed runs":"Tidigare observerade laddningar","Power-derived energy":"Energi från effekt","Average power":"Medeleffekt","Peak power":"Toppeffekt","Estimated energy cost":"Beräknad energikostnad","Verified energy cost":"Bekräftad energikostnad","Electrical limits & optional sources":"Elektriska gränser och valfria källor","Stop charging with the current owner before changing activation":"Stoppa laddning via nuvarande ägare före aktivering","Incomplete start/end or source coverage · observed portion only":"Ofullständig start/slut eller källdata · endast observerad del","Save not confirmed; refresh and retry":"Sparande inte bekräftat; uppdatera och försök igen","suggestions":"förslag"}}))
   Object.assign(MC_TEXT[locale],terms);
@@ -256,6 +259,7 @@ const MC_STYLE = [
   ".vehicle-summary{margin:8px 0}.vehicle-target{display:flex;align-items:baseline;gap:6px}.vehicle-soc{font-size:26px;line-height:1.2}.vehicle-state{text-align:right}.vehicle-deadline{font-size:13px}.goal-outcome{border-top:1px solid var(--divider-color,#ddd);padding-top:6px;margin:6px 0}.goal-status{display:block;font-size:14px}.goal-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:6px 0}.goal-metric{display:flex;flex-direction:column;gap:2px;overflow-wrap:anywhere}.goal-metric strong{font-size:15px}.goal-track{position:relative;height:20px;margin:5px 3px 4px;background:var(--secondary-background-color,#eaecef);border-radius:5px}.goal-window{position:absolute;top:5px;bottom:5px;border-radius:3px;box-sizing:border-box}.goal-window.conditional{opacity:.65;border:1px dashed currentColor}.goal-deadline-marker{position:absolute;top:-3px;bottom:-3px;border-left:2px dashed var(--primary-text-color,#222)}.goal-ticks{position:relative;height:17px;font-size:10px;display:block}.goal-ticks>span{position:absolute;white-space:nowrap}.schedule-days button{border-radius:20px;flex:1}.schedule-modes{gap:4px}.schedule-modes button{flex:1;min-width:0;padding:7px}.schedule-actions{justify-content:space-between}.schedule-time .field{display:flex;flex-direction:row;justify-content:space-between;align-items:center}.schedule-time input{width:auto;max-width:100%;min-width:0}.goal-timeline{margin:9px 0}",
   ".plan-key{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:6px 0;font-size:12px}",
   ".plan-swatch{width:12px;height:12px;border-radius:3px;display:inline-block;margin-right:4px}",
+  ".operational-indicator{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:500;white-space:nowrap}.operational-indicator:before{content:'';width:8px;height:8px;flex:none;border-radius:50%;background:var(--secondary-text-color,#858585)}.operational-indicator.charging:before{background:var(--success-color,#25833b)}.operational-indicator.problem:before{background:var(--error-color,#c62828)}",
   ".plan-caution{font-size:12px;color:var(--secondary-text-color,#65717e);line-height:1.5}",
   "svg{width:100%;min-width:440px;height:220px}svg text{fill:var(--secondary-text-color,#65717e);font-size:11px}",
   "@media(max-width:600px){.root{padding:12px}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.metric{padding:10px}.metric .value{font-size:18px;overflow-wrap:anywhere}.tabs{display:flex;overflow-x:auto;flex-wrap:nowrap}.tabs button{font-size:12px;padding:9px 10px;white-space:nowrap;flex-shrink:0}.settings-grid{grid-template-columns:1fr}}",
@@ -2162,7 +2166,10 @@ class RobotixMultiChargeCard extends HTMLElement {
       const card=mcEl("div","card");card.setAttribute("data-mc-object","asset:"+a.id);
       if(this._goalEditor===a.id||this._scheduleEditor===a.id||this._assignmentEditor===a.id||this._batteryEditor===a.id)card.className+=" expanded";
       const charger=chargers.find(x=>x.asset===a.id);
-      card.append(mcIconLabel(mcEl("h3","",a.name),a.name,mcAssetIcon(a)));
+      const heading=mcEl("div","row");
+      heading.append(mcIconLabel(mcEl("h3","",a.name),a.name,mcAssetIcon(a)),
+        this.operationalIndicator(charger,a));
+      card.append(heading);
       this.vehicleSummary(card,a,charger);
       this.goalAssessment(card,a,charger);
       this.financialSummary(card,"asset",a.id);
@@ -2346,6 +2353,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       const lhs=mcEl("div","plan-key");
       const swatch=mcEl("span","plan-swatch");swatch.style.background=color;
       lhs.append(swatch,mcEl("strong","",fullName));
+      if(!pastOnly)lhs.append(this.operationalIndicator(charger,selected||null));
       label.append(lhs,mcEl("span","muted small",plugged));card.append(label);
       const readback=(d.observations||{}).assets?.[selected?.id]||{};
       const next=activeRows.find(item=>typeof item.proposed_power_kw==="number"&&
@@ -2554,6 +2562,47 @@ class RobotixMultiChargeCard extends HTMLElement {
       mcTr("Missing values are not assumed")));
     if(this.canEditSettings())this.dashboardDelete(wrapper,scope,record);
     container.append(wrapper);
+  }
+  // Visual mapping only: reuse native physical state and evidence, never
+  // confuse managed activation, configured current or planned power with draw.
+  operationalIndicator(charger,asset=null){
+    const d=this._data, state=d.charger_states?.[charger?.id]||{};
+    const obs=d.observations?.chargers?.[charger?.id]||{};
+    const power=asset?d.observations?.assets?.[asset.id]?.effective_power_kw:obs.power_kw;
+    const connected=obs.connected?.quality==="ok"?obs.connected.value:null;
+    const enabled=state.activation==="active"||
+      (charger?.control_owner==="multicharge"&&charger?.physical_commissioned===true);
+    const reasons=new Set([state.reason,state.goal_reason,d.reasons?.[charger?.id]]);
+    const blocking=["CURRENT_PLUG_ASSET_UNCONFIRMED","CONTROL_STATE_UNVERIFIED",
+      "PREVIOUS_COMMAND_UNCONFIRMED","CHARGER_CAPABILITY_UNQUALIFIED",
+      "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED","CURRENT_RANGE_UNVERIFIED",
+      "PHASE_WIRING_UNVERIFIED","PHYSICAL_PHASES_UNVERIFIED",
+      "ELECTRICAL_WIRING_UNVERIFIED","NATIVE_CURRENT_CAPABILITY_MISMATCH",
+      "NATIVE_CURRENT_CAPABILITY_UNVERIFIED","CURRENT_CONTROL_UNAVAILABLE",
+      "NATIVE_SWITCH_UNAVAILABLE","INDEPENDENT_POWER_UNAVAILABLE",
+      "POWER_SOURCE_UNAVAILABLE","OTHER_CHARGER_POWER_WITH_SWITCH_OFF",
+      "POWER_ALREADY_PRESENT_WITHOUT_CONFIRMED_OWNER","SOC_SOURCE_UNAVAILABLE",
+      "ASSET_SOC_UNAVAILABLE","BATTERY_CAPACITY_NOT_CONFIGURED",
+      "CHARGE_EFFICIENCY_NOT_CONFIGURED","INVALID_PLANNING_INPUT"];
+    const measured=power?.quality==="ok"&&Number.isFinite(power.value)&&power.value>0.05;
+    const physicalDraw=obs.power_kw?.quality==="ok"&&obs.power_kw.value>0.05;
+    const identity=d.connection_identity?.[charger?.id];
+    const problem=Boolean(charger)&&(
+      ["error","unavailable"].includes(state.charging_state)||
+      obs.session?.value==="fault"&&obs.session?.quality==="ok"||
+      (state.charging_session==="unknown"&&physicalDraw)||
+      (enabled&&connected!==false&&(
+        blocking.some(reason=>reasons.has(reason))||
+        connected===null||
+        (connected===true&&obs.power_kw?.quality!=="ok")||
+        (connected===true&&charger.asset&&!identity?.asset_id)
+      )));
+    const label=problem?"Problem":measured&&state.charging_session==="charging"?"Charging":"Idle";
+    const tone=problem?"problem":label==="Charging"?"charging":"idle";
+    const indicator=mcEl("span","operational-indicator "+tone,mcTr(label));
+    indicator.setAttribute("data-operational-status",tone);
+    indicator.setAttribute("title",mcTr(label));
+    return indicator;
   }
   vehicleSummary(card,asset,charger){
     const d=this._data,obs=d.observations?.assets?.[asset.id]||{};
@@ -2858,7 +2907,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     for(const a of arranged){
       const card=mcEl("div","card object-card");card.setAttribute("data-mc-object","asset:"+a.id);const charger=chargers.find(x=>x.asset===a.id);
       const obs=((d.observations||{}).assets||{})[a.id]||{};
-      const header=mcEl("div","row");header.append(mcIconLabel(mcEl("h3","",a.name),a.name,mcAssetIcon(a)),mcButton(this._open===a.id?"Hide details":"Details",()=>{this._open=this._open===a.id?"":a.id;this.render();}));
+      const header=mcEl("div","row");header.append(mcIconLabel(mcEl("h3","",a.name),a.name,mcAssetIcon(a)),this.operationalIndicator(charger,a),mcButton(this._open===a.id?"Hide details":"Details",()=>{this._open=this._open===a.id?"":a.id;this.render();}));
       if(this._open===a.id||this._goalEditor===a.id||this._scheduleEditor===a.id||
           this._assignmentEditor===a.id||this._batteryEditor===a.id||this._editingField.startsWith("asset:"+a.id+":"))card.className+=" expanded";
       card.append(header);
@@ -3358,7 +3407,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       const card=mcEl("div","card object-card");
       card.setAttribute("data-mc-object","charger:"+c.id);
       if(this._open===c.id||this._editingField.startsWith("charger:"+c.id+":"))card.className+=" expanded";
-      const head=mcEl("div","row");head.append(mcIconLabel(mcEl("h3","",c.name),c.name,c.kind==="on_off"?"power-socket-eu":"ev-station"),mcButton(this._open===c.id?"Hide details":"Details",()=>{this._open=this._open===c.id?"":c.id;this.render();}));
+      const head=mcEl("div","row");head.append(mcIconLabel(mcEl("h3","",c.name),c.name,c.kind==="on_off"?"power-socket-eu":"ev-station"),this.operationalIndicator(c),mcButton(this._open===c.id?"Hide details":"Details",()=>{this._open=this._open===c.id?"":c.id;this.render();}));
       card.append(head);
       const chip=mcEl("div","plan-key"),dot=mcEl("span","plan-swatch");
       dot.style.background=mcOwnerColor("charger",c.id,d.configuration,d.plan_palette);
