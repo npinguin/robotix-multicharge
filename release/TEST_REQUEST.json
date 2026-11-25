@@ -1,15 +1,15 @@
 {
   "status": "AUTHORIZED_FOR_TEST",
   "distribution": "open_source_community",
-  "expected_tag": "v0.1.21",
+  "expected_tag": "v0.1.22",
   "precompile": false,
-  "qualification_scope": "Owner-authorized full PR #26 batch (25 November): direct Active/Inactive with safe idle handover and Config Entry readback; native device source/current-bound discovery with explicit Save; measured external and owned charging history, energy, duration, power and qualified reference cost; compact responsive local setup, goal/schedule and session UX; rendered horizontal chart/goal-bar alignment. Full exact candidate qualification required.",
-  "limitations": "TEST only, not STABLE or full UC01–29 field acceptance. Actual Wessels Safari, real provider latency, physical EVSE response and hardware-specific preconditioning parity remain separate. Immutable v0.1.20 rollback.",
-  "next_candidate_rollback_evidence": {
+  "qualification_scope": "Owner approved 25 November 2026, PR #27 / issue #1: complete implemented multicharger planning and sturing, all six strategies, activation, vehicle goals and schedules, adaptive power/current, native configuration/UX, financial and session history, persistence and recovery. Exact candidate qualification required. Explicit bounded TEST exception: separate hardware-qualified supply/preconditioning PARITY05/11 remains OPEN for full product, no existing TEST capability disabled.",
+  "limitations": "TEST only, not STABLE or Wessels field acceptance. Separate hardware-qualified supply/preconditioning PARITY05/11 deferred by explicit owner decision. Before upgrade retain native HA backup including database and matching v0.1.21 code; before rollback confirm owned outputs stopped and retain separate upgraded-state backup; restore prior checkpoint with its code. Intervening changes are preserved in the separate backup, not automatically merged into old live state. Never downgrade integration code alone. Exact native Core backup/restore proof required; real site/iPad/EVSE acceptance separate.",
+  "rollback_evidence": {
     "tag": "v0.1.21",
     "source_sha": "a43f66beefe7d4fa49a9ef5cda466209dfaa4fd8",
     "artifact": "robotix_multicharge-0.1.21.zip",
     "sha256": "4ce11d4980bcec4f5b1f707a8749c28ab773700fd777ad3d4bde9ffa913d86af",
-    "scope": "Component-level exact predecessor and candidate native Store/config checkpoint roundtrip; not full HA backup restore or live-state downgrade authorization"
+    "scope": "Exact immutable predecessor and candidate native HA Core backup archive/startup restore plus native Store/config checkpoint readback; no code-only downgrade or live-state merging."
   }
 }
