@@ -955,10 +955,29 @@ class NativeSwitchExecutor:
                 return charger
         except (KeyError, TypeError, ValueError, OverflowError):
             return charger
-        return {**charger,
-                "min_current_a": charger.get("min_current_a", lo),
-                "max_current_a": charger.get("max_current_a", hi),
-                "current_step_a": charger.get("current_step_a", step)}
+        # Both the configured ceiling and the actual native setpoint grid
+        # constrain planning. Never propose a current the executor will reject.
+        declared_min = charger.get("min_current_a", lo)
+        declared_max = charger.get("max_current_a", hi)
+        declared_step = charger.get("current_step_a", step)
+        feasible = []
+        for index in range(floor((hi-lo)/step+1e-7)+1):
+            current = lo+index*step
+            if current < declared_min-1e-7 or current > declared_max+1e-7:
+                continue
+            offset = (current-declared_min)/declared_step
+            if abs(offset-round(offset)) <= 1e-6:
+                feasible.append(round(current, 9))
+        if not feasible:
+            # Preserve the nominal rating for a labelled preview only.
+            return {**charger, "min_current_a": None, "max_current_a": None,
+                    "current_step_a": None}
+        spacing = feasible[1]-feasible[0] if len(feasible)>1 else step
+        if any(abs(b-a-spacing)>1e-6 for a, b in zip(feasible, feasible[1:])):
+            return {**charger, "min_current_a": None, "max_current_a": None,
+                    "current_step_a": None}
+        return {**charger, "min_current_a": feasible[0],
+                "max_current_a": feasible[-1], "current_step_a": round(spacing, 9)}
 
     def _requested_current(self, charger, current, at):
         """Reject a claimed adjustable capability until native source metadata agrees."""

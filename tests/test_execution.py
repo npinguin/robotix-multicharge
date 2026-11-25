@@ -976,6 +976,30 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(states["switch.evse_control"].state, "on")
         self.assertEqual((await rt.executor.execute("evse", "stop"))["status"], "confirmed")
 
+    async def test_effective_current_intersects_native_and_configured_grid(self):
+        rt, states, services = rig(group_kw=7.5, mode="Automatic")
+        charger = rt.configuration["chargers"][0]
+        charger.update(kind="variable_current", rated_power_kw=7.36,
+                       voltage_v=230, min_current_a=6, max_current_a=32,
+                       current_step_a=2, current_control_entity="number.charge_limit")
+        native = state(6, "A")
+        native.attributes.update(min=6, max=15, step=1)
+        states["number.charge_limit"] = native
+        effective = rt.executor.effective_charger(charger)
+        self.assertEqual((effective["min_current_a"], effective["max_current_a"],
+                          effective["current_step_a"]), (6, 14, 2))
+        self.assertEqual(charger["max_current_a"], 32)
+        rt.refresh()
+        self.assertTrue(rt.assessment.plan.slots)
+        self.assertTrue(all(slot.current_a <= 14 for slot in rt.assessment.plan.slots))
+        native.attributes.update(min=7, max=15, step=2)
+        effective = rt.executor.effective_charger(charger)
+        self.assertIsNone(effective["max_current_a"])
+        rt.refresh()
+        self.assertFalse(rt.assessment.plan.slots)
+        self.assertTrue(rt.forecast_assessment.plan.slots)
+        self.assertEqual(services.calls, [])
+
     async def test_wrong_native_current_unit_rejected_before_service(self):
         rt, states, services = rig(group_kw=3.6)
         charger = rt.configuration["chargers"][0]
