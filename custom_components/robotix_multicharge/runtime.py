@@ -624,6 +624,7 @@ class MultiChargeRuntime:
                         if assumed_arrival else at.isoformat()
                     ),
                     "physically_connected": cable.value if cable.quality == "ok" else None,
+                    "power_capability_verified": not capability_unverified,
                     "may_execute": False,
                     "reserves_capacity": False,
                 }
@@ -834,6 +835,11 @@ class MultiChargeRuntime:
                 proposed, shortfall = 0.0, 0.0
             elif reason == "TARGET_MET":
                 status = "target_met"
+            elif conditional and not self.forecast_assumptions[uid]["power_capability_verified"]:
+                # A nominal-kW preview is useful for orientation, but its
+                # optimistic energy/shortfall cannot qualify the deadline.
+                status, reason = "cannot_assess", "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED"
+                shortfall = None
             elif reason == "PROPOSED" and coverage == "COMPLETE":
                 status = "achievable" if due is not None and setting["mode"] != "Force Charge" else "planned"
             elif (due is not None and due <= at + timedelta(hours=48)
@@ -867,6 +873,8 @@ class MultiChargeRuntime:
                 "planned_grid_kwh": proposed, "shortfall_grid_kwh": shortfall,
                 "coverage": coverage,
                 "assumption": self.forecast_assumptions.get(uid, {}).get("assumption"),
+                "power_capability_verified": self.forecast_assumptions.get(uid, {}).get(
+                    "power_capability_verified", not missing_current_conversion(chargers[uid])),
             }
         # Revalue the current proposal once per planner refresh, not per entity notification.
         self.planned_costs = planned_costs(

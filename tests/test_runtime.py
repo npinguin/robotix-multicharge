@@ -126,13 +126,31 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(rt.excluded["drive"], "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED")
         self.assertFalse(rt.assessment.plan.slots)
         self.assertTrue(rt.forecast_assessment.plan.slots)
-        self.assertEqual(rt.goal_assessments["drive"]["status"], "achievable")
+        self.assertEqual(rt.goal_assessments["drive"]["status"], "cannot_assess")
+        self.assertIsNone(rt.goal_assessments["drive"]["shortfall_grid_kwh"])
+        self.assertFalse(rt.goal_assessments["drive"]["power_capability_verified"])
         self.assertEqual(rt.goal_assessments["drive"]["assumption"], "IF_CAPABILITY_VERIFIED")
         self.assertTrue(all(slot.current_a is None for slot in rt.forecast_assessment.plan.slots))
         cfg["controller"]["phase_limits_a"] = {"L1": 16}
         rt.refresh(NOW)
         self.assertFalse(rt.forecast_assessment.plan.slots)
         self.assertEqual(rt.goal_assessments["drive"]["status"], "cannot_assess")
+
+    def test_unconfirmed_identity_cannot_mask_unverified_power(self):
+        cfg = sample()
+        cfg["controller"]["mode"] = "Automatic"
+        cfg["chargers"][0].update(kind="variable_current", rated_power_kw=3.6)
+        data = {"sensor.soc": state("65", "%"), "sensor.power": state("0", "W"),
+                "binary_sensor.cable": state("on")}
+        rt = _ProductionRuntime(SimpleNamespace(states=SimpleNamespace(get=data.get)), cfg)
+        rt.refresh(NOW)
+        goal = rt.goal_assessments["drive"]
+        self.assertEqual(rt.excluded["drive"], "CURRENT_PLUG_ASSET_UNCONFIRMED")
+        self.assertTrue(rt.forecast_assessment.plan.slots)
+        self.assertFalse(goal["power_capability_verified"])
+        self.assertEqual(goal["status"], "cannot_assess")
+        self.assertIsNone(goal["shortfall_grid_kwh"])
+        self.assertEqual(goal["reason"], "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED")
 
     def test_goal_feasibility_uses_full_plan_not_chart_visibility(self):
         cfg = sample()
