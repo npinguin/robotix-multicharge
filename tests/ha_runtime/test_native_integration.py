@@ -2619,3 +2619,58 @@ async def test_native_discovery_activation_and_reload_through_websocket(
     assert after["charger_setup"]["native"]["configured_current"]["max_current_a"] == 16
     await client.close()
     assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.asyncio
+async def test_observed_external_session_from_actual_ha_recorder(hass: HomeAssistant):
+    """Real HA Recorder database/state events, not a replacement history API."""
+    import asyncio
+    from datetime import datetime, timedelta, timezone
+    from homeassistant.components.recorder import get_instance
+    from custom_components.robotix_multicharge.history import read_actual_history
+
+    assert await async_setup_component(hass, "recorder", {
+        "recorder": {"db_url": "sqlite://", "commit_interval": 0},
+    })
+    recorder = get_instance(hass)
+    await hass.async_block_till_done()
+    first = datetime.now(timezone.utc) - timedelta(seconds=1)
+    price_start = first - timedelta(minutes=1)
+    price_end = first + timedelta(hours=1)
+    boundary = datetime.now(timezone.utc) + timedelta(seconds=0.15)
+    hass.states.async_set("sensor.reference", "0.2", {
+        "kind": "effective_price_kwh", "valid_until": price_end.isoformat(),
+        "currency": "EUR", "intervals": [
+            {"start": price_start.isoformat(), "end": boundary.isoformat(), "value": 0.2},
+            {"start": boundary.isoformat(), "end": price_end.isoformat(), "value": 0.32},
+        ],
+    })
+    attrs = {"device_class": "power", "unit_of_measurement": "W",
+             "state_class": "measurement"}
+    hass.states.async_set("sensor.external_power", "0", attrs)
+    await asyncio.sleep(0.03)
+    hass.states.async_set("sensor.external_power", "2000", attrs)
+    await asyncio.sleep(0.20)
+    hass.states.async_set("sensor.external_power", "4000", attrs)
+    await asyncio.sleep(0.06)
+    hass.states.async_set("sensor.external_power", "0", attrs)
+    await hass.async_block_till_done()
+    await recorder.async_block_till_done()
+    end = datetime.now(timezone.utc)
+    configuration = {"chargers": [{"id": "outside", "power_entity": "sensor.external_power",
+                                    "control_owner": "external"}]}
+    _, _, _, runs, _ = await read_actual_history(
+        hass, configuration, first, end, include_valuations=True,
+        include_observed_sessions=True, tariff_entity="sensor.reference",
+    )
+    assert len(runs) == 1, runs
+    run = runs[0]
+    assert run["asset_id"] is None
+    assert run["complete_observed_window"] and run["end_known"] and not run["ongoing"]
+    assert run["observed_energy_kwh"] > 0
+    assert 2 <= run["average_power_kw"] <= 4
+    assert run["peak_power_kw"] == 4
+    assert run["estimated_cost_basis"] == "effective"
+    assert run["estimated_cost_currency"] == "EUR"
+    assert run["estimated_cost"] > 0
+    assert 0.19 <= run["estimated_cost"]/run["observed_energy_kwh"] <= 0.33
