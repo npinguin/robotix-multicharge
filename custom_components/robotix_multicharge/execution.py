@@ -345,9 +345,12 @@ class NativeSwitchExecutor:
                     raise ValueError("invalid accepted slot")
                 if row["status"] != "accepted" or not isinstance(row["charger_id"], str):
                     raise ValueError("invalid accepted outcome")
-                previous = start
+                confirmed = datetime.fromisoformat(row["confirmed_from"]) if row.get("confirmed_from") else start
+                if not start <= confirmed < end:
+                    raise ValueError("invalid accepted confirmation time")
+                previous = confirmed
                 close = datetime.fromisoformat(row["closed_at"]) if row.get("closed_at") else end
-                if not start < close <= end:
+                if not confirmed <= close <= end:
                     raise ValueError("invalid accepted closing time")
                 for change in row.get("changes", []):
                     stamp = datetime.fromisoformat(change["at"])
@@ -509,7 +512,7 @@ class NativeSwitchExecutor:
         """Actual admitted slots only, never future proposals masquerading as execution."""
         threshold = datetime.now(timezone.utc) - timedelta(hours=48)
         return {
-            key: dict(value) for key, value in self._accepted_history.items()
+            key: deepcopy(value) for key, value in self._accepted_history.items()
             if value["end"] >= threshold
         }
 
@@ -1631,9 +1634,13 @@ class NativeSwitchExecutor:
             if actual_target is not None:
                 current = actual_target
                 power = round(current * charger["voltage_v"] * charger["phase_count"] / 1000, 6)
+        confirmed = max(slot.start, datetime.now(timezone.utc))
+        if confirmed >= slot.end:
+            return False
         record = {
             "charger_id": charger["id"], "asset_id": slot.asset_uid,
             "start": slot.start, "end": slot.end,
+            "confirmed_from": confirmed.isoformat(),
             "power_kw": power, "current_a": current,
             "revision": revision, "status": "accepted",
         }
@@ -1648,6 +1655,7 @@ class NativeSwitchExecutor:
         for key, old in list(self._accepted_history.items()):
             if old["end"] < threshold:
                 del self._accepted_history[key]
+        return True
 
     def _record_accepted_current(self, charger, current, at):
         accepted = self._accepted.get(charger["id"])
@@ -1658,7 +1666,8 @@ class NativeSwitchExecutor:
         power = round(current * charger["voltage_v"] * charger["phase_count"] / 1000, 6)
         receipt = self._accepted_history[(charger["id"], accepted["start"])]
         changes = receipt.setdefault("changes", [])
-        if changes and datetime.fromisoformat(changes[-1]["at"]) >= at:
+        if datetime.fromisoformat(changes[-1]["at"] if changes else
+                                 receipt.get("confirmed_from", receipt["start"].isoformat())) >= at:
             # Do not fabricate chronology after a clock correction.
             self._persistence_verified = False
             return False
@@ -1668,8 +1677,14 @@ class NativeSwitchExecutor:
 
     def _close_accepted_history(self, uid, at):
         accepted = self._accepted.get(uid)
-        if accepted and at is not None and accepted["start"] < at < accepted["end"]:
-            self._accepted_history[(uid, accepted["start"])]["closed_at"] = at.isoformat()
+        if accepted and at is not None and at < accepted["end"]:
+            confirmed = datetime.fromisoformat(accepted.get("confirmed_from", accepted["start"].isoformat()))
+            receipt = self._accepted_history[(uid, accepted["start"])]
+            # A stale STOP observation cannot extend the confirmed segment.
+            close = max(confirmed, at)
+            receipt["changes"] = [row for row in receipt.get("changes", [])
+                                  if datetime.fromisoformat(row["at"]) < close]
+            receipt["closed_at"] = close.isoformat()
 
     def _grant_is_current(self, slot, at):
         """Recheck grant after waiting for the native writer lock."""
@@ -1888,7 +1903,9 @@ class NativeSwitchExecutor:
                             if outcome["status"] != "confirmed":
                                 continue
                     # Still-owned physical session and verified slot continuity.
-                    self._accept_slot(charger, slot, assessment.plan.revision)
+                    if not self._accept_slot(charger, slot, assessment.plan.revision):
+                        await self.execute(uid, "stop")
+                        continue
                     if not await self.runtime.persist_control_state():
                         self._persistence_verified = False
                         await self.execute(uid, "stop")
@@ -1927,7 +1944,9 @@ class NativeSwitchExecutor:
                     uid, "start", current_a=slot.current_a, plan_slot=slot,
                 )
                 if result["status"] == "confirmed":
-                    self._accept_slot(charger, slot, assessment.plan.revision)
+                    if not self._accept_slot(charger, slot, assessment.plan.revision):
+                        await self.execute(uid, "stop")
+                        continue
                     if self._last_power_adjustment_at is None:
                         self._last_power_adjustment_at = datetime.now(timezone.utc)
                 elif result["status"] == "rejected":

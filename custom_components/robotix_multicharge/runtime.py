@@ -1213,12 +1213,13 @@ class MultiChargeRuntime:
                 continue
             if asset_id is not None and accepted["asset_id"] != asset_id:
                 continue
-            if accepted.get("changes") or accepted.get("closed_at"):
-                # Keep the original proposal's quarter intact. Physical
-                # setpoint readback has its own exact sub-quarter intervals.
+            if accepted.get("confirmed_from") or accepted.get("changes") or accepted.get("closed_at"):
+                # Proposal remains a quarter; actual confirmed admission
+                # cannot be backdated to its planned beginning.
                 close = (datetime.fromisoformat(accepted["closed_at"])
                          if accepted.get("closed_at") else accepted["end"])
-                cursor = accepted["start"]
+                cursor = (datetime.fromisoformat(accepted["confirmed_from"])
+                          if accepted.get("confirmed_from") else accepted["start"])
                 power, current = accepted["power_kw"], accepted["current_a"]
                 changes = [*accepted.get("changes", []),
                            {"at": close.isoformat(), "power_kw": None, "current_a": None}]
@@ -1232,6 +1233,8 @@ class MultiChargeRuntime:
                             "proposed_power_kw": None, "proposed_energy_kwh": None,
                             "proposed_current_a": None,
                             "accepted_power_kw": power, "accepted_current_a": current,
+                            "accepted_timing_quality": ("confirmed_interval"
+                                if accepted.get("confirmed_from") else "legacy_quarter_receipt"),
                             "actual_power_kw": None, "actual_energy_kwh": None,
                         })
                     cursor, power, current = stamp, change["power_kw"], change["current_a"]
@@ -1254,6 +1257,7 @@ class MultiChargeRuntime:
                 slots.append(match)
             match["accepted_power_kw"] = accepted["power_kw"]
             match["accepted_current_a"] = accepted["current_a"]
+            match["accepted_timing_quality"] = "legacy_quarter_receipt"
         slots.sort(key=lambda row: (row["start"], row["charger_id"]))
         forecast_slots = []
         if (self.forecast_assessment is not None

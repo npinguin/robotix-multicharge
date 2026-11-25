@@ -868,7 +868,11 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(accepted), 1)
         self.assertIsNotNone(list(accepted.values())[0]["revision"])
         view = rt.read_plan(quarter, quarter + timedelta(minutes=15))
-        self.assertEqual(view["slots"][0]["accepted_power_kw"], 2)
+        admitted = [row for row in view["slots"] if row["accepted_power_kw"] is not None]
+        self.assertEqual(len(admitted), 1)
+        self.assertEqual(admitted[0]["accepted_power_kw"], 2)
+        self.assertGreater(datetime.fromisoformat(admitted[0]["start"]), quarter)
+        self.assertEqual(admitted[0]["accepted_timing_quality"], "confirmed_interval")
         await rt.executor.advance_plan(quarter)
         self.assertEqual(len(services.calls), 1)
         rt.configuration["controller"]["mode"] = "Off"
@@ -1076,10 +1080,12 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         states["sensor.external_power"].last_updated = datetime.now(timezone.utc)
         await rt.executor.supervise()
         self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 10)
+        receipt = list(rt.executor.accepted_slots().values())[0]
         self.assertEqual(receipt["changes"][-1]["current_a"], 10)
         view = rt.read_plan(quarter, quarter+timedelta(minutes=15))
         segments = [row for row in view["slots"] if row["accepted_power_kw"] is not None]
         self.assertEqual([row["accepted_current_a"] for row in segments], [10, 15, 10])
+        self.assertEqual(segments[0]["start"], receipt["confirmed_from"])
         self.assertEqual(segments[0]["end"], segments[1]["start"])
         self.assertEqual(segments[1]["end"], segments[2]["start"])
         saved = rt.executor.export_state()
