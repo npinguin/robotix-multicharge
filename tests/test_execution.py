@@ -61,6 +61,7 @@ class NativeServices:
                 self.sources["sensor.actual_current"].last_updated = datetime.now(timezone.utc)
                 self.sources["sensor.actual_power"].state = str(
                     round(float(data["value"]) * 230)
+                    if self.sources["switch.evse_control"].state == "on" else 0
                 )
                 self.sources["sensor.actual_power"].last_updated = datetime.now(timezone.utc)
             elif ("sensor.actual_power" in self.sources and
@@ -2511,6 +2512,57 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         states["sensor.actual_power"].state = "1600"
         await rt.executor.supervise()
         self.assertEqual(services.calls, [])
+
+    async def test_energy_delivered_before_start_readback_counts_towards_target(self):
+        rt, states, _ = rig()
+        class DelayedMeter(NativeServices):
+            async def async_call(self, domain, service, data, *, blocking, context):
+                await super().async_call(domain, service, data, blocking=blocking, context=context)
+                if service == "turn_on":
+                    states["sensor.meter"].state = "5.4"
+                    states["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        rt.hass.services = DelayedMeter(states)
+        outcome = await rt.executor.execute("evse", "start")
+        self.assertEqual(outcome["status"], "confirmed", outcome)
+        session = rt.executor.session_snapshot()["evse"]
+        self.assertEqual(session["starting_energy_kwh"], 5)
+        self.assertAlmostEqual(session["actual_energy_kwh"], 0.4)
+        self.assertLessEqual(datetime.fromisoformat(session["started_at"]),
+                             datetime.fromisoformat(session["confirmed_at"]))
+        states["sensor.meter"].state = "6.01"
+        states["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        await rt.executor.supervise()
+        self.assertEqual(states["switch.evse_control"].state, "off")
+        self.assertAlmostEqual(rt.executor.completed_sessions()[-1]["actual_energy_kwh"], 1.01)
+
+    async def test_unqualified_meter_reset_during_start_does_not_rebase_finite_goal(self):
+        rt, states, _ = rig()
+        class ResetMeter(NativeServices):
+            async def async_call(self, domain, service, data, *, blocking, context):
+                await super().async_call(domain, service, data, blocking=blocking, context=context)
+                if service == "turn_on":
+                    states["sensor.meter"].state = "0.1"
+                    states["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        rt.hass.services = ResetMeter(states)
+        outcome = await rt.executor.execute("evse", "start")
+        self.assertEqual(outcome["status"], "execution_unknown", outcome)
+        self.assertIn("SESSION_ENERGY_METER_RESET_AT_START", outcome["reason"])
+        self.assertEqual(states["switch.evse_control"].state, "off")
+        self.assertFalse(rt.executor.session_snapshot())
+        self.assertIn("car", rt.executor._inflight)
+
+    async def test_capacity_change_during_start_readback_triggers_protective_stop(self):
+        rt, states, _ = rig()
+        class CapacityChange(NativeServices):
+            async def async_call(self, domain, service, data, *, blocking, context):
+                await super().async_call(domain, service, data, blocking=blocking, context=context)
+                if service == "turn_on":
+                    rt.configuration["controller"]["max_power_kw"] = 1
+        rt.hass.services = CapacityChange(states)
+        outcome = await rt.executor.execute("evse", "start")
+        self.assertEqual(outcome["status"], "execution_unknown", outcome)
+        self.assertIn("CONFIGURATION_CHANGED_DURING_START", outcome["reason"])
+        self.assertEqual(states["switch.evse_control"].state, "off")
 
     async def test_measured_energy_target_stops_only_from_real_meter_delta(self):
         rt, sources, services = rig()
