@@ -20,7 +20,10 @@ from .source_evidence import (
     live_power, live_price, soc_with_health,
 )
 from .execution import NativeSwitchExecutor
-from .cost_archive import hour_slices, merge_slices, read_archive, write_archive
+from .cost_archive import (
+    hour_slices, merge_slices, read_archive, write_archive,
+    pending_archive_snapshot, restore_pending_archive,
+)
 from .history import (
     civil_cost_days, civil_period_costs, planned_costs, read_actual_history,
     reconcile_power_bindings, reconcile_tariff_bindings, session_costs,
@@ -69,6 +72,7 @@ class MultiChargeRuntime:
         self._archive_checked_days = set()
         self._archive_partial = {}
         self._archive_pending = {}
+        self._archive_unreadable = None
         self._closed_cost_days = set()
         self.statistics_namespace = None
         self._session_cost_identity = None
@@ -110,11 +114,13 @@ class MultiChargeRuntime:
         days = civil_cost_days(at, zone)
         today = next(reversed(days))
         self._daily_costs = {day: row for day, row in self._daily_costs.items()
-                             if day in days and (day == today or day in self._closed_cost_days)}
+                             if day in days and (day == today or day in self._closed_cost_days
+                                                 or day in self._archive_pending)}
         self._archive_checked_days.intersection_update(days)
         self._closed_cost_days.intersection_update(days)
         self._archive_partial = {day: row for day, row in self._archive_partial.items() if day in days}
-        self._archive_pending = {day: row for day, row in self._archive_pending.items() if day in days}
+        # Pending writes retain their original UTC boundaries and survive
+        # calendar-year rollover. Only native readback may retire them.
         common = dict(
             session_receipts=receipts, price_slots=self.price_slots,
             power_bindings=self.power_bindings, energy_bindings=self.energy_bindings,
@@ -162,7 +168,10 @@ class MultiChargeRuntime:
 
         missing = next((day for day in reversed(days) if day != today
                         and day not in self._closed_cost_days
+                        and day not in self._archive_pending
                         and day in self._archive_checked_days), None)
+        if self._archive_unreadable is not None:
+            missing = None  # retain malformed original evidence for repair, never overwrite it
         if missing:
             a, b = days[missing]
             slices = hour_slices(a, b)
@@ -175,17 +184,21 @@ class MultiChargeRuntime:
                 return
             if quality not in ("RECORDER_UNAVAILABLE", "RECORDER_NOT_LOADED"):
                 self._daily_costs[missing] = merge_slices({**older, **previous})
-                self._closed_cost_days.add(missing)
                 self._archive_partial.pop(missing, None)
                 if quality == "FINANCIAL_DAY" and any(
                         row["controller"]["site"]["observed_seconds"] > 0 for row in older.values()):
-                    # Native rows already recovered are immutable; only absent
-                    # slices are written. Never rewrite them from today's tariff.
-                    self._archive_pending[missing] = older
-                    try:
-                        write_archive(self.hass, self.statistics_namespace, pending, older)
-                    except (ImportError, RuntimeError, ValueError, OSError):
-                        _LOGGER.exception("Native charging cost retention unavailable")
+                    # Write ahead only the unacknowledged slices in the existing
+                    # HA Store. Recorder remains the durable history authority.
+                    self._archive_pending[missing] = {
+                        "start": a, "end": b, "projections": older,
+                    }
+                    if self.executor._persistence_verified and await self.persist_control_state():
+                        try:
+                            write_archive(self.hass, self.statistics_namespace, pending, older)
+                        except (ImportError, RuntimeError, ValueError, OSError):
+                            _LOGGER.exception("Native charging cost retention unavailable")
+                else:
+                    self._closed_cost_days.add(missing)
         self.period_costs = civil_period_costs(days, self._daily_costs)
         self.notify()
 
@@ -195,25 +208,41 @@ class MultiChargeRuntime:
         if retry_day is None:
             return
         queued = self._archive_pending[retry_day]
+        bounds = (queued["start"], queued["end"])
+        projections = queued["projections"]
         restored = await read_archive(
-            self.hass, self.statistics_namespace, {retry_day: days[retry_day]},
+            self.hass, self.statistics_namespace, {retry_day: bounds},
             cfg, self.power_bindings, receipts,
         )
         if not self.active or identity != self._current_session_cost_identity():
             return
         if restored is None:
             return
-        missing = {key: row for key, row in queued.items() if key not in restored}
-        if missing:
-            try:
-                write_archive(self.hass, self.statistics_namespace,
-                              hour_slices(*days[retry_day]), missing)
-            except (ImportError, RuntimeError, ValueError, OSError):
-                _LOGGER.exception("Native charging cost retention retry failed")
-        # Rotate, so a failed day does not starve other readbacks.
+        missing = {key: row for key, row in projections.items() if key not in restored}
+        slices = hour_slices(*bounds)
+        # A timezone edit may change civil-day geometry; original evidence
+        # is still archived at its exact UTC slice boundaries.
+        if days.get(retry_day) == bounds:
+            self._daily_costs[retry_day] = merge_slices({**projections, **restored})
+            if len(restored) == len(slices):
+                self._closed_cost_days.add(retry_day)
+        if not self.executor._persistence_verified:
+            return
+        # A failed write or process restart must never trigger revaluation
+        # from raw data that may already have been purged.
         self._archive_pending.pop(retry_day)
         if missing:
-            self._archive_pending[retry_day] = missing
+            self._archive_pending[retry_day] = {**queued, "projections": missing}
+        if not await self.persist_control_state():
+            # Do not retire any original receipt before Store acknowledges.
+            self._archive_pending[retry_day] = queued
+            return
+        if missing:
+            try:
+                write_archive(self.hass, self.statistics_namespace, slices, missing)
+            except (ImportError, RuntimeError, ValueError, OSError):
+                _LOGGER.exception("Native charging cost retention retry failed")
+
 
     def native_surplus_power(self, at):
         """Compute strictly current, not forecast solar/export capacity.
@@ -295,6 +324,13 @@ class MultiChargeRuntime:
             _LOGGER.warning("Invalid stored tariff binding history; earlier valuations are unknown")
             self.tariff_bindings = reconcile_tariff_bindings(
                 {}, self.configuration, datetime.now(timezone.utc))
+        if isinstance(snapshot, dict):
+            pending = snapshot.get("pending_cost_archive", {})
+            try:
+                self._archive_pending = restore_pending_archive(pending)
+            except (ValueError, KeyError, TypeError, AttributeError, OverflowError):
+                self._archive_unreadable = pending if pending is not None else []
+                _LOGGER.error("Invalid pending native cost archive; original retry evidence retained")
         recorded = snapshot.get("settings_action") if isinstance(snapshot, dict) else None
         if (isinstance(recorded, dict)
                 and isinstance(recorded.get("expected_revision"), str)
@@ -340,6 +376,10 @@ class MultiChargeRuntime:
                     "power_bindings": self.power_bindings,
                     "energy_bindings": self.energy_bindings,
                     "tariff_bindings": self.tariff_bindings,
+                    "pending_cost_archive": (
+                        self._archive_unreadable if self._archive_unreadable is not None
+                        else pending_archive_snapshot(self._archive_pending)
+                    ),
                 })
             return True
         except (OSError, ValueError, RuntimeError):

@@ -67,6 +67,8 @@ def build_diagnostics(runtime, entry, captured_at=None):
             "mode": cfg["controller"]["mode"],
             "max_parallel": cfg["controller"]["max_parallel"],
             "power_adjustment_interval_minutes": cfg["controller"].get("power_adjustment_interval_minutes", 5),
+            "pending_cost_archive_days": len(runtime._archive_pending),
+            "pending_cost_archive_unreadable": runtime._archive_unreadable is not None,
             "max_power_kw": cfg["controller"].get("max_power_kw"),
             "phase_limits_a": cfg["controller"].get("phase_limits_a"),
             "bindings": {

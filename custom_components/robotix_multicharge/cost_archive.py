@@ -3,7 +3,7 @@
 Hourly rates are derived from the existing history calculation, not a billing
 ledger. Civil midnight inside an hour is retained as two exact minute slices.
 """
-from datetime import timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from hashlib import sha256
 from math import isfinite
 from re import fullmatch
@@ -147,6 +147,85 @@ def decode_archive(entry_id, slices, raw, owners):
                 groups[kind][uid] = bucket
         if valid and "site" in groups["controller"]:
             result[key] = groups
+    return result
+
+
+def pending_archive_snapshot(queue):
+    """JSON-safe write-ahead retry evidence; only unacknowledged native writes."""
+    return {
+        day: {
+            "start": row["start"].isoformat(), "end": row["end"].isoformat(),
+            "projections": {
+                key: {
+                    kind: {
+                        uid: {**bucket, "valuations": [
+                            [currency, basis, cost, energy]
+                            for (currency, basis), (cost, energy) in bucket["valuations"].items()
+                        ]}
+                        for uid, bucket in owners.items()
+                    }
+                    for kind, owners in groups.items()
+                }
+                for key, groups in row["projections"].items()
+            },
+        }
+        for day, row in queue.items()
+    }
+
+
+def restore_pending_archive(snapshot):
+    """Validate exact original civil slices before adopting a durable retry."""
+    if not isinstance(snapshot, dict):
+        raise ValueError("invalid pending archive")
+    result = {}
+    for day, row in snapshot.items():
+        if date.fromisoformat(day).isoformat() != day:
+            raise ValueError("invalid pending archive day")
+        first, last = datetime.fromisoformat(row["start"]), datetime.fromisoformat(row["end"])
+        if (first.utcoffset() is None or last.utcoffset() is None
+                or not timedelta(0) < last-first <= timedelta(hours=26)
+                or first.second or first.microsecond or last.second or last.microsecond):
+            raise ValueError("invalid pending archive interval")
+        first, last = first.astimezone(timezone.utc), last.astimezone(timezone.utc)
+        slices = hour_slices(first, last)
+        projections = {}
+        if not isinstance(row["projections"], dict) or not row["projections"]:
+            raise ValueError("missing pending archive slices")
+        for key, groups in row["projections"].items():
+            if key not in slices or set(groups) != {"controller", "charger", "asset"}:
+                raise ValueError("invalid pending archive slice")
+            checked = {}
+            for kind, owners in groups.items():
+                if not isinstance(owners, dict):
+                    raise ValueError("invalid archive owners")
+                checked[kind] = {}
+                for uid, bucket in owners.items():
+                    if not isinstance(uid, str) or not uid or set(bucket) != set(_cost_bucket()):
+                        raise ValueError("invalid archive bucket")
+                    restored = _cost_bucket()
+                    for field in restored.keys()-{"valuations"}:
+                        value = bucket[field]
+                        if type(value) not in (int, float) or not isfinite(value) or value < 0:
+                            raise ValueError("invalid archive amount")
+                        restored[field] = value
+                    for currency, basis, cost, energy in bucket["valuations"]:
+                        if (not isinstance(currency, str) or not fullmatch(r"[A-Z]{3}", currency)
+                                or basis not in ("effective", "spot", "variable_reference")
+                                or (currency, basis) in restored["valuations"]
+                                or any(type(v) not in (int, float) or not isfinite(v)
+                                       for v in (cost, energy)) or energy < 0):
+                            raise ValueError("invalid archive valuation")
+                        restored["valuations"][(currency, basis)] = [cost, energy]
+                    if (restored["observed_seconds"] > restored["expected_seconds"]+0.001
+                            or abs(sum(v[1] for v in restored["valuations"].values())
+                                   +restored["unpriced_energy_kwh"]
+                                   -restored["observed_energy_kwh"]) > 0.00001):
+                        raise ValueError("invalid archive coverage")
+                    checked[kind][uid] = restored
+            if set(checked["controller"]) != {"site"}:
+                raise ValueError("invalid archive controller")
+            projections[key] = checked
+        result[day] = {"start": first, "end": last, "projections": projections}
     return result
 
 

@@ -839,21 +839,69 @@ class CostArchiveRetryTests(unittest.IsolatedAsyncioTestCase):
         day = first.date().isoformat()
         days = {day: (first, last)}
         keys = list(module.hour_slices(first, last))
-        original = {keys[0]: {"original": 1}, keys[1]: {"original": 2}}
-        rt._archive_pending[day] = dict(original)
+        from multicharge_runtime_test.history import _cost_bucket
+        def sample_slice(value):
+            bucket = _cost_bucket()
+            bucket.update(expected_seconds=3600, observed_seconds=3600,
+                          observed_energy_kwh=value)
+            bucket["valuations"][("EUR", "effective")] = [value*0.25, value]
+            return {"controller": {"site": bucket}, "charger": {}, "asset": {}}
+        original = {keys[0]: sample_slice(1), keys[1]: sample_slice(2)}
+        rt._archive_pending[day] = {"start": first, "end": last, "projections": original}
         identity = rt._current_session_cost_identity()
         with patch.object(module, "read_archive", new=AsyncMock(side_effect=[
                 None, {keys[0]: original[keys[0]]}, dict(original)])), \
                 patch.object(module, "write_archive") as writer:
             await rt._retry_cost_archive(days, rt.configuration, [], identity)
-            self.assertEqual(rt._archive_pending[day], original)
+            self.assertEqual(rt._archive_pending[day]["projections"], original)
             writer.assert_not_called()
             await rt._retry_cost_archive(days, rt.configuration, [], identity)
-            self.assertEqual(rt._archive_pending[day], {keys[1]: original[keys[1]]})
+            self.assertEqual(rt._archive_pending[day]["projections"], {keys[1]: original[keys[1]]})
             self.assertEqual(writer.call_args.args[-1], {keys[1]: original[keys[1]]})
             await rt._retry_cost_archive(days, rt.configuration, [], identity)
             self.assertFalse(rt._archive_pending)
             self.assertEqual(writer.call_count, 1)
+
+    async def test_pending_cost_archive_survives_store_restart_and_year_rollover(self):
+        import json
+        from unittest.mock import AsyncMock, patch
+        from multicharge_runtime_test import runtime as module
+        from multicharge_runtime_test.history import _cost_bucket
+        first = datetime(2025, 12, 31, 23, tzinfo=timezone.utc)
+        last = first+timedelta(hours=1)
+        day = "2025-12-31"
+        key = first.isoformat()
+        bucket = _cost_bucket()
+        bucket.update(expected_seconds=3600, observed_seconds=3600,
+                      observed_energy_kwh=2)
+        bucket["valuations"][("EUR", "effective")] = [-0.1, 2]
+        original = {key: {"controller": {"site": bucket}, "charger": {}, "asset": {}}}
+        rt = _ProductionRuntime(None, sample())
+        store = SimpleNamespace(async_save=AsyncMock())
+        rt.attach_control_store(store, None)
+        rt._archive_pending[day] = {"start": first, "end": last, "projections": original}
+        self.assertTrue(await rt.persist_control_state())
+        snapshot = json.loads(json.dumps(store.async_save.call_args.args[0]))
+        restarted = _ProductionRuntime(None, sample())
+        restarted.attach_control_store(store, snapshot)
+        self.assertEqual(restarted._archive_pending, rt._archive_pending)
+        identity = restarted._current_session_cost_identity()
+        with patch.object(module, "read_archive", new=AsyncMock(side_effect=[{}, original, original])), \
+                patch.object(module, "write_archive") as writer:
+            # Native write failure does not discard the durable receipt.
+            writer.side_effect = RuntimeError("recorder failed")
+            await restarted._retry_cost_archive({}, restarted.configuration, [], identity)
+            self.assertEqual(writer.call_args.args[-1], original)
+            self.assertIn(day, restarted._archive_pending)
+            # Acknowledgement alone is not sufficient if Store cleanup fails.
+            store.async_save.side_effect = OSError("store failed")
+            await restarted._retry_cost_archive({}, restarted.configuration, [], identity)
+            self.assertIn(day, restarted._archive_pending)
+            store.async_save.side_effect = None
+            await restarted._retry_cost_archive({}, restarted.configuration, [], identity)
+            self.assertFalse(restarted._archive_pending)
+            self.assertEqual(writer.call_count, 1)
+            self.assertEqual(store.async_save.call_args.args[0]["pending_cost_archive"], {})
 
 
 if __name__ == "__main__":
