@@ -449,6 +449,8 @@ Proof: successful new minimal guest, measured kWh, integrated Ready By, adjustab
 **Negatief / fail-closed:** Corrupt persistence, missed event or unsafe unload ⇒ hold and explicit reconciliation/rollback.  
 **Bewijs:** Before/after registry IDs, stores, receipts and rollback test.
 
+**UC26 recovery clarification:** If native control state or binding provenance cannot be validated on load, retain the original Store unchanged, keep owned physical STOP available with independent readback, and reject START and persistence-dependent settings until valid state has been recovered and reloaded. A confirmed physical STOP is not confirmation of durable reconciliation. Test an actual persisted invalid trailing receipt and invalid source epoch; STOP must not erase either. The recovery snapshot must survive a subsequent reload. A clean snapshot must still support normal commands and saving. An immutable predecessor with a smaller supported receipt count is not a lossless code-only downgrade; do not truncate original history, bypass the reader, or restore an earlier backup while claiming that later receipts were preserved.
+
 ### UC27 — Infeasible deadline shown with explicit energy shortfall
 **Persona / eigenaar:** Resident / MultiCharge  
 **GIVEN — beginsituatie:** Ready By with finite demand but insufficient verified charging capacity/time.  
