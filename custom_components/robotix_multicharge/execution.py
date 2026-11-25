@@ -1596,6 +1596,7 @@ class NativeSwitchExecutor:
         # quarter receipt is historical evidence only, not a replay grant.
         self._accepted[charger["id"]] = {
             **record, "_slot": slot, "_configuration": self._grant_configuration,
+            "_prices": self._grant_prices,
         }
         self._accepted_history[(charger["id"], slot.start)] = record
         threshold = datetime.now(timezone.utc) - timedelta(hours=48)
@@ -1637,9 +1638,11 @@ class NativeSwitchExecutor:
                 and (current == self._grant_configuration
                      or is_plan_presentation_only_change(self._grant_configuration, current))):
             return False
-        # Immutable selected quarter, fresh physical and tariff admission.
-        # A changed quote must not inherit an earlier price-based decision,
-        # even if a preceding confirmed command legitimately refreshed the plan.
+        return self._slot_tariff_is_current(slot, at, self._grant_prices)
+
+    def _slot_tariff_is_current(self, slot, at, prices):
+        """A changed or lost selected tariff cannot inherit an earlier decision."""
+        current = self.runtime.configuration
         asset = next((a for a in current["assets"] if a["id"] == slot.asset_uid), None)
         if asset is None:
             return False
@@ -1650,7 +1653,7 @@ class NativeSwitchExecutor:
                            "requested_budget_amount")))
         if needs_price:
             fresh, quality, _ = self.runtime.qualified_tariff(at)
-            expected = [q for q in self._grant_prices if q.start <= slot.start and q.end >= slot.end]
+            expected = [q for q in prices if q.start <= slot.start and q.end >= slot.end]
             available = [q for q in fresh if q.start <= at and q.end >= slot.end]
             if (quality != "OK" or len(expected) != 1 or len(available) != 1
                     or expected[0] != available[0]):
@@ -1659,7 +1662,7 @@ class NativeSwitchExecutor:
             # A new horizon may change the selected strategy.
             if asset.get("opportunistic_kind", "off") != "off":
                 if tuple(q for q in fresh if q.end > at) != tuple(
-                        q for q in self._grant_prices if q.end > at):
+                        q for q in prices if q.end > at):
                     return False
         return True
 
@@ -1701,15 +1704,7 @@ class NativeSwitchExecutor:
             cfg["controller"].pop("power_adjustment_interval_minutes", None)
         if before != after and not is_plan_presentation_only_change(before, after):
             return False
-        if (slot.strategy in ("economy", "negative_tariff")
-                or self.runtime.configuration["controller"].get("mode") == "Economy"):
-            fresh, quality, _ = self.runtime.qualified_tariff(at)
-            quotes = [row for row in fresh if row.start <= at < row.end]
-            if (quality != "OK" or len(quotes) != 1
-                    or (slot.strategy == "negative_tariff"
-                        and quotes[0].effective_price_per_kwh >= 0)):
-                return False
-        return True
+        return self._slot_tariff_is_current(slot, at, accepted.get("_prices", ()))
 
     async def regulate_active_plan(self):
         """Spend fresh verified residual capacity in already admitted quarters.
@@ -1792,7 +1787,6 @@ class NativeSwitchExecutor:
         if self._last_advance == quarter_start:
             return
         self._last_advance = quarter_start
-        adjustment_due = self._power_adjustment_due(datetime.now(timezone.utc))
         assessment = self.runtime.assessment
         if assessment is None or assessment.plan.status != "proposed":
             return
@@ -1837,11 +1831,12 @@ class NativeSwitchExecutor:
                             continue
                         previous = session.get("target_current_a", 0)
                         # A lower new-quarter grant is binding and cannot wait.
-                        # Normal increases for energy goals respect the cadence.
+                        # Normal energy/SoC increases belong to the one
+                        # regulation cycle AFTER all quarter admissions.
                         finite = (session.get("requested_duration_minutes") is not None
                                   or session.get("requested_budget_amount") is not None)
                         if (target < previous - 1e-6
-                                or ((adjustment_due or finite) and target > previous + 1e-6)):
+                                or (finite and target > previous + 1e-6)):
                             outcome = await self.execute(
                                 uid, "set_current", current_a=target, plan_slot=slot
                             )
@@ -1888,6 +1883,8 @@ class NativeSwitchExecutor:
                 )
                 if result["status"] == "confirmed":
                     self._accept_slot(charger, slot, assessment.plan.revision)
+                    if self._last_power_adjustment_at is None:
+                        self._last_power_adjustment_at = datetime.now(timezone.utc)
                 elif result["status"] == "rejected":
                     self._inflight.pop(asset["id"], None)
                 if not await self.runtime.persist_control_state():
@@ -1966,13 +1963,15 @@ class NativeSwitchExecutor:
                 session_reason = self._session_stop_reason(charger, at)
                 accepted = self._accepted.get(uid)
                 is_auto = mode in ("Automatic", "Solar", "Economy", "Ready By")
-                # Give a pending quarter callback a brief scheduling grace period.
-                in_grace = (at - datetime.fromtimestamp(
-                    int(at.timestamp()) // 900 * 900, timezone.utc
-                )).total_seconds() < 10
+                # Reconciliation admits a new quarter before supervising it.
+                # A missing/late callback or invalid new plan grants no grace.
                 no_plan = is_auto and (
-                    accepted is None or accepted["end"] <= at and not in_grace
+                    accepted is None or accepted["end"] <= at
                 )
+                slot = accepted.get("_slot") if accepted else None
+                if (is_auto and slot is not None and slot.start <= at < slot.end
+                        and not self._slot_tariff_is_current(slot, at, accepted.get("_prices", ()))):
+                    no_plan = True
                 unowned = is_auto and accepted is None
                 duration_without_connection = self._sessions.get(uid, {}).get("duration_without_connection", False)
                 switch_only = self._sessions.get(uid, {}).get("switch_only", False)
@@ -2310,8 +2309,18 @@ class NativeSwitchExecutor:
                 deadline = asyncio.get_running_loop().time() + readback_seconds
                 while True:
                     if self._current_confirmed(charger, current_a, at):
-                        self._sessions[charger_id]["target_current_a"] = current_a
                         confirmed_at = datetime.now(timezone.utc)
+                        if effective_slot is not None and (
+                                confirmed_at >= effective_slot.end
+                                or not self._slot_tariff_is_current(
+                                    effective_slot, confirmed_at,
+                                    self._grant_prices if not active_regulation and plan_slot is not None
+                                    else self._accepted.get(charger_id, {}).get("_prices", ()),
+                                )):
+                            await self._protective_stop(charger, context)
+                            return result("execution_unknown", "GRANT_EXPIRED_OR_CHANGED_DURING_READBACK;PROTECTIVE_STOP_SENT",
+                                          service_sent=True)
+                        self._sessions[charger_id]["target_current_a"] = current_a
                         if (not self._record_accepted_current(charger, current_a, confirmed_at)
                                 or not await self.runtime.persist_control_state()):
                             self._persistence_verified = False
@@ -2410,6 +2419,10 @@ class NativeSwitchExecutor:
             try:
                 if action == "start" and charger["kind"] == "variable_current":
                     await self._set_native_current(charger, current_a, context)
+                    if plan_slot is not None and not self._grant_is_current(
+                            plan_slot, datetime.now(timezone.utc)):
+                        self._start_pending.discard(charger_id)
+                        return result("rejected", "PLAN_SLOT_NOT_AUTHORIZED")
                 await self.runtime.hass.services.async_call(
                     "switch", "turn_on" if action == "start" else "turn_off",
                     {"entity_id": entity}, blocking=True, context=context
@@ -2447,6 +2460,13 @@ class NativeSwitchExecutor:
                     observed = None
                 if observed is not None:
                     if action == "start":
+                        if plan_slot is not None and not self._grant_is_current(
+                                plan_slot, datetime.now(timezone.utc)):
+                            self._start_pending.discard(charger_id)
+                            await self._protective_stop(charger, context)
+                            return result("execution_unknown",
+                                          "GRANT_EXPIRED_OR_CHANGED_DURING_READBACK;PROTECTIVE_STOP_SENT",
+                                          service_sent=True)
                         reason = self._start_session(charger, observed, manual_request)
                         self._start_pending.discard(charger_id)
                         if reason is None and charger["kind"] == "variable_current":

@@ -1143,6 +1143,109 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         await rt.executor.supervise()
         self.assertEqual(states["switch.evse_control"].state, "off")
 
+    async def test_seven_minute_regulation_keeps_cadence_across_quarter_and_expiry(self):
+        from unittest.mock import patch
+        from multicharge_physical_execution_test import execution, runtime
+        real_datetime = datetime
+        quarter = real_datetime.now(timezone.utc).replace(
+            minute=0, second=0, microsecond=0,
+        )
+
+        class Clock(real_datetime):
+            current = quarter+timedelta(seconds=2)
+
+            @classmethod
+            def now(cls, tz=None):
+                return cls.current.astimezone(tz) if tz else cls.current.replace(tzinfo=None)
+
+        with patch.object(execution, "datetime", Clock), patch.object(runtime, "datetime", Clock), \
+                patch.dict(globals(), {"datetime": Clock}):
+            rt, states, services = rig(group_kw=3.6, mode="Automatic")
+            rt.configuration["controller"].update(
+                binding_entity="sensor.capacity", power_adjustment_interval_minutes=7,
+            )
+            rt.configuration["assets"][0]["requested_kwh"] = 8
+            charger = rt.configuration["chargers"][0]
+            charger.update(kind="variable_current", rated_power_kw=3.6, voltage_v=230,
+                           min_current_a=6, max_current_a=16, current_step_a=1,
+                           dedicated_asset_id="car", current_control_entity="number.charge_limit",
+                           current_readback_entity="sensor.actual_current")
+            native = state(6, "A")
+            native.attributes.update(min=6, max=16, step=1)
+            states["number.charge_limit"] = native
+            states["sensor.actual_current"] = state(0, "A")
+            envelope = state("ready")
+            envelope.attributes.update({
+                "kind": "binding_power_envelope", "authority": "binding",
+                "provider_id": "capacity", "revision": "1",
+                "issued_at": (quarter-timedelta(minutes=1)).isoformat(),
+                "valid_until": (quarter+timedelta(hours=2)).isoformat(),
+                "intervals": [{"start": quarter.isoformat(),
+                               "end": (quarter+timedelta(hours=2)).isoformat(),
+                               "max_charging_kw": 2.3}],
+            })
+            states["sensor.capacity"] = envelope
+            rt.configuration = validate_configuration(rt.configuration)
+            rt.executor._plug_confirmations.clear()
+            states["binary_sensor.cable"].last_changed = quarter
+
+            async def tick(minute, *, admit=False):
+                Clock.current = quarter+timedelta(minutes=minute, seconds=2)
+                for source in states.values():
+                    source.last_updated = Clock.current
+                at = quarter+timedelta(minutes=minute) if admit else Clock.current
+                rt.refresh(at)
+                if admit:
+                    await rt.executor.advance_plan(at)
+                await rt.executor.supervise()
+                await rt.executor.regulate_active_plan()
+
+            await tick(0, admit=True)
+            self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 10)
+            await tick(7)
+            await tick(14)
+            envelope.attributes["revision"] = "2"
+            envelope.attributes["intervals"][0]["max_charging_kw"] = 3.6
+            count = len(services.calls)
+            await tick(15, admit=True)
+            self.assertEqual(len(services.calls), count)
+            self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 10)
+            await tick(20)
+            self.assertEqual(len(services.calls), count)
+            await tick(21)
+            self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 15)
+            self.assertEqual(len(services.calls), count+1)
+            self.assertEqual(sum(call[1] == "turn_on" for call in services.calls), 1)
+            # Missed quarter event: expiration must not retain the old grant.
+            await tick(30)
+            self.assertEqual(states["switch.evse_control"].state, "off")
+            self.assertEqual(services.calls[-1][1], "turn_off")
+
+    async def test_economy_tariff_loss_stops_between_adjustments(self):
+        rt, states, services = rig(mode="Economy")
+        quarter = datetime.now(timezone.utc).replace(
+            minute=(datetime.now(timezone.utc).minute//15)*15, second=0, microsecond=0)
+        provider = state("ready")
+        provider.attributes.update({
+            "kind": "effective_price_kwh", "currency": "EUR",
+            "valid_until": (quarter+timedelta(hours=2)).isoformat(),
+            "intervals": [{"start": quarter.isoformat(),
+                           "end": (quarter+timedelta(hours=2)).isoformat(), "value": 0.15}],
+        })
+        states["sensor.tariff"] = provider
+        rt.configuration["controller"]["price_entity"] = "sensor.tariff"
+        rt.configuration["controller"]["power_adjustment_interval_minutes"] = 60
+        for source in states.values():
+            source.last_updated = quarter+timedelta(seconds=1)
+        rt.refresh(quarter)
+        await rt.executor.advance_plan(quarter)
+        self.assertEqual(states["switch.evse_control"].state, "on")
+        provider.state = "unavailable"
+        # Do not depend on a prior planner refresh to revoke live authority.
+        await rt.executor.supervise()
+        self.assertEqual(states["switch.evse_control"].state, "off")
+        self.assertEqual([call[1] for call in services.calls], ["turn_on", "turn_off"])
+
     async def test_quarter_grant_rechecks_changed_configuration_before_start(self):
         rt, states, services = rig(mode="Automatic")
         at = datetime.now(timezone.utc)
