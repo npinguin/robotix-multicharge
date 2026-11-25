@@ -164,7 +164,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Only persist new/changed mapping metadata, never raw Recorder values.
     # Do not replace an invalid physical intent snapshot with an empty one.
     previous_bindings = saved.get("power_bindings") if isinstance(saved, dict) else None
-    if runtime.executor._persistence_verified and previous_bindings != runtime.power_bindings:
+    previous_energy = saved.get("energy_bindings") if isinstance(saved, dict) else None
+    if runtime.executor._persistence_verified and (
+            previous_bindings != runtime.power_bindings or previous_energy != runtime.energy_bindings):
         if not await runtime.persist_control_state():
             runtime.executor._persistence_verified = False
     runtime.refresh()
