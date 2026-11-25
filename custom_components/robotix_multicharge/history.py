@@ -14,7 +14,7 @@ QUARTER = timedelta(minutes=15)
 MAX_OBSERVATION_AGE = timedelta(minutes=30)
 
 
-def reconcile_power_bindings(previous, configuration, at):
+def reconcile_power_bindings(previous, configuration, at, *, field="power_entity"):
     """Retain binding metadata, not measured values, in the existing Store.
 
     On legacy migration the current source is the only known binding; no
@@ -22,7 +22,7 @@ def reconcile_power_bindings(previous, configuration, at):
     at their actual runtime application time, including deletion tombstones.
     """
     at = at.astimezone(timezone.utc)
-    current = {c["id"]: c.get("power_entity") for c in configuration["chargers"]}
+    current = {c["id"]: c.get(field) for c in configuration["chargers"]}
     if previous is None:
         return {uid: [{"start": None, "entity": entity}]
                 for uid, entity in current.items()}
@@ -367,8 +367,61 @@ def _run_valuation(segments, price_slots):
             "estimated_cost_currency": currency, "estimated_cost_basis": basis}
 
 
+def _meter_delta(states, power_states, start, end, now, ongoing):
+    """Use cumulative kWh only with known idle boundaries and no meter reset."""
+    samples = []
+    for state in states:
+        try:
+            stamp = state.last_updated
+            if stamp.utcoffset() is None:
+                continue
+            factor = {"Wh": 0.001, "kWh": 1.0}[state.attributes["unit_of_measurement"]]
+            value = float(state.state)*factor
+            if not isfinite(value) or value < 0:
+                value = None
+        except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
+            stamp = getattr(state, "last_updated", None)
+            if not isinstance(stamp, datetime) or stamp.utcoffset() is None:
+                continue
+            value = None
+        samples.append((stamp.astimezone(timezone.utc), value))
+    samples.sort(key=lambda row: row[0])
+    if not samples or len({row[0] for row in samples}) != len(samples):
+        return None
+    before = [row for row in samples if row[0] <= start]
+    after = [row for row in samples if end <= row[0] <= min(now, end+MAX_OBSERVATION_AGE)]
+    if not before:
+        return None
+    a, initial = before[-1]
+    if initial is None or start-a > MAX_OBSERVATION_AGE:
+        return None
+    if a < start:
+        idle = _covered_power_segments(power_states, a, start)
+        if not idle or any(power > 0.05 for _, _, power in idle):
+            return None
+    if ongoing:
+        recent = [row for row in samples if start < row[0] <= end]
+        if not recent or end-recent[-1][0] > MAX_OBSERVATION_AGE:
+            return None
+        b, final = recent[-1]
+    elif after:
+        b, final = after[0]
+        if b > end:
+            idle = _covered_power_segments(power_states, end, b)
+            if not idle or any(power > 0.05 for _, _, power in idle):
+                return None
+    else:
+        return None
+    values = [value for stamp, value in samples if a <= stamp <= b]
+    if (final is None or any(value is None for value in values)
+            or any(y < x-0.00001 for x, y in zip(values, values[1:]))):
+        return None
+    return {"meter_energy_kwh": round(max(0, final-initial), 6),
+            "meter_observed_at": b.isoformat()}
+
+
 def _observed_session_rows(historical, bindings, selected, first, last, now,
-                           receipts, active_sessions, price_slots):
+                           receipts, active_sessions, price_slots, energy_bindings=None):
     """Project native charging observations using existing source epochs.
 
     Never duplicate an executor-owned receipt or infer vehicle identity from
@@ -406,6 +459,15 @@ def _observed_session_rows(historical, bindings, selected, first, last, now,
                 kwh = sum(power*(right-left).total_seconds()/3600 for left, right, power in segments)
                 complete = run["start_known"] and (run["end_known"] or run["ongoing"])
                 estimate = _run_valuation(segments, price_slots)
+                meter = None
+                if complete and energy_bindings:
+                    meter_source = _binding_for_interval(energy_bindings.get(uid, ()), a, b)
+                    if meter_source:
+                        meter = _meter_delta(historical.get(meter_source, ()),
+                                             historical.get(entity, ()), a, b, now, run["ongoing"])
+                        if meter and _binding_for_interval(energy_bindings.get(uid, ()), a,
+                                                            datetime.fromisoformat(meter["meter_observed_at"])) != meter_source:
+                            meter = None
                 rows.append({
                     "charger_id": uid, "asset_id": None,
                     "started_at": a.isoformat(), "ended_at": b.isoformat(),
@@ -416,7 +478,7 @@ def _observed_session_rows(historical, bindings, selected, first, last, now,
                     "average_power_kw": round(kwh/hours, 6),
                     "peak_power_kw": round(max(power for _, _, power in segments), 6),
                     "energy_quality": "observed_power_integral",
-                    "estimated_cost": None, **(estimate or {}),
+                    "estimated_cost": None, **(estimate or {}), **(meter or {}),
                 })
     return sorted(rows, key=lambda row: (row["ended_at"], row["charger_id"]))
 
@@ -518,7 +580,7 @@ async def read_actual_history(hass, configuration, start, end, *,
                               session_receipts=(), price_slots=(),
                               include_valuations=False, power_bindings=None,
                               include_observed_sessions=False, active_sessions=None,
-                              tariff_entity=None):
+                              tariff_entity=None, energy_bindings=None):
     """Query the installed native Recorder once for exact configured chargers."""
     now = datetime.now(timezone.utc)
     first, last = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
@@ -573,7 +635,7 @@ async def read_actual_history(hass, configuration, start, end, *,
                 )
             observed = (_observed_session_rows(
                 historical, bindings, selected, history_first, history_end, now,
-                session_receipts, active_sessions, quotes,
+                session_receipts, active_sessions, quotes, energy_bindings,
             ) if historical is not None and asset_id is None else [])
             metrics = (_receipt_view_metrics(
                 historical, bindings, selected, history_first, history_end, now,
@@ -597,8 +659,14 @@ async def read_actual_history(hass, configuration, start, end, *,
         return reply([], "POWER_METER_NOT_CONFIGURED")
     if history_first >= history_end:
         return reply([], "FUTURE_ONLY")
-    if include_observed_sessions and tariff_entity and tariff_entity not in entities:
-        entities.append(tariff_entity)
+    power_entities = tuple(entities)
+    if include_observed_sessions:
+        if tariff_entity and tariff_entity not in entities:
+            entities.append(tariff_entity)
+        for uid in selected:
+            for epoch in (energy_bindings or {}).get(uid, ()):
+                if epoch["entity"] and epoch["entity"] not in entities:
+                    entities.append(epoch["entity"])
     if "recorder" not in hass.config.components:
         return reply([], "RECORDER_NOT_LOADED")
     try:
@@ -618,8 +686,7 @@ async def read_actual_history(hass, configuration, start, end, *,
     by_source = {
         entity: {row["start"]: row for row in _quarter_actuals(
             historical.get(entity, []), first, last, now)}
-        for entity in entities if entity != tariff_entity or any(
-            epoch["entity"] == entity for uid in selected for epoch in bindings.get(uid, ()))
+        for entity in power_entities
     }
     result = []
     for uid in selected:
