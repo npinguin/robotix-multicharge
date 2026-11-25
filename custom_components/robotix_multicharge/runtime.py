@@ -664,7 +664,13 @@ class MultiChargeRuntime:
                 (instant for instant in (earliest, assumed_arrival)
                  if instant is not None), default=None,
             )
-            draw = (self.executor.qualified_session_draw(raw, asset, at, power, reading)
+            draw_at = at
+            wall = datetime.now(timezone.utc)
+            # The native quarter callback anchors planning to the quarter,
+            # but actual provider readbacks may arrive a few seconds later.
+            if at <= wall < at+timedelta(seconds=10):
+                draw_at = wall
+            draw = (self.executor.qualified_session_draw(raw, asset, draw_at, power, reading)
                     if amount is not None and not disconnected else None)
             if draw is not None:
                 self.observations["chargers"][uid]["session_draw_estimate"] = draw

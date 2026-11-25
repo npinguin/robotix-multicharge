@@ -1339,6 +1339,10 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         draw = estimate(6)
         self.assertAlmostEqual(draw["power_kw"], 1.61)
         self.assertEqual(draw["sample_count"], 4)
+        for second in range(1, 61):
+            draw = estimate(6+second/60)
+        self.assertIsNotNone(draw)
+        self.assertLess(draw["sample_count"], 10)
         rt.executor._sessions["evse"]["target_current_a"] = 10
         states["number.charge_limit"].state = "10"
         self.assertIsNone(estimate(7))

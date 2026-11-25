@@ -2746,15 +2746,18 @@ async def test_native_finance_archive_survives_raw_history_absence(hass: HomeAss
     await hass.async_block_till_done()
     first = (datetime.now(timezone.utc)-timedelta(days=40)).replace(minute=30, second=0, microsecond=0)
     end = first+timedelta(hours=2)
-    cfg = {"chargers": [{"id": "drive"}], "assets": []}
+    cfg = {"chargers": [{"id": "drive"}], "assets": [{"id": "retired_vehicle"}]}
     binding = {"drive": [{"start": None, "entity": "sensor.not_in_recorder"}]}
+    receipts = [{"charger_id": "drive", "asset_id": "retired_vehicle",
+                 "started_at": first.isoformat(), "ended_at": end.isoformat(),
+                 "physical_stop_confirmed": True}]
     states = {"sensor.not_in_recorder": [
         SimpleNamespace(state="3000", last_updated=first+timedelta(minutes=i),
                         attributes={"unit_of_measurement": "W"})
         for i in range(0, 120, 15)]}
     slices = hour_slices(first, end)
     rates = [PriceSlot(first, end, -0.2, "EUR", basis="spot")]
-    projections = {key: daily_costs(states, binding, cfg, a, b, rates)
+    projections = {key: daily_costs(states, binding, cfg, a, b, rates, receipts)
                    for key, (a, b) in slices.items()}
     write_archive(hass, "original-entry", slices, projections)
     await recorder.async_block_till_done()
@@ -2763,6 +2766,14 @@ async def test_native_finance_archive_survives_raw_history_absence(hass: HomeAss
     site = merge_slices(result)["controller"]["site"]
     assert site["observed_energy_kwh"] == pytest.approx(6.0)
     assert site["valuations"][("EUR", "spot")][0] == pytest.approx(-1.2)
+    # The original vehicle has disappeared from current config and recent
+    # receipts. Native statistic identity/metadata still proves ownership.
+    retired = {"chargers": [], "assets": []}
+    after_deletion = await read_archive(hass, "original-entry",
+                                       {"day": (first, end)}, retired, {}, [])
+    old = merge_slices(after_deletion)["asset"]["retired_vehicle"]
+    assert old["observed_energy_kwh"] == pytest.approx(6.0)
+    assert old["valuations"][("EUR", "spot")][0] == pytest.approx(-1.2)
     assert await read_archive(hass, "other-entry", {"day": (first, end)}, cfg, binding, []) == {}
     records = archive_records("original-entry", slices, projections)
     raw = {uid: [{"start": r["start"].timestamp(), "mean": r["mean"]} for r in s["rows"]]

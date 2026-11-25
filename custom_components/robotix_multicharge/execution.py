@@ -1687,7 +1687,9 @@ class NativeSwitchExecutor:
         if rows and ((soc_value is None) != (rows[0][2] is None)
                      or (soc_value is not None and abs(soc_value-rows[0][2]) > 5)):
             rows = []
-        if not rows or stamp > rows[-1][0]:
+        # Native providers can report every second. Keep enough temporal
+        # span rather than evicting five minutes of evidence on every burst.
+        if not rows or stamp-rows[-1][0] >= timedelta(seconds=30):
             rows.append((stamp, power.value, soc_value))
         rows = rows[-20:]
         self._draw_samples[uid] = (key, rows)

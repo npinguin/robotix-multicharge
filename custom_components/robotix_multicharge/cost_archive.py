@@ -58,6 +58,33 @@ def owner_map(cfg, bindings, receipts):
     return owners
 
 
+def archived_owner_map(entry_id, metadata, known):
+    """Recover original IDs from native metadata; verify the ID hash.
+
+    A removed Asset/Charger may no longer occur in the recent control
+    receipts. Its Recorder metadata is already the durable owner provenance.
+    Never use today's mapping or a display name as a substitute.
+    """
+    owners = dict(known)
+    prefix = _prefix(entry_id)
+    for stat_id, (_, info) in metadata.items():
+        if not stat_id.startswith(prefix):
+            continue
+        match = fullmatch(r"\d\d_\d\d_([ac][0-9a-f]{24})_expected", stat_id[len(prefix):])
+        if not match:
+            continue
+        owner = match.group(1)
+        kind = "asset" if owner.startswith("a") else "charger"
+        name = info.get("name")
+        marker = "MultiCharge "+kind+" "
+        if not isinstance(name, str) or not name.startswith(marker) or not name.endswith(" expected"):
+            continue
+        uid = name[len(marker):-len(" expected")]
+        if uid and _owner(kind, uid) == owner:
+            owners.setdefault(owner, (kind, uid))
+    return owners
+
+
 def archive_records(entry_id, slices, projections):
     """Actual hourly mean rates with explicit owner and valuation count markers."""
     result = {}
@@ -262,7 +289,8 @@ async def read_archive(hass, entry_id, days, cfg, bindings, receipts):
             last = max(b for _, b in slices.values())
             end = last.replace(minute=0)+timedelta(hours=1)
             raw = statistics_during_period(hass, first, end, ids, "hour", None, {"mean"})
-            return decode_archive(entry_id, slices, raw, owners)
+            return decode_archive(entry_id, slices, raw,
+                                  archived_owner_map(entry_id, metadata, owners))
 
         return await recorder.async_add_executor_job(read)
     except (ImportError, RuntimeError, ValueError, OSError, KeyError):
