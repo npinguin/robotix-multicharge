@@ -417,6 +417,7 @@ def _meter_delta(states, power_states, start, end, now, ongoing):
             or any(y < x-0.00001 for x, y in zip(values, values[1:]))):
         return None
     return {"meter_energy_kwh": round(max(0, final-initial), 6),
+            "meter_baseline_at": a.isoformat(),
             "meter_observed_at": b.isoformat()}
 
 
@@ -465,9 +466,13 @@ def _observed_session_rows(historical, bindings, selected, first, last, now,
                     if meter_source:
                         meter = _meter_delta(historical.get(meter_source, ()),
                                              historical.get(entity, ()), a, b, now, run["ongoing"])
-                        if meter and _binding_for_interval(energy_bindings.get(uid, ()), a,
-                                                            datetime.fromisoformat(meter["meter_observed_at"])) != meter_source:
-                            meter = None
+                        if meter:
+                            baseline = datetime.fromisoformat(meter["meter_baseline_at"])
+                            observed = datetime.fromisoformat(meter["meter_observed_at"])
+                            if (_binding_for_interval(energy_bindings.get(uid, ()), baseline, observed)
+                                    != meter_source or
+                                    _binding_for_interval(epochs, baseline, max(b, observed)) != entity):
+                                meter = None
                 rows.append({
                     "charger_id": uid, "asset_id": None,
                     "started_at": a.isoformat(), "ended_at": b.isoformat(),
@@ -680,6 +685,8 @@ async def read_actual_history(hass, configuration, start, end, *,
         )
     except (ImportError, RuntimeError, ValueError, OSError, KeyError):
         return reply([], "RECORDER_UNAVAILABLE")
+    if first >= now:
+        return reply([], "FUTURE_ONLY", historical)
     # Integrate each physical source once; only then assign the measured
     # quarter to the logical Charger that owned that source at that time.
     empty = _quarter_actuals([], first, last, now)
