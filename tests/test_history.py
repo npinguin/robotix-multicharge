@@ -418,6 +418,21 @@ class NativeMeasuredHistoryTests(unittest.TestCase):
         reset = [meter[0], recorded(NOW, 0.5, "kWh")]
         self.assertIsNone(mod._meter_delta(reset, power, start, NOW, NOW, False))
 
+    def test_conflicting_duplicate_power_is_unknown_across_all_projections(self):
+        start = NOW-timedelta(minutes=15)
+        states = [recorded(start, 1000), recorded(start, 2000), recorded(start, 1000)]
+        self.assertIsNone(actual_quarters(states, start, NOW, NOW)[0]["actual_energy_kwh"])
+        self.assertIsNone(mod._covered_power_segments(states, start, NOW))
+        self.assertEqual(mod._observed_runs(states, start, NOW, NOW), [])
+        self.assertEqual(mod._power_spans(states, start, NOW), [(start, NOW, None)])
+        # Identical repeated observations do not change the physical value.
+        states = [recorded(start, 1000), recorded(start, 1000)]
+        self.assertEqual(actual_quarters(states, start, NOW, NOW)[0]["actual_energy_kwh"], 0.25)
+
+    def test_quarter_history_excludes_partial_first_second(self):
+        first = NOW-timedelta(minutes=15)+timedelta(microseconds=1)
+        self.assertEqual(actual_quarters([recorded(first, 1000)], first, NOW, NOW), [])
+
     def test_real_meter_integrates_recorded_power_changes(self):
         start = NOW - timedelta(minutes=15)
         row = actual_quarters([

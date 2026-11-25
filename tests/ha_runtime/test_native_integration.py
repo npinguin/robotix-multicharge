@@ -2853,7 +2853,14 @@ async def test_observed_external_session_from_actual_ha_recorder(hass: HomeAssis
     await asyncio.sleep(0.06)
     hass.states.async_set("sensor.external_power", "0", attrs)
     await hass.async_block_till_done()
-    await recorder.async_block_till_done()
+    # The native async_block_till_done fast path can see an empty queue
+    # while its final state is being inserted (CI SQL trace showed SELECT
+    # before COMMIT). Explicitly queue the native commit barrier in this
+    # installed-HA fixture, not a retry or sleep in production history.
+    from homeassistant.components.recorder.tasks import SynchronizeTask
+    committed = hass.loop.create_future()
+    recorder.queue_task(SynchronizeTask(committed))
+    await asyncio.wait_for(committed, timeout=10)
     end = datetime.now(timezone.utc)
     configuration = {"chargers": [{"id": "outside", "power_entity": "sensor.external_power",
                                     "control_owner": "external"}]}
@@ -2864,7 +2871,7 @@ async def test_observed_external_session_from_actual_ha_recorder(hass: HomeAssis
     assert len(runs) == 1, runs
     run = runs[0]
     assert run["asset_id"] is None
-    assert run["complete_observed_window"] and run["end_known"] and not run["ongoing"]
+    assert run["complete_observed_window"] and run["end_known"] and not run["ongoing"], run
     assert run["observed_energy_kwh"] > 0
     assert 2 <= run["average_power_kw"] <= 4
     assert run["peak_power_kw"] == 4

@@ -104,41 +104,41 @@ def _sample(state):
         return None
 
 
+def _power_samples(states):
+    """One normalization rule for all historical power projections."""
+    samples = {}
+    for state in states:
+        reading = _sample(state)
+        if reading is None:
+            continue
+        stamp, value = reading
+        # An ambiguous timestamp stays unknown even after a third reading.
+        samples[stamp] = (None if stamp in samples and samples[stamp] != value
+                          else value)
+    return sorted(samples.items())
+
+
 def _quarter_actuals(states, first, last, now):
-    """Integrate timestamped actual power, without inventing uncovered spans."""
-    observations = sorted((value for row in states if (value := _sample(row))),
-                          key=lambda row: row[0])
-    stamps = [value[0] for value in observations]
+    """Integrate the same qualified spans used for session and civil costs."""
+    last = min(last, now)
+    spans = _power_spans(states, first, last)
+    edges = [a for a, _, _ in spans]
     series = []
-    slot = datetime.fromtimestamp(
-        (int(first.timestamp()) + 899) // 900 * 900, timezone.utc
-    )
-    while slot + QUARTER <= min(last, now):
+    slot = first.replace(minute=(first.minute//15)*15, second=0, microsecond=0)
+    if slot < first:
+        slot += QUARTER
+    while slot + QUARTER <= last:
         finish = slot + QUARTER
-        first_event = bisect_right(stamps, slot)
-        active = observations[first_event - 1] if first_event else None
-        events = observations[first_event:bisect_left(stamps, finish)]
-        cursor = slot
-        energy = 0.0
-        valid = active is not None
-        for next_stamp, value in (*events, (finish, None)):
-            if (active is None or active[1] is None or active[0] > cursor
-                    or next_stamp - active[0] > MAX_OBSERVATION_AGE):
-                valid = False
-                break
-            energy += active[1] * (next_stamp - cursor).total_seconds() / 3600
-            cursor = next_stamp
-            active = (next_stamp, value)
+        energy, observed = _interval_power_evidence(spans, edges, slot, finish)
+        valid = abs(observed-QUARTER.total_seconds()) < 0.001
         series.append({
-            "start": slot.isoformat(),
-            "end": finish.isoformat(),
+            "start": slot.isoformat(), "end": finish.isoformat(),
             "actual_power_kw": round(energy * 4, 6) if valid else None,
             "actual_energy_kwh": round(energy, 6) if valid else None,
             "quality": "measured_power_integral" if valid else "unknown",
         })
         slot = finish
     return series
-
 
 def _session_asset_at_time(receipts, charger_id, start, end):
     """Only an independently closed, whole-quarter session proves attribution.
@@ -227,18 +227,9 @@ def _observed_runs(states, first, last, now):
     stale spans, source boundaries and window edges never become STOP proof.
     """
     last = min(last, now)
-    samples = sorted((item for state in states if (item := _sample(state))),
-                     key=lambda item: item[0])
+    samples = _power_samples(states)
     if first >= last or not samples:
         return []
-    # Duplicate timestamps with conflicting values are ambiguous.
-    by_stamp = {}
-    for stamp, value in samples:
-        if stamp in by_stamp and by_stamp[stamp] != value:
-            by_stamp[stamp] = None
-        else:
-            by_stamp[stamp] = value
-    samples = sorted(by_stamp.items())
     result = []
     run = None
     previous = None
@@ -588,29 +579,11 @@ def _quotes_at_binding(hass, historical, epochs, current_entity, current, first,
 
 
 def _covered_power_segments(states, start, end):
-    """A complete, timestamp-qualified power trajectory within a known receipt."""
-    samples = sorted((item for state in states if (item := _sample(state))),
-                     key=lambda item: item[0])
-    if not samples or end <= start:
+    """Return complete coverage only, using the canonical power partition."""
+    if end <= start:
         return None
-    stamps = [row[0] for row in samples]
-    if len(set(stamps)) != len(stamps):
-        return None
-    idx = bisect_right(stamps, start)
-    active = samples[idx-1] if idx else None
-    events = samples[idx:bisect_left(stamps, end)]
-    cursor = start
-    segments = []
-    for next_stamp, value in (*events, (end, None)):
-        if (active is None or active[1] is None or active[0] > cursor
-                or next_stamp-active[0] > MAX_OBSERVATION_AGE):
-            return None
-        if next_stamp > cursor:
-            segments.append((cursor, next_stamp, active[1]))
-        cursor = next_stamp
-        active = (next_stamp, value)
-    return segments
-
+    spans = _power_spans(states, start, end)
+    return spans if spans and all(power is not None for _, _, power in spans) else None
 
 def _receipt_view_metrics(historical, bindings, selected, first, last, now,
                           receipts, active_sessions, quotes, asset_id, energy_bindings=None):
@@ -825,17 +798,10 @@ def _power_spans(states, first, last):
     A state can support at most MAX_OBSERVATION_AGE after its last update.
     Missing or duplicate conflicting readings remain explicit gaps.
     """
-    samples = {}
-    for row in states:
-        reading = _sample(row)
-        if reading is None:
-            continue
-        stamp, value = reading
-        if stamp in samples and samples[stamp] != value:
-            samples[stamp] = None
-        else:
-            samples[stamp] = value
-    stamps = sorted(samples)
+    if first >= last:
+        return []
+    samples = _power_samples(states)
+    stamps = [stamp for stamp, _ in samples]
     edges = sorted({first, last} | {edge for stamp in stamps
                     for edge in (stamp, stamp+MAX_OBSERVATION_AGE)
                     if first < edge < last})
@@ -844,7 +810,7 @@ def _power_spans(states, first, last):
         index = bisect_right(stamps, a)-1
         value = None
         if index >= 0 and b-stamps[index] <= MAX_OBSERVATION_AGE:
-            value = samples[stamps[index]]
+            value = samples[index][1]
         spans.append((a, b, value))
     return spans
 
@@ -919,21 +885,9 @@ def _meter_gap_blocks(historical, meter_epochs, uid, start, end,
                     or any(other != uid and left < b and right > a
                            for other, left, right in meter_claims.get(entity, ()))):
                 continue
-            index = max(0, bisect_right(span_edges, a)-1)
-            known = 0.0
-            gap = False
-            for left, right, power in spans[index:]:
-                if left >= b:
-                    break
-                seconds = (min(right, b)-max(left, a)).total_seconds()
-                if seconds <= 0:
-                    continue
-                if power is None:
-                    gap = True
-                else:
-                    known += power*seconds/3600
+            known, observed = _interval_power_evidence(spans, span_edges, a, b)
             delta = final-initial
-            if not gap or known > delta+0.00001:
+            if observed >= (b-a).total_seconds() or known > delta+0.00001:
                 continue  # preserve complete power evidence or expose conflict
             prices = [p for left, right, p in price_spans if left < b and right > a]
             signatures = {(p.currency, p.basis, p.effective_price_per_kwh)
