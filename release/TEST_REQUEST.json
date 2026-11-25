@@ -1,15 +1,15 @@
 {
   "status": "AUTHORIZED_FOR_TEST",
   "distribution": "open_source_community",
-  "expected_tag": "v0.1.22",
+  "expected_tag": "v0.1.23",
   "precompile": false,
-  "qualification_scope": "Owner approved 25 November 2026, PR #27 / issue #1: complete implemented multicharger planning and sturing, all six strategies, activation, vehicle goals and schedules, adaptive power/current, native configuration/UX, financial and session history, persistence and recovery. Exact candidate qualification required. Explicit bounded TEST exception: separate hardware-qualified supply/preconditioning PARITY05/11 remains OPEN for full product, no existing TEST capability disabled.",
-  "limitations": "TEST only, not STABLE or Wessels field acceptance. Separate hardware-qualified supply/preconditioning PARITY05/11 deferred by explicit owner decision. Before upgrade retain native HA backup including database and matching v0.1.21 code; before rollback confirm owned outputs stopped and retain separate upgraded-state backup; restore prior checkpoint with its code. Intervening changes are preserved in the separate backup, not automatically merged into old live state. Never downgrade integration code alone. Exact native Core backup/restore proof required; real site/iPad/EVSE acceptance separate.",
+  "qualification_scope": "Owner authorized 26 November 2026, PR #28 / issue #1: corrective HACS TEST, preserving v0.1.22 scope. Ordinary assigned vehicle charging needs no per-plug confirmation or separate fixed assignment. Native AC positive operating floor 6 A, zero-origin native ranges supported, explicit higher limits respected. Actionable missing electrical installation evidence; reached target is a normal successful state. Separate bounded supply/preconditioning PARITY05/11 remains OPEN as previously approved.",
+  "limitations": "TEST only; no STABLE or Wessels physical acceptance claim. Nominal single-phase/230 V forecast assumptions are not proof of actual wiring. Missing actual phase count/voltage must be supplied once through existing charger setup when not available from configured evidence. Before upgrading retain full native HA backup including database and matching v0.1.22 code; rollback after confirmed STOP with separately retained upgraded-state backup, restore previous checkpoint and matching code. No direct code-only downgrade or live-state merge. Separate preconditioning and site/iPad/EVSE field acceptance remain open.",
   "rollback_evidence": {
-    "tag": "v0.1.21",
-    "source_sha": "a43f66beefe7d4fa49a9ef5cda466209dfaa4fd8",
-    "artifact": "robotix_multicharge-0.1.21.zip",
-    "sha256": "4ce11d4980bcec4f5b1f707a8749c28ab773700fd777ad3d4bde9ffa913d86af",
-    "scope": "Exact immutable predecessor and candidate native HA Core backup archive/startup restore plus native Store/config checkpoint readback; no code-only downgrade or live-state merging."
+    "tag": "v0.1.22",
+    "source_sha": "fe43ff65c6e3e828a2f887e5b786b85a129fb597",
+    "artifact": "robotix_multicharge-0.1.22.zip",
+    "sha256": "b96412a371961814c65b7ca13d25e8b3909f2aab4426ed36e7a9227aeeceea4a",
+    "scope": "Exact predecessor/candidate native HA Core archive/startup restore, configuration and Store checkpoint readback and receipt preservation; no code-only downgrade or live-state merging."
   }
 }

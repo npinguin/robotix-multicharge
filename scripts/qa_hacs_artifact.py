@@ -78,22 +78,6 @@ async def run():
     raw = json.loads(config_path.read_text())
     receipts = json.loads(expected_path.read_text())
     original = await store.async_load()
-    if mode == "reject_direct":
-        try:
-            validate_configuration(raw)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("Expected old validator to reject new configuration")
-        # Exercise the old control reader independently using the original
-        # supported subset, but never invoke its writer on the upgraded data.
-        raw["controller"].pop("power_adjustment_interval_minutes", None)
-        raw["chargers"][0].pop("dedicated_asset_id", None)
-        runtime = MultiChargeRuntime(hass, validate_configuration(raw))
-        runtime.attach_control_store(store, original)
-        assert not runtime.executor._persistence_verified
-        assert await Store(hass, 1, "robotix_multicharge_test-entry_control").async_load() == original
-        return
     cfg = validate_configuration(raw)
     runtime = MultiChargeRuntime(hass, cfg)
     runtime.attach_control_store(store, original)
@@ -240,7 +224,11 @@ def verify_rollback_checkpoint(candidate, manifest, work):
     install(candidate, upgraded)
     run(candidate, "upgrade", upgraded, manifest["version"])
     backup("backup", upgraded, after)
-    run(prior, "reject_direct", upgraded, tag[1:])
+    # The prior release supports this Store schema. Verify its read-only
+    # interpretation on a separate snapshot without authorizing a live downgrade.
+    compatible = work / "prior-reader"
+    shutil.copytree(upgraded, compatible)
+    run(prior, "forward", compatible, tag[1:])
 
     # Restore into a genuinely upgraded directory, not an empty or prior
     # directory. The actual native HA startup restore must replace code/state.
