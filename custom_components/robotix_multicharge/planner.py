@@ -438,6 +438,12 @@ def compile_plan(
             shortfall[uid] = demand.remaining_grid_kwh
             coverage[uid] = "UNAVAILABLE"
             continue
+        def expected_power(reserved):
+            # A session-local observation affects energy feasibility and cost,
+            # not the electrical/phase/circuit reservation or command ceiling.
+            return (min(reserved, demand.observed_session_draw_kw)
+                    if demand.observed_session_draw_kw is not None else reserved)
+
         possible = []
         blocked_price = set()
         low_price_eligible = set()
@@ -616,9 +622,9 @@ def compile_plan(
                                      and stamp in low_price_eligible)):
                         break
                     segment.append(item)
-                    energy += power / 4
+                    energy += expected_power(power) / 4
                     minutes += 15
-                    cost += (rate if rate is not None else 0) * power / 4
+                    cost += (rate if rate is not None else 0) * expected_power(power) / 4
                     priority += item[0][0]
                     reached = (
                         minutes >= demand.remaining_duration_minutes
@@ -653,7 +659,7 @@ def compile_plan(
                     break
                 priority_rows.append(item)
                 used.add(item[1])
-                critical_delivered += item[3] / 4
+                critical_delivered += expected_power(item[3]) / 4
             start_low = next((
                 item for item in possible
                 if item[1] == begin and item[1] in low_price_eligible
@@ -692,7 +698,7 @@ def compile_plan(
                     and delivered + 1e-9 >= demand.remaining_grid_kwh):
                 break
             chosen.append((slot, selected_mode, power, current))
-            delivered += power / 4
+            delivered += expected_power(power) / 4
         chosen.sort(key=lambda item: item[0])
         strategy[uid] = ",".join(sorted({method for _, method, _, _ in chosen})) if chosen else mode
         for slot, method, power, current in chosen:
@@ -702,6 +708,8 @@ def compile_plan(
                 charger_uid=uid, asset_uid=demand.asset_uid, start=slot,
                 end=slot + QUARTER, power_kw=power,
                 current_a=current if adjustable else None, strategy=method,
+                planning_power_kw=(expected_power(power)
+                                   if expected_power(power) < power-1e-9 else None),
             ))
             active.setdefault(slot, set()).add(uid)
             used_kw[slot] = used_kw.get(slot, 0.0) + power
@@ -805,7 +813,7 @@ def compile_plan(
             circuits = used_circuit_a.setdefault(stamp, {})
             circuits[charger.circuit_id] = circuits.get(charger.circuit_id, 0) + delta
         allocations[index] = replace(row, power_kw=power, current_a=current,
-                                     planning_power_kw=row.power_kw)
+                                     planning_power_kw=row.expected_power_kw)
 
     allocations.sort(key=lambda s: (s.start, s.charger_uid))
     signature = "|".join((

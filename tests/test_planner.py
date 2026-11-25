@@ -52,6 +52,25 @@ def demand(i, kwh=1.0, priority=1, deadline=None):
 
 
 class PlannerTests(unittest.TestCase):
+    def test_sustained_session_draw_limits_expected_energy_not_electrical_reservation(self):
+        ctl, chargers = build(power=3.6, limit=3.6)
+        chargers["c0"] = Charger(uid="c0", name="Drive", controller_uid="home",
+                                 control_kind="variable_current", rated_power_kw=3.6,
+                                 min_current_a=6, max_current_a=16, phase_count=1,
+                                 voltage_v=230, current_step_a=1)
+        # An hour at 3.45 kW would nominally deliver 3.45 kWh;
+        # observed 1.48 kW must not be treated as 3.45 kW.
+        result = compile_plan(ctl, chargers, [ChargeDemand(
+            asset_uid="car", charger_uid="c0", remaining_grid_kwh=3,
+            ready_by=NOW+timedelta(hours=1), observed_session_draw_kw=1.48,
+        )], NOW, mode="Ready By")
+        self.assertEqual(result.coverage["c0"], "INCOMPLETE")
+        self.assertAlmostEqual(result.proposed_kwh["c0"], 1.48)
+        self.assertAlmostEqual(result.shortfall_kwh["c0"], 1.52)
+        self.assertTrue(all(slot.expected_power_kw <= 1.48 and slot.power_kw <= 3.6
+                            for slot in result.plan.slots))
+        self.assertTrue(any(slot.power_kw > slot.expected_power_kw for slot in result.plan.slots))
+
     def test_indicative_slots_use_residual_capacity_without_changing_firm_slots(self):
         controller, chargers = build(n=2, power=4.0, limit=4.0)
         at = NOW

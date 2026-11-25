@@ -664,8 +664,13 @@ class MultiChargeRuntime:
                 (instant for instant in (earliest, assumed_arrival)
                  if instant is not None), default=None,
             )
+            draw = (self.executor.qualified_session_draw(raw, asset, at, power, reading)
+                    if amount is not None and not disconnected else None)
+            if draw is not None:
+                self.observations["chargers"][uid]["session_draw_estimate"] = draw
             request = ChargeDemand(
                 asset_uid=asset["id"], charger_uid=uid,
+                observed_session_draw_kw=draw["power_kw"] if draw else None,
                 remaining_grid_kwh=amount, ready_by=deadline,
                 priority=asset.get("priority", 0),
                 continuous_charging=asset.get("continuous_charging", False),
@@ -961,7 +966,11 @@ class MultiChargeRuntime:
                 "minimum_planning_power_assumed": missing_current_conversion(chargers[uid]),
                 "deadline_recovery": recovery,
                 "maximum_reserved_power_kw": max((slot.power_kw for slot in future), default=None),
-                "headroom_boost": any(slot.planning_power_kw is not None for slot in future),
+                "headroom_boost": any(
+                    slot.planning_power_kw is not None
+                    and slot.power_kw > minimum_planning_power(chargers[uid])+1e-6
+                    and slot.strategy != "deadline_recovery" for slot in future),
+                "session_draw_estimate": self.observations["chargers"][uid].get("session_draw_estimate"),
             }
         # Revalue the current proposal once per planner refresh, not per entity notification.
         self.planned_costs = planned_costs(

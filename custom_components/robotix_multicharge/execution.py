@@ -58,6 +58,7 @@ class NativeSwitchExecutor:
         self._stop_requested = set()
         self._urgent_stop_requests = set()
         self._source_stop_tasks = {}
+        self._draw_samples = {}
         self._accepted = {}
         self._accepted_history = {}
         self._grants = {}
@@ -659,6 +660,7 @@ class NativeSwitchExecutor:
                 self._inflight.pop(f"charger:{uid}", None)
             self._quarantine.discard(uid)
             self._sessions.pop(uid, None)
+            self._draw_samples.pop(uid, None)
             self._close_accepted_history(uid, observed_at)
             self._accepted.pop(uid, None)
         if status == "confirmed":
@@ -1623,6 +1625,79 @@ class NativeSwitchExecutor:
             manual_request=manual_request, plan_slot=plan_slot, own_intent=True,
             energized=energized,
         )
+
+    def qualified_session_draw(self, charger, asset, at, power, soc):
+        """Short-lived same-session evidence, never a learned EV maximum.
+
+        Require distinct fresh native reports under one verified setpoint,
+        wiring, plug and narrow SoC band. A transient or changed setpoint
+        cannot be treated as a sustained forecast. No persisted raw telemetry.
+        """
+        uid = charger["id"]
+        session = self._sessions.get(uid)
+        def clear():
+            self._draw_samples.pop(uid, None)
+            return None
+        if (not session or charger["kind"] != "variable_current"
+                or session.get("asset_id") != asset["id"]
+                or uid in self._quarantine or uid in self._current_pending
+                or uid in self._start_pending or uid in self._paused
+                or power.quality != "ok" or power.observed_at is None
+                or not timedelta(0) <= at-power.observed_at <= timedelta(minutes=2)
+                or power.value <= start_power_limit(charger)):
+            return clear()
+        target = session.get("target_current_a")
+        if self._requested_current(charger, target, at)[0] is not None:
+            return clear()
+        identity = self.connection_confirmation(charger, at)
+        if (not identity or identity["connected_at"] != session.get("connection_epoch")
+                or self._switch(self.runtime.hass, charger.get("control_entity")) is None
+                or self._switch(self.runtime.hass, charger.get("control_entity")).state != "on"):
+            return clear()
+        setting = number(self.runtime.hass, charger.get("current_control_entity"), "current", at)
+        if (setting.quality != "ok" or abs(setting.value-target) > 1e-6
+                or power.value > target*charger["voltage_v"]*charger["phase_count"]/1000*1.10):
+            return clear()
+        if charger.get("current_readback_entity"):
+            amps = number(self.runtime.hass, charger["current_readback_entity"], "current", at)
+            if (amps.quality != "ok" or amps.observed_at is None
+                    or not timedelta(0) <= at-amps.observed_at <= timedelta(minutes=2)
+                    or amps.value > target+max(0.25, charger["current_step_a"]/2)):
+                return clear()
+            amp_kw = amps.value*charger["voltage_v"]*charger["phase_count"]/1000
+            if abs(power.value-amp_kw) > max(0.15, power.value*0.20):
+                return clear()
+        soc_value = soc.value if soc.quality == "ok" else None
+        key = (asset["id"], session["started_at"], identity["connected_at"], target,
+               charger.get("power_entity"), charger.get("current_control_entity"),
+               charger.get("current_readback_entity"), charger["phase_count"],
+               charger["voltage_v"], tuple(charger.get("phase_ids", ())))
+        prior = self._draw_samples.get(uid)
+        rows = prior[1] if prior and prior[0] == key else []
+        rows = [row for row in rows if timedelta(0) <= at-row[0] <= timedelta(minutes=10)]
+        stamp = power.observed_at
+        if stamp < session.get("confirmed_at", session["started_at"]):
+            return clear()
+        if rows and stamp < rows[-1][0]:
+            return clear()
+        if rows and stamp > rows[-1][0] and (
+                stamp-rows[-1][0] > timedelta(minutes=3)
+                or abs(power.value-rows[-1][1]) > max(0.1, rows[-1][1]*0.15)):
+            rows = []
+        if rows and ((soc_value is None) != (rows[0][2] is None)
+                     or (soc_value is not None and abs(soc_value-rows[0][2]) > 5)):
+            rows = []
+        if not rows or stamp > rows[-1][0]:
+            rows.append((stamp, power.value, soc_value))
+        rows = rows[-20:]
+        self._draw_samples[uid] = (key, rows)
+        if (len(rows) < 3 or rows[-1][0]-rows[0][0] < timedelta(minutes=5)
+                or max(row[1] for row in rows)-min(row[1] for row in rows)
+                   > max(0.1, min(row[1] for row in rows)*0.15)):
+            return None
+        return {"power_kw": round(min(row[1] for row in rows), 6),
+                "observed_at": rows[-1][0].isoformat(),
+                "sample_count": len(rows), "basis": "sustained_current_session"}
 
     def _accept_slot(self, charger, slot, revision):
         """Accept only a physically confirmed current slot; keep bounded evidence."""

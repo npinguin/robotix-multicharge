@@ -1307,6 +1307,42 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(services.calls[0][2]["value"], 15)
         self.assertEqual((await rt.executor.execute("evse", "stop"))["status"], "confirmed")
 
+    async def test_sustained_draw_qualification_rejects_single_sample_and_changed_setpoint(self):
+        rt, states, _ = rig(group_kw=3.6)
+        charger = rt.configuration["chargers"][0]
+        charger.update(kind="variable_current", rated_power_kw=3.68,
+                       voltage_v=230, min_current_a=6, max_current_a=16, current_step_a=1,
+                       current_control_entity="number.charge_limit",
+                       current_readback_entity="sensor.actual_current")
+        native = state(6, "A")
+        native.attributes.update(min=6, max=16, step=1)
+        states["number.charge_limit"] = native
+        states["sensor.actual_current"] = state(0, "A")
+        self.assertEqual((await rt.executor.execute("evse", "start", current_a=15))["status"],
+                         "confirmed")
+        from multicharge_physical_execution_test.source_evidence import number, Evidence
+        start = datetime.now(timezone.utc)
+        asset = rt.configuration["assets"][0]
+        def estimate(minute):
+            at = start+timedelta(minutes=minute)
+            states["sensor.actual_power"].state = "1610"
+            states["sensor.actual_current"].state = "7"
+            for source in states.values():
+                source.last_updated = at
+            return rt.executor.qualified_session_draw(
+                charger, asset, at, number(rt.hass, "sensor.actual_power", "power", at),
+                Evidence(None, "unknown", None, "SOC_SOURCE_NOT_SELECTED"),
+            )
+        self.assertIsNone(estimate(0))
+        self.assertIsNone(estimate(2))
+        self.assertIsNone(estimate(4))
+        draw = estimate(6)
+        self.assertAlmostEqual(draw["power_kw"], 1.61)
+        self.assertEqual(draw["sample_count"], 4)
+        rt.executor._sessions["evse"]["target_current_a"] = 10
+        states["number.charge_limit"].state = "10"
+        self.assertIsNone(estimate(7))
+
     async def test_adjustable_native_ceiling_accepts_lower_actual_vehicle_draw(self):
         rt, states, services = rig(group_kw=3.6)
         charger = rt.configuration["chargers"][0]

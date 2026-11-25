@@ -72,6 +72,7 @@ for(const [locale,translations] of Object.entries({
   de:{"Configure in Home Assistant":"In Home Assistant konfigurieren","Selected":"Ausgewählt"},
   es:{"Configure in Home Assistant":"Configurar en Home Assistant","Selected":"Seleccionado"}
 }))Object.assign(MC_TEXT[locale],translations);
+for(const [locale,label] of Object.entries({"nl":"Gemeten sessievermogen als prognose","fr":"Prévision selon la puissance mesurée de la session","da":"Prognose fra målt sessionseffekt","nb":"Prognose fra målt økteffekt","sv":"Prognos från uppmätt sessionseffekt","de":"Prognose aus gemessener Sitzungsleistung","es":"Previsión según la potencia medida de la sesión"}))MC_TEXT[locale]["Forecast from measured session power"]=label;
 for(const [locale,label] of Object.entries({"nl":"Geplande laadkosten","fr":"Coût de recharge prévu","da":"Planlagte ladeomkostninger","nb":"Planlagt ladekostnad","sv":"Planerad laddkostnad","de":"Geplante Ladekosten","es":"Coste de carga previsto"}))MC_TEXT[locale]["Planned charging cost"]=label;
 for(const [locale,labels] of Object.entries({"nl":["Actuele sessiekosten","Laatste sessiekosten"],"fr":["Coût de la session active","Coût de la dernière session"],"da":["Aktuelle sessionsomkostninger","Seneste sessionsomkostninger"],"nb":["Kostnad for aktiv økt","Kostnad for siste økt"],"sv":["Pågående sessionskostnad","Senaste sessionskostnad"],"de":["Aktuelle Sitzungskosten","Letzte Sitzungskosten"],"es":["Coste de sesión activa","Coste de última sesión"]})){
   MC_TEXT[locale]["Active session cost"]=labels[0];
@@ -2744,6 +2745,10 @@ class RobotixMultiChargeCard extends HTMLElement {
     }
     if(goal.reason&&goal.reason!=="PROPOSED"&&goal.reason!=="TARGET_MET")
       result.append(mcEl("p","muted small",mcReason(goal.reason)));
+    if(typeof goal.session_draw_estimate?.power_kw==="number"&&goal.status!=="target_met"){
+      result.append(mcEl("p","muted small",mcTr("Forecast from measured session power")+
+        " · "+goal.session_draw_estimate.power_kw.toFixed(2)+" kW"));
+    }
     if(goal.headroom_boost&&goal.status!=="target_met"){
       result.append(mcEl("p","muted small",mcTr("Conservative plan · available boost")+
         " "+Number(goal.maximum_reserved_power_kw).toFixed(2)+" kW"));
