@@ -1546,6 +1546,23 @@ class NativeSwitchExecutor:
                     and (current == self._grant_configuration
                          or is_plan_presentation_only_change(self._grant_configuration, current)))
 
+    def _quarter_order(self, chargers, slots):
+        """Release previous reservations before increasing or starting another load."""
+        def order(charger):
+            uid = charger["id"]
+            switch = self._switch(self.runtime.hass, charger.get("control_entity"))
+            if switch is None or switch.state != "on":
+                return 2
+            session = self._sessions.get(uid)
+            slot = slots.get(uid)
+            if not session or uid not in self._accepted or slot is None or slot.asset_uid != session["asset_id"]:
+                return 0
+            current = session.get("target_current_a")
+            if current is not None and slot.current_a is not None and slot.current_a < current - 1e-6:
+                return 1
+            return 2
+        return sorted(chargers, key=order)
+
     async def advance_plan(self, quarter_start):
         """Apply one qualified quarter plan through the only existing executor.
 
@@ -1571,7 +1588,7 @@ class NativeSwitchExecutor:
         self._grant_configuration = deepcopy(self.runtime.configuration)
         self._grant_plan_revision = assessment.plan.revision
         try:
-            for charger in self.runtime.configuration["chargers"]:
+            for charger in self._quarter_order(self.runtime.configuration["chargers"], slots):
                 uid = charger["id"]
                 if (charger.get("control_owner", "external") != "multicharge"
                         or charger.get("physical_commissioned") is not True

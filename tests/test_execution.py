@@ -874,6 +874,57 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         await rt.executor.supervise()
         self.assertEqual(services.calls[-1][1], "turn_off")
 
+    async def test_quarter_order_releases_previous_boost_before_new_start(self):
+        rt, states, _ = rig(mode="Automatic")
+        executor = rt.executor
+        drive = rt.configuration["chargers"][0]
+        other = {**drive, "id": "other", "control_entity": "switch.other"}
+        states["switch.evse_control"].state = "on"
+        states["switch.other"] = state("off")
+        executor._sessions["evse"] = {"asset_id": "car", "target_current_a": 15}
+        executor._accepted["evse"] = {}
+        slot = SimpleNamespace(asset_uid="car", current_a=6)
+        self.assertEqual([row["id"] for row in executor._quarter_order(
+            [other, drive], {"evse": slot})], ["evse", "other"])
+        self.assertEqual([row["id"] for row in executor._quarter_order(
+            [other, drive], {})], ["evse", "other"])
+
+    async def test_automatic_boost_stops_on_measured_goal_before_reserved_finish(self):
+        rt, states, services = rig(group_kw=3.6, mode="Automatic")
+        charger = rt.configuration["chargers"][0]
+        charger.update(kind="variable_current", rated_power_kw=3.6,
+                       voltage_v=230, min_current_a=6, max_current_a=16,
+                       current_step_a=1, dedicated_asset_id="car",
+                       current_control_entity="number.charge_limit",
+                       current_readback_entity="sensor.actual_current")
+        native = state(6, "A")
+        native.attributes.update(min=6, max=16, step=1)
+        states["number.charge_limit"] = native
+        states["sensor.actual_current"] = state(0, "A")
+        rt.configuration = validate_configuration(rt.configuration)
+        rt.executor._plug_confirmations.clear()
+        at = datetime.now(timezone.utc)
+        quarter = at.replace(minute=at.minute//15*15, second=0, microsecond=0)
+        for source in states.values():
+            source.last_updated = quarter+timedelta(seconds=1)
+        states["binary_sensor.cable"].last_changed = quarter
+        rt.refresh(quarter)
+        slots = rt.assessment.plan.slots
+        self.assertEqual(len(slots), 3)
+        self.assertTrue(all(s.expected_power_kw == 1.38 and s.current_a == 15 for s in slots))
+        await rt.executor.advance_plan(quarter)
+        self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 15)
+        states["sensor.meter"].state = "5.5"
+        states["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        await rt.executor.supervise()
+        self.assertEqual(states["switch.evse_control"].state, "on")
+        states["sensor.meter"].state = "6.02"
+        states["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        await rt.executor.supervise()
+        self.assertEqual(states["switch.evse_control"].state, "off")
+        self.assertFalse(rt.executor.session_snapshot())
+        self.assertEqual(services.calls[-1][1], "turn_off")
+
     async def test_quarter_grant_rechecks_changed_configuration_before_start(self):
         rt, states, services = rig(mode="Automatic")
         at = datetime.now(timezone.utc)
