@@ -133,6 +133,7 @@ async def websocket_get_plan(
                 session_receipts=receipts,
                 price_slots=runtime.price_slots, include_valuations=True,
                 power_bindings=runtime.power_bindings, energy_bindings=runtime.energy_bindings,
+                tariff_bindings=runtime.tariff_bindings,
                 include_observed_sessions=True, active_sessions=result["active_sessions"],
                 tariff_entity=(result["configuration"]["controller"].get("price_entity") or
                                result["configuration"]["controller"].get("current_price_entity")),

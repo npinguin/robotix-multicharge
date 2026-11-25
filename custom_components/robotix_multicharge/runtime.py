@@ -20,7 +20,10 @@ from .source_evidence import (
     live_power, live_price, soc_with_health,
 )
 from .execution import NativeSwitchExecutor
-from .history import planned_costs, read_actual_history, reconcile_power_bindings, session_costs
+from .history import (
+    planned_costs, read_actual_history, reconcile_power_bindings,
+    reconcile_tariff_bindings, session_costs,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -66,6 +69,7 @@ class MultiChargeRuntime:
         self._control_store = None
         self.power_bindings = reconcile_power_bindings(None, configuration, datetime.now(timezone.utc))
         self.energy_bindings = reconcile_power_bindings({}, configuration, datetime.now(timezone.utc), field="energy_entity")
+        self.tariff_bindings = reconcile_tariff_bindings(None, configuration, datetime.now(timezone.utc))
         self._save_lock = asyncio.Lock()
         self._settings_action = None
         self._listeners = set()
@@ -94,7 +98,7 @@ class MultiChargeRuntime:
             session_receipts=receipts, price_slots=self.price_slots,
             include_valuations=True, include_observed_sessions=True,
             power_bindings=self.power_bindings, energy_bindings=self.energy_bindings,
-            active_sessions=active,
+            tariff_bindings=self.tariff_bindings, active_sessions=active,
             tariff_entity=(cfg["controller"].get("price_entity") or
                            cfg["controller"].get("current_price_entity")),
         )
@@ -176,6 +180,14 @@ class MultiChargeRuntime:
             self.energy_bindings = reconcile_power_bindings(
                 {}, self.configuration, datetime.now(timezone.utc), field="energy_entity",
             )
+        previous_tariffs = snapshot.get("tariff_bindings") if isinstance(snapshot, dict) else None
+        try:
+            self.tariff_bindings = reconcile_tariff_bindings(
+                previous_tariffs, self.configuration, datetime.now(timezone.utc))
+        except (ValueError, TypeError, KeyError, OverflowError):
+            _LOGGER.warning("Invalid stored tariff binding history; earlier valuations are unknown")
+            self.tariff_bindings = reconcile_tariff_bindings(
+                {}, self.configuration, datetime.now(timezone.utc))
         recorded = snapshot.get("settings_action") if isinstance(snapshot, dict) else None
         if (isinstance(recorded, dict)
                 and isinstance(recorded.get("expected_revision"), str)
@@ -220,6 +232,7 @@ class MultiChargeRuntime:
                     "settings_action": self._settings_action,
                     "power_bindings": self.power_bindings,
                     "energy_bindings": self.energy_bindings,
+                    "tariff_bindings": self.tariff_bindings,
                 })
             return True
         except (OSError, ValueError, RuntimeError):

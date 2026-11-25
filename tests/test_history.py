@@ -67,6 +67,37 @@ class NativeMeasuredHistoryTests(unittest.TestCase):
         self.assertIsNone(result["controller"]["site"]["active"]["cost"])
         self.assertEqual(result["charger"]["b"]["active"]["quality"], "partial_observation")
 
+    def test_tariff_remap_keeps_old_source_and_clips_forecast(self):
+        first = NOW-timedelta(minutes=30)
+        changed = NOW-timedelta(minutes=10)
+        config = {"controller": {"current_price_entity": "sensor.old"}}
+        before = mod.reconcile_tariff_bindings(None, config, first)
+        config["controller"]["price_entity"] = "sensor.new"
+        after = mod.reconcile_tariff_bindings(before, config, changed)
+        self.assertEqual(mod._binding_for_interval(after["site"], first, changed), "sensor.old")
+        self.assertEqual(mod._binding_for_interval(after["site"], changed, NOW), "sensor.new")
+        self.assertIsNone(mod._binding_for_interval(after["site"], first, NOW))
+        old = self._price(first, NOW, 0.2, basis="spot")
+        new = self._price(first, NOW, 0.6, basis="spot")
+        from unittest.mock import patch
+        with patch.object(mod, "_historical_reference_quotes",
+                          side_effect=lambda hass, historical, entity, current, a, b:
+                          (old,) if entity == "sensor.old" else (new,)):
+            quotes = mod._quotes_at_binding(None, {}, after["site"], "sensor.new",
+                                            [new], first, NOW)
+        self.assertEqual([(q.start, q.end, q.effective_price_per_kwh) for q in quotes],
+                         [(first, changed, 0.2), (changed, NOW, 0.6)])
+        result = mod._run_valuation([(first, NOW, 3.0)], quotes)
+        self.assertAlmostEqual(result["estimated_cost"], 0.5)
+
+    def test_unconfirmed_closed_session_cost_is_not_attributed_to_car(self):
+        row = {"charger_id": "drive", "asset_id": "car",
+               "started_at": (NOW-timedelta(minutes=15)).isoformat(),
+               "ended_at": NOW.isoformat(), "physical_stop_confirmed": False}
+        result = mod.session_costs([row], {}, [], {}, {})
+        self.assertNotIn("car", result["asset"])
+        self.assertIn("last", result["charger"]["drive"])
+
     def test_historical_attribution_uses_session_at_time_not_new_assignment(self):
         beginning = NOW - timedelta(minutes=45)
         receipts = [{

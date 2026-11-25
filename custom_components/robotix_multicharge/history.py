@@ -61,6 +61,14 @@ def reconcile_power_bindings(previous, configuration, at, *, field="power_entity
     return bindings
 
 
+def reconcile_tariff_bindings(previous, configuration, at):
+    """Same epoch contract as physical meter sources, no price data in Store."""
+    ctl = configuration["controller"]
+    return reconcile_power_bindings(previous, {"chargers": [{
+        "id": "site", "price_entity": ctl.get("price_entity") or ctl.get("current_price_entity"),
+    }]}, at, field="price_entity")
+
+
 def _binding_for_interval(epochs, start, end):
     """A whole interval must belong to one known native source."""
     selected = None
@@ -586,6 +594,38 @@ def _historical_reference_quotes(hass, historical, entity, current, first, last)
     return tuple(unique.values())
 
 
+def _quotes_at_binding(hass, historical, epochs, current_entity, current, first, last):
+    """Use each original tariff source only during its recorded binding epoch.
+
+    Do not value a former source's intervals using the current provider or
+    let its future forecasts spill across a remap. A boundary within a quote
+    is clipped to the actual change instant, never extrapolated.
+    """
+    result = []
+    for i, epoch in enumerate(epochs):
+        entity = epoch["entity"]
+        if not entity:
+            continue
+        begin = max(first, datetime.fromisoformat(epoch["start"])) if epoch["start"] else first
+        end = min(last, datetime.fromisoformat(epochs[i+1]["start"])) if i+1 < len(epochs) else last
+        if begin >= end:
+            continue
+        quotes = _historical_reference_quotes(
+            hass, historical, entity,
+            current if entity == current_entity and i+1 == len(epochs) else (),
+            begin, end,
+        )
+        for row in quotes:
+            left = max(begin, row.start.astimezone(timezone.utc))
+            right = min(end, row.end.astimezone(timezone.utc))
+            if left < right:
+                result.append(type(row)(
+                    start=left, end=right, effective_price_per_kwh=row.effective_price_per_kwh,
+                    currency=row.currency, basis=row.basis,
+                ))
+    return tuple(result)
+
+
 def _covered_power_segments(states, start, end):
     """A complete, timestamp-qualified power trajectory within a known receipt."""
     samples = sorted((item for state in states if (item := _sample(state))),
@@ -660,7 +700,9 @@ def session_costs(receipts, active_sessions, observed, estimates, metrics):
 
     def add(row, phase, observed_only=False):
         uid = row["charger_id"]
-        asset = None if observed_only else row.get("asset_id")
+        asset = (None if observed_only or (phase == "last"
+                 and row.get("physical_stop_confirmed") is not True)
+                 else row.get("asset_id"))
         key = (uid, row["started_at"], row.get("ended_at"))
         evidence = {**row, **metrics.get(key, {}), **estimates.get(key, {})}
         verified = (not observed_only and phase == "last"
@@ -749,7 +791,7 @@ async def read_actual_history(hass, configuration, start, end, *,
                               session_receipts=(), price_slots=(),
                               include_valuations=False, power_bindings=None,
                               include_observed_sessions=False, active_sessions=None,
-                              tariff_entity=None, energy_bindings=None):
+                              tariff_entity=None, energy_bindings=None, tariff_bindings=None):
     """Query the installed native Recorder once for exact configured chargers."""
     now = datetime.now(timezone.utc)
     first, last = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
@@ -772,7 +814,17 @@ async def read_actual_history(hass, configuration, start, end, *,
         if not include_valuations and not include_observed_sessions:
             return rows, quality
         valued = {}
-        if historical is not None and price_slots:
+        quotes = price_slots
+        if historical is not None and tariff_bindings is not None:
+            quotes = _quotes_at_binding(
+                hass, historical, tariff_bindings.get("site", ()), tariff_entity,
+                price_slots, history_first, history_end,
+            )
+        elif historical is not None and tariff_entity:
+            quotes = _historical_reference_quotes(
+                hass, historical, tariff_entity, price_slots, history_first, history_end,
+            )
+        if historical is not None and quotes:
             for receipt in session_receipts:
                 charger = receipt.get("charger_id")
                 if (charger not in selected
@@ -791,17 +843,14 @@ async def read_actual_history(hass, configuration, start, end, *,
                 if not source:
                     continue
                 evidence = _estimated_session_variable_cost(
-                    historical.get(source, []), receipt, price_slots, now,
+                    historical.get(source, []), receipt, tuple(
+                        row for row in quotes if row.start < ended and row.end > started
+                    ), now,
                 )
                 if evidence is not None:
                     valued[(charger, receipt["started_at"],
                             receipt["ended_at"])] = evidence
         if include_observed_sessions:
-            quotes = price_slots
-            if historical is not None and tariff_entity:
-                quotes = _historical_reference_quotes(
-                    hass, historical, tariff_entity, price_slots, history_first, history_end,
-                )
             observed = (_observed_session_rows(
                 historical, bindings, selected, history_first, history_end, now,
                 session_receipts, active_sessions, quotes, energy_bindings,
@@ -829,9 +878,18 @@ async def read_actual_history(hass, configuration, start, end, *,
     if history_first >= history_end:
         return reply([], "FUTURE_ONLY")
     power_entities = tuple(entities)
+    if include_observed_sessions or include_valuations:
+        tariff_sources = {
+            epoch["entity"] for i, epoch in enumerate((tariff_bindings or {}).get("site", ()))
+            if epoch["entity"]
+            and (epoch["start"] is None or datetime.fromisoformat(epoch["start"]) < history_end)
+            and (i+1 == len(tariff_bindings["site"])
+                 or datetime.fromisoformat(tariff_bindings["site"][i+1]["start"]) > history_first)
+        }
+        if tariff_bindings is None and tariff_entity:
+            tariff_sources.add(tariff_entity)
+        entities.extend(sorted(tariff_sources - set(entities)))
     if include_observed_sessions:
-        if tariff_entity and tariff_entity not in entities:
-            entities.append(tariff_entity)
         for uid in selected:
             for epoch in (energy_bindings or {}).get(uid, ()):
                 if epoch["entity"] and epoch["entity"] not in entities:

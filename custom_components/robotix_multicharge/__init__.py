@@ -165,8 +165,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Do not replace an invalid physical intent snapshot with an empty one.
     previous_bindings = saved.get("power_bindings") if isinstance(saved, dict) else None
     previous_energy = saved.get("energy_bindings") if isinstance(saved, dict) else None
+    previous_tariffs = saved.get("tariff_bindings") if isinstance(saved, dict) else None
     if runtime.executor._persistence_verified and (
-            previous_bindings != runtime.power_bindings or previous_energy != runtime.energy_bindings):
+            previous_bindings != runtime.power_bindings or previous_energy != runtime.energy_bindings
+            or previous_tariffs != runtime.tariff_bindings):
         if not await runtime.persist_control_state():
             runtime.executor._persistence_verified = False
     runtime.refresh()
