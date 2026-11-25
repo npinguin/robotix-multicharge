@@ -14,6 +14,62 @@ from .configuration import WEEKDAYS
 from .history import read_actual_history
 
 
+def charger_setup_projection(hass, registry, runtime, charger):
+    """Propose same-device native roles and expose effective current bounds.
+
+    No guessed entity names, no writes, and no automatic electrical limit changes.
+    """
+    anchor = registry.async_get(charger.get("control_entity", ""))
+    device_id = anchor.device_id if anchor is not None else None
+    candidates = {}
+    if device_id is not None:
+        for entry in registry.entities.values():
+            if entry.device_id != device_id or entry.disabled_by is not None:
+                continue
+            state = hass.states.get(entry.entity_id)
+            if state is None:
+                continue
+            domain = entry.entity_id.split(".", 1)[0]
+            unit = state.attributes.get("unit_of_measurement")
+            device_class = state.attributes.get("device_class")
+            role = None
+            if domain == "sensor":
+                if device_class == "power" and unit in ("W", "kW"):
+                    role = "power_entity"
+                elif device_class == "energy" and unit in ("Wh", "kWh", "MWh"):
+                    role = "energy_entity"
+                elif device_class == "current" and unit == "A":
+                    role = "current_readback_entity"
+            elif domain == "binary_sensor" and device_class == "plug":
+                role = "connected_entity"
+            elif domain == "number" and unit == "A" and charger["kind"] == "variable_current":
+                role = "current_control_entity"
+            if role:
+                candidates.setdefault(role, []).append(entry.entity_id)
+    already_bound = {
+        value for row in runtime.configuration["chargers"]
+        for key, value in row.items() if key.endswith("_entity")
+    }
+    proposals = {
+        field: ids[0] for field, ids in candidates.items()
+        if not charger.get(field) and len(ids) == 1
+        and ids[0] not in already_bound
+    }
+    effective = runtime.executor.effective_charger(charger)
+    preview = runtime.executor.effective_charger({**charger, **proposals})
+    bounds = ("min_current_a", "max_current_a", "current_step_a")
+    for field in bounds:
+        if charger.get(field) is None and preview.get(field) is not None:
+            proposals[field] = preview[field]
+    return {
+        "device_matched": device_id is not None,
+        "candidates": {field: sorted(ids) for field, ids in candidates.items()},
+        "proposed_missing": proposals,
+        "configured_current": {field: charger.get(field) for field in bounds},
+        "effective_current": {field: effective.get(field) for field in bounds},
+    }
+
+
 @websocket_api.websocket_command({
     vol.Required("type"): "robotix_multicharge/get_plan",
     vol.Optional("controller_id"): str,
@@ -103,6 +159,10 @@ async def websocket_get_plan(
         # Use the same configuration snapshot as the response, even if an
         # asynchronous Recorder query overlapped a settings update.
         cfg = result["configuration"]
+        result["charger_setup"] = {
+            row["id"]: charger_setup_projection(hass, registry, runtime, row)
+            for row in cfg["chargers"]
+        }
         result["preference_entities"] = {
             "controller": {
                 field: native_select("controller", cfg["controller"]["id"], field)
