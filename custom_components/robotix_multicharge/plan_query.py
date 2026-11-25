@@ -36,7 +36,7 @@ def charger_setup_projection(hass, registry, runtime, charger):
             if domain == "sensor":
                 if device_class == "power" and unit in ("W", "kW"):
                     role = "power_entity"
-                elif device_class == "energy" and unit in ("Wh", "kWh", "MWh"):
+                elif device_class == "energy" and unit in ("Wh", "kWh"):
                     role = "energy_entity"
                 elif device_class == "current" and unit == "A":
                     role = "current_readback_entity"
@@ -79,6 +79,8 @@ def charger_setup_projection(hass, registry, runtime, charger):
     vol.Optional("charger_id"): str,
     vol.Optional("asset_id"): str,
     vol.Optional("include_history", default=True): bool,
+    vol.Optional("discover_charger"): {vol.Required("control_entity"): str,
+                                      vol.Required("kind"): vol.In(("on_off", "variable_current"))},
 })
 @websocket_api.async_response
 async def websocket_get_plan(
@@ -120,15 +122,18 @@ async def websocket_get_plan(
             charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
         )
         if msg.get("include_history", True):
-            actual, quality, estimates = await read_actual_history(
+            actual, quality, estimates, observed_sessions, session_metrics = await read_actual_history(
                 hass, result["configuration"], start, end,
                 charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
                 session_receipts=runtime.executor.completed_sessions(),
                 price_slots=runtime.price_slots, include_valuations=True,
                 power_bindings=runtime.power_bindings,
+                include_observed_sessions=True, active_sessions=result["active_sessions"],
+                tariff_entity=(result["configuration"]["controller"].get("price_entity") or
+                               result["configuration"]["controller"].get("current_price_entity")),
             )
         else:
-            actual, quality, estimates = [], "NOT_REQUESTED", {}
+            actual, quality, estimates, observed_sessions, session_metrics = [], "NOT_REQUESTED", {}, [], {}
         # A Recorder-based *indicative* variable component belongs in the
         # read-only view only. Never mutate persisted session receipts or
         # convert a power integration into an authoritative billed cost.
@@ -138,6 +143,11 @@ async def websocket_get_plan(
                     receipt["charger_id"], receipt["started_at"],
                     receipt["ended_at"],
                 ), {}))
+        for receipt in result["completed_sessions"]:
+            receipt.update(session_metrics.get((receipt["charger_id"], receipt["started_at"], receipt["ended_at"]), {}))
+        for uid, receipt in result["active_sessions"].items():
+            receipt.update(session_metrics.get((uid, receipt["started_at"], None), {}))
+        result["observed_sessions"] = observed_sessions
         entry = hass.config_entries.async_get_entry(entry_id)
         result["configuration_managed_by_yaml"] = bool(
             entry is not None and entry.data.get("source") in ("yaml", "json")
@@ -163,6 +173,12 @@ async def websocket_get_plan(
             row["id"]: charger_setup_projection(hass, registry, runtime, row)
             for row in cfg["chargers"]
         }
+        if "discover_charger" in msg:
+            # Only an explicitly selected native switch may anchor discovery.
+            draft = msg["discover_charger"]
+            if not draft["control_entity"].startswith("switch."):
+                raise ValueError("native switch required")
+            result["charger_setup_draft"] = charger_setup_projection(hass, registry, runtime, draft)
         result["preference_entities"] = {
             "controller": {
                 field: native_select("controller", cfg["controller"]["id"], field)
