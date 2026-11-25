@@ -401,6 +401,53 @@ async def test_native_recorder_history_pricing_reuses_one_ha_query_without_billi
 
 
 @pytest.mark.asyncio
+async def test_native_financial_day_reuses_single_recorder_query(hass: HomeAssistant, monkeypatch):
+    """Exercise the real HA background projection seam with deterministic input."""
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+    from homeassistant.components import recorder
+    from custom_components.robotix_multicharge.contracts import PriceSlot
+    from custom_components.robotix_multicharge.history import read_actual_history, civil_period_costs
+
+    end = datetime.now(timezone.utc)-timedelta(seconds=5)
+    start = end-timedelta(minutes=30)
+    middle = start+timedelta(minutes=15)
+    calls = []
+    class NativeRecorder:
+        async def async_add_executor_job(self, fn, *args):
+            calls.append((fn, args))
+            return {"sensor.native_power": [
+                SimpleNamespace(state="2000", last_updated=start,
+                                attributes={"unit_of_measurement": "W"}),
+                SimpleNamespace(state="4000", last_updated=middle,
+                                attributes={"unit_of_measurement": "W"}),
+            ]}
+    monkeypatch.setattr(recorder, "get_instance", lambda _hass: NativeRecorder())
+    hass.config.components.add("recorder")
+    cfg = {"controller": {"id": "site"}, "chargers": [
+        {"id": "charger", "power_entity": "sensor.native_power"}],
+        "assets": [{"id": "car"}]}
+    receipt = {"charger_id": "charger", "asset_id": "car",
+               "started_at": start.isoformat(), "ended_at": end.isoformat(),
+               "physical_stop_confirmed": True, "actual_energy_kwh": 1.5,
+               "energy_quality": "measured"}
+    days = {start.date().isoformat(): (start, end)}
+    _, _, estimates, _, _, raw = await read_actual_history(
+        hass, cfg, start, end, financial_days=days,
+        include_observed_sessions=True, include_valuations=True,
+        session_receipts=[receipt], price_slots=[
+            PriceSlot(start, middle, 0.2, "EUR"),
+            PriceSlot(middle, end, 0.32, "EUR")],
+    )
+    result = civil_period_costs(days, raw)
+    assert len(calls) == 1
+    assert result["controller"]["site"]["today"]["cost"] == pytest.approx(0.42)
+    assert result["asset"]["car"]["today"]["cost"] == pytest.approx(0.42)
+    assert result["charger"]["charger"]["today"]["average_price_per_kwh"] == pytest.approx(0.28)
+    assert estimates[("charger", receipt["started_at"], receipt["ended_at"])]["estimated_variable_cost"] == pytest.approx(0.42)
+
+
+@pytest.mark.asyncio
 async def test_native_recorder_remap_keeps_original_measured_quarters(hass: HomeAssistant, monkeypatch):
     from datetime import datetime, timedelta, timezone
     from types import SimpleNamespace

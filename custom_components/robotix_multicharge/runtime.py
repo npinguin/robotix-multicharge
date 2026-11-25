@@ -1136,10 +1136,21 @@ class MultiChargeRuntime:
             and (asset_id is None or receipt["asset_id"] == asset_id)
         ]
         capabilities = self.executor.capabilities()
+        at = datetime.now(timezone.utc)
+        def view_costs(assessment):
+            return planned_costs(
+                [slot for slot in assessment.plan.slots
+                 if (charger_id is None or slot.charger_uid == charger_id)
+                 and (asset_id is None or slot.asset_uid == asset_id)] if assessment else (),
+                self.price_slots, max(at, first), until=last,
+            )["controller"]["site"]
         return {
             "schema_major": 1,
             "plan_palette": dict(PLAN_COLORS),
             "planned_costs": self.planned_costs,
+            "view_planned_cost": view_costs(assessment),
+            "view_indicative_cost": view_costs(self.forecast_assessment)
+                if self.configuration["controller"].get("show_indicative_forecast", True) else None,
             "session_costs": self.session_costs,
             "period_costs": self.period_costs,
             "live": self.live_state(),

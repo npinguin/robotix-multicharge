@@ -44,6 +44,8 @@ class NativeMeasuredHistoryTests(unittest.TestCase):
         self.assertEqual(partial["controller"]["site"]["quality"], "incomplete_tariff")
         clipped = mod.planned_costs(rows, prices, mid)
         self.assertAlmostEqual(clipped["controller"]["site"]["cost"], 0.3)
+        bounded = mod.planned_costs(rows, prices, start, until=mid)
+        self.assertAlmostEqual(bounded["controller"]["site"]["cost"], -0.1)
 
 
     def test_session_costs_do_not_reassign_external_or_duplicate_site(self):
@@ -132,6 +134,32 @@ class NativeMeasuredHistoryTests(unittest.TestCase):
         self.assertAlmostEqual(site["month"]["covered_cost"], 0.25)
         self.assertIsNone(periods["asset"]["old"]["today"]["cost"])
         self.assertAlmostEqual(periods["asset"]["old"]["today"]["covered_cost"], 0.1)
+
+    def test_overlapping_historic_power_claim_is_not_double_counted(self):
+        first = NOW-timedelta(minutes=30)
+        middle = NOW-timedelta(minutes=15)
+        configuration = {"chargers": [{"id": "a"}, {"id": "b"}], "assets": []}
+        bindings = {"a": [{"start": None, "entity": "sensor.shared"}],
+                    "b": [{"start": middle.isoformat(), "entity": "sensor.shared"}]}
+        states = {"sensor.shared": [recorded(first, 4000), recorded(middle, 4000)]}
+        result = mod.daily_costs(states, bindings, configuration, first, NOW,
+                                 [self._price(first, NOW, 0.3)])
+        site = result["controller"]["site"]
+        self.assertAlmostEqual(site["observed_energy_kwh"], 1.0)
+        self.assertEqual(site["observed_seconds"], 900)
+        period = mod.civil_period_costs({"2026-11-22": (first, NOW)}, {"2026-11-22": result})
+        self.assertIsNone(period["controller"]["site"]["today"]["cost"])
+        self.assertAlmostEqual(period["controller"]["site"]["today"]["covered_cost"], 0.3)
+
+    def test_civil_cost_zero_idle_is_not_missing_or_mixed_with_charged_basis(self):
+        first = NOW-timedelta(minutes=15)
+        configuration = {"chargers": [{"id": "a"}], "assets": []}
+        bindings = {"a": [{"start": None, "entity": "sensor.a"}]}
+        idle = mod.daily_costs({"sensor.a": [recorded(first, 0)]}, bindings,
+                               configuration, first, NOW, [self._price(first, NOW, 0.4)])
+        period = mod.civil_period_costs({"2026-11-22": (first, NOW)}, {"2026-11-22": idle})
+        self.assertEqual(period["controller"]["site"]["today"]["cost"], 0)
+        self.assertIsNone(period["controller"]["site"]["today"]["average_price_per_kwh"])
 
     def test_civil_cost_days_respect_dst_and_missing_measurements(self):
         at = datetime(2026, 10, 26, 11, tzinfo=timezone.utc)

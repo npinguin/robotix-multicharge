@@ -193,70 +193,24 @@ def _estimated_session_variable_cost(states, receipt, price_slots, now):
         return None
     if not start < end <= at or end - start > timedelta(hours=48):
         return None
-    observed = sorted(
-        (item for state in states if (item := _sample(state)) is not None),
-        key=lambda item: item[0],
-    )
-    if not observed or any(
-        first[0] == second[0] for first, second in zip(observed, observed[1:])
-    ):
+    # Reuse the same complete native-power and interval valuation paths as
+    # all other session/plan cost projections. Keep the stricter independent
+    # receipt and effective-only requirements of this existing public field.
+    if any(getattr(row, "basis", None) != "effective" for row in price_slots):
         return None
-    # Convert provider-local aware timestamps to UTC before ordering.
-    # Python's local-zone comparison can otherwise collapse distinct fold=0
-    # and fold=1 instants on a 25-hour DST fallback day.
-    tariffs = []
-    try:
-        for slot in price_slots:
-            if (slot.start.utcoffset() is None
-                    or slot.end.utcoffset() is None
-                    or slot.basis != "effective"
-                    or not isfinite(slot.effective_price_per_kwh)):
-                return None
-            left = slot.start.astimezone(timezone.utc)
-            right = slot.end.astimezone(timezone.utc)
-            if left >= right:
-                return None
-            if left < end and right > start:
-                tariffs.append((left, right, slot))
-    except (AttributeError, TypeError, ValueError, OverflowError):
+    segments = _covered_power_segments(states, start, end)
+    if not segments:
         return None
-    tariffs.sort(key=lambda row: row[0])
-    if not tariffs:
+    value = _run_valuation(segments, price_slots)
+    if value is None:
         return None
-    currencies = {slot.currency for _, _, slot in tariffs}
-    if len(currencies) != 1 or not next(iter(currencies)):
-        return None
-    if any(first[1] > second[0]
-           for first, second in zip(tariffs, tariffs[1:])):
-        return None
-    boundaries = sorted(
-        {start, end}
-        | {stamp for stamp, _ in observed if start < stamp < end}
-        | {edge for left, right, _ in tariffs for edge in (left, right)
-           if start < edge < end}
-    )
-    cost = 0.0
-    measured_kwh = 0.0
-    for left, right in zip(boundaries, boundaries[1:]):
-        candidates = [slot for from_utc, to_utc, slot in tariffs
-                      if from_utc <= left and to_utc >= right]
-        if len(candidates) != 1:
-            return None
-        readings = [reading for reading in observed if reading[0] <= left]
-        if not readings:
-            return None
-        stamp, power_kw = readings[-1]
-        if (power_kw is None or stamp > left
-                or right - stamp > MAX_OBSERVATION_AGE):
-            return None
-        energy_kwh = power_kw * (right - left).total_seconds() / 3600
-        measured_kwh += energy_kwh
-        cost += energy_kwh * candidates[0].effective_price_per_kwh
-    if not isfinite(cost) or not isfinite(measured_kwh):
+    measured_kwh = sum(power*(right-left).total_seconds()/3600
+                       for left, right, power in segments)
+    if not isfinite(measured_kwh):
         return None
     return {
-        "estimated_variable_cost": round(cost, 6),
-        "estimated_variable_cost_currency": next(iter(currencies)),
+        "estimated_variable_cost": value["estimated_cost"],
+        "estimated_variable_cost_currency": value["estimated_cost_currency"],
         "estimated_variable_cost_energy_kwh": round(measured_kwh, 6),
         "estimated_variable_cost_quality":
             "observed_power_integral_effective_tariff",
@@ -338,37 +292,36 @@ def _observed_runs(states, first, last, now):
 
 
 def _run_valuation(segments, price_slots):
-    """Exact overlap of measured power segments with one quote per instant.
-
-    Reference, spot and effective series can produce a read-only estimate;
-    none of these estimates is a billed cost or budget-control input.
-    """
-    quotes = []
-    for row in price_slots:
-        try:
-            if (row.basis not in ("effective", "variable_reference", "spot")
-                    or not isfinite(row.effective_price_per_kwh)
-                    or row.start.utcoffset() is None or row.end.utcoffset() is None
-                    or not row.currency or row.end <= row.start):
-                continue
-            quotes.append((row.start.astimezone(timezone.utc),
-                           row.end.astimezone(timezone.utc), row))
-        except (AttributeError, TypeError, ValueError, OverflowError):
-            continue
+    """Exact overlap of measured power with the shared unique price partition."""
+    if not segments:
+        return None
+    try:
+        normalized = [
+            (a.astimezone(timezone.utc), b.astimezone(timezone.utc), power)
+            for a, b, power in segments
+            if a.utcoffset() is not None and b.utcoffset() is not None
+            and isfinite(power) and power >= 0
+        ]
+        if len(normalized) != len(segments) or any(a >= b for a, b, _ in normalized):
+            return None
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        return None
+    spans = _price_spans(price_slots, min(a for a, _, _ in normalized),
+                         max(b for _, b, _ in normalized))
+    starts = [a for a, _, _ in spans]
     total = 0.0
     kinds = set()
-    for start, end, power in segments:
-        overlapping = [(a, b, row) for a, b, row in quotes if a < end and b > start]
-        edges = sorted({start, end} | {
-            edge for a, b, _ in overlapping for edge in (a, b) if start < edge < end
-        })
-        for left, right in zip(edges, edges[1:]):
-            matched = [row for a, b, row in overlapping if a <= left and b >= right]
-            if len(matched) != 1:
-                return None
-            price = matched[0]
-            kinds.add((price.currency, price.basis))
-            total += power * (right-left).total_seconds()/3600 * price.effective_price_per_kwh
+    for start, end, power in normalized:
+        index = max(0, bisect_right(starts, start)-1)
+        while index < len(spans) and spans[index][0] < end:
+            a, b, quote = spans[index]
+            left, right = max(a, start), min(b, end)
+            if left < right:
+                if quote is None:
+                    return None
+                kinds.add((quote.currency, quote.basis))
+                total += power*(right-left).total_seconds()/3600*quote.effective_price_per_kwh
+            index += 1
     if len(kinds) != 1 or not isfinite(total):
         return None
     currency, basis = next(iter(kinds))
@@ -376,7 +329,7 @@ def _run_valuation(segments, price_slots):
             "estimated_cost_currency": currency, "estimated_cost_basis": basis}
 
 
-def planned_costs(slots, price_slots, at):
+def planned_costs(slots, price_slots, at, *, until=None):
     """Single read-only valuation of proposed executable plan, by stable owner.
 
     Only future energy in the current planner's actual slots is counted.
@@ -385,7 +338,7 @@ def planned_costs(slots, price_slots, at):
     """
     groups = {"controller": {"site": []}, "charger": {}, "asset": {}}
     for row in slots:
-        start, end = max(at, row.start), row.end
+        start, end = max(at, row.start), min(until, row.end) if until else row.end
         if end <= start or row.power_kw <= 0:
             continue
         segment = (start, end, row.power_kw)
@@ -892,12 +845,28 @@ def daily_costs(historical, bindings, configuration, first, last, quotes,
                 and row.get("physical_stop_confirmed") is not True):
             continue
         try:
-            a = datetime.fromisoformat(row["started_at"]).astimezone(timezone.utc)
-            b = datetime.fromisoformat(row["ended_at"]).astimezone(timezone.utc) if row.get("ended_at") else last
+            a = datetime.fromisoformat(row["started_at"])
+            b = datetime.fromisoformat(row["ended_at"]) if row.get("ended_at") else last
+            if a.utcoffset() is None or b.utcoffset() is None:
+                continue
+            a, b = a.astimezone(timezone.utc), b.astimezone(timezone.utc)
             if a < b and a < last and b > first:
                 sessions.setdefault(row["charger_id"], []).append((a, b, row["asset_id"]))
         except (KeyError, TypeError, ValueError, OverflowError):
             continue
+
+    # A physical source may be reused sequentially, never charged twice for
+    # overlapping historic claims. Keep the exclusive portions and disclose
+    # ambiguous periods as missing coverage, without assigning an arbitrary owner.
+    claims = {}
+    for uid, epochs in bindings.items():
+        for i, epoch in enumerate(epochs):
+            if not epoch["entity"]:
+                continue
+            a = max(first, datetime.fromisoformat(epoch["start"])) if epoch["start"] else first
+            b = min(last, datetime.fromisoformat(epochs[i+1]["start"])) if i+1 < len(epochs) else last
+            if a < b:
+                claims.setdefault(epoch["entity"], []).append((uid, a, b))
 
     power_cache = {}
     for uid in sorted(cfg_chargers | set(bindings)):
@@ -924,23 +893,30 @@ def daily_costs(historical, bindings, configuration, first, last, quotes,
                 power_cache[entity] = (spans, [row[0] for row in spans])
             spans, span_edges = power_cache[entity]
             index = max(0, bisect_right(span_edges, start)-1)
+            other_claims = [(a, b) for other, a, b in claims.get(entity, ()) if other != uid
+                            and a < end and b > start]
+            claim_edges = sorted({edge for a, b in other_claims for edge in (a, b)})
             for left, right, power in spans[index:]:
                 if left >= end:
                     break
                 a, b = max(left, start), min(right, end)
                 if a >= b or power is None:
                     continue
-                bucket["observed_seconds"] += (b-a).total_seconds()
-                if power == 0:
-                    continue  # proven idle does not require a tariff
                 # Split at exact physical/session/tariff boundaries; the
                 # measured power remains constant only inside this span.
                 edges = sorted({a, b} | {
+                    edge for edge in claim_edges[bisect_right(claim_edges, a):bisect_left(claim_edges, b)]
+                } | {
                     edge for edge in owner_edges[bisect_right(owner_edges, a):bisect_left(owner_edges, b)]
                 } | {
                     edge for edge in price_edges[bisect_right(price_edges, a):bisect_left(price_edges, b)]
                 })
                 for x, y in zip(edges, edges[1:]):
+                    if any(left < y and right > x for left, right in other_claims):
+                        continue
+                    bucket["observed_seconds"] += (y-x).total_seconds()
+                    if power == 0:
+                        continue  # proven idle does not require a tariff
                     energy = power*(y-x).total_seconds()/3600
                     matching = [asset for since, until, asset in attribution
                                 if since <= x and until >= y]
@@ -969,6 +945,17 @@ def daily_costs(historical, bindings, configuration, first, last, quotes,
         bucket["expected_seconds"] = site["expected_seconds"]
         bucket["observed_seconds"] = site["observed_seconds"]
         bucket["unattributed_energy_kwh"] = site["unattributed_energy_kwh"]
+    # A fully observed zero-energy day is a real zero only if the currency
+    # is known; it must not introduce a second basis into a charged period.
+    known_prices = {(price.currency, price.basis) for _, _, price in price_spans if price}
+    if len(known_prices) == 1:
+        key = next(iter(known_prices))
+        for owners in groups.values():
+            for bucket in owners.values():
+                if (bucket["expected_seconds"] > 0
+                        and abs(bucket["expected_seconds"]-bucket["observed_seconds"]) < 0.001
+                        and bucket["observed_energy_kwh"] == 0):
+                    bucket["valuations"][key] = [0.0, 0.0]
     return groups
 
 
@@ -1006,6 +993,10 @@ def civil_period_costs(days, available):
                         bucket["observed_seconds"] += site["observed_seconds"]
                         bucket["unattributed_energy_kwh"] += site["unattributed_energy_kwh"]
                 values = bucket["valuations"]
+                # Idle days have zero monetary impact and cannot make a
+                # charged period mixed merely because their quote basis differs.
+                charged_values = {key: value for key, value in values.items() if value[1] > 0}
+                values = charged_values or values
                 currency, basis = next(iter(values)) if len(values) == 1 else (None, None)
                 covered_cost, covered_energy = values[(currency, basis)] if currency else (None, None)
                 complete = (present == len(keys)
