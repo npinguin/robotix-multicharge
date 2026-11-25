@@ -118,7 +118,7 @@ def archive_records(entry_id, slices, projections):
     return result
 
 
-def decode_archive(entry_id, slices, raw, owners, *, allow_recompose=True):
+def decode_archive(entry_id, slices, raw, owners, *, allow_recompose=True, exact_keys=()):
     """Reject incomplete writes and never infer absent statistics."""
     prefix = _prefix(entry_id)
     indexed = {}
@@ -179,7 +179,7 @@ def decode_archive(entry_id, slices, raw, owners, *, allow_recompose=True):
         if exact is not None:
             result[key] = exact
             continue
-        if not allow_recompose:
+        if not allow_recompose or key in exact_keys:
             continue
         # Timezone changes can turn two archived partial UTC-hour slices
         # into one full hour. Only a unique, complete, non-overlapping
@@ -314,7 +314,7 @@ def merge_slices(projections):
     return result
 
 
-async def read_archive(hass, entry_id, days, cfg, bindings, receipts, *, allow_recompose=True):
+async def read_archive(hass, entry_id, days, cfg, bindings, receipts, *, allow_recompose=True, exact_keys=()):
     """Bounded native statistic read; None is unavailable, {} is absent."""
     if not entry_id or "recorder" not in hass.config.components:
         return None
@@ -340,7 +340,7 @@ async def read_archive(hass, entry_id, days, cfg, bindings, receipts, *, allow_r
             raw = statistics_during_period(hass, first, end, ids, "hour", None, {"mean"})
             return decode_archive(entry_id, slices, raw,
                                   archived_owner_map(entry_id, metadata, owners),
-                                  allow_recompose=allow_recompose)
+                                  allow_recompose=allow_recompose, exact_keys=exact_keys)
 
         return await recorder.async_add_executor_job(read)
     except (ImportError, RuntimeError, ValueError, OSError, KeyError):

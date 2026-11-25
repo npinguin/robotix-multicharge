@@ -222,7 +222,7 @@ class MultiChargeRuntime:
         projections = queued["projections"]
         restored = await read_archive(
             self.hass, self.statistics_namespace, {retry_day: bounds},
-            cfg, self.power_bindings, receipts, allow_recompose=False,
+            cfg, self.power_bindings, receipts, exact_keys=tuple(projections),
         )
         if not self.active or identity != self._current_session_cost_identity():
             return
@@ -1312,10 +1312,10 @@ class MultiChargeRuntime:
                     "asset_id": forecast.asset_uid,
                     "start": forecast.start.isoformat(),
                     "end": forecast.end.isoformat(),
-                    "indicative_power_kw": forecast.power_kw,
+                    "indicative_power_kw": forecast.expected_power_kw,
                     "indicative_current_a": forecast.current_a,
                     "indicative_energy_kwh": round(
-                        forecast.power_kw * (
+                        forecast.expected_power_kw * (
                             forecast.end - forecast.start
                         ).total_seconds() / 3600, 6
                     ),

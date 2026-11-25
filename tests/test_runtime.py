@@ -244,6 +244,43 @@ class RuntimeTests(unittest.TestCase):
         self.assertGreater(rt.forecast_assessment.shortfall_kwh["drive"], 0)
         self.assertFalse(rt.assessment.plan.slots)
 
+    def test_prior_session_draw_forecast_matches_goal_energy(self):
+        cfg = sample()
+        charger = cfg["chargers"][0]
+        charger.update(kind="variable_current", rated_power_kw=3.68,
+                       voltage_v=230, phase_count=1, min_current_a=6,
+                       max_current_a=16, current_step_a=1,
+                       current_control_entity="number.charge_limit",
+                       current_readback_entity="sensor.amps")
+        asset = cfg["assets"][0]
+        data = {"sensor.soc": state("65", "%"), "sensor.power": state("0", "W"),
+                "binary_sensor.cable": state("off"), "switch.drive": state("off"),
+                "sensor.amps": state("0", "A"), "number.charge_limit": state("6", "A")}
+        data["number.charge_limit"].attributes.update(min=6, max=16, step=1)
+        rt = _ProductionRuntime(SimpleNamespace(states=SimpleNamespace(get=data.get)), cfg)
+        stamp = NOW-timedelta(days=1)
+        draw = {"power_kw": 1.1, "setpoint_kw": 3.68, "current_a": 16,
+                "soc_min": 64, "soc_max": 66, "observed_at": stamp.isoformat(),
+                "sample_count": 4, "basis": "sustained_current_session",
+                "binding": rt.executor._draw_binding(rt.executor.effective_charger(charger), asset)}
+        snapshot = rt.executor.export_state()
+        snapshot["sessions"] = [{"charger_id": "drive", "asset_id": "car",
+                                "started_at": (stamp-timedelta(minutes=6)).isoformat(),
+                                "ended_at": (stamp+timedelta(minutes=1)).isoformat(),
+                                "physical_stop_confirmed": True, "draw_evidence": draw}]
+        rt.executor.restore_state(snapshot)
+        rt.refresh(NOW)
+        result = rt.read_plan(NOW, NOW+timedelta(hours=2))
+        self.assertEqual(result["slots"], [])
+        self.assertEqual(rt.observations["chargers"]["drive"]["session_draw_estimate"]["basis"],
+                         "qualified_prior_session")
+        slots = result["forecast_slots"]
+        self.assertTrue(slots)
+        self.assertTrue(all(s["indicative_power_kw"] <= 1.1 and not s["reserves_capacity"]
+                            for s in slots))
+        self.assertAlmostEqual(sum(s["indicative_energy_kwh"] for s in slots),
+                               result["goal_assessments"]["drive"]["planned_grid_kwh"], places=4)
+
     def test_stale_solar_last_report_is_display_only(self):
         cfg = sample()
         cfg["controller"].update(solar_power_entity="sensor.pv",
@@ -858,7 +895,7 @@ class CostArchiveRetryTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(day, rt._archive_partial)
         self.assertEqual(rt._archive_pending[day], original)
         self.assertEqual(reader.call_args.args[2], {day: old_bounds})
-        self.assertFalse(reader.call_args.kwargs["allow_recompose"])
+        self.assertEqual(reader.call_args.kwargs["exact_keys"], tuple(original["projections"]))
 
     async def test_archive_conflicting_readback_retains_original_and_missing_coverage(self):
         from copy import deepcopy
