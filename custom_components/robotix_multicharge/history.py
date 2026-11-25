@@ -140,6 +140,15 @@ def _quarter_actuals(states, first, last, now):
         slot = finish
     return series
 
+def receipt_overlaps(receipt, start, end):
+    """Use original aware session boundaries, never current owner mapping."""
+    try:
+        return (datetime.fromisoformat(receipt["started_at"]) < end
+                and datetime.fromisoformat(receipt["ended_at"]) >= start)
+    except (KeyError, ValueError, TypeError, OverflowError):
+        return False
+
+
 def _session_asset_at_time(receipts, charger_id, start, end):
     """Only an independently closed, whole-quarter session proves attribution.
 
@@ -709,15 +718,28 @@ def session_costs(receipts, active_sessions, observed, estimates, metrics):
                 round(cost/energy, 6) if cost is not None
                 and type(energy) in (int, float) and isfinite(energy) and energy > 0 else None),
         }
-        groups["controller"]["site"][phase].append(projection)
+        if phase == "active":
+            groups["controller"]["site"][phase].append(projection)
         groups["charger"].setdefault(uid, {"active": [], "last": []})[phase].append(projection)
         if asset is not None:
             groups["asset"].setdefault(asset, {"active": [], "last": []})[phase].append(projection)
 
     for uid, row in active_sessions.items():
         add({**row, "charger_id": uid}, "active")
-    for row in receipts:
-        add(row, "last")
+    # Only the latest closed receipt per owner contributes to this summary.
+    # Older receipts remain in the durable history and interval valuations.
+    latest = {}
+    for index, row in enumerate(receipts):
+        ended = datetime.fromisoformat(row["ended_at"])
+        owners = [("charger", row["charger_id"])]
+        if row.get("physical_stop_confirmed") is True and row.get("asset_id") is not None:
+            owners.append(("asset", row["asset_id"]))
+        for owner in owners:
+            if owner not in latest or ended > latest[owner][0]:
+                latest[owner] = (ended, index, row)
+    selected = {index: row for _, index, row in latest.values()}
+    for index in sorted(selected):
+        add(selected[index], "last")
     for row in observed:
         if row.get("ongoing"):
             add(row, "active", True)
@@ -1235,6 +1257,15 @@ async def read_actual_history(hass, configuration, start, end, *,
 
     if financial_days is not None:
         selected = sorted(set(selected) | set(bindings))
+
+    # Avoid scanning years of irrelevant receipts in each measured quarter
+    # or tariff partition. All overlapping owners remain in scope, including
+    # ambiguous attribution and previously deleted logical assets.
+    session_receipts = [
+        row for row in session_receipts
+        if row.get("charger_id") in selected
+        and receipt_overlaps(row, history_first, history_end)
+    ]
 
     async def reply(rows, quality, historical=None):
         if not include_valuations and not include_observed_sessions and financial_days is None:

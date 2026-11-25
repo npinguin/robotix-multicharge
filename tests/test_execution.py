@@ -1401,6 +1401,30 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         states["number.charge_limit"].state = "10"
         self.assertIsNone(estimate(7))
 
+    async def test_long_lived_receipt_views_filter_without_truncating_originals(self):
+        rt, _, _ = rig()
+        at = datetime.now(timezone.utc)
+        history = []
+        for index in range(1001):
+            end = at-timedelta(days=1000-index)
+            history.append({"charger_id": "evse", "asset_id": "car" if index % 2 else "old",
+                            "started_at": (end-timedelta(hours=1)).isoformat(),
+                            "ended_at": end.isoformat()})
+        # Restore exercises the same retained history path as native Store.
+        snapshot = rt.executor.export_state()
+        snapshot["sessions"] = history
+        revision = rt.executor.session_history_revision
+        rt.executor.restore_state(snapshot)
+        self.assertGreater(rt.executor.session_history_revision, revision)
+        self.assertEqual(len(rt.executor.completed_sessions()), 1001)
+        recent = rt.executor.completed_sessions(limit=200, asset_id="car")
+        self.assertEqual(len(recent), 200)
+        self.assertEqual(recent[-1], history[-2])
+        self.assertEqual(rt.executor.completed_sessions(limit=0), [])
+        self.assertEqual(rt.executor.completed_sessions(
+            start=at-timedelta(hours=48), end=at+timedelta(hours=1)), history[-3:])
+        self.assertEqual(rt.executor.export_state()["sessions"], history)
+
     async def test_prior_session_draw_receipt_reuse_and_changed_context(self):
         rt, states, _ = rig(group_kw=3.6)
         charger = rt.configuration["chargers"][0]

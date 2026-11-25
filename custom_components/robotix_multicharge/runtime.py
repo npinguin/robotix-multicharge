@@ -94,8 +94,7 @@ class MultiChargeRuntime:
             configuration_revision(self.configuration),
             tuple(sorted((uid, row.get("started_at"), row.get("asset_id"))
                          for uid, row in self.executor.session_snapshot().items())),
-            tuple((row["charger_id"], row["started_at"], row["ended_at"])
-                  for row in self.executor.completed_sessions()),
+            self.executor.session_history_revision,
         )
 
     async def refresh_session_costs(self):
@@ -1193,10 +1192,7 @@ class MultiChargeRuntime:
             raise ValueError("unknown charger")
         if asset_id is not None and not any(
             a["id"] == asset_id for a in self.configuration["assets"]
-        ) and not any(
-            receipt["asset_id"] == asset_id
-            for receipt in self.executor.completed_sessions()
-        ):
+        ) and not self.executor.completed_sessions(asset_id=asset_id, limit=1):
             raise ValueError("unknown asset")
         assessment = self.assessment
         slots = []
@@ -1304,13 +1300,9 @@ class MultiChargeRuntime:
                     "reserves_capacity": False,
                     "assumption": self.forecast_assumptions[forecast.charger_uid]["assumption"],
                 })
-        history = [
-            receipt for receipt in self.executor.completed_sessions()
-            if datetime.fromisoformat(receipt["started_at"]) < last
-            and datetime.fromisoformat(receipt["ended_at"]) >= first
-            and (charger_id is None or receipt["charger_id"] == charger_id)
-            and (asset_id is None or receipt["asset_id"] == asset_id)
-        ]
+        history = self.executor.completed_sessions(
+            start=first, end=last, charger_id=charger_id, asset_id=asset_id,
+        )
         capabilities = self.executor.capabilities()
         at = datetime.now(timezone.utc)
         def view_costs(assessment):

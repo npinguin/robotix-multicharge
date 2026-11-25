@@ -17,6 +17,7 @@ from time import monotonic
 
 from .source_evidence import Evidence, binding, connection, intervals, number, soc_with_health
 from .configuration import is_plan_presentation_only_change
+from .history import receipt_overlaps
 from .planner import (resolve_recurring_ready_by, charging_window_allows,
                       qualified_price_policy_cap)
 
@@ -72,6 +73,7 @@ class NativeSwitchExecutor:
         self._completed = {}
         self._inflight = {}
         self._session_history = []
+        self.session_history_revision = 0
         self._persistence_verified = True
         # Current physical plug identity is volatile. Only an explicit
         # dedicated assignment may qualify a new fresh physical connection.
@@ -407,6 +409,7 @@ class NativeSwitchExecutor:
             self._paused = set(paused)
             self._accepted_history = history
             self._session_history = receipts
+            self.session_history_revision += 1
         except (ValueError, KeyError, TypeError, OverflowError):
             self._persistence_verified = False
             _LOGGER.error("Invalid charging control state: physical START held")
@@ -443,10 +446,25 @@ class NativeSwitchExecutor:
             for uid, record in self._sessions.items()
         }
 
-    def completed_sessions(self, *, limit=None):
-        """Durable receipts; only presentation callers may limit the view."""
-        rows = self._session_history if limit is None else self._session_history[-limit:]
-        return [dict(row) for row in rows]
+    def completed_sessions(self, *, limit=None, charger_id=None, asset_id=None,
+                           start=None, end=None):
+        """Filter before copying; only presentation callers limit the view."""
+        if limit is not None and limit <= 0:
+            return []
+        rows = []
+        history = self._session_history if limit is None else reversed(self._session_history)
+        for row in history:
+            if (charger_id is not None and row["charger_id"] != charger_id
+                    or asset_id is not None and row["asset_id"] != asset_id
+                    or start is not None and end is not None
+                    and not receipt_overlaps(row, start, end)):
+                continue
+            rows.append(dict(row))
+            if limit is not None and len(rows) == limit:
+                break
+        if limit is not None:
+            rows.reverse()
+        return rows
 
     def _archive_session(self, charger_id, finished_at, reason):
         """Only a physically confirmed STOP may produce a completed receipt."""
@@ -512,6 +530,7 @@ class NativeSwitchExecutor:
             **({"draw_evidence": session["draw_evidence"]}
                if session.get("draw_evidence") and reason != "NATIVE_SWITCH_STATE" else {}),
         })
+        self.session_history_revision += 1
 
     def accepted_slots(self):
         """Actual admitted slots only, never future proposals masquerading as execution."""

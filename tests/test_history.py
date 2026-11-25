@@ -72,6 +72,29 @@ class NativeMeasuredHistoryTests(unittest.TestCase):
         self.assertAlmostEqual(result["charger"]["b"]["active"]["covered_cost"], 0.6)
         self.assertAlmostEqual(result["controller"]["site"]["active"]["covered_cost"], 0.9)
 
+    def test_long_history_cost_summary_keeps_original_latest_per_owner(self):
+        receipts = []
+        for index in range(1000):
+            ended = NOW-timedelta(days=1000-index)
+            receipts.append({
+                "charger_id": "drive", "asset_id": "old" if index == 0 else "car",
+                "started_at": (ended-timedelta(hours=1)).isoformat(),
+                "ended_at": ended.isoformat(), "physical_stop_confirmed": True,
+                "actual_energy_kwh": 1, "cost": index/1000, "currency": "EUR",
+                "cost_quality": "qualified_effective_tariff",
+            })
+        # A later unconfirmed stop belongs to the Charger but not the Asset.
+        receipts.append({**receipts[-1], "ended_at": NOW.isoformat(),
+                         "physical_stop_confirmed": False})
+        summary = mod.session_costs(receipts, {}, [], {}, {})
+        self.assertEqual(summary["asset"]["old"]["last"]["ended_at"], receipts[0]["ended_at"])
+        self.assertEqual(summary["asset"]["car"]["last"]["cost"], 0.999)
+        self.assertEqual(summary["charger"]["drive"]["last"]["ended_at"], NOW.isoformat())
+        self.assertIsNone(summary["charger"]["drive"]["last"]["cost"])
+        self.assertEqual(len(receipts), 1001)
+        self.assertFalse(mod.receipt_overlaps(receipts[0], NOW-timedelta(hours=48), NOW))
+        self.assertTrue(mod.receipt_overlaps(receipts[-1], NOW-timedelta(hours=48), NOW))
+
     def test_tariff_remap_keeps_old_source_and_clips_forecast(self):
         first = NOW-timedelta(minutes=30)
         changed = NOW-timedelta(minutes=10)

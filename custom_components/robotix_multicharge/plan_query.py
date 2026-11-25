@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import voluptuous as vol
@@ -125,8 +125,13 @@ async def websocket_get_plan(
             start, end,
             charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
         )
-        receipts = runtime.executor.completed_sessions()
         if msg.get("include_history", True):
+            now = datetime.now(timezone.utc)
+            history_end = min(end.astimezone(timezone.utc), now)
+            history_start = min(start.astimezone(timezone.utc), history_end-timedelta(hours=48))
+            receipts = runtime.executor.completed_sessions(
+                start=history_start, end=history_end, charger_id=msg.get("charger_id"),
+            )
             actual, quality, estimates, observed_sessions, session_metrics = await read_actual_history(
                 hass, result["configuration"], start, end,
                 charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
@@ -157,10 +162,10 @@ async def websocket_get_plan(
         result["recent_completed_sessions"] = [
             {**receipt, **session_metrics.get((receipt["charger_id"], receipt["started_at"], receipt["ended_at"]), {}),
              **estimates.get((receipt["charger_id"], receipt["started_at"], receipt["ended_at"]), {})}
-            for receipt in receipts
-            if (msg.get("charger_id") is None or receipt["charger_id"] == msg["charger_id"])
-            and (msg.get("asset_id") is None or receipt.get("asset_id") == msg["asset_id"])
-        ][-200:]
+            for receipt in runtime.executor.completed_sessions(
+                limit=200, charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
+            )
+        ]
         entry = hass.config_entries.async_get_entry(entry_id)
         result["configuration_managed_by_yaml"] = bool(
             entry is not None and entry.data.get("source") in ("yaml", "json")
