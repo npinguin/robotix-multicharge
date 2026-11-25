@@ -246,6 +246,7 @@ def compile_plan(
     site_time_zone: str | None = None,
     indicative_only: bool = False,
     _constrained_first: bool = False,
+    _recovery_ids: frozenset[str] = frozenset(),
 ) -> PlanAssessment:
     """Calculate one deterministic, bounded, non-actuating Controller proposal.
 
@@ -397,7 +398,8 @@ def compile_plan(
         # Only nonbinding previews may use default AC minimum assumptions
         # without conversion, where no declared phase/circuit constraint requires A.
         minimum_kw = minimum_planning_power(charger)
-        conservative = (adjustable and mode != "Force Charge"
+        recovery = uid in _recovery_ids and adjustable and not incomplete_current
+        conservative = (adjustable and not recovery and mode != "Force Charge"
                         and demand.remaining_grid_kwh is not None
                         and demand.remaining_budget_amount is None
                         and demand.remaining_duration_minutes is None)
@@ -580,6 +582,10 @@ def compile_plan(
                 key, chosen_strategy = (0, rate), "economy"
             else:
                 key, chosen_strategy = (0, 0.0), mode
+            if recovery:
+                # Never defer an already endangered goal merely for a cheaper
+                # later quarter. Existing ceilings and user windows still bind.
+                key, chosen_strategy = (0, 0.0), "deadline_recovery"
             possible.append((key, slot, chosen_strategy, power, current, rate))
         possible.sort(key=lambda item: (item[0], item[1]))
         urgent_kwh = max(
@@ -785,11 +791,42 @@ def compile_plan(
                 solar=solar, binding=binding, horizon_hours=horizon_hours,
                 reserved_slots=reserved_slots, charging_windows=charging_windows,
                 site_time_zone=site_time_zone, indicative_only=indicative_only,
-                _constrained_first=True,
+                _constrained_first=True, _recovery_ids=_recovery_ids,
             )
             covered = {uid for uid, value in coverage.items() if value == "COMPLETE"}
             alternative_covered = {uid for uid, value in alternative.coverage.items()
                                    if value == "COMPLETE"}
             if covered < alternative_covered:
-                return alternative
+                assessment = alternative
+    # Reuse the same planner once for endangered energy deadlines. A higher
+    # verified setpoint is a recovery request, not proof of battery draw.
+    if not _recovery_ids and not _constrained_first and not indicative_only and mode in (
+            "Automatic", "Ready By", "Economy", "Solar"):
+        endangered = frozenset(
+            d.charger_uid for d in demands
+            if d.charger_uid in chargers and d.ready_by is not None
+            and _utc(d.ready_by) <= ends
+            and d.remaining_grid_kwh is not None and d.remaining_grid_kwh > 0
+            and d.remaining_budget_amount is None and d.remaining_duration_minutes is None
+            and chargers[d.charger_uid].control_kind == "variable_current"
+            and not missing_current_conversion(chargers[d.charger_uid])
+            and assessment.reasons.get(d.charger_uid) in (
+                "INSUFFICIENT_CAPACITY_OR_TIME", "CONTIGUOUS_WINDOW_UNAVAILABLE")
+        )
+        if endangered:
+            candidate = compile_plan(
+                controller, chargers, demands, now, mode=mode, tariffs=tariffs,
+                solar=solar, binding=binding, horizon_hours=horizon_hours,
+                reserved_slots=reserved_slots, charging_windows=charging_windows,
+                site_time_zone=site_time_zone, indicative_only=False,
+                _recovery_ids=endangered,
+            )
+            if (all(candidate.coverage.get(uid) == "COMPLETE"
+                    for uid, quality in assessment.coverage.items() if quality == "COMPLETE")
+                    and all(candidate.proposed_kwh.get(uid, 0) + 1e-6 >= value
+                            for uid, value in assessment.proposed_kwh.items()
+                            if assessment.coverage.get(uid) != "COMPLETE")
+                    and any(candidate.proposed_kwh.get(uid, 0) >
+                            assessment.proposed_kwh.get(uid, 0) + 1e-6 for uid in endangered)):
+                return candidate
     return assessment

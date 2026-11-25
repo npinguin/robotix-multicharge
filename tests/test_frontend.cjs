@@ -54,6 +54,7 @@ class Element {
   append(...items){this.children.push(...items);}
   replaceChildren(...items){this.children=[...items];}
   setAttribute(k,v){this.attributes[k]=v;}
+  getAttribute(k){return this.attributes[k]??null;}
   addEventListener(k,handler){this.events[k]=handler;}
   attachShadow(){this.shadowRoot=new Element("shadow");return this.shadowRoot;}
   click(){if(this.events.click)this.events.click();}

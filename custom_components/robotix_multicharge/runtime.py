@@ -823,6 +823,8 @@ class MultiChargeRuntime:
             shortfall = assessment.shortfall_kwh.get(uid) if assessment else None
             coverage = assessment.coverage.get(uid) if assessment else None
             status = "cannot_assess"
+            recovery = bool(assessment and
+                "deadline_recovery" in assessment.strategy.get(uid, "").split(","))
             soc = self.observations["assets"][asset["id"]]["soc"]
             measured_target_met = (
                 all(asset.get(k) is None for k in (
@@ -841,7 +843,7 @@ class MultiChargeRuntime:
                 status, reason = "cannot_assess", "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED"
                 shortfall = None
             elif reason == "PROPOSED" and coverage == "COMPLETE":
-                status = "achievable" if due is not None and setting["mode"] != "Force Charge" else "planned"
+                status = "achievable" if due is not None and setting["mode"] != "Force Charge" and not recovery else "planned"
             elif (due is not None and due <= at + timedelta(hours=48)
                     and setting["mode"] != "Force Charge"
                     and reason in ("DEADLINE_PASSED", "INSUFFICIENT_CAPACITY_OR_TIME",
@@ -877,6 +879,7 @@ class MultiChargeRuntime:
                     "power_capability_verified", not missing_current_conversion(chargers[uid])),
                 "minimum_planning_power_kw": minimum_planning_power(chargers[uid]),
                 "minimum_planning_power_assumed": missing_current_conversion(chargers[uid]),
+                "deadline_recovery": recovery,
             }
         # Revalue the current proposal once per planner refresh, not per entity notification.
         self.planned_costs = planned_costs(

@@ -695,10 +695,16 @@ class PlannerTests(unittest.TestCase):
         self.assertAlmostEqual(preview.shortfall_kwh["c"], 0.24)
         known = Charger(**base, phase_count=1, voltage_v=230,
                         min_current_a=6, max_current_a=16, current_step_a=1)
-        plan = compile_plan(controller, {"c": known}, demand, NOW, mode="Automatic")
+        covered = [ChargeDemand("car", "c", 2, NOW+timedelta(hours=2))]
+        plan = compile_plan(controller, {"c": known}, covered, NOW, mode="Automatic")
         self.assertTrue(plan.plan.slots)
         self.assertTrue(all(s.current_a == 6 and s.power_kw == 1.38 for s in plan.plan.slots))
-        self.assertAlmostEqual(plan.shortfall_kwh["c"], 0.24)
+        self.assertEqual(plan.shortfall_kwh["c"], 0)
+        recovered = compile_plan(controller, {"c": known}, demand, NOW, mode="Automatic")
+        self.assertEqual(recovered.shortfall_kwh["c"], 0)
+        self.assertEqual(recovered.strategy["c"], "deadline_recovery")
+        self.assertEqual(recovered.plan.slots[0].start, NOW)
+        self.assertTrue(all(s.current_a > 6 and s.power_kw <= 3.6 for s in recovered.plan.slots))
         custom = Charger(**base, phase_count=1, voltage_v=230, min_current_a=6,
                          max_current_a=16, current_step_a=1, min_charging_power_kw=1.8)
         self.assertAlmostEqual(minimum_planning_power(custom), 1.84)
