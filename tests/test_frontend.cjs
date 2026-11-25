@@ -54,6 +54,7 @@ class Element {
   append(...items){this.children.push(...items);}
   replaceChildren(...items){this.children=[...items];}
   setAttribute(k,v){this.attributes[k]=v;}
+  getAttribute(k){return this.attributes[k]??null;}
   addEventListener(k,handler){this.events[k]=handler;}
   attachShadow(){this.shadowRoot=new Element("shadow");return this.shadowRoot;}
   click(){if(this.events.click)this.events.click();}
@@ -876,6 +877,25 @@ async function main(){
   assert.equal(reopened._filter,"charger:drive");
   assert.equal(viewCalls[0].day,"both");
   assert.ok(!viewCalls[0].charger_id,"restored filter is validated against current configuration");
+  find(reopened.shadowRoot,"button","Charging Plan").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(reopened._filter,"","Main plan tab resets the drill-down filter");
+  assert.ok(!viewCalls.at(-1).charger_id&&!viewCalls.at(-1).asset_id);
+  reopened.selectViewRange("both","asset:car");
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(viewCalls.at(-1).asset_id,"car");
+  assert.ok(find(reopened.shadowRoot,"button","All chargers"));
+  find(reopened.shadowRoot,"button","All chargers").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(reopened._filter,"");
+  reopened.selectViewRange("both","asset:car");
+  await new Promise(resolve=>setImmediate(resolve));
+  find(reopened.shadowRoot,"button","Overview").click();
+  find(reopened.shadowRoot,"button","Charging Plan").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(reopened._filter,"");
+  assert.ok(!viewCalls.at(-1).asset_id);
+  assert.equal(reopened._day,"both");
   reopened.disconnectedCallback();
   const retained=viewCard._data;
   viewCard._hass={...viewCard._hass,callWS:async()=>{throw Error("timeout");}};
@@ -1743,6 +1763,43 @@ async function main(){
   assert.ok(pressed.some(c=>c.args.entity_id==="button.drive_confirm"),
     "Confirmation invokes the owning native HA button, never frontend identity inference");
 
+  fixture.configuration.chargers[0].dedicated_asset_id="car";
+  fixture.connection_identity={drive:{asset_id:"car",basis:"dedicated_assignment"}};
+  const statusEvse=fixture.configuration.chargers[0], statusVehicle=fixture.configuration.assets[0];
+  const originalStates=fixture.charger_states;
+  const originalPower=fixture.observations.chargers.drive.power_kw;
+  const originalAssetPower=fixture.observations.assets.car.effective_power_kw;
+  fixture.charger_states={drive:{activation:"active",charging_session:"charging",charging_state:"ready"}};
+  fixture.observations.chargers.drive.power_kw={quality:"ok",value:1.5};
+  fixture.observations.assets.car.effective_power_kw={quality:"ok",value:1.5};
+  assert.equal(card.operationalIndicator(statusEvse,statusVehicle).getAttribute("data-operational-status"),"charging");
+  assert.equal(card.operationalIndicator(statusEvse).getAttribute("data-operational-status"),"charging");
+  fixture.charger_states.drive.charging_state="error";
+  assert.equal(card.operationalIndicator(statusEvse).getAttribute("data-operational-status"),"problem");
+  assert.equal(card.operationalIndicator(statusEvse,statusVehicle).getAttribute("data-operational-status"),"problem");
+  fixture.charger_states.drive.charging_state="ready";
+  fixture.charger_states.drive.charging_session="stopped";
+  fixture.observations.chargers.drive.power_kw={quality:"ok",value:0};
+  fixture.observations.assets.car.effective_power_kw={quality:"ok",value:0};
+  assert.equal(card.operationalIndicator(statusEvse).getAttribute("data-operational-status"),"idle");
+  assert.equal(card.operationalIndicator(statusEvse,statusVehicle).getAttribute("data-operational-status"),"idle");
+  fixture.charger_states=originalStates;
+  fixture.observations.chargers.drive.power_kw=originalPower;
+  fixture.observations.assets.car.effective_power_kw=originalAssetPower;
+  for(const tab of ["Overview","Chargeable Assets","Chargers"]){
+    card._tab=tab;card.render();
+    assert.ok(!find(card.shadowRoot,"button","Confirm connected vehicle"),
+      "Dedicated physical identity must not require repeated action on "+tab);
+    assert.ok(content(card.shadowRoot).includes("Fixed assignment"));
+  }
+  delete fixture.configuration.chargers[0].dedicated_asset_id;
+  fixture.connection_identity={drive:null};
+  fixture.observations.chargers.drive.connected={quality:"ok",value:false};
+  card._tab="Chargers";card.render();
+  assert.ok(!find(card.shadowRoot,"button","Confirm connected vehicle"),
+    "Disconnected charger must not ask for confirmation");
+  fixture.observations.chargers.drive.connected={quality:"ok",value:true};
+  card.render();
   assert.ok(!find(card.shadowRoot,"button","Start charging"),
             "uncommissioned hardware cannot gain optimistic action");
   fixture.command_capabilities={drive:{start_allowed:true,stop_allowed:true,reason:"READY"}};

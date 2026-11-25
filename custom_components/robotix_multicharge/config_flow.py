@@ -93,9 +93,11 @@ def _assert_safe_expert_import(runtime, updated, *, source_changed=False):
     No import may consume unresolved stored commands as if they were idle.
     """
     current = runtime.configuration
-    if (not source_changed and (
-            updated == current
-            or is_plan_presentation_only_change(current, updated))):
+    if not source_changed and updated == current:
+        return
+    if getattr(runtime, "_control_restore_failed", False):
+        raise ValueError("CONTROL_STATE_UNVERIFIED: recover the original control Store and reload")
+    if not source_changed and is_plan_presentation_only_change(current, updated):
         return
     before = {item["id"]: item for item in current["chargers"]}
     after = {item["id"]: item for item in updated["chargers"]}
@@ -176,6 +178,8 @@ def _assert_safe_yaml_ui_commit(runtime, updated):
     before = runtime.configuration
     if before == updated:
         return
+    if getattr(runtime, "_control_restore_failed", False):
+        raise ValueError("CONTROL_STATE_UNVERIFIED: recover the original control Store and reload")
     # Existing preferences apply in place: no unload, no authority transfer.
     # Runtime execution/supervision enforces the updated goals and limits.
     in_place = (is_plan_presentation_only_change(before, updated)
@@ -218,7 +222,8 @@ def _assert_safe_yaml_ui_commit(runtime, updated):
                     measured.quality == "ok" and measured.value > stop_power_limit(old)):
                 raise ValueError(f"charger_busy: {old['name']} ({uid}) stop before changing activation")
         # Selection/attribution is independent of names and user preferences.
-        if new is None or old.get("asset") == new.get("asset"):
+        if new is None or (old.get("asset") == new.get("asset")
+                           and old.get("dedicated_asset_id") == new.get("dedicated_asset_id")):
             continue
         executor = runtime.executor
         if uid in executor._sessions or uid in executor._start_pending:
@@ -1001,15 +1006,16 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             for key in ("name", "mode", "max_power_kw"):
                 if key in user_input:
                     ctl[key] = user_input[key]
-            if "max_parallel" in user_input:
-                parallel = user_input["max_parallel"]
-                if (type(parallel) not in (int, float)
-                        or parallel != int(parallel)):
+            for key in ("max_parallel", "power_adjustment_interval_minutes"):
+                if key not in user_input:
+                    continue
+                value = user_input[key]
+                if (type(value) not in (int, float)
+                        or not float(value).is_integer()):
                     errors["base"] = "invalid_config"
                 else:
-                    # HA NumberSelector returns a float even with step=1;
-                    # canonical schema correctly requires a positive int.
-                    ctl["max_parallel"] = int(parallel)
+                    # HA NumberSelector returns a float even with step=1.
+                    ctl[key] = int(value)
             if user_input.get("phase_limits_a"):
                 try:
                     ctl["phase_limits_a"] = _phase_limits(user_input["phase_limits_a"])
@@ -1030,6 +1036,12 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             vol.Required("max_parallel", default=current.get("max_parallel", 1)):
                 selector.NumberSelector(selector.NumberSelectorConfig(
                     min=1, max=16, step=1, mode=selector.NumberSelectorMode.BOX,
+                )),
+            vol.Required("power_adjustment_interval_minutes",
+                         default=current.get("power_adjustment_interval_minutes", 5)):
+                selector.NumberSelector(selector.NumberSelectorConfig(
+                    min=1, max=1440, step=1, mode=selector.NumberSelectorMode.BOX,
+                    unit_of_measurement="min",
                 )),
             vol.Optional("phase_limits_a", default=",".join(
                 f"{p}:{x}" for p, x in current.get("phase_limits_a", {}).items()

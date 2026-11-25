@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import voluptuous as vol
@@ -125,14 +125,23 @@ async def websocket_get_plan(
             start, end,
             charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
         )
-        receipts = runtime.executor.completed_sessions()
+        recent = runtime.executor.completed_sessions(
+            limit=200, charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
+        )
         if msg.get("include_history", True):
+            now = datetime.now(timezone.utc)
+            history_end = min(end.astimezone(timezone.utc), now)
+            history_start = min(start.astimezone(timezone.utc), history_end-timedelta(hours=48))
+            receipts = runtime.executor.completed_sessions(
+                start=history_start, end=history_end, charger_id=msg.get("charger_id"),
+            )
             actual, quality, estimates, observed_sessions, session_metrics = await read_actual_history(
                 hass, result["configuration"], start, end,
                 charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
                 session_receipts=receipts,
                 price_slots=runtime.price_slots, include_valuations=True,
                 power_bindings=runtime.power_bindings, energy_bindings=runtime.energy_bindings,
+                tariff_bindings=runtime.tariff_bindings,
                 include_observed_sessions=True, active_sessions=result["active_sessions"],
                 tariff_entity=(result["configuration"]["controller"].get("price_entity") or
                                result["configuration"]["controller"].get("current_price_entity")),
@@ -156,9 +165,7 @@ async def websocket_get_plan(
         result["recent_completed_sessions"] = [
             {**receipt, **session_metrics.get((receipt["charger_id"], receipt["started_at"], receipt["ended_at"]), {}),
              **estimates.get((receipt["charger_id"], receipt["started_at"], receipt["ended_at"]), {})}
-            for receipt in receipts
-            if (msg.get("charger_id") is None or receipt["charger_id"] == msg["charger_id"])
-            and (msg.get("asset_id") is None or receipt.get("asset_id") == msg["asset_id"])
+            for receipt in recent
         ]
         entry = hass.config_entries.async_get_entry(entry_id)
         result["configuration_managed_by_yaml"] = bool(
@@ -219,7 +226,7 @@ async def websocket_get_plan(
             } | {
                 field: native_entity("number", "controller",
                                      cfg["controller"]["id"], field)
-                for field in ("max_parallel", "max_power_kw")
+                for field in ("max_parallel", "max_power_kw", "power_adjustment_interval_minutes")
             },
             "assets": {
                 row["id"]: {

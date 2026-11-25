@@ -154,6 +154,7 @@
           "phase_limits_a": "Fasen (optioneel)",
           "site_power_entity": "Vermogen (optioneel)",
           "mode": "Laadmodus",
+          "power_adjustment_interval_minutes": "Interval vermogensregeling (min)",
           "max_parallel": "Maximum gelijktijdige laadpunten",
           "max_power_kw": "Vermogenslimiet laadlocatie (kW)"
         }
@@ -401,6 +402,9 @@
       "max_charge_kw": {
         "name": "Max. laadvermogen"
       },
+      "power_adjustment_interval_minutes": {
+        "name": "Interval vermogensregeling"
+      },
       "max_parallel": {
         "name": "Gelijktijdige laadpalen"
       },
@@ -565,6 +569,36 @@
       },
       "actual_current": {
         "name": "Gemeten stroom"
+      },
+      "current_import_price": {
+        "name": "Actuele afnameprijs"
+      },
+      "planned_charging_cost": {
+        "name": "Geplande laadkosten"
+      },
+      "active_session_cost": {
+        "name": "Actuele sessiekosten"
+      },
+      "last_session_cost": {
+        "name": "Laatste sessiekosten"
+      },
+      "charging_cost_today": {
+        "name": "Laadkosten vandaag"
+      },
+      "charging_cost_month": {
+        "name": "Laadkosten deze maand"
+      },
+      "charging_cost_year": {
+        "name": "Laadkosten dit jaar"
+      },
+      "average_charging_price_today": {
+        "name": "Gemiddelde laadprijs vandaag"
+      },
+      "average_charging_price_month": {
+        "name": "Gemiddelde laadprijs deze maand"
+      },
+      "average_charging_price_year": {
+        "name": "Gemiddelde laadprijs dit jaar"
       }
     },
     "text": {

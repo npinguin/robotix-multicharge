@@ -154,6 +154,7 @@
           "phase_limits_a": "Faser (valgfrit)",
           "site_power_entity": "Effekt (valgfrit)",
           "mode": "Opladningstilstand",
+          "power_adjustment_interval_minutes": "Interval for effektregulering (min)",
           "max_parallel": "Maksimale samtidige ladere",
           "max_power_kw": "Effektgrænse (kW)"
         }
@@ -401,6 +402,9 @@
       "max_charge_kw": {
         "name": "Effekt"
       },
+      "power_adjustment_interval_minutes": {
+        "name": "Interval for effektregulering"
+      },
       "max_parallel": {
         "name": "Antal"
       },
@@ -565,6 +569,36 @@
       },
       "actual_current": {
         "name": "Aktuel strøm"
+      },
+      "current_import_price": {
+        "name": "Aktuel købspris"
+      },
+      "planned_charging_cost": {
+        "name": "Planlagte ladeomkostninger"
+      },
+      "active_session_cost": {
+        "name": "Aktuelle sessionsomkostninger"
+      },
+      "last_session_cost": {
+        "name": "Seneste sessionsomkostninger"
+      },
+      "charging_cost_today": {
+        "name": "Ladeomkostninger i dag"
+      },
+      "charging_cost_month": {
+        "name": "Ladeomkostninger denne måned"
+      },
+      "charging_cost_year": {
+        "name": "Ladeomkostninger i år"
+      },
+      "average_charging_price_today": {
+        "name": "Gennemsnitlig ladepris i dag"
+      },
+      "average_charging_price_month": {
+        "name": "Gennemsnitlig ladepris denne måned"
+      },
+      "average_charging_price_year": {
+        "name": "Gennemsnitlig ladepris i år"
       }
     },
     "text": {

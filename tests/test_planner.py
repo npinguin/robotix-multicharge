@@ -23,7 +23,7 @@ for name in ("domain", "contracts", "planner"):
 from multicharge_plan_test.contracts import ChargeDemand, PowerEnvelope, PowerLimitSlot, PriceSlot  # noqa: E402 - imported after isolated pure-module bootstrap
 from multicharge_plan_test.domain import Charger, ChargeController  # noqa: E402 - imported after isolated pure-module bootstrap
 from multicharge_plan_test.planner import (  # noqa: E402 - imported after isolated pure-module bootstrap
-    compile_plan, resolve_recurring_ready_by, charging_window_allows,
+    compile_plan, minimum_planning_power, resolve_recurring_ready_by, charging_window_allows,
 )
 
 NOW = datetime(2026, 11, 22, 12, tzinfo=timezone.utc)
@@ -52,6 +52,43 @@ def demand(i, kwh=1.0, priority=1, deadline=None):
 
 
 class PlannerTests(unittest.TestCase):
+    def test_sustained_session_draw_limits_expected_energy_not_electrical_reservation(self):
+        ctl, chargers = build(power=3.6, limit=3.6)
+        chargers["c0"] = Charger(uid="c0", name="Drive", controller_uid="home",
+                                 control_kind="variable_current", rated_power_kw=3.6,
+                                 min_current_a=6, max_current_a=16, phase_count=1,
+                                 voltage_v=230, current_step_a=1)
+        # An hour at 3.45 kW would nominally deliver 3.45 kWh;
+        # observed 1.48 kW must not be treated as 3.45 kW.
+        result = compile_plan(ctl, chargers, [ChargeDemand(
+            asset_uid="car", charger_uid="c0", remaining_grid_kwh=3,
+            ready_by=NOW+timedelta(hours=1), observed_session_draw_kw=1.48,
+        )], NOW, mode="Ready By")
+        self.assertEqual(result.coverage["c0"], "INCOMPLETE")
+        self.assertAlmostEqual(result.proposed_kwh["c0"], 1.48)
+        self.assertAlmostEqual(result.shortfall_kwh["c0"], 1.52)
+        self.assertTrue(all(slot.expected_power_kw <= 1.48 and slot.power_kw <= 3.6
+                            for slot in result.plan.slots))
+        self.assertTrue(any(slot.power_kw > slot.expected_power_kw for slot in result.plan.slots))
+
+    def test_curtailed_draw_does_not_cap_higher_verified_setpoints(self):
+        ctl, chargers = build(power=3.6, limit=3.6)
+        chargers["c0"] = Charger(uid="c0", name="Drive", controller_uid="home",
+                                 control_kind="variable_current", rated_power_kw=3.6,
+                                 min_current_a=6, max_current_a=16, phase_count=1,
+                                 voltage_v=230, current_step_a=1)
+        result = compile_plan(ctl, chargers, [ChargeDemand(
+            asset_uid="car", charger_uid="c0", remaining_grid_kwh=3,
+            ready_by=NOW+timedelta(hours=1), observed_session_draw_kw=1.1,
+            observed_draw_setpoint_kw=1.38,
+        )], NOW, mode="Ready By")
+        self.assertTrue(any(slot.power_kw > 1.38 for slot in result.plan.slots))
+        for slot in result.plan.slots:
+            if slot.power_kw > 1.38:
+                self.assertAlmostEqual(slot.expected_power_kw, slot.power_kw)
+            else:
+                self.assertLessEqual(slot.expected_power_kw, 1.1)
+
     def test_indicative_slots_use_residual_capacity_without_changing_firm_slots(self):
         controller, chargers = build(n=2, power=4.0, limit=4.0)
         at = NOW
@@ -677,6 +714,72 @@ class PlannerTests(unittest.TestCase):
             self.assertLessEqual(sum(s.power_kw for s in selected), 12)
         self.assertTrue(any(s.current_a < 16 for s in result.plan.slots
                             if s.charger_uid == "b"))
+
+    def test_ac_minimum_energy_planning_and_unverified_defaults(self):
+        controller = ChargeController(uid="site", name="Site", max_group_power_kw=3.6)
+        base = dict(uid="c", name="C", controller_uid="site",
+                    control_kind="variable_current", rated_power_kw=3.6)
+        demand = [ChargeDemand("car", "c", 3, NOW+timedelta(hours=2))]
+        unknown = Charger(**base)
+        self.assertAlmostEqual(minimum_planning_power(unknown), 1.38)
+        self.assertAlmostEqual(minimum_planning_power(Charger(**base, phase_count=2)), 2.76)
+        self.assertAlmostEqual(minimum_planning_power(Charger(**base, phase_count=3)), 4.14)
+        preview = compile_plan(controller, {"c": unknown}, demand, NOW,
+                               mode="Automatic", indicative_only=True)
+        self.assertTrue(preview.plan.slots)
+        self.assertTrue(all(s.power_kw == 1.38 and s.current_a is None
+                            for s in preview.plan.slots))
+        self.assertAlmostEqual(preview.shortfall_kwh["c"], 0.24)
+        known = Charger(**base, phase_count=1, voltage_v=230,
+                        min_current_a=6, max_current_a=16, current_step_a=1)
+        covered = [ChargeDemand("car", "c", 2, NOW+timedelta(hours=2))]
+        plan = compile_plan(controller, {"c": known}, covered, NOW, mode="Automatic")
+        self.assertTrue(plan.plan.slots)
+        self.assertTrue(all(s.expected_power_kw == 1.38 and s.current_a == 15
+                            and s.power_kw == 3.45 for s in plan.plan.slots))
+        self.assertEqual(len(plan.plan.slots), 6)
+        self.assertAlmostEqual(plan.proposed_kwh["c"], 2.07)
+        self.assertEqual(plan.shortfall_kwh["c"], 0)
+        recovered = compile_plan(controller, {"c": known}, demand, NOW, mode="Automatic")
+        self.assertEqual(recovered.shortfall_kwh["c"], 0)
+        self.assertEqual(recovered.strategy["c"], "deadline_recovery")
+        self.assertEqual(recovered.plan.slots[0].start, NOW)
+        self.assertTrue(all(s.current_a > 6 and s.power_kw <= 3.6 for s in recovered.plan.slots))
+        custom = Charger(**base, phase_count=1, voltage_v=230, min_current_a=6,
+                         max_current_a=16, current_step_a=1, min_charging_power_kw=1.8)
+        self.assertAlmostEqual(minimum_planning_power(custom), 1.84)
+        plan = compile_plan(controller, {"c": custom}, demand, NOW, mode="Ready By")
+        self.assertTrue(all(s.expected_power_kw == 1.84 and s.current_a == 15
+                            for s in plan.plan.slots))
+        self.assertEqual(plan.shortfall_kwh["c"], 0)
+        forced = compile_plan(controller, {"c": known}, demand, NOW, mode="Force Charge")
+        self.assertTrue(any(s.current_a > 6 for s in forced.plan.slots))
+        limited = ChargeController(uid="site", name="Site", max_group_power_kw=1)
+        self.assertFalse(compile_plan(limited, {"c": unknown}, demand, NOW,
+                                     mode="Automatic", indicative_only=True).plan.slots)
+
+    def test_boost_respects_other_minimum_allocations_and_solar(self):
+        ctl = ChargeController(uid="site", name="Site", max_parallel=2,
+                               max_group_power_kw=3.6, phase_limits_a={"L1": 15})
+        chargers = {uid: Charger(uid=uid, name=uid, controller_uid="site",
+                    control_kind="variable_current", rated_power_kw=3.6,
+                    phase_count=1, phase_ids=("L1",), voltage_v=230,
+                    min_current_a=6, max_current_a=16, current_step_a=1)
+                    for uid in ("a", "b")}
+        demands = [ChargeDemand(uid, uid, 0.6, NOW+timedelta(hours=1))
+                   for uid in chargers]
+        result = compile_plan(ctl, chargers, demands, NOW, mode="Ready By")
+        self.assertEqual(result.coverage, {"a": "COMPLETE", "b": "COMPLETE"})
+        self.assertEqual(len(result.plan.slots), 4)
+        for start in {s.start for s in result.plan.slots}:
+            rows = [s for s in result.plan.slots if s.start == start]
+            self.assertEqual(len(rows), 2)
+            self.assertEqual(sum(s.current_a for s in rows), 15)
+            self.assertTrue(all(s.expected_power_kw == 1.38 for s in rows))
+        solar = tuple(PowerLimitSlot(NOW+timedelta(minutes=i*15),
+                    NOW+timedelta(minutes=(i+1)*15), 2.76) for i in range(4))
+        result = compile_plan(ctl, chargers, demands, NOW, mode="Solar", solar=solar)
+        self.assertTrue(all(s.current_a == 6 for s in result.plan.slots))
 
     def test_variable_current_without_verified_wiring_cannot_be_planned(self):
         controller = ChargeController(uid="site", name="Site", max_group_power_kw=11)

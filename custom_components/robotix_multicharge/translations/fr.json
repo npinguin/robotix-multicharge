@@ -154,6 +154,7 @@
           "phase_limits_a": "Phases (facultatif)",
           "site_power_entity": "Puissance (facultatif)",
           "mode": "Mode de charge",
+          "power_adjustment_interval_minutes": "Intervalle de régulation de puissance (min)",
           "max_parallel": "Bornes simultanées maximum",
           "max_power_kw": "Puissance du site (kW)"
         }
@@ -401,6 +402,9 @@
       "max_charge_kw": {
         "name": "Puissance max."
       },
+      "power_adjustment_interval_minutes": {
+        "name": "Intervalle de régulation de puissance"
+      },
       "max_parallel": {
         "name": "Bornes simultanées"
       },
@@ -565,6 +569,36 @@
       },
       "actual_current": {
         "name": "Courant mesuré"
+      },
+      "current_import_price": {
+        "name": "Prix d'achat actuel"
+      },
+      "planned_charging_cost": {
+        "name": "Coût de recharge prévu"
+      },
+      "active_session_cost": {
+        "name": "Coût de la session active"
+      },
+      "last_session_cost": {
+        "name": "Coût de la dernière session"
+      },
+      "charging_cost_today": {
+        "name": "Coût de recharge aujourd’hui"
+      },
+      "charging_cost_month": {
+        "name": "Coût de recharge ce mois"
+      },
+      "charging_cost_year": {
+        "name": "Coût de recharge cette année"
+      },
+      "average_charging_price_today": {
+        "name": "Prix moyen de recharge aujourd’hui"
+      },
+      "average_charging_price_month": {
+        "name": "Prix moyen de recharge ce mois"
+      },
+      "average_charging_price_year": {
+        "name": "Prix moyen de recharge cette année"
       }
     },
     "text": {

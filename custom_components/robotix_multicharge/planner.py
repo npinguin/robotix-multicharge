@@ -7,7 +7,7 @@ The HA adapter supplies qualified source readings; the command owner is separate
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 from hashlib import sha256
@@ -212,6 +212,24 @@ def missing_current_conversion(charger: Charger) -> bool:
     )
 
 
+def minimum_planning_power(charger: Charger) -> float:
+    """AC energy planning floor; defaults are estimates, not wiring evidence.
+
+    Existing configured minimum power remains the owner preference. An actual
+    verified current grid may require rounding that minimum upward.
+    Fixed on/off loads retain their configured fixed-power model.
+    """
+    if charger.control_kind == "on_off":
+        return charger.rated_power_kw
+    factor = (charger.voltage_v or 230.0) * (charger.phase_count or 1) / 1000
+    minimum = charger.min_current_a or 6.0
+    target = max(minimum * factor, charger.min_charging_power_kw or 0.0)
+    if not missing_current_conversion(charger):
+        steps = max(0, ceil((target / factor - minimum) / charger.current_step_a - 1e-9))
+        target = (minimum + steps * charger.current_step_a) * factor
+    return round(target, 6)
+
+
 def compile_plan(
     controller: ChargeController,
     chargers: Mapping[str, Charger],
@@ -228,6 +246,7 @@ def compile_plan(
     site_time_zone: str | None = None,
     indicative_only: bool = False,
     _constrained_first: bool = False,
+    _recovery_ids: frozenset[str] = frozenset(),
 ) -> PlanAssessment:
     """Calculate one deterministic, bounded, non-actuating Controller proposal.
 
@@ -257,6 +276,7 @@ def compile_plan(
     strategy: dict[str, str] = {}
     proposed: dict[str, float] = {}
     allocations: list[PlannedChargeSlot] = []
+    boostable = {}
     ends = at + timedelta(hours=horizon_hours)
     begin = _ceil_quarter(at)
     intervals: list[datetime] = []
@@ -376,8 +396,14 @@ def compile_plan(
         # fictitious fractional on/off switch. Unknown wiring remains unavailable.
         adjustable = charger.control_kind == "variable_current"
         incomplete_current = missing_current_conversion(charger)
-        # Only nonbinding previews may use rated/user-limited kW without
-        # conversion, where no declared phase/circuit constraint requires A.
+        # Only nonbinding previews may use default AC minimum assumptions
+        # without conversion, where no declared phase/circuit constraint requires A.
+        minimum_kw = minimum_planning_power(charger)
+        recovery = uid in _recovery_ids and adjustable and not incomplete_current
+        conservative = (adjustable and not recovery and mode != "Force Charge"
+                        and demand.remaining_grid_kwh is not None
+                        and demand.remaining_budget_amount is None
+                        and demand.remaining_duration_minutes is None)
         estimate_kw = bool(indicative_only and incomplete_current
                            and controller.phase_limits_a is None and not charger.circuit_id)
         if incomplete_current and not estimate_kw:
@@ -412,6 +438,16 @@ def compile_plan(
             shortfall[uid] = demand.remaining_grid_kwh
             coverage[uid] = "UNAVAILABLE"
             continue
+        def expected_power(reserved):
+            # A qualified observation affects energy feasibility and cost,
+            # never the electrical/phase/circuit reservation or command ceiling.
+            # A curtailed setpoint does not establish draw at higher current.
+            if (demand.observed_session_draw_kw is not None
+                    and (demand.observed_draw_setpoint_kw is None
+                         or reserved <= demand.observed_draw_setpoint_kw+1e-6)):
+                return min(reserved, demand.observed_session_draw_kw)
+            return reserved
+
         possible = []
         blocked_price = set()
         low_price_eligible = set()
@@ -461,10 +497,13 @@ def compile_plan(
             phases = charger.phase_ids
             voltage = charger.voltage_v
             if estimate_kw:
-                power = min(remaining_kw, charger.rated_power_kw,
-                            charger.max_charging_power_kw or charger.rated_power_kw)
+                # Unknown physical capability never justifies a rated-power
+                # forecast. Use the same conservative minimum and skip slots
+                # where the actual declared ceilings cannot accommodate it.
+                power = minimum_kw
                 current = None
-                if power <= 0 or power < (charger.min_charging_power_kw or 0):
+                if power > min(remaining_kw, charger.rated_power_kw,
+                               charger.max_charging_power_kw or charger.rated_power_kw) + 1e-9:
                     continue
             elif adjustable:
                 remaining_kw = min(remaining_kw, charger.rated_power_kw)
@@ -486,14 +525,18 @@ def compile_plan(
                         current_cap, charger.circuit_limit_a
                         - used_circuit_a.get(slot, {}).get(charger.circuit_id, 0)
                     )
+                if conservative:
+                    current_cap = min(current_cap, minimum_kw * 1000 /
+                                      (voltage * charger.phase_count))
                 steps = floor((current_cap - charger.min_current_a + 1e-9)
                               / charger.current_step_a)
                 current = (charger.min_current_a + max(0, steps) * charger.current_step_a)
                 if current_cap + 1e-9 < charger.min_current_a:
                     continue
                 power = round(current * voltage * charger.phase_count / 1000, 6)
-                if (charger.min_charging_power_kw is not None
-                        and power + 1e-9 < charger.min_charging_power_kw):
+                if ((conservative and power + 1e-6 < minimum_kw)
+                        or (charger.min_charging_power_kw is not None
+                            and power + 1e-9 < charger.min_charging_power_kw)):
                     continue
             else:
                 power = charger.rated_power_kw
@@ -550,6 +593,10 @@ def compile_plan(
                 key, chosen_strategy = (0, rate), "economy"
             else:
                 key, chosen_strategy = (0, 0.0), mode
+            if recovery:
+                # Never defer an already endangered goal merely for a cheaper
+                # later quarter. Existing ceilings and user windows still bind.
+                key, chosen_strategy = (0, 0.0), "deadline_recovery"
             possible.append((key, slot, chosen_strategy, power, current, rate))
         possible.sort(key=lambda item: (item[0], item[1]))
         urgent_kwh = max(
@@ -579,9 +626,9 @@ def compile_plan(
                                      and stamp in low_price_eligible)):
                         break
                     segment.append(item)
-                    energy += power / 4
+                    energy += expected_power(power) / 4
                     minutes += 15
-                    cost += (rate if rate is not None else 0) * power / 4
+                    cost += (rate if rate is not None else 0) * expected_power(power) / 4
                     priority += item[0][0]
                     reached = (
                         minutes >= demand.remaining_duration_minutes
@@ -616,7 +663,7 @@ def compile_plan(
                     break
                 priority_rows.append(item)
                 used.add(item[1])
-                critical_delivered += item[3] / 4
+                critical_delivered += expected_power(item[3]) / 4
             start_low = next((
                 item for item in possible
                 if item[1] == begin and item[1] in low_price_eligible
@@ -655,14 +702,18 @@ def compile_plan(
                     and delivered + 1e-9 >= demand.remaining_grid_kwh):
                 break
             chosen.append((slot, selected_mode, power, current))
-            delivered += power / 4
+            delivered += expected_power(power) / 4
         chosen.sort(key=lambda item: item[0])
         strategy[uid] = ",".join(sorted({method for _, method, _, _ in chosen})) if chosen else mode
-        for slot, _, power, current in chosen:
+        for slot, method, power, current in chosen:
+            if conservative and not indicative_only and not incomplete_current:
+                boostable[(uid, slot)] = (demand, method)
             allocations.append(PlannedChargeSlot(
                 charger_uid=uid, asset_uid=demand.asset_uid, start=slot,
                 end=slot + QUARTER, power_kw=power,
-                current_a=current if adjustable else None,
+                current_a=current if adjustable else None, strategy=method,
+                planning_power_kw=(expected_power(power)
+                                   if expected_power(power) < power-1e-9 else None),
             ))
             active.setdefault(slot, set()).add(uid)
             used_kw[slot] = used_kw.get(slot, 0.0) + power
@@ -711,13 +762,70 @@ def compile_plan(
             )
             coverage[uid] = "INCOMPLETE"
 
+    # All minimum allocations and existing reservations have been accounted
+    # for before spending any residual capacity. Boost only selected energy
+    # quarters, without dropping fallback time or inflating expected kWh.
+    for index, row in enumerate(allocations):
+        selected = boostable.get((row.charger_uid, row.start))
+        if selected is None:
+            continue
+        demand, method = selected
+        charger = chargers[row.charger_uid]
+        stamp, finish = row.start, row.end
+        factor = charger.voltage_v * charger.phase_count / 1000
+        cap = controller.max_group_power_kw
+        if cap is None:
+            cap = sum(c.rated_power_kw for c in chargers.values())
+        if binding is not None:
+            bound = _cover(binding.slots, stamp, finish)
+            if bound is None or _utc(binding.issued_at) > stamp or _utc(binding.valid_until) < finish:
+                continue
+            cap = min(cap, bound.max_charging_kw)
+        if mode == "Solar" or method == "solar":
+            source = _cover(solar or (), stamp, finish)
+            if source is None:
+                continue
+            cap = min(cap, source.max_charging_kw)
+        remaining = max(0.0, cap - used_kw[stamp]) + row.power_kw
+        limit = min(remaining, charger.rated_power_kw)
+        if demand.max_power_kw is not None:
+            limit = min(limit, demand.max_power_kw)
+        if charger.max_charging_power_kw is not None:
+            limit = min(limit, charger.max_charging_power_kw)
+        amp_cap = min(charger.max_current_a, limit / factor)
+        if controller.phase_limits_a is not None:
+            amp_cap = min(amp_cap, *(
+                controller.phase_limits_a[phase] -
+                used_phase_a.get(stamp, {}).get(phase, 0) + row.current_a
+                for phase in charger.phase_ids
+            ))
+        if charger.circuit_id:
+            amp_cap = min(amp_cap, charger.circuit_limit_a -
+                          used_circuit_a.get(stamp, {}).get(charger.circuit_id, 0)
+                          + row.current_a)
+        steps = floor((amp_cap - charger.min_current_a + 1e-9) / charger.current_step_a)
+        current = round(charger.min_current_a + max(0, steps) * charger.current_step_a, 6)
+        if current <= row.current_a + 1e-6:
+            continue
+        power = round(current * factor, 6)
+        delta = current - row.current_a
+        used_kw[stamp] += power - row.power_kw
+        for phase in charger.phase_ids:
+            phase_usage = used_phase_a.setdefault(stamp, {})
+            phase_usage[phase] = phase_usage.get(phase, 0) + delta
+        if charger.circuit_id:
+            circuits = used_circuit_a.setdefault(stamp, {})
+            circuits[charger.circuit_id] = circuits.get(charger.circuit_id, 0) + delta
+        allocations[index] = replace(row, power_kw=power, current_a=current,
+                                     planning_power_kw=row.expected_power_kw)
+
     allocations.sort(key=lambda s: (s.start, s.charger_uid))
     signature = "|".join((
         controller.uid, mode,
         *(f"locked:{s.charger_uid}:{s.start.isoformat()}:{s.power_kw}:{s.current_a}"
           for s in reserved_slots),
         *(
-            f"{s.charger_uid}:{s.start.isoformat()}:{s.power_kw}:{s.current_a}"
+            f"{s.charger_uid}:{s.start.isoformat()}:{s.power_kw}:{s.current_a}:{s.planning_power_kw}:{s.strategy}"
             for s in allocations
         ),
         *(f"{uid}:{reasons[uid]}:{strategy.get(uid, '')}" for uid in sorted(reasons)),
@@ -755,11 +863,42 @@ def compile_plan(
                 solar=solar, binding=binding, horizon_hours=horizon_hours,
                 reserved_slots=reserved_slots, charging_windows=charging_windows,
                 site_time_zone=site_time_zone, indicative_only=indicative_only,
-                _constrained_first=True,
+                _constrained_first=True, _recovery_ids=_recovery_ids,
             )
             covered = {uid for uid, value in coverage.items() if value == "COMPLETE"}
             alternative_covered = {uid for uid, value in alternative.coverage.items()
                                    if value == "COMPLETE"}
             if covered < alternative_covered:
-                return alternative
+                assessment = alternative
+    # Reuse the same planner once for endangered energy deadlines. A higher
+    # verified setpoint is a recovery request, not proof of battery draw.
+    if not _recovery_ids and not _constrained_first and not indicative_only and mode in (
+            "Automatic", "Ready By", "Economy", "Solar"):
+        endangered = frozenset(
+            d.charger_uid for d in demands
+            if d.charger_uid in chargers and d.ready_by is not None
+            and _utc(d.ready_by) <= ends
+            and d.remaining_grid_kwh is not None and d.remaining_grid_kwh > 0
+            and d.remaining_budget_amount is None and d.remaining_duration_minutes is None
+            and chargers[d.charger_uid].control_kind == "variable_current"
+            and not missing_current_conversion(chargers[d.charger_uid])
+            and assessment.reasons.get(d.charger_uid) in (
+                "INSUFFICIENT_CAPACITY_OR_TIME", "CONTIGUOUS_WINDOW_UNAVAILABLE")
+        )
+        if endangered:
+            candidate = compile_plan(
+                controller, chargers, demands, now, mode=mode, tariffs=tariffs,
+                solar=solar, binding=binding, horizon_hours=horizon_hours,
+                reserved_slots=reserved_slots, charging_windows=charging_windows,
+                site_time_zone=site_time_zone, indicative_only=False,
+                _recovery_ids=endangered,
+            )
+            if (all(candidate.coverage.get(uid) == "COMPLETE"
+                    for uid, quality in assessment.coverage.items() if quality == "COMPLETE")
+                    and all(candidate.proposed_kwh.get(uid, 0) + 1e-6 >= value
+                            for uid, value in assessment.proposed_kwh.items()
+                            if assessment.coverage.get(uid) != "COMPLETE")
+                    and any(candidate.proposed_kwh.get(uid, 0) >
+                            assessment.proposed_kwh.get(uid, 0) + 1e-6 for uid in endangered)):
+                return candidate
     return assessment

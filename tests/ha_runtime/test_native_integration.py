@@ -401,6 +401,53 @@ async def test_native_recorder_history_pricing_reuses_one_ha_query_without_billi
 
 
 @pytest.mark.asyncio
+async def test_native_financial_day_reuses_single_recorder_query(hass: HomeAssistant, monkeypatch):
+    """Exercise the real HA background projection seam with deterministic input."""
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+    from homeassistant.components import recorder
+    from custom_components.robotix_multicharge.contracts import PriceSlot
+    from custom_components.robotix_multicharge.history import read_actual_history, civil_period_costs
+
+    end = datetime.now(timezone.utc)-timedelta(seconds=5)
+    start = end-timedelta(minutes=30)
+    middle = start+timedelta(minutes=15)
+    calls = []
+    class NativeRecorder:
+        async def async_add_executor_job(self, fn, *args):
+            calls.append((fn, args))
+            return {"sensor.native_power": [
+                SimpleNamespace(state="2000", last_updated=start,
+                                attributes={"unit_of_measurement": "W"}),
+                SimpleNamespace(state="4000", last_updated=middle,
+                                attributes={"unit_of_measurement": "W"}),
+            ]}
+    monkeypatch.setattr(recorder, "get_instance", lambda _hass: NativeRecorder())
+    hass.config.components.add("recorder")
+    cfg = {"controller": {"id": "site"}, "chargers": [
+        {"id": "charger", "power_entity": "sensor.native_power"}],
+        "assets": [{"id": "car"}]}
+    receipt = {"charger_id": "charger", "asset_id": "car",
+               "started_at": start.isoformat(), "ended_at": end.isoformat(),
+               "physical_stop_confirmed": True, "actual_energy_kwh": 1.5,
+               "energy_quality": "measured"}
+    days = {start.date().isoformat(): (start, end)}
+    _, _, estimates, _, _, raw = await read_actual_history(
+        hass, cfg, start, end, financial_days=days,
+        include_observed_sessions=True, include_valuations=True,
+        session_receipts=[receipt], price_slots=[
+            PriceSlot(start, middle, 0.2, "EUR"),
+            PriceSlot(middle, end, 0.32, "EUR")],
+    )
+    result = civil_period_costs(days, raw)
+    assert len(calls) == 1
+    assert result["controller"]["site"]["today"]["cost"] == pytest.approx(0.42)
+    assert result["asset"]["car"]["today"]["cost"] == pytest.approx(0.42)
+    assert result["charger"]["charger"]["today"]["average_price_per_kwh"] == pytest.approx(0.28)
+    assert estimates[("charger", receipt["started_at"], receipt["ended_at"])]["estimated_variable_cost"] == pytest.approx(0.42)
+
+
+@pytest.mark.asyncio
 async def test_native_recorder_remap_keeps_original_measured_quarters(hass: HomeAssistant, monkeypatch):
     from datetime import datetime, timedelta, timezone
     from types import SimpleNamespace
@@ -592,6 +639,39 @@ async def test_native_setup_registry_diagnostics_and_unload(hass: HomeAssistant)
             (DOMAIN, f"{kind}/{uid}"), entry.entry_id
         )
         assert registry.async_get(entity_id).device_id == owning.id
+    for kind, uid in (("controller", "site"), ("charger", "charger"), ("asset", "asset")):
+        entity_id = registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{DOMAIN}:{kind}:{uid}:current_import_price",
+        )
+        assert entity_id is not None
+        owning = devices.async_get_device_by_identifier(
+            (DOMAIN, f"{kind}/{uid}"), entry.entry_id,
+        )
+        assert registry.async_get(entity_id).device_id == owning.id
+        state = hass.states.get(entity_id)
+        assert state.state == "unknown"
+        assert state.attributes["shared_site_import_rate"] is True
+        planned_id = registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{DOMAIN}:{kind}:{uid}:planned_charging_cost",
+        )
+        assert planned_id is not None
+        assert registry.async_get(planned_id).device_id == owning.id
+        assert hass.states.get(planned_id).state == "unknown"
+        for phase in ("active",) if kind == "controller" else ("active", "last"):
+            cost_id = registry.async_get_entity_id(
+                "sensor", DOMAIN, f"{DOMAIN}:{kind}:{uid}:{phase}_session_cost",
+            )
+            assert cost_id is not None
+            assert registry.async_get(cost_id).device_id == owning.id
+            assert hass.states.get(cost_id).state == "unknown"
+        for period in ("today", "month", "year"):
+            for metric in ("charging_cost", "average_charging_price"):
+                entity_id = registry.async_get_entity_id(
+                    "sensor", DOMAIN, f"{DOMAIN}:{kind}:{uid}:{metric}_{period}",
+                )
+                assert entity_id is not None
+                assert registry.async_get(entity_id).device_id == owning.id
+                assert hass.states.get(entity_id).state == "unknown"
     named = [registry.async_get_entity_id("sensor", DOMAIN, f"{DOMAIN}:charger:charger:{field}") for field in ("power", "readiness", "command_status", "selected_vehicle")]
     names = [registry.async_get(entity_id).original_name for entity_id in named]
     assert all(names) and len(set(names)) == len(names), names
@@ -793,7 +873,7 @@ async def test_every_logical_device_auto_creates_own_native_inputs(hass: HomeAss
             "select": ("mode", "plan_color_by", "plan_label_mode",
                        "show_indicative_forecast", "solar_source_kind",
                        "grid_power_direction"),
-            "number": ("max_parallel", "max_power_kw"),
+            "number": ("max_parallel", "max_power_kw", "power_adjustment_interval_minutes"),
             "text": ("name", "price_entity", "solar_entity",
                      "site_power_entity", "binding_entity",
                      "solar_power_entity", "home_power_entity",
@@ -1460,12 +1540,14 @@ async def test_optional_one_click_install_and_native_guided_configure(
         site["flow_id"], {
             "name": "Configured Home", "mode": "Automatic",
             "max_parallel": 2, "max_power_kw": 7.2,
+            "power_adjustment_interval_minutes": 7,
         },
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY, result.get("errors")
     await hass.async_block_till_done()
     assert entry.options["configuration"]["controller"]["name"] == "Configured Home"
     assert entry.options["configuration"]["controller"]["max_parallel"] == 2
+    assert entry.options["configuration"]["controller"]["power_adjustment_interval_minutes"] == 7
 
     choose_charger = await menu_step("charger_pick")
     assert choose_charger["step_id"] == "charger_pick"
@@ -2293,7 +2375,11 @@ async def test_native_ha_service_injects_context_for_real_vehicle_quick_action(
     target = ids.async_get_entity_id(
         "number", DOMAIN, f"{DOMAIN}:asset:b:target_soc",
     )
-    assert all((vehicle, mode, target))
+    interval = ids.async_get_entity_id(
+        "number", DOMAIN, f"{DOMAIN}:controller:site:power_adjustment_interval_minutes",
+    )
+    assert all((vehicle, mode, target, interval))
+    assert float(hass.states.get(interval).state) == 5
     assert hass.states.get(vehicle).state == "Car A"
     assert hass.states.get(mode).state == "off"
     assert hass.states.get(target).state == "90.0"
@@ -2335,8 +2421,21 @@ async def test_native_ha_service_injects_context_for_real_vehicle_quick_action(
         )
         await hass.async_block_till_done()
         assert entry.options["configuration"]["assets"][1]["target_soc"] == 85
+        await hass.services.async_call(
+            "number", "set_value", {"entity_id": interval, "value": 7},
+            blocking=True, context=Context(user_id="admin"),
+        )
+        await hass.async_block_till_done()
+        assert entry.options["configuration"]["controller"]["power_adjustment_interval_minutes"] == 7
+        assert float(hass.states.get(interval).state) == 7
 
         for user_id in ("resident", None):
+            with pytest.raises(RuntimeError, match="administrator"):
+                await hass.services.async_call(
+                    "number", "set_value", {"entity_id": interval, "value": 3},
+                    blocking=True, context=Context(user_id=user_id),
+                )
+            assert entry.options["configuration"]["controller"]["power_adjustment_interval_minutes"] == 7
             with pytest.raises(RuntimeError, match="administrator"):
                 await hass.services.async_call(
                     "select", "select_option",
@@ -2358,6 +2457,9 @@ async def test_native_ha_service_injects_context_for_real_vehicle_quick_action(
             )
         assert entry.options["configuration"]["chargers"][0]["asset"] == "b"
         assert hass.states.get("switch.real_quick").state == "off"
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert float(hass.states.get(interval).state) == 7
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 
@@ -2622,6 +2724,178 @@ async def test_native_discovery_activation_and_reload_through_websocket(
 
 
 @pytest.mark.asyncio
+async def test_native_control_store_failed_restore_keeps_original_receipts(hass: HomeAssistant):
+    """Use HA's actual Store and reopen it, never replace invalid evidence."""
+    from datetime import datetime, timedelta, timezone
+    from homeassistant.helpers.storage import Store
+    from custom_components.robotix_multicharge.runtime import MultiChargeRuntime
+    cfg = validate_configuration({
+        "controller": {"id": "site", "name": "Site", "mode": "Off"},
+        "chargers": [], "assets": [],
+    })
+    initial = MultiChargeRuntime(hass, cfg)
+    valid = initial.executor.export_state()
+    stamp = datetime.now(timezone.utc)-timedelta(days=1)
+    valid["sessions"] = [
+        {"charger_id": "retired", "asset_id": "car",
+         "started_at": (stamp+timedelta(minutes=i*2)).isoformat(),
+         "ended_at": (stamp+timedelta(minutes=i*2+1)).isoformat(),
+         "duration_minutes": 1.0, "actual_energy_kwh": 0.1,
+         "physical_stop_confirmed": True}
+        for i in range(201)
+    ]
+    for field, corrupted in (
+        ("sessions", [*valid["sessions"], {"started_at": "corrupt"}]),
+        ("power_bindings", {"retired": [{"start": "corrupt", "entity": "sensor.old"}]}),
+    ):
+        key = "multicharge_recovery_"+field
+        store = Store(hass, 1, key)
+        original = {**valid, field: corrupted}
+        await store.async_save(original)
+        runtime = MultiChargeRuntime(hass, cfg)
+        runtime.attach_control_store(store, await store.async_load())
+        assert not runtime.executor._persistence_verified
+        assert runtime._control_restore_failed
+        assert not await runtime.persist_control_state()
+        from custom_components.robotix_multicharge.config_flow import (
+            _assert_safe_expert_import, _assert_safe_yaml_ui_commit,
+        )
+        from custom_components.robotix_multicharge.diagnostics import build_diagnostics
+        from types import SimpleNamespace
+        revised = {**cfg, "controller": {**cfg["controller"], "name": "New"}}
+        for save in (_assert_safe_expert_import, _assert_safe_yaml_ui_commit):
+            save(runtime, cfg)  # identical configuration remains a no-op
+            with pytest.raises(ValueError, match="CONTROL_STATE_UNVERIFIED"):
+                save(runtime, revised)
+        runtime.refresh()
+        assert build_diagnostics(runtime, SimpleNamespace())["execution"]["original_store_retained"]
+        reopened = Store(hass, 1, key)
+        assert await reopened.async_load() == original
+        # Explicit recovery of valid state, followed by a fresh runtime.
+        await reopened.async_save(valid)
+        recovered = MultiChargeRuntime(hass, cfg)
+        recovered.attach_control_store(reopened, await reopened.async_load())
+        assert recovered.executor._persistence_verified
+        assert not recovered._control_restore_failed
+        _assert_safe_yaml_ui_commit(recovered, revised)
+        assert len(recovered.executor.completed_sessions()) == 201
+        assert await recovered.persist_control_state()
+        assert (await Store(hass, 1, key).async_load())["sessions"] == valid["sessions"]
+
+
+@pytest.mark.asyncio
+async def test_native_finance_archive_survives_raw_history_absence(hass: HomeAssistant):
+    """Real HA long-term statistics, independent of raw history and control Store."""
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+    from homeassistant.components.recorder import get_instance
+    from homeassistant.helpers.recorder import DATA_RECORDER, async_initialize_recorder
+    from custom_components.robotix_multicharge.contracts import PriceSlot
+    from custom_components.robotix_multicharge.history import daily_costs
+    from custom_components.robotix_multicharge.cost_archive import (
+        hour_slices, write_archive, read_archive, merge_slices, archive_records,
+        decode_archive, owner_map,
+    )
+    if DATA_RECORDER not in hass.data:
+        async_initialize_recorder(hass)
+    assert await async_setup_component(hass, "recorder", {
+        "recorder": {"db_url": f"sqlite:///{Path(hass.config.config_dir) / 'mc-costs.db'}", "commit_interval": 0},
+    })
+    recorder = get_instance(hass)
+    await recorder.async_recorder_ready.wait()
+    await hass.async_block_till_done()
+    first = (datetime.now(timezone.utc)-timedelta(days=40)).replace(minute=30, second=0, microsecond=0)
+    end = first+timedelta(hours=2)
+    cfg = {"chargers": [{"id": "drive"}], "assets": [{"id": "retired_vehicle"}]}
+    binding = {"drive": [{"start": None, "entity": "sensor.not_in_recorder"}]}
+    receipts = [{"charger_id": "drive", "asset_id": "retired_vehicle",
+                 "started_at": first.isoformat(), "ended_at": end.isoformat(),
+                 "physical_stop_confirmed": True}]
+    states = {"sensor.not_in_recorder": [
+        SimpleNamespace(state="3000", last_updated=first+timedelta(minutes=i),
+                        attributes={"unit_of_measurement": "W"})
+        for i in range(0, 120, 15)]}
+    slices = hour_slices(first, end)
+    rates = [PriceSlot(first, end, -0.2, "EUR", basis="spot")]
+    projections = {key: daily_costs(states, binding, cfg, a, b, rates, receipts)
+                   for key, (a, b) in slices.items()}
+    write_archive(hass, "original-entry", slices, projections)
+    await recorder.async_block_till_done()
+    result = await read_archive(hass, "original-entry", {"day": (first, end)}, cfg, binding, [])
+    assert result is not None and len(result) == 3
+    site = merge_slices(result)["controller"]["site"]
+    assert site["observed_energy_kwh"] == pytest.approx(6.0)
+    assert site["valuations"][("EUR", "spot")][0] == pytest.approx(-1.2)
+    # The original vehicle has disappeared from current config and recent
+    # receipts. Native statistic identity/metadata still proves ownership.
+    retired = {"chargers": [], "assets": []}
+    after_deletion = await read_archive(hass, "original-entry",
+                                       {"day": (first, end)}, retired, {}, [])
+    old = merge_slices(after_deletion)["asset"]["retired_vehicle"]
+    assert old["observed_energy_kwh"] == pytest.approx(6.0)
+    assert old["valuations"][("EUR", "spot")][0] == pytest.approx(-1.2)
+    assert await read_archive(hass, "other-entry", {"day": (first, end)}, cfg, binding, []) == {}
+
+    # A timezone change can remove a civil-midnight split inside the UTC hour.
+    # Native statistics retain both exact halves; reconstruct the full hour
+    # without raw telemetry or double counting. The reverse is not inferable.
+    whole_start = first.replace(minute=0)+timedelta(hours=1)
+    middle = whole_start+timedelta(minutes=30)
+    whole_end = whole_start+timedelta(hours=1)
+    split = {**hour_slices(whole_start, middle), **hour_slices(middle, whole_end)}
+    split_values = {key: daily_costs(states, binding, cfg, a, b, rates, receipts)
+                    for key, (a, b) in split.items()}
+    write_archive(hass, "split-entry", split, split_values)
+    await recorder.async_block_till_done()
+    recomposed = await read_archive(hass, "split-entry", {"day": (whole_start, whole_end)},
+                                    cfg, binding, [])
+    combined = merge_slices(recomposed)["controller"]["site"]
+    assert combined["observed_energy_kwh"] == pytest.approx(3.0)
+    assert combined["valuations"][("EUR", "spot")][0] == pytest.approx(-0.6)
+    assert await read_archive(hass, "split-entry", {"day": (whole_start, whole_end)},
+                              cfg, binding, [], allow_recompose=False) == {}
+    assert await read_archive(hass, "original-entry", {"day": (whole_start, middle)},
+                              cfg, binding, []) == {}
+    records = archive_records("original-entry", slices, projections)
+    raw = {uid: [{"start": r["start"].timestamp(), "mean": r["mean"]} for r in s["rows"]]
+           for uid, s in records.items()}
+    del raw[next(uid for uid in raw if uid.endswith("_cost_eur_spot"))]
+    assert len(decode_archive("original-entry", slices, raw, owner_map(cfg, binding, []))) < 3
+
+    # Persist original, unacknowledged evidence through a new runtime and
+    # the real HA Store. No raw state exists to revalue after restart.
+    from homeassistant.helpers.storage import Store
+    from custom_components.robotix_multicharge.runtime import MultiChargeRuntime
+    full_cfg = validate_configuration({
+        "controller": {"id": "site", "name": "Site"},
+        "chargers": [{"id": "drive", "name": "Drive", "kind": "on_off",
+                      "rated_power_kw": 3, "power_entity": "sensor.not_in_recorder"}],
+        "assets": [],
+    })
+    store = Store(hass, 1, "multicharge_pending_archive_regression")
+    pending = MultiChargeRuntime(hass, full_cfg)
+    pending.attach_control_store(store, None)
+    day = first.date().isoformat()
+    pending._archive_pending[day] = {"start": first, "end": end,
+                                     "projections": projections}
+    assert await pending.persist_control_state()
+    restarted = MultiChargeRuntime(hass, full_cfg)
+    restarted.statistics_namespace = "pending-entry"
+    restarted.attach_control_store(store, await store.async_load())
+    assert restarted._archive_pending == pending._archive_pending
+    identity = restarted._current_session_cost_identity()
+    await restarted._retry_cost_archive({}, full_cfg, [], identity)
+    assert day in restarted._archive_pending
+    await recorder.async_block_till_done()
+    await restarted._retry_cost_archive({}, full_cfg, [], identity)
+    assert restarted._archive_pending == {}
+    assert (await store.async_load())["pending_cost_archive"] == {}
+    recovered = await read_archive(hass, "pending-entry", {day: (first, end)},
+                                   full_cfg, binding, [])
+    assert merge_slices(recovered)["controller"]["site"]["observed_energy_kwh"] == pytest.approx(6.0)
+
+
+@pytest.mark.asyncio
 async def test_observed_external_session_from_actual_ha_recorder(hass: HomeAssistant):
     """Real HA Recorder database/state events, not a replacement history API."""
     import asyncio
@@ -2660,7 +2934,14 @@ async def test_observed_external_session_from_actual_ha_recorder(hass: HomeAssis
     await asyncio.sleep(0.06)
     hass.states.async_set("sensor.external_power", "0", attrs)
     await hass.async_block_till_done()
-    await recorder.async_block_till_done()
+    # The native async_block_till_done fast path can see an empty queue
+    # while its final state is being inserted (CI SQL trace showed SELECT
+    # before COMMIT). Explicitly queue the native commit barrier in this
+    # installed-HA fixture, not a retry or sleep in production history.
+    from homeassistant.components.recorder.tasks import SynchronizeTask
+    committed = hass.loop.create_future()
+    recorder.queue_task(SynchronizeTask(committed))
+    await asyncio.wait_for(committed, timeout=10)
     end = datetime.now(timezone.utc)
     configuration = {"chargers": [{"id": "outside", "power_entity": "sensor.external_power",
                                     "control_owner": "external"}]}
@@ -2671,7 +2952,7 @@ async def test_observed_external_session_from_actual_ha_recorder(hass: HomeAssis
     assert len(runs) == 1, runs
     run = runs[0]
     assert run["asset_id"] is None
-    assert run["complete_observed_window"] and run["end_known"] and not run["ongoing"]
+    assert run["complete_observed_window"] and run["end_known"] and not run["ongoing"], run
     assert run["observed_energy_kwh"] > 0
     assert 2 <= run["average_power_kw"] <= 4
     assert run["peak_power_kw"] == 4

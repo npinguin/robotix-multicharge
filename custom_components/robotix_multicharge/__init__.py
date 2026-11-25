@@ -154,6 +154,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.error("MultiCharge configuration rejected: %s", exc)
         return False
     runtime = MultiChargeRuntime(hass, cfg)
+    runtime.statistics_namespace = entry.entry_id
     store = Store(hass, 1, f"{DOMAIN}_{entry.entry_id}_control")
     try:
         saved = await store.async_load()
@@ -165,8 +166,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Do not replace an invalid physical intent snapshot with an empty one.
     previous_bindings = saved.get("power_bindings") if isinstance(saved, dict) else None
     previous_energy = saved.get("energy_bindings") if isinstance(saved, dict) else None
+    previous_tariffs = saved.get("tariff_bindings") if isinstance(saved, dict) else None
     if runtime.executor._persistence_verified and (
-            previous_bindings != runtime.power_bindings or previous_energy != runtime.energy_bindings):
+            previous_bindings != runtime.power_bindings or previous_energy != runtime.energy_bindings
+            or previous_tariffs != runtime.tariff_bindings):
         if not await runtime.persist_control_state():
             runtime.executor._persistence_verified = False
     runtime.refresh()
@@ -176,6 +179,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     pending_quarter = None
     price_pending = None
     price_last_attempt = None
+    finance_pending = None
     price_source = cfg["controller"].get("price_entity") or cfg["controller"].get("current_price_entity")
 
     async def reconcile():
@@ -194,6 +198,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             else:
                 runtime.refresh(at)
             await runtime.executor.supervise()
+            await runtime.executor.regulate_active_plan()
 
     async def fetch_price():
         result = await async_native_nordpool_prices(hass, price_source, utc_datetime.now(timezone.utc))
@@ -219,6 +224,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         charger, event.data.get("old_state"),
                         event.data.get("new_state"),
                     )
+        runtime.executor.schedule_pending_protection(
+            hass.async_create_task, event.data.get("entity_id") if event is not None else None,
+        )
         now = utc_datetime.now(timezone.utc)
         if (price_source and (price_pending is None or price_pending.done())
                 and (price_last_attempt is None or now-price_last_attempt >= timedelta(minutes=15))):
@@ -232,11 +240,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     def on_minute(_now):
         # HA interval callbacks receive datetime, not a state-change Event.
         on_source_change()
+        refresh_finance()
+
+    @callback
+    def refresh_finance():
+        nonlocal finance_pending
+        if runtime.active and (finance_pending is None or finance_pending.done()):
+            finance_pending = hass.async_create_task(runtime.refresh_session_costs())
 
     runtime.set_unsubscribe(
         async_track_time_interval(hass, on_minute, timedelta(minutes=1))
     )
     runtime.set_unsubscribe(lambda: price_pending.cancel() if price_pending is not None and not price_pending.done() else None)
+    runtime.set_unsubscribe(lambda: finance_pending.cancel() if finance_pending is not None and not finance_pending.done() else None)
 
     @callback
     def on_quarter(now):
@@ -275,6 +291,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     if price_source:
         on_source_change()
+    refresh_finance()
     return True
 
 

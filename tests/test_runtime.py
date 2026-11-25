@@ -126,13 +126,33 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(rt.excluded["drive"], "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED")
         self.assertFalse(rt.assessment.plan.slots)
         self.assertTrue(rt.forecast_assessment.plan.slots)
-        self.assertEqual(rt.goal_assessments["drive"]["status"], "achievable")
+        self.assertEqual(rt.goal_assessments["drive"]["status"], "cannot_assess")
+        self.assertIsNone(rt.goal_assessments["drive"]["shortfall_grid_kwh"])
+        self.assertFalse(rt.goal_assessments["drive"]["power_capability_verified"])
         self.assertEqual(rt.goal_assessments["drive"]["assumption"], "IF_CAPABILITY_VERIFIED")
         self.assertTrue(all(slot.current_a is None for slot in rt.forecast_assessment.plan.slots))
         cfg["controller"]["phase_limits_a"] = {"L1": 16}
         rt.refresh(NOW)
         self.assertFalse(rt.forecast_assessment.plan.slots)
         self.assertEqual(rt.goal_assessments["drive"]["status"], "cannot_assess")
+
+    def test_unconfirmed_identity_cannot_mask_unverified_power(self):
+        cfg = sample()
+        cfg["controller"]["mode"] = "Automatic"
+        cfg["chargers"][0].update(kind="variable_current", rated_power_kw=3.6)
+        data = {"sensor.soc": state("65", "%"), "sensor.power": state("0", "W"),
+                "binary_sensor.cable": state("on")}
+        rt = _ProductionRuntime(SimpleNamespace(states=SimpleNamespace(get=data.get)), cfg)
+        rt.refresh(NOW)
+        goal = rt.goal_assessments["drive"]
+        self.assertEqual(rt.excluded["drive"], "CURRENT_PLUG_ASSET_UNCONFIRMED")
+        self.assertTrue(rt.forecast_assessment.plan.slots)
+        self.assertFalse(goal["power_capability_verified"])
+        self.assertAlmostEqual(goal["minimum_planning_power_kw"], 1.38)
+        self.assertTrue(all(s.power_kw == 1.38 for s in rt.forecast_assessment.plan.slots))
+        self.assertEqual(goal["status"], "cannot_assess")
+        self.assertIsNone(goal["shortfall_grid_kwh"])
+        self.assertEqual(goal["reason"], "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED")
 
     def test_goal_feasibility_uses_full_plan_not_chart_visibility(self):
         cfg = sample()
@@ -201,11 +221,13 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(result["slots"], [])
         self.assertTrue(result["forecast_slots"])
         goal = result["goal_assessments"]["drive"]
-        self.assertEqual(goal["status"], "achievable")
+        self.assertEqual(goal["status"], "cannot_assess")
         self.assertTrue(goal["conditional"])
         self.assertAlmostEqual(goal["required_grid_kwh"], 1.4/0.9)
-        self.assertEqual(goal["shortfall_grid_kwh"], 0)
-        self.assertEqual(datetime.fromisoformat(goal["next_charge_at"]).astimezone(zone).hour, 2)
+        self.assertIsNone(goal["shortfall_grid_kwh"])
+        self.assertTrue(all(s["indicative_power_kw"] == 1.38 for s in result["forecast_slots"]))
+        self.assertTrue(any(datetime.fromisoformat(s["start"]).astimezone(zone).hour == 2
+                            for s in result["forecast_slots"]))
         self.assertLessEqual(datetime.fromisoformat(goal["planned_finish_at"]),
                              datetime.fromisoformat(goal["deadline"]))
         self.assertTrue(goal["timeline_windows"])
@@ -217,9 +239,47 @@ class RuntimeTests(unittest.TestCase):
                             for s in result["forecast_slots"]))
         cfg["assets"][0]["capacity_kwh"] = 1000
         rt.refresh(at)
-        self.assertEqual(rt.goal_assessments["drive"]["status"], "shortfall")
-        self.assertGreater(rt.goal_assessments["drive"]["shortfall_grid_kwh"], 0)
+        self.assertEqual(rt.goal_assessments["drive"]["status"], "cannot_assess")
+        self.assertIsNone(rt.goal_assessments["drive"]["shortfall_grid_kwh"])
+        self.assertGreater(rt.forecast_assessment.shortfall_kwh["drive"], 0)
         self.assertFalse(rt.assessment.plan.slots)
+
+    def test_prior_session_draw_forecast_matches_goal_energy(self):
+        cfg = sample()
+        charger = cfg["chargers"][0]
+        charger.update(kind="variable_current", rated_power_kw=3.68,
+                       voltage_v=230, phase_count=1, min_current_a=6,
+                       max_current_a=16, current_step_a=1,
+                       current_control_entity="number.charge_limit",
+                       current_readback_entity="sensor.amps")
+        asset = cfg["assets"][0]
+        data = {"sensor.soc": state("65", "%"), "sensor.power": state("0", "W"),
+                "binary_sensor.cable": state("off"), "switch.drive": state("off"),
+                "sensor.amps": state("0", "A"), "number.charge_limit": state("6", "A")}
+        data["number.charge_limit"].attributes.update(min=6, max=16, step=1)
+        rt = _ProductionRuntime(SimpleNamespace(states=SimpleNamespace(get=data.get)), cfg)
+        stamp = NOW-timedelta(days=1)
+        draw = {"power_kw": 1.1, "setpoint_kw": 3.68, "current_a": 16,
+                "soc_min": 64, "soc_max": 66, "observed_at": stamp.isoformat(),
+                "sample_count": 4, "basis": "sustained_current_session",
+                "binding": rt.executor._draw_binding(rt.executor.effective_charger(charger), asset)}
+        snapshot = rt.executor.export_state()
+        snapshot["sessions"] = [{"charger_id": "drive", "asset_id": "car",
+                                "started_at": (stamp-timedelta(minutes=6)).isoformat(),
+                                "ended_at": (stamp+timedelta(minutes=1)).isoformat(),
+                                "physical_stop_confirmed": True, "draw_evidence": draw}]
+        rt.executor.restore_state(snapshot)
+        rt.refresh(NOW)
+        result = rt.read_plan(NOW, NOW+timedelta(hours=2))
+        self.assertEqual(result["slots"], [])
+        self.assertEqual(rt.observations["chargers"]["drive"]["session_draw_estimate"]["basis"],
+                         "qualified_prior_session")
+        slots = result["forecast_slots"]
+        self.assertTrue(slots)
+        self.assertTrue(all(s["indicative_power_kw"] <= 1.1 and not s["reserves_capacity"]
+                            for s in slots))
+        self.assertAlmostEqual(sum(s["indicative_energy_kwh"] for s in slots),
+                               result["goal_assessments"]["drive"]["planned_grid_kwh"], places=4)
 
     def test_stale_solar_last_report_is_display_only(self):
         cfg = sample()
@@ -802,6 +862,147 @@ class RuntimeTests(unittest.TestCase):
         rt.stop()
         self.assertEqual(events, ["unsubscribed"])
         self.assertEqual(rt._listeners, set())
+
+
+class CostArchiveRetryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_civil_timezone_change_invalidates_cached_days_not_pending_utc_writes(self):
+        from unittest.mock import AsyncMock, patch
+        from multicharge_runtime_test import runtime as module
+        rt = _ProductionRuntime(None, sample())
+        rt.hass = SimpleNamespace(config=SimpleNamespace(time_zone="Europe/Brussels"))
+        now = datetime.now(timezone.utc)
+        old_days = module.civil_cost_days(now, "Europe/Brussels")
+        day = list(old_days)[-2]
+        old_bounds = old_days[day]
+        rt._cost_time_zone = "Europe/Brussels"
+        rt._daily_costs[day] = {"old": "projection"}
+        rt._archive_checked_days.add(day)
+        rt._closed_cost_days.add(day)
+        rt._archive_partial[day] = {"old": "partial"}
+        rt._archive_pending[day] = {"start": old_bounds[0], "end": old_bounds[1],
+                                    "projections": {}}
+        original = rt._archive_pending[day].copy()
+        identity = rt._current_session_cost_identity()
+        rt.hass.config.time_zone = "Asia/Kolkata"
+        self.assertNotEqual(identity, rt._current_session_cost_identity())
+        with patch.object(module, "read_actual_history",
+                          new=AsyncMock(return_value=([], "RECORDER_NOT_LOADED", {}, [], {}, {}))), \
+                patch.object(module, "read_archive", new=AsyncMock(return_value=None)) as reader:
+            await rt.refresh_session_costs()
+        self.assertNotIn(day, rt._daily_costs)
+        self.assertNotIn(day, rt._archive_checked_days)
+        self.assertNotIn(day, rt._closed_cost_days)
+        self.assertNotIn(day, rt._archive_partial)
+        self.assertEqual(rt._archive_pending[day], original)
+        self.assertEqual(reader.call_args.args[2], {day: old_bounds})
+        self.assertEqual(reader.call_args.kwargs["exact_keys"], tuple(original["projections"]))
+
+    async def test_archive_conflicting_readback_retains_original_and_missing_coverage(self):
+        from copy import deepcopy
+        from unittest.mock import AsyncMock, patch
+        from multicharge_runtime_test import runtime as module
+        from multicharge_runtime_test.history import _cost_bucket
+        rt = _ProductionRuntime(None, sample())
+        first = NOW.replace(hour=0)
+        last = first+timedelta(hours=2)
+        day = first.date().isoformat()
+        days = {day: (first, last)}
+        keys = list(module.hour_slices(first, last))
+        bucket = _cost_bucket()
+        bucket.update(expected_seconds=3600, observed_seconds=3600, observed_energy_kwh=1)
+        bucket["valuations"][("EUR", "effective")] = [0.25, 1]
+        original = {"controller": {"site": bucket}, "charger": {}, "asset": {}}
+        conflict = deepcopy(original)
+        conflict["controller"]["site"]["valuations"][("EUR", "effective")][0] = 0.50
+        rt._archive_pending[day] = {"start": first, "end": last,
+                                    "projections": {keys[0]: original}}
+        rt._closed_cost_days.add(day)
+        identity = rt._current_session_cost_identity()
+        with patch.object(module, "read_archive",
+                          new=AsyncMock(return_value={keys[0]: conflict})), \
+                patch.object(module, "write_archive") as writer:
+            await rt._retry_cost_archive(days, rt.configuration, [], identity)
+        writer.assert_not_called()
+        self.assertEqual(rt._archive_pending[day]["projections"], {keys[0]: original})
+        self.assertNotIn(day, rt._closed_cost_days)
+        self.assertIsNone(module.civil_period_costs(
+            days, rt._daily_costs)["controller"]["site"]["today"]["cost"])
+        self.assertEqual(rt._daily_costs[day]["controller"]["site"]["observed_seconds"], 0)
+
+    async def test_readback_retries_only_original_missing_slices(self):
+        from unittest.mock import AsyncMock, patch
+        from multicharge_runtime_test import runtime as module
+
+        rt = _ProductionRuntime(None, sample())
+        rt.statistics_namespace = "entry"
+        first = NOW.replace(hour=0)
+        last = first+timedelta(hours=2)
+        day = first.date().isoformat()
+        days = {day: (first, last)}
+        keys = list(module.hour_slices(first, last))
+        from multicharge_runtime_test.history import _cost_bucket
+        def sample_slice(value):
+            bucket = _cost_bucket()
+            bucket.update(expected_seconds=3600, observed_seconds=3600,
+                          observed_energy_kwh=value)
+            bucket["valuations"][("EUR", "effective")] = [value*0.25, value]
+            return {"controller": {"site": bucket}, "charger": {}, "asset": {}}
+        original = {keys[0]: sample_slice(1), keys[1]: sample_slice(2)}
+        rt._archive_pending[day] = {"start": first, "end": last, "projections": original}
+        identity = rt._current_session_cost_identity()
+        with patch.object(module, "read_archive", new=AsyncMock(side_effect=[
+                None, {keys[0]: original[keys[0]]}, dict(original)])), \
+                patch.object(module, "write_archive") as writer:
+            await rt._retry_cost_archive(days, rt.configuration, [], identity)
+            self.assertEqual(rt._archive_pending[day]["projections"], original)
+            writer.assert_not_called()
+            await rt._retry_cost_archive(days, rt.configuration, [], identity)
+            self.assertEqual(rt._archive_pending[day]["projections"], {keys[1]: original[keys[1]]})
+            self.assertEqual(writer.call_args.args[-1], {keys[1]: original[keys[1]]})
+            await rt._retry_cost_archive(days, rt.configuration, [], identity)
+            self.assertFalse(rt._archive_pending)
+            self.assertEqual(writer.call_count, 1)
+
+    async def test_pending_cost_archive_survives_store_restart_and_year_rollover(self):
+        import json
+        from unittest.mock import AsyncMock, patch
+        from multicharge_runtime_test import runtime as module
+        from multicharge_runtime_test.history import _cost_bucket
+        first = datetime(2025, 12, 31, 23, tzinfo=timezone.utc)
+        last = first+timedelta(hours=1)
+        day = "2025-12-31"
+        key = first.isoformat()
+        bucket = _cost_bucket()
+        bucket.update(expected_seconds=3600, observed_seconds=3600,
+                      observed_energy_kwh=2)
+        bucket["valuations"][("EUR", "effective")] = [-0.1, 2]
+        original = {key: {"controller": {"site": bucket}, "charger": {}, "asset": {}}}
+        rt = _ProductionRuntime(None, sample())
+        store = SimpleNamespace(async_save=AsyncMock())
+        rt.attach_control_store(store, None)
+        rt._archive_pending[day] = {"start": first, "end": last, "projections": original}
+        self.assertTrue(await rt.persist_control_state())
+        snapshot = json.loads(json.dumps(store.async_save.call_args.args[0]))
+        restarted = _ProductionRuntime(None, sample())
+        restarted.attach_control_store(store, snapshot)
+        self.assertEqual(restarted._archive_pending, rt._archive_pending)
+        identity = restarted._current_session_cost_identity()
+        with patch.object(module, "read_archive", new=AsyncMock(side_effect=[{}, original, original])), \
+                patch.object(module, "write_archive") as writer:
+            # Native write failure does not discard the durable receipt.
+            writer.side_effect = RuntimeError("recorder failed")
+            await restarted._retry_cost_archive({}, restarted.configuration, [], identity)
+            self.assertEqual(writer.call_args.args[-1], original)
+            self.assertIn(day, restarted._archive_pending)
+            # Acknowledgement alone is not sufficient if Store cleanup fails.
+            store.async_save.side_effect = OSError("store failed")
+            await restarted._retry_cost_archive({}, restarted.configuration, [], identity)
+            self.assertIn(day, restarted._archive_pending)
+            store.async_save.side_effect = None
+            await restarted._retry_cost_archive({}, restarted.configuration, [], identity)
+            self.assertFalse(restarted._archive_pending)
+            self.assertEqual(writer.call_count, 1)
+            self.assertEqual(store.async_save.call_args.args[0]["pending_cost_archive"], {})
 
 
 if __name__ == "__main__":

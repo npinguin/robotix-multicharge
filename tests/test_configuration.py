@@ -26,6 +26,22 @@ from multicharge_configuration_tests.configuration import (  # noqa: E402 - impo
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_controller_power_adjustment_interval_roundtrip(self):
+        from multicharge_configuration_tests.configuration import (
+            apply_settings_change, is_in_place_runtime_preference_change,
+        )
+        initial = validate_configuration(default_configuration())
+        self.assertEqual(initial["controller"]["power_adjustment_interval_minutes"], 5)
+        changed = apply_settings_change(initial, "controller", "home",
+                                        {"power_adjustment_interval_minutes": 7})
+        self.assertTrue(is_in_place_runtime_preference_change(initial, changed))
+        self.assertEqual(normalize_expert_json(json.loads(configuration_json(changed))), changed)
+        self.assertEqual(changed["controller"]["power_adjustment_interval_minutes"], 7)
+        for invalid in (0, -1, 1.5, True, "5", 1441):
+            with self.assertRaisesRegex(ValueError, "power_adjustment_interval_minutes"):
+                apply_settings_change(initial, "controller", "home",
+                                      {"power_adjustment_interval_minutes": invalid})
+
     def test_complete_json_round_trip_uses_only_canonical_configuration(self):
         """UC14-UX-OWNER-02: JSON can edit every supported owner field."""
         source = validate_configuration({

@@ -163,11 +163,15 @@ def validate_configuration(value):
                    "current_price_entity", "export_price_entity",
                    "solar_source_kind", "grid_power_direction",
                    "binding_entity", "mode", "phase_limits_a",
-                   "plan_label_mode", "plan_color_by", "show_indicative_forecast"), "controller")
+                   "plan_label_mode", "plan_color_by", "show_indicative_forecast",
+                   "power_adjustment_interval_minutes"), "controller")
     cid = _text(ctl.get("id", "home"), "controller.id")
     parallel = ctl.get("max_parallel", 1)
     if isinstance(parallel, bool) or not isinstance(parallel, int) or parallel < 1:
         raise ValueError(f"controller.max_parallel: expected positive integer, received {parallel!r}")
+    interval = ctl.get("power_adjustment_interval_minutes", 5)
+    if type(interval) is not int or not 1 <= interval <= 1440:
+        raise ValueError("controller.power_adjustment_interval_minutes: expected whole minutes (1..1440)")
     mode = ctl.get("mode", "Off")
     if mode not in ("Automatic", "Solar", "Economy", "Ready By", "Force Charge", "Off"):
         raise ValueError("controller.mode: unsupported charging mode")
@@ -194,6 +198,7 @@ def validate_configuration(value):
         raise ValueError("controller: direct surplus requires solar_surplus_entity")
     controller = {"id": cid, "name": _text(ctl.get("name"), "controller.name"),
                   "max_parallel": parallel, "mode": mode,
+                  "power_adjustment_interval_minutes": interval,
                   "plan_label_mode": label_mode, "plan_color_by": color_by,
                   "show_indicative_forecast": show_forecast}
     # Unselected energy features are not new persistent authority. Preserve
@@ -442,7 +447,7 @@ def validate_configuration(value):
                               "phase_ids", "voltage_v", "current_step_a", "fixed_current_a",
                               "circuit_id", "circuit_limit_a", "current_control_entity",
                               "current_readback_entity", "min_charging_power_kw",
-                              "max_charging_power_kw", "plan_color"), "charger")
+                              "max_charging_power_kw", "plan_color", "dedicated_asset_id"), "charger")
             uid = _text(source.get("id"), "charger.id")
             if uid in charger_ids:
                 raise ValueError("charger.id: duplicate")
@@ -575,6 +580,13 @@ def validate_configuration(value):
                 if aid not in ids:
                     raise ValueError("charger.asset: unknown asset")
                 charger["asset"] = aid
+            if source.get("dedicated_asset_id") is not None:
+                dedicated = _text(source["dedicated_asset_id"], "charger.dedicated_asset_id")
+                selected = next((a for a in assets if a["id"] == dedicated), None)
+                if (dedicated != charger.get("asset") or not selected
+                        or selected.get("temporary") or not charger.get("connected_entity")):
+                    raise ValueError("dedicated assignment requires the selected permanent asset and connection source")
+                charger["dedicated_asset_id"] = dedicated
             Charger(uid=uid, name=charger["name"], controller_uid=cid,
                     control_kind=charger["kind"], rated_power_kw=charger["rated_power_kw"],
                     min_current_a=charger.get("min_current_a"),
@@ -723,6 +735,7 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
     allowed = {
         "controller": {
             "name", "max_parallel", "max_power_kw", "phase_limits_a",
+            "power_adjustment_interval_minutes",
             "price_entity", "solar_entity", "site_power_entity",
             "solar_power_entity", "home_power_entity", "grid_power_entity",
             "solar_surplus_entity", "current_price_entity", "export_price_entity",
@@ -744,7 +757,7 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
             "temporary", "expires_at", "expected_connection_at",
             "plan_color",
         },
-        "charger": {"name", "asset", "plan_color",
+        "charger": {"name", "asset", "plan_color", "dedicated_asset_id",
                     "min_charging_power_kw", "max_charging_power_kw"},
     }
     # Atomic native Guest/Asset onboarding: assigning a presently unassigned
@@ -824,6 +837,10 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
         for old in cfg["chargers"]:
             if old["id"] != target_id and old.get("asset") == changes["asset"]:
                 old.pop("asset", None)
+                old.pop("dedicated_asset_id", None)
+    if scope == "charger" and "asset" in changes and "dedicated_asset_id" not in changes:
+        if target.get("dedicated_asset_id") != target.get("asset"):
+            target.pop("dedicated_asset_id", None)
     return validate_configuration(cfg)
 
 
@@ -890,6 +907,9 @@ def apply_dashboard_structure(configuration, scope, target_id, changes, action="
                 for old in cfg["chargers"]:
                     if old["id"] != target_id and old.get("asset") == selected:
                         old.pop("asset", None)
+                        old.pop("dedicated_asset_id", None)
+            if "dedicated_asset_id" not in changes and target.get("dedicated_asset_id") != target.get("asset"):
+                target.pop("dedicated_asset_id", None)
         if scope == "asset" and changes.get("requested_budget_amount") is not None:
             target.pop("requested_kwh", None)
             target.pop("requested_duration_minutes", None)
@@ -941,7 +961,8 @@ def is_in_place_runtime_preference_change(before, after):
         result = deepcopy(cfg)
         for field in ("name", "plan_label_mode", "plan_color_by",
                       "show_indicative_forecast", "mode", "max_parallel",
-                      "max_power_kw", "phase_limits_a"):
+                      "max_power_kw", "phase_limits_a",
+                      "power_adjustment_interval_minutes"):
             result["controller"].pop(field, None)
         for asset in result["assets"]:
             for field in ("name", "kind", "plan_color", "capacity_kwh",
@@ -960,7 +981,7 @@ def is_in_place_runtime_preference_change(before, after):
         for charger in result["chargers"]:
             for field in ("name", "plan_color", "asset",
                           "min_charging_power_kw", "max_charging_power_kw",
-                          "control_owner", "physical_commissioned"):
+                          "control_owner", "physical_commissioned", "dedicated_asset_id"):
                 charger.pop(field, None)
         return result
 
@@ -1119,6 +1140,7 @@ def normalize_expert_json(value):
     controller = value.get("Controller") or {}
     _allowed(controller, (
         "ID", "Name", "Mode", "Max-parallel", "Max-power-kW",
+        "Power-adjustment-interval-minutes",
         "Phase-limits-A", "Price-entity", "Solar-entity",
         "Power-envelope-entity", "Plan-label-mode", "Plan-color-by",
         "Show-indicative-forecast",
@@ -1132,6 +1154,7 @@ def normalize_expert_json(value):
         ctl["id"] = _text(controller["ID"], "Controller.ID")
     for key, field in (
         ("Mode", "mode"), ("Max-parallel", "max_parallel"),
+        ("Power-adjustment-interval-minutes", "power_adjustment_interval_minutes"),
         ("Max-power-kW", "max_power_kw"), ("Phase-limits-A", "phase_limits_a"),
         ("Plan-label-mode", "plan_label_mode"), ("Plan-color-by", "plan_color_by"),
         ("Show-indicative-forecast", "show_indicative_forecast"),

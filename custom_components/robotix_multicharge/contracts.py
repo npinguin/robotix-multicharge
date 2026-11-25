@@ -102,8 +102,23 @@ class ChargeDemand:
     price_currency: str | None = None
     opportunistic_kind: str = "off"
     opportunistic_level_pct: float | None = None
+    observed_session_draw_kw: float | None = None
+    observed_draw_setpoint_kw: float | None = None
 
     def __post_init__(self) -> None:
+        if self.observed_session_draw_kw is not None and (
+                type(self.observed_session_draw_kw) not in (int, float)
+                or not isfinite(self.observed_session_draw_kw)
+                or self.observed_session_draw_kw <= 0
+                or self.remaining_grid_kwh is None):
+            raise ValueError("qualified draw estimate requires an energy demand")
+        if self.observed_draw_setpoint_kw is not None and (
+                type(self.observed_draw_setpoint_kw) not in (int, float)
+                or not isfinite(self.observed_draw_setpoint_kw)
+                or self.observed_draw_setpoint_kw <= 0
+                or self.observed_session_draw_kw is None
+                or self.observed_session_draw_kw > self.observed_draw_setpoint_kw*1.10):
+            raise ValueError("draw estimate requires a qualified setpoint")
         if not self.asset_uid.strip():
             raise ValueError("asset identity required")
         if type(self.continuous_charging) is not bool:
@@ -196,6 +211,13 @@ class PlannedChargeSlot:
     end: datetime
     power_kw: float
     current_a: float | None = None
+    planning_power_kw: float | None = None
+    strategy: str | None = None
+
+    @property
+    def expected_power_kw(self) -> float:
+        """Conservative energy basis; power_kw remains the electrical reservation."""
+        return self.power_kw if self.planning_power_kw is None else self.planning_power_kw
 
     def __post_init__(self) -> None:
         if not self.charger_uid.strip():
@@ -203,6 +225,10 @@ class PlannedChargeSlot:
         _interval(self.start, self.end)
         if not isfinite(self.power_kw) or self.power_kw < 0:
             raise ValueError("planned power must be nonnegative")
+        if self.planning_power_kw is not None and (
+                not isfinite(self.planning_power_kw)
+                or not 0 < self.planning_power_kw <= self.power_kw):
+            raise ValueError("planning power must fit the electrical reservation")
         if self.current_a is not None and (
             not isfinite(self.current_a) or self.current_a <= 0
         ):

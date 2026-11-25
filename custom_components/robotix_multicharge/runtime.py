@@ -14,13 +14,20 @@ from datetime import datetime, timedelta, timezone
 from .contracts import ChargeDemand, PowerEnvelope, PowerLimitSlot
 from .configuration import configuration_revision, PLAN_COLORS
 from .domain import ChargeController, Charger
-from .planner import compile_plan, missing_current_conversion, resolve_recurring_ready_by
+from .planner import compile_plan, minimum_planning_power, missing_current_conversion, resolve_recurring_ready_by
 from .source_evidence import (
     Evidence, binding, connection, intervals, number, session_status,
     live_power, live_price, soc_with_health,
 )
 from .execution import NativeSwitchExecutor
-from .history import reconcile_power_bindings
+from .cost_archive import (
+    hour_slices, merge_slices, read_archive, write_archive,
+    pending_archive_snapshot, restore_pending_archive, archive_projection_matches,
+)
+from .history import (
+    civil_cost_days, civil_period_costs, daily_costs, planned_costs, read_actual_history,
+    reconcile_power_bindings, reconcile_tariff_bindings, session_costs,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -58,16 +65,208 @@ class MultiChargeRuntime:
         self.observations = {"chargers": {}, "assets": {}, "sources": {}}
         self.excluded = {}
         self.price_slots = ()
+        self.planned_costs = {}
+        self.session_costs = {}
+        self.period_costs = {}
+        self._daily_costs = {}
+        self._cost_time_zone = None
+        self._archive_checked_days = set()
+        self._archive_partial = {}
+        self._archive_pending = {}
+        self._archive_unreadable = None
+        self._closed_cost_days = set()
+        self.statistics_namespace = None
+        self._session_cost_identity = None
         self.nordpool_prices = None
         self.executor = NativeSwitchExecutor(self)
         self._control_store = None
+        self._control_restore_failed = False
         self.power_bindings = reconcile_power_bindings(None, configuration, datetime.now(timezone.utc))
         self.energy_bindings = reconcile_power_bindings({}, configuration, datetime.now(timezone.utc), field="energy_entity")
+        self.tariff_bindings = reconcile_tariff_bindings(None, configuration, datetime.now(timezone.utc))
         self._save_lock = asyncio.Lock()
         self._settings_action = None
         self._listeners = set()
         self._unsubscribers = []
         self.active = True
+
+    def _current_session_cost_identity(self):
+        """Invalidate stale projections on source, ownership or session changes."""
+        return (
+            configuration_revision(self.configuration),
+            getattr(getattr(self.hass, "config", None), "time_zone", "UTC"),
+            tuple(sorted((uid, row.get("started_at"), row.get("asset_id"))
+                         for uid, row in self.executor.session_snapshot().items())),
+            self.executor.session_history_revision,
+        )
+
+    async def refresh_session_costs(self):
+        """Shared session and civil-period projections, bounded Recorder work.
+
+        Reuse the recent history read for current day evidence; backfill one
+        older day in the same coalesced minute task, never a full-year query
+        in the command or browser path. Missing purged data remains partial.
+        """
+        at = datetime.now(timezone.utc)
+        cfg = self.configuration
+        identity = self._current_session_cost_identity()
+        receipts = self.executor.completed_sessions()
+        active = self.executor.session_snapshot()
+        zone = getattr(getattr(self.hass, "config", None), "time_zone", "UTC")
+        if zone != self._cost_time_zone:
+            # A civil date is not an interval identity. Recover projections
+            # for the new local boundaries, preserving pending original UTC
+            # writes and all native Recorder statistics.
+            self._daily_costs.clear()
+            self._archive_checked_days.clear()
+            self._closed_cost_days.clear()
+            self._archive_partial.clear()
+            self._cost_time_zone = zone
+        days = civil_cost_days(at, zone)
+        today = next(reversed(days))
+        self._daily_costs = {day: row for day, row in self._daily_costs.items()
+                             if day in days and (day == today or day in self._closed_cost_days
+                                                 or day in self._archive_pending)}
+        self._archive_checked_days.intersection_update(days)
+        self._closed_cost_days.intersection_update(days)
+        self._archive_partial = {day: row for day, row in self._archive_partial.items() if day in days}
+        # Pending writes retain their original UTC boundaries and survive
+        # calendar-year rollover. Only native readback may retire them.
+        common = dict(
+            session_receipts=receipts, price_slots=self.price_slots,
+            power_bindings=self.power_bindings, energy_bindings=self.energy_bindings,
+            tariff_bindings=self.tariff_bindings, active_sessions=active,
+            tariff_entity=(cfg["controller"].get("price_entity") or
+                           cfg["controller"].get("current_price_entity")),
+        )
+        _, _, estimates, observed, metrics, daily = await read_actual_history(
+            self.hass, cfg, at-timedelta(hours=48), at+timedelta(minutes=1),
+            include_valuations=True, include_observed_sessions=True,
+            financial_days={today: days[today]}, **common,
+        )
+        if not self.active or identity != self._current_session_cost_identity():
+            return
+        self._daily_costs.update(daily)
+        self.period_costs = civil_period_costs(days, self._daily_costs)
+        self.session_costs = session_costs(receipts, active, observed, estimates, metrics)
+        self._session_cost_identity = identity
+        self.notify()
+
+        # Recover native statistics in bounded month-sized windows; reconstruct
+        # one absent raw civil day per cycle, never query a year of raw states.
+        unchecked = [day for day in reversed(days)
+                     if day != today and day not in self._archive_checked_days]
+        if unchecked:
+            window = {day: days[day] for day in unchecked[:31]}
+            archived = await read_archive(self.hass, self.statistics_namespace, window,
+                                          cfg, self.power_bindings, receipts)
+            if not self.active or identity != self._current_session_cost_identity():
+                return
+            if archived is not None:
+                self._archive_checked_days.update(window)
+                for day, (a, b) in window.items():
+                    keys = hour_slices(a, b)
+                    pieces = {key: archived[key] for key in keys if key in archived}
+                    if len(pieces) == len(keys):
+                        self._daily_costs[day] = merge_slices(pieces)
+                        self._closed_cost_days.add(day)
+                    elif pieces:
+                        self._archive_partial[day] = pieces
+
+        await self._retry_cost_archive(days, cfg, receipts, identity)
+        if not self.active or identity != self._current_session_cost_identity():
+            return
+
+        missing = next((day for day in reversed(days) if day != today
+                        and day not in self._closed_cost_days
+                        and day not in self._archive_pending
+                        and day in self._archive_checked_days), None)
+        if self._archive_unreadable is not None:
+            missing = None  # retain malformed original evidence for repair, never overwrite it
+        if missing:
+            a, b = days[missing]
+            slices = hour_slices(a, b)
+            previous = self._archive_partial.get(missing, {})
+            pending = {key: pair for key, pair in slices.items() if key not in previous}
+            _, quality, older = await read_actual_history(
+                self.hass, cfg, a, b, financial_days=pending, **common,
+            )
+            if not self.active or identity != self._current_session_cost_identity():
+                return
+            if quality not in ("RECORDER_UNAVAILABLE", "RECORDER_NOT_LOADED"):
+                self._daily_costs[missing] = merge_slices({**older, **previous})
+                self._archive_partial.pop(missing, None)
+                if quality == "FINANCIAL_DAY" and any(
+                        row["controller"]["site"]["observed_seconds"] > 0 for row in older.values()):
+                    # Write ahead only the unacknowledged slices in the existing
+                    # HA Store. Recorder remains the durable history authority.
+                    self._archive_pending[missing] = {
+                        "start": a, "end": b, "projections": older,
+                    }
+                    if self.executor._persistence_verified and await self.persist_control_state():
+                        try:
+                            write_archive(self.hass, self.statistics_namespace, pending, older)
+                        except (ImportError, RuntimeError, ValueError, OSError):
+                            _LOGGER.exception("Native charging cost retention unavailable")
+                else:
+                    self._closed_cost_days.add(missing)
+        self.period_costs = civil_period_costs(days, self._daily_costs)
+        self.notify()
+
+    async def _retry_cost_archive(self, days, cfg, receipts, identity):
+        """One bounded readback/retry using the original, not revalued, evidence."""
+        retry_day = next(iter(self._archive_pending), None)
+        if retry_day is None:
+            return
+        queued = self._archive_pending[retry_day]
+        bounds = (queued["start"], queued["end"])
+        projections = queued["projections"]
+        restored = await read_archive(
+            self.hass, self.statistics_namespace, {retry_day: bounds},
+            cfg, self.power_bindings, receipts, exact_keys=tuple(projections),
+        )
+        if not self.active or identity != self._current_session_cost_identity():
+            return
+        if restored is None:
+            return
+        missing = {key: row for key, row in projections.items() if key not in restored}
+        conflicts = {key for key, row in projections.items() if key in restored
+                     and not archive_projection_matches(row, restored[key])}
+        remaining = {**missing, **{key: projections[key] for key in conflicts}}
+        slices = hour_slices(*bounds)
+        # A timezone edit may change civil-day geometry; original evidence
+        # is still archived at its exact UTC slice boundaries. Conflicting
+        # readback is neither acknowledgement nor a qualified cost total.
+        if days.get(retry_day) == bounds:
+            known = {key: row for key, row in {**projections, **restored}.items()
+                     if key not in conflicts}
+            for key, (first, last) in slices.items():
+                if key not in known:
+                    known[key] = daily_costs({}, self.power_bindings, cfg, first, last, (),
+                                             energy_bindings=self.energy_bindings)
+            self._daily_costs[retry_day] = merge_slices(known)
+            if len(restored) == len(slices) and not conflicts:
+                self._closed_cost_days.add(retry_day)
+            else:
+                self._closed_cost_days.discard(retry_day)
+        if not self.executor._persistence_verified:
+            return
+        # A failed write or process restart must never trigger revaluation
+        # from raw data that may already have been purged. A conflicting
+        # valid native interval must not be overwritten automatically.
+        self._archive_pending.pop(retry_day)
+        if remaining:
+            self._archive_pending[retry_day] = {**queued, "projections": remaining}
+        if not await self.persist_control_state():
+            # Do not retire any original receipt before Store acknowledges.
+            self._archive_pending[retry_day] = queued
+            return
+        if missing:
+            try:
+                write_archive(self.hass, self.statistics_namespace, slices, missing)
+            except (ImportError, RuntimeError, ValueError, OSError):
+                _LOGGER.exception("Native charging cost retention retry failed")
+
 
     def native_surplus_power(self, at):
         """Compute strictly current, not forecast solar/export capacity.
@@ -123,11 +322,13 @@ class MultiChargeRuntime:
     def attach_control_store(self, store, snapshot):
         self._control_store = store
         self.executor.restore_state(snapshot)
+        self._control_restore_failed = not self.executor._persistence_verified
         previous = snapshot.get("power_bindings") if isinstance(snapshot, dict) else None
         try:
             self.power_bindings = reconcile_power_bindings(
                 previous, self.configuration, datetime.now(timezone.utc))
         except (ValueError, TypeError, KeyError, OverflowError):
+            self._control_restore_failed = True
             _LOGGER.warning("Invalid stored power binding history; earlier intervals are unknown")
             self.power_bindings = reconcile_power_bindings(
                 {}, self.configuration, datetime.now(timezone.utc))
@@ -137,10 +338,30 @@ class MultiChargeRuntime:
                 previous_energy, self.configuration, datetime.now(timezone.utc), field="energy_entity",
             )
         except (ValueError, TypeError, KeyError, OverflowError):
+            self._control_restore_failed = True
             _LOGGER.warning("Invalid stored energy binding history; earlier meter intervals are unknown")
             self.energy_bindings = reconcile_power_bindings(
                 {}, self.configuration, datetime.now(timezone.utc), field="energy_entity",
             )
+        previous_tariffs = snapshot.get("tariff_bindings") if isinstance(snapshot, dict) else None
+        try:
+            self.tariff_bindings = reconcile_tariff_bindings(
+                previous_tariffs, self.configuration, datetime.now(timezone.utc))
+        except (ValueError, TypeError, KeyError, OverflowError):
+            self._control_restore_failed = True
+            _LOGGER.warning("Invalid stored tariff binding history; earlier valuations are unknown")
+            self.tariff_bindings = reconcile_tariff_bindings(
+                {}, self.configuration, datetime.now(timezone.utc))
+        if self._control_restore_failed:
+            self.executor._persistence_verified = False
+            _LOGGER.error("Original control Store retained; restore valid evidence and reload")
+        if isinstance(snapshot, dict):
+            pending = snapshot.get("pending_cost_archive", {})
+            try:
+                self._archive_pending = restore_pending_archive(pending)
+            except (ValueError, KeyError, TypeError, AttributeError, OverflowError):
+                self._archive_unreadable = pending if pending is not None else []
+                _LOGGER.error("Invalid pending native cost archive; original retry evidence retained")
         recorded = snapshot.get("settings_action") if isinstance(snapshot, dict) else None
         if (isinstance(recorded, dict)
                 and isinstance(recorded.get("expected_revision"), str)
@@ -180,11 +401,21 @@ class MultiChargeRuntime:
             return True  # isolated developer tests, never a production HA fallback
         try:
             async with self._save_lock:
+                # A STOP is still physically available after failed restore.
+                # Neither that STOP nor an unrelated settings audit may
+                # replace the only recoverable original control evidence.
+                if self._control_restore_failed:
+                    return False
                 await self._control_store.async_save({
                     **self.executor.export_state(),
                     "settings_action": self._settings_action,
                     "power_bindings": self.power_bindings,
                     "energy_bindings": self.energy_bindings,
+                    "tariff_bindings": self.tariff_bindings,
+                    "pending_cost_archive": (
+                        self._archive_unreadable if self._archive_unreadable is not None
+                        else pending_archive_snapshot(self._archive_pending)
+                    ),
                 })
             return True
         except (OSError, ValueError, RuntimeError):
@@ -199,6 +430,11 @@ class MultiChargeRuntime:
         return lambda: self._listeners.discard(callback)
 
     def notify(self):
+        if (self._session_cost_identity is not None
+                and self._session_cost_identity != self._current_session_cost_identity()):
+            self.session_costs = {}
+            self.period_costs = {}
+            self._session_cost_identity = None
         # Native entity listeners share one projection during this synchronous dispatch.
         self._notification_capabilities = self.executor.capabilities() if self._listeners else None
         self._notification_live = self.live_state() if self._listeners else None
@@ -222,6 +458,23 @@ class MultiChargeRuntime:
             unsubscribe()
         self._unsubscribers.clear()
         self._listeners.clear()
+
+    def qualified_tariff(self, at):
+        """One native price reader for proposals and fresh physical admission."""
+        setting = self.configuration["controller"]
+        tariff_source = setting.get("price_entity") or setting.get("current_price_entity")
+        tariff_coverage = {}
+        tariff, tariff_quality = intervals(
+            self.hass, tariff_source, "price", at, coverage_details=tariff_coverage,
+        )
+        if (tariff_quality != "OK" and self.nordpool_prices
+                and self.nordpool_prices[0] == tariff_source):
+            _, cached, quality, fetched_at = self.nordpool_prices
+            if at - fetched_at <= timedelta(minutes=45) and any(row.end > at for row in cached):
+                tariff, tariff_quality = cached, quality
+            elif quality != "OK":
+                tariff_quality = quality
+        return tuple(tariff), tariff_quality, tariff_coverage
 
     def refresh(self, at=None):
         at = (at or datetime.now(timezone.utc)).astimezone(timezone.utc)
@@ -447,8 +700,22 @@ class MultiChargeRuntime:
                 (instant for instant in (earliest, assumed_arrival)
                  if instant is not None), default=None,
             )
+            draw_at = at
+            wall = datetime.now(timezone.utc)
+            # The native quarter callback anchors planning to the quarter,
+            # but actual provider readbacks may arrive a few seconds later.
+            if at <= wall < at+timedelta(seconds=10):
+                draw_at = wall
+            draw = (self.executor.qualified_session_draw(raw, asset, draw_at, power, reading)
+                    if amount is not None and not disconnected else None)
+            if draw is None and amount is not None:
+                draw = self.executor.prior_session_draw(raw, asset, draw_at, reading)
+            if draw is not None:
+                self.observations["chargers"][uid]["session_draw_estimate"] = draw
             request = ChargeDemand(
                 asset_uid=asset["id"], charger_uid=uid,
+                observed_session_draw_kw=draw["power_kw"] if draw else None,
+                observed_draw_setpoint_kw=draw["setpoint_kw"] if draw else None,
                 remaining_grid_kwh=amount, ready_by=deadline,
                 priority=asset.get("priority", 0),
                 continuous_charging=asset.get("continuous_charging", False),
@@ -497,6 +764,7 @@ class MultiChargeRuntime:
                         if assumed_arrival else at.isoformat()
                     ),
                     "physically_connected": cable.value if cable.quality == "ok" else None,
+                    "power_capability_verified": not capability_unverified,
                     "may_execute": False,
                     "reserves_capacity": False,
                 }
@@ -533,17 +801,7 @@ class MultiChargeRuntime:
                     power = source_power
             readings["effective_power_kw"] = power
         tariff_source = setting.get("price_entity") or setting.get("current_price_entity")
-        tariff_coverage = {}
-        tariff, tariff_quality = intervals(
-            self.hass, tariff_source, "price", at, coverage_details=tariff_coverage,
-        )
-        if (tariff_quality != "OK" and self.nordpool_prices
-                and self.nordpool_prices[0] == tariff_source):
-            _, cached, quality, fetched_at = self.nordpool_prices
-            if at - fetched_at <= timedelta(minutes=45) and any(row.end > at for row in cached):
-                tariff, tariff_quality = cached, quality
-            elif quality != "OK":
-                tariff_quality = quality
+        tariff, tariff_quality, tariff_coverage = self.qualified_tariff(at)
         solar_kind = setting.get(
             "solar_source_kind", "intervals" if setting.get("solar_entity") else "none",
         )
@@ -695,6 +953,8 @@ class MultiChargeRuntime:
             shortfall = assessment.shortfall_kwh.get(uid) if assessment else None
             coverage = assessment.coverage.get(uid) if assessment else None
             status = "cannot_assess"
+            recovery = bool(assessment and
+                "deadline_recovery" in assessment.strategy.get(uid, "").split(","))
             soc = self.observations["assets"][asset["id"]]["soc"]
             measured_target_met = (
                 all(asset.get(k) is None for k in (
@@ -707,8 +967,13 @@ class MultiChargeRuntime:
                 proposed, shortfall = 0.0, 0.0
             elif reason == "TARGET_MET":
                 status = "target_met"
+            elif conditional and not self.forecast_assumptions[uid]["power_capability_verified"]:
+                # A conservative minimum-power preview is useful for orientation,
+                # but assumed electrical conversion cannot qualify the deadline.
+                status, reason = "cannot_assess", "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED"
+                shortfall = None
             elif reason == "PROPOSED" and coverage == "COMPLETE":
-                status = "achievable" if due is not None and setting["mode"] != "Force Charge" else "planned"
+                status = "achievable" if due is not None and setting["mode"] != "Force Charge" and not recovery else "planned"
             elif (due is not None and due <= at + timedelta(hours=48)
                     and setting["mode"] != "Force Charge"
                     and reason in ("DEADLINE_PASSED", "INSUFFICIENT_CAPACITY_OR_TIME",
@@ -740,7 +1005,23 @@ class MultiChargeRuntime:
                 "planned_grid_kwh": proposed, "shortfall_grid_kwh": shortfall,
                 "coverage": coverage,
                 "assumption": self.forecast_assumptions.get(uid, {}).get("assumption"),
+                "power_capability_verified": self.forecast_assumptions.get(uid, {}).get(
+                    "power_capability_verified", not missing_current_conversion(chargers[uid])),
+                "minimum_planning_power_kw": minimum_planning_power(chargers[uid]),
+                "minimum_planning_power_assumed": missing_current_conversion(chargers[uid]),
+                "deadline_recovery": recovery,
+                "maximum_reserved_power_kw": max((slot.power_kw for slot in future), default=None),
+                "headroom_boost": any(
+                    slot.planning_power_kw is not None
+                    and slot.power_kw > minimum_planning_power(chargers[uid])+1e-6
+                    and slot.strategy != "deadline_recovery" for slot in future),
+                "session_draw_estimate": self.observations["chargers"][uid].get("session_draw_estimate"),
             }
+        # Revalue the current proposal once per planner refresh, not per entity notification.
+        self.planned_costs = planned_costs(
+            self.assessment.plan.slots if self.assessment else (),
+            self.price_slots, at,
+        )
         self.notify()
 
     def charger_states(self, capabilities=None):
@@ -922,7 +1203,7 @@ class MultiChargeRuntime:
             ),
             "command_outcomes": self.executor.snapshot(),
             "active_sessions": self.executor.session_snapshot(),
-            "completed_sessions": self.executor.completed_sessions(),
+            "completed_sessions": self.executor.completed_sessions(limit=200),
             "accepted_slots": [{
                 **row, "start": row["start"].isoformat(),
                 "end": row["end"].isoformat(),
@@ -948,10 +1229,7 @@ class MultiChargeRuntime:
             raise ValueError("unknown charger")
         if asset_id is not None and not any(
             a["id"] == asset_id for a in self.configuration["assets"]
-        ) and not any(
-            receipt["asset_id"] == asset_id
-            for receipt in self.executor.completed_sessions()
-        ):
+        ) and not self.executor.completed_sessions(asset_id=asset_id, limit=1):
             raise ValueError("unknown asset")
         assessment = self.assessment
         slots = []
@@ -968,10 +1246,11 @@ class MultiChargeRuntime:
                     "asset_id": slot.asset_uid,
                     "start": slot.start.isoformat(),
                     "end": slot.end.isoformat(),
-                    "proposed_power_kw": slot.power_kw,
+                    "proposed_power_kw": slot.expected_power_kw,
+                    "reserved_power_kw": slot.power_kw,
                     "proposed_current_a": slot.current_a,
                     "proposed_energy_kwh": round(
-                        slot.power_kw * (slot.end - slot.start).total_seconds() / 3600, 6
+                        slot.expected_power_kw * (slot.end - slot.start).total_seconds() / 3600, 6
                     ),
                     "accepted_power_kw": None,
                     "actual_power_kw": None,
@@ -984,6 +1263,32 @@ class MultiChargeRuntime:
             if charger_id is not None and accepted["charger_id"] != charger_id:
                 continue
             if asset_id is not None and accepted["asset_id"] != asset_id:
+                continue
+            if accepted.get("confirmed_from") or accepted.get("changes") or accepted.get("closed_at"):
+                # Proposal remains a quarter; actual confirmed admission
+                # cannot be backdated to its planned beginning.
+                close = (datetime.fromisoformat(accepted["closed_at"])
+                         if accepted.get("closed_at") else accepted["end"])
+                cursor = (datetime.fromisoformat(accepted["confirmed_from"])
+                          if accepted.get("confirmed_from") else accepted["start"])
+                power, current = accepted["power_kw"], accepted["current_a"]
+                changes = [*accepted.get("changes", []),
+                           {"at": close.isoformat(), "power_kw": None, "current_a": None}]
+                for change in changes:
+                    stamp = datetime.fromisoformat(change["at"])
+                    if cursor < stamp and stamp > first and cursor < last:
+                        slots.append({
+                            "charger_id": accepted["charger_id"],
+                            "asset_id": accepted["asset_id"],
+                            "start": cursor.isoformat(), "end": stamp.isoformat(),
+                            "proposed_power_kw": None, "proposed_energy_kwh": None,
+                            "proposed_current_a": None,
+                            "accepted_power_kw": power, "accepted_current_a": current,
+                            "accepted_timing_quality": ("confirmed_interval"
+                                if accepted.get("confirmed_from") else "legacy_quarter_receipt"),
+                            "actual_power_kw": None, "actual_energy_kwh": None,
+                        })
+                    cursor, power, current = stamp, change["power_kw"], change["current_a"]
                 continue
             match = next((row for row in slots if
                 row["charger_id"] == accepted["charger_id"]
@@ -1003,6 +1308,7 @@ class MultiChargeRuntime:
                 slots.append(match)
             match["accepted_power_kw"] = accepted["power_kw"]
             match["accepted_current_a"] = accepted["current_a"]
+            match["accepted_timing_quality"] = "legacy_quarter_receipt"
         slots.sort(key=lambda row: (row["start"], row["charger_id"]))
         forecast_slots = []
         if (self.forecast_assessment is not None
@@ -1019,10 +1325,10 @@ class MultiChargeRuntime:
                     "asset_id": forecast.asset_uid,
                     "start": forecast.start.isoformat(),
                     "end": forecast.end.isoformat(),
-                    "indicative_power_kw": forecast.power_kw,
+                    "indicative_power_kw": forecast.expected_power_kw,
                     "indicative_current_a": forecast.current_a,
                     "indicative_energy_kwh": round(
-                        forecast.power_kw * (
+                        forecast.expected_power_kw * (
                             forecast.end - forecast.start
                         ).total_seconds() / 3600, 6
                     ),
@@ -1031,17 +1337,27 @@ class MultiChargeRuntime:
                     "reserves_capacity": False,
                     "assumption": self.forecast_assumptions[forecast.charger_uid]["assumption"],
                 })
-        history = [
-            receipt for receipt in self.executor.completed_sessions()
-            if datetime.fromisoformat(receipt["started_at"]) < last
-            and datetime.fromisoformat(receipt["ended_at"]) >= first
-            and (charger_id is None or receipt["charger_id"] == charger_id)
-            and (asset_id is None or receipt["asset_id"] == asset_id)
-        ]
+        history = self.executor.completed_sessions(
+            start=first, end=last, charger_id=charger_id, asset_id=asset_id,
+        )
         capabilities = self.executor.capabilities()
+        at = datetime.now(timezone.utc)
+        def view_costs(assessment):
+            return planned_costs(
+                [slot for slot in assessment.plan.slots
+                 if (charger_id is None or slot.charger_uid == charger_id)
+                 and (asset_id is None or slot.asset_uid == asset_id)] if assessment else (),
+                self.price_slots, max(at, first), until=last,
+            )["controller"]["site"]
         return {
             "schema_major": 1,
             "plan_palette": dict(PLAN_COLORS),
+            "planned_costs": self.planned_costs,
+            "view_planned_cost": view_costs(assessment),
+            "view_indicative_cost": view_costs(self.forecast_assessment)
+                if self.configuration["controller"].get("show_indicative_forecast", True) else None,
+            "session_costs": self.session_costs,
+            "period_costs": self.period_costs,
             "live": self.live_state(),
             "configuration_revision": configuration_revision(self.configuration),
             "controller_id": self.configuration["controller"]["id"],

@@ -153,6 +153,7 @@
           "phase_limits_a": "Phasengrenzen (A) (optional)",
           "site_power_entity": "Leistungsgrenzquelle (optional)",
           "mode": "Lademodus",
+          "power_adjustment_interval_minutes": "Leistungsregelintervall (min)",
           "max_parallel": "Maximale parallele Ladepunkte",
           "max_power_kw": "Standortleistung (kW)"
         }
@@ -400,6 +401,9 @@
       "max_charge_kw": {
         "name": "Max. Ladeleistung"
       },
+      "power_adjustment_interval_minutes": {
+        "name": "Leistungsregelintervall"
+      },
       "max_parallel": {
         "name": "Gleichzeitige Ladepunkte"
       },
@@ -564,6 +568,36 @@
       },
       "actual_current": {
         "name": "Gemessener Strom"
+      },
+      "current_import_price": {
+        "name": "Aktueller Bezugspreis"
+      },
+      "planned_charging_cost": {
+        "name": "Geplante Ladekosten"
+      },
+      "active_session_cost": {
+        "name": "Aktuelle Sitzungskosten"
+      },
+      "last_session_cost": {
+        "name": "Letzte Sitzungskosten"
+      },
+      "charging_cost_today": {
+        "name": "Ladekosten heute"
+      },
+      "charging_cost_month": {
+        "name": "Ladekosten diesen Monat"
+      },
+      "charging_cost_year": {
+        "name": "Ladekosten dieses Jahr"
+      },
+      "average_charging_price_today": {
+        "name": "Durchschnittlicher Ladepreis heute"
+      },
+      "average_charging_price_month": {
+        "name": "Durchschnittlicher Ladepreis diesen Monat"
+      },
+      "average_charging_price_year": {
+        "name": "Durchschnittlicher Ladepreis dieses Jahr"
       }
     },
     "text": {

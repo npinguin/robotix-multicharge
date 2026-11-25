@@ -135,7 +135,9 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
         if row["goalEditable"] != (role == "admin"):
             raise AssertionError(f"{label}: novice goal or resident auth drift: {row}")
     if view == "overview":
-        if not row["siteFirst"] or not row["overviewGrid"] or row["quickSelectors"] != 0 or row["assetAssignmentActions"] != (count if role == "admin" else 0):
+        if (not row["siteFirst"] or not row["overviewGrid"] or row["quickSelectors"] != 0
+                or row["assetAssignmentActions"] != (count if role == "admin" else 0)
+                or not row["navigationReset"] or not row["financeCompact"]):
             raise AssertionError(f"{label}: site-first asset assignment hierarchy lost: {row}")
     if view == "charger":
         if row["quickSelectors"] != count:

@@ -153,6 +153,7 @@
           "phase_limits_a": "Verified phase limits, e.g. L1:16,L2:16,L3:16 (A) (optional)",
           "site_power_entity": "Optional binding power envelope (fail closed if unavailable) (optional)",
           "mode": "Charging mode",
+          "power_adjustment_interval_minutes": "Power adjustment interval (min)",
           "max_parallel": "Maximum parallel chargers",
           "max_power_kw": "Site power limit (kW)"
         }
@@ -400,6 +401,9 @@
       "max_charge_kw": {
         "name": "Max. charging power"
       },
+      "power_adjustment_interval_minutes": {
+        "name": "Power adjustment interval"
+      },
       "max_parallel": {
         "name": "Parallel chargers"
       },
@@ -564,6 +568,36 @@
       },
       "actual_current": {
         "name": "Actual current"
+      },
+      "current_import_price": {
+        "name": "Current import price"
+      },
+      "planned_charging_cost": {
+        "name": "Planned charging cost"
+      },
+      "active_session_cost": {
+        "name": "Active session cost"
+      },
+      "last_session_cost": {
+        "name": "Last session cost"
+      },
+      "charging_cost_today": {
+        "name": "Charging cost today"
+      },
+      "charging_cost_month": {
+        "name": "Charging cost this month"
+      },
+      "charging_cost_year": {
+        "name": "Charging cost this year"
+      },
+      "average_charging_price_today": {
+        "name": "Average charging price today"
+      },
+      "average_charging_price_month": {
+        "name": "Average charging price this month"
+      },
+      "average_charging_price_year": {
+        "name": "Average charging price this year"
       }
     },
     "text": {

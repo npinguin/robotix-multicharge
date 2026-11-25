@@ -181,6 +181,15 @@ async def websocket_update_settings(
             "charger_busy": "CHARGER_BUSY_STOP_FIRST",
             "charger_occupied": "CHARGER_HAS_OTHER_ASSET",
             "stale_settings": "STALE_SETTINGS_REFRESH",
+            "EXPERT_IMPORT_REQUIRES_VERIFIED_IDLE_CHARGERS": "STRUCTURAL_SAVE_REQUIRES_IDLE",
+            "EXPERT_IMPORT_REQUIRES_RECONCILED_CONTROL_STATE": "SETTINGS_CONTROL_RECONCILIATION_REQUIRED",
+            "settings_not_saved": "SETTINGS_PERSISTENCE_UNAVAILABLE",
+            "charger charging power limits exceed hardware envelope": "CHARGER_POWER_ENVELOPE_INVALID",
+            "charger power envelope has no supported current step": "CHARGER_POWER_STEP_INVALID",
+            "charger.voltage_v": "CHARGER_VOLTAGE_INVALID",
+            "charger.phase_count": "CHARGER_PHASE_COUNT_INVALID",
+            "charger.phase_ids": "CHARGER_PHASE_MAPPING_INVALID",
+            "dedicated assignment requires the selected permanent asset and connection source": "DEDICATED_ASSIGNMENT_INVALID",
         }.get(str(exc).split(":", 1)[0], "SETTINGS_REJECTED")
         runtime.record_settings_action(
             msg["scope"], msg["target_id"], msg.get("action", "save"),

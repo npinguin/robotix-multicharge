@@ -154,6 +154,7 @@
           "phase_limits_a": "Faser (valfritt)",
           "site_power_entity": "Effekt (valfritt)",
           "mode": "Laddningsläge",
+          "power_adjustment_interval_minutes": "Intervall för effektreglering (min)",
           "max_parallel": "Maximalt antal samtidiga laddare",
           "max_power_kw": "Effektgräns (kW)"
         }
@@ -401,6 +402,9 @@
       "max_charge_kw": {
         "name": "Effekt"
       },
+      "power_adjustment_interval_minutes": {
+        "name": "Intervall för effektreglering"
+      },
       "max_parallel": {
         "name": "Antal"
       },
@@ -565,6 +569,36 @@
       },
       "actual_current": {
         "name": "Aktuell ström"
+      },
+      "current_import_price": {
+        "name": "Aktuellt inköpspris"
+      },
+      "planned_charging_cost": {
+        "name": "Planerad laddkostnad"
+      },
+      "active_session_cost": {
+        "name": "Pågående sessionskostnad"
+      },
+      "last_session_cost": {
+        "name": "Senaste sessionskostnad"
+      },
+      "charging_cost_today": {
+        "name": "Laddkostnad i dag"
+      },
+      "charging_cost_month": {
+        "name": "Laddkostnad denna månad"
+      },
+      "charging_cost_year": {
+        "name": "Laddkostnad i år"
+      },
+      "average_charging_price_today": {
+        "name": "Genomsnittligt laddpris i dag"
+      },
+      "average_charging_price_month": {
+        "name": "Genomsnittligt laddpris denna månad"
+      },
+      "average_charging_price_year": {
+        "name": "Genomsnittligt laddpris i år"
       }
     },
     "text": {

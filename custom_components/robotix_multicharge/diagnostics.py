@@ -66,6 +66,9 @@ def build_diagnostics(runtime, entry, captured_at=None):
             "id": _alias(cfg["controller"]["id"]),
             "mode": cfg["controller"]["mode"],
             "max_parallel": cfg["controller"]["max_parallel"],
+            "power_adjustment_interval_minutes": cfg["controller"].get("power_adjustment_interval_minutes", 5),
+            "pending_cost_archive_days": len(runtime._archive_pending),
+            "pending_cost_archive_unreadable": runtime._archive_unreadable is not None,
             "max_power_kw": cfg["controller"].get("max_power_kw"),
             "phase_limits_a": cfg["controller"].get("phase_limits_a"),
             "bindings": {
@@ -88,6 +91,7 @@ def build_diagnostics(runtime, entry, captured_at=None):
             "control_owner": item.get("control_owner", "external"),
             "physical_commissioned": item.get("physical_commissioned", False),
             "assigned_asset": _alias(item.get("asset")),
+            "dedicated_asset": _alias(item.get("dedicated_asset_id")),
             "bindings": {
                 field: _alias(value) for field, value in item.items()
                 if field.endswith("_entity")
@@ -152,6 +156,7 @@ def build_diagnostics(runtime, entry, captured_at=None):
                 "asset_id": _alias(receipt["asset_id"]) if receipt else None,
                 "connection_started_at": receipt["connected_at"] if receipt else None,
                 "confirmed_at": receipt["confirmed_at"] if receipt else None,
+                "basis": receipt.get("basis") if receipt else None,
             }
             for c in cfg["chargers"]
             for receipt in [runtime.executor.connection_confirmation(c, when)]
@@ -159,6 +164,7 @@ def build_diagnostics(runtime, entry, captured_at=None):
         "execution": {
             "action_health": runtime.live_state()["action_health"],
             "persistence_verified": runtime.executor._persistence_verified,
+            "original_store_retained": runtime._control_restore_failed,
             "quarantined_chargers": sorted(
                 _alias(uid) for uid in runtime.executor._quarantine
             ),
@@ -172,8 +178,13 @@ def build_diagnostics(runtime, entry, captured_at=None):
                 for uid, result in runtime.executor.session_snapshot().items()
             },
             "completed_sessions": [
-                _action(row) for row in runtime.executor.completed_sessions()
+                _action(row) for row in runtime.executor.completed_sessions(limit=200)
             ],
+        },
+        "finance_retention": {
+            "pending_days": len(runtime._archive_pending),
+            "projected_days": len(runtime._daily_costs),
+            "pending_slices": sum(len(rows) for rows in runtime._archive_pending.values()),
         },
         "settings_action": (
             _action(runtime.settings_action_snapshot())

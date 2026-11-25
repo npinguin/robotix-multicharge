@@ -13,6 +13,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from time import monotonic
 
 PKG = Path(__file__).resolve().parents[1] / "custom_components" / "robotix_multicharge"
 ROOT = "multicharge_physical_execution_test"
@@ -61,6 +62,7 @@ class NativeServices:
                 self.sources["sensor.actual_current"].last_updated = datetime.now(timezone.utc)
                 self.sources["sensor.actual_power"].state = str(
                     round(float(data["value"]) * 230)
+                    if self.sources["switch.evse_control"].state == "on" else 0
                 )
                 self.sources["sensor.actual_power"].last_updated = datetime.now(timezone.utc)
             elif ("sensor.actual_power" in self.sources and
@@ -538,6 +540,38 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(asset["id"], rt.executor._inflight,
                       "Unmeasured energy must not permit automatic replay")
 
+    async def test_receipts_beyond_ui_limit_preserve_original_intent_and_identity(self):
+        rt, sources, _ = rig()
+        asset = rt.configuration["assets"][0]
+        charger = rt.configuration["chargers"][0]
+        asset["requested_kwh"] = 1
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"],
+                         "confirmed")
+        sources["sensor.meter"].state = "5.8"
+        sources["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        self.assertEqual((await rt.executor.execute("evse", "stop"))["status"],
+                         "confirmed")
+        original = rt.executor.completed_sessions()[0]
+        # Other real historical receipt identities must not evict progress
+        # of the original still-valid finite intent.
+        for index in range(205):
+            a = datetime.now(timezone.utc)-timedelta(days=1, minutes=206-index)
+            rt.executor._session_history.append({
+                **original, "asset_id": "retired_car", "intent_key": "other",
+                "started_at": a.isoformat(),
+                "ended_at": (a+timedelta(seconds=30)).isoformat(),
+            })
+        snapshot = rt.executor.export_state()
+        self.assertEqual(len(snapshot["sessions"]), 206)
+        restored = MultiChargeRuntime(rt.hass, rt.configuration)
+        restored.executor.restore_state(snapshot)
+        self.assertTrue(restored.executor._persistence_verified)
+        self.assertEqual(restored.executor.completed_sessions()[0], original)
+        self.assertEqual(len(restored.executor.completed_sessions(limit=200)), 200)
+        self.assertAlmostEqual(restored.executor.measured_intent_usage(
+            asset, charger, None)["energy_kwh"], 0.8)
+        self.assertEqual(restored.executor.export_state()["sessions"], snapshot["sessions"])
+
     async def test_verified_vehicle_energy_follows_asset_not_charger(self):
         rt, states, services = rig()
         asset = rt.configuration["assets"][0]
@@ -826,6 +860,33 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(rt.executor.accepted_slots())
         self.assertEqual(rt.executor.session_snapshot(), {})
 
+    async def test_dedicated_vehicle_reconnects_without_manual_confirmation(self):
+        rt, states, services = rig(mode="Automatic")
+        charger = rt.configuration["chargers"][0]
+        charger["dedicated_asset_id"] = "car"
+        rt.configuration = validate_configuration(rt.configuration)
+        rt.executor._plug_confirmations.clear()
+        states["binary_sensor.cable"].state = "off"
+        rt.refresh()
+        self.assertFalse(rt.assessment.plan.slots)
+        states["binary_sensor.cable"].state = "on"
+        at = datetime.now(timezone.utc)
+        quarter = at.replace(minute=at.minute//15*15, second=0, microsecond=0)
+        for source in states.values():
+            source.last_updated = quarter+timedelta(seconds=1)
+        states["binary_sensor.cable"].last_changed = quarter
+        rt.refresh(quarter)
+        self.assertTrue(rt.assessment.plan.slots)
+        self.assertEqual(rt.executor.connection_confirmation(
+            rt.configuration["chargers"][0], quarter)["basis"], "dedicated_assignment")
+        await rt.executor.advance_plan(quarter)
+        self.assertEqual([row[1] for row in services.calls], ["turn_on"])
+        self.assertTrue(rt.executor.accepted_slots())
+        # Replug during a running session must stop the old intent, not adopt it.
+        states["binary_sensor.cable"].last_changed = datetime.now(timezone.utc)+timedelta(seconds=1)
+        self.assertEqual(rt.executor._session_stop_reason(rt.configuration["chargers"][0],
+            datetime.now(timezone.utc)), "CURRENT_PLUG_ASSET_UNCONFIRMED")
+
     async def test_automatic_quarter_applies_only_physically_confirmed_plan(self):
         rt, states, services = rig(mode="Automatic")
         at = datetime.now(timezone.utc)
@@ -840,12 +901,411 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(accepted), 1)
         self.assertIsNotNone(list(accepted.values())[0]["revision"])
         view = rt.read_plan(quarter, quarter + timedelta(minutes=15))
-        self.assertEqual(view["slots"][0]["accepted_power_kw"], 2)
+        admitted = [row for row in view["slots"] if row["accepted_power_kw"] is not None]
+        self.assertEqual(len(admitted), 1)
+        self.assertEqual(admitted[0]["accepted_power_kw"], 2)
+        self.assertGreater(datetime.fromisoformat(admitted[0]["start"]), quarter)
+        self.assertEqual(admitted[0]["accepted_timing_quality"], "confirmed_interval")
         await rt.executor.advance_plan(quarter)
         self.assertEqual(len(services.calls), 1)
         rt.configuration["controller"]["mode"] = "Off"
         await rt.executor.supervise()
         self.assertEqual(services.calls[-1][1], "turn_off")
+
+    async def test_two_adjustable_chargers_admit_same_quarter_and_share_regulation(self):
+        rt, states, _ = rig(group_kw=4.6, mode="Automatic")
+        cfg = rt.configuration
+        cfg["controller"]["max_parallel"] = 2
+        cfg["assets"][0]["requested_kwh"] = 2
+        cfg["assets"].append({"id": "car_b", "name": "Car B", "kind": "car",
+                              "requested_kwh": 2})
+        a = cfg["chargers"][0]
+        a.update(kind="variable_current", rated_power_kw=3.68, voltage_v=230,
+                 min_current_a=6, max_current_a=16, current_step_a=1,
+                 dedicated_asset_id="car", current_control_entity="number.limit_a",
+                 current_readback_entity="sensor.current_a")
+        cfg["chargers"].append({
+            **a, "id": "evse_b", "name": "EVSE B", "asset": "car_b",
+            "dedicated_asset_id": "car_b", "control_entity": "switch.evse_b",
+            "connected_entity": "binary_sensor.cable_b", "power_entity": "sensor.power_b",
+            "energy_entity": "sensor.meter_b", "current_control_entity": "number.limit_b",
+            "current_readback_entity": "sensor.current_b",
+        })
+        for name in ("a", "b"):
+            states["number.limit_"+name] = state(6, "A")
+            states["number.limit_"+name].attributes.update(min=6, max=16, step=1)
+            states["sensor.current_"+name] = state(0, "A")
+        states.update({"switch.evse_b": state("off"),
+                       "binary_sensor.cable_b": state("on"),
+                       "sensor.power_b": state(0, "W"),
+                       "sensor.meter_b": state(5, "kWh")})
+        rt.configuration = validate_configuration(cfg)
+        rt.executor._plug_confirmations.clear()
+
+        class TwoNativeServices(NativeServices):
+            async def async_call(self, domain, service, data, *, blocking, context):
+                entity = data["entity_id"]
+                self.calls.append((domain, service, dict(data), blocking, context))
+                suffix = "b" if entity.endswith("_b") else "a"
+                switch = "switch.evse_b" if suffix == "b" else "switch.evse_control"
+                power = "sensor.power_b" if suffix == "b" else "sensor.actual_power"
+                current = "sensor.current_"+suffix
+                limit = "number.limit_"+suffix
+                now = datetime.now(timezone.utc)
+                if domain == "number":
+                    states[limit].state = str(data["value"])
+                    states[limit].last_updated = now
+                else:
+                    states[switch].state = "on" if service == "turn_on" else "off"
+                    states[switch].last_updated = now
+                amps = float(states[limit].state) if states[switch].state == "on" else 0
+                states[current].state, states[current].last_updated = str(amps), now
+                states[power].state, states[power].last_updated = str(amps*230), now
+
+        services = TwoNativeServices(states)
+        rt.hass.services = services
+        at = datetime.now(timezone.utc)
+        quarter = at.replace(minute=at.minute//15*15, second=0, microsecond=0)
+        for source in states.values():
+            source.last_updated = quarter+timedelta(seconds=1)
+        for cable in ("binary_sensor.cable", "binary_sensor.cable_b"):
+            states[cable].last_changed = quarter
+        rt.refresh(quarter)
+        selected = {s.charger_uid: s for s in rt.assessment.plan.slots if s.start == quarter}
+        self.assertEqual(set(selected), {"evse", "evse_b"})
+        self.assertLessEqual(sum(s.power_kw for s in selected.values()), 4.6)
+        await rt.executor.advance_plan(quarter)
+        self.assertEqual(set(rt.executor.session_snapshot()), {"evse", "evse_b"})
+        self.assertEqual(sum(call[1] == "turn_on" for call in services.calls), 2)
+        self.assertEqual(len(rt.executor.accepted_slots()), 2)
+        self.assertLessEqual(sum(float(states[k].state) for k in (
+            "sensor.actual_power", "sensor.power_b")), 4600)
+        # Finish one vehicle, then allow the other to reuse released headroom.
+        by_current = sorted(rt.executor.session_snapshot(),
+                            key=lambda uid: rt.executor.session_snapshot()[uid]["target_current_a"])
+        remaining, complete = by_current
+        meter = "sensor.meter_b" if complete == "evse_b" else "sensor.meter"
+        states[meter].state = "7.1"
+        states[meter].last_updated = datetime.now(timezone.utc)
+        await rt.executor.supervise()
+        self.assertEqual(set(rt.executor.session_snapshot()), {remaining})
+        before = len(services.calls)
+        await rt.executor.regulate_active_plan()
+        self.assertEqual(len(services.calls), before)
+        rt.executor._last_power_adjustment_tick = monotonic()-5*60
+        await rt.executor.regulate_active_plan()
+        self.assertEqual(rt.executor.session_snapshot()[remaining]["target_current_a"], 16)
+        self.assertEqual(sum(call[1] == "turn_on" for call in services.calls), 2)
+
+    async def test_quarter_order_releases_previous_boost_before_new_start(self):
+        rt, states, _ = rig(mode="Automatic")
+        executor = rt.executor
+        drive = rt.configuration["chargers"][0]
+        other = {**drive, "id": "other", "control_entity": "switch.other"}
+        states["switch.evse_control"].state = "on"
+        states["switch.other"] = state("off")
+        executor._sessions["evse"] = {"asset_id": "car", "target_current_a": 15}
+        executor._accepted["evse"] = {}
+        slot = SimpleNamespace(asset_uid="car", current_a=6)
+        self.assertEqual([row["id"] for row in executor._quarter_order(
+            [other, drive], {"evse": slot})], ["evse", "other"])
+        self.assertEqual([row["id"] for row in executor._quarter_order(
+            [other, drive], {})], ["evse", "other"])
+
+    async def test_automatic_boost_stops_on_measured_goal_before_reserved_finish(self):
+        rt, states, services = rig(group_kw=3.6, mode="Automatic")
+        charger = rt.configuration["chargers"][0]
+        charger.update(kind="variable_current", rated_power_kw=3.6,
+                       voltage_v=230, min_current_a=6, max_current_a=16,
+                       current_step_a=1, dedicated_asset_id="car",
+                       current_control_entity="number.charge_limit",
+                       current_readback_entity="sensor.actual_current")
+        native = state(6, "A")
+        native.attributes.update(min=6, max=16, step=1)
+        states["number.charge_limit"] = native
+        states["sensor.actual_current"] = state(0, "A")
+        rt.configuration = validate_configuration(rt.configuration)
+        rt.executor._plug_confirmations.clear()
+        at = datetime.now(timezone.utc)
+        quarter = at.replace(minute=at.minute//15*15, second=0, microsecond=0)
+        for source in states.values():
+            source.last_updated = quarter+timedelta(seconds=1)
+        states["binary_sensor.cable"].last_changed = quarter
+        rt.refresh(quarter)
+        slots = rt.assessment.plan.slots
+        self.assertEqual(len(slots), 3)
+        self.assertTrue(all(s.expected_power_kw == 1.38 and s.current_a == 15 for s in slots))
+        await rt.executor.advance_plan(quarter)
+        self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 15)
+        states["sensor.meter"].state = "5.5"
+        states["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        await rt.executor.supervise()
+        self.assertEqual(states["switch.evse_control"].state, "on")
+        states["sensor.meter"].state = "6.02"
+        states["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        await rt.executor.supervise()
+        self.assertEqual(states["switch.evse_control"].state, "off")
+        self.assertFalse(rt.executor.session_snapshot())
+        self.assertEqual(services.calls[-1][1], "turn_off")
+
+    async def test_boost_falls_back_when_other_physical_load_appears(self):
+        rt, states, services = rig(group_kw=3.6, mode="Automatic")
+        rt.configuration["controller"]["max_parallel"] = 2
+        charger = rt.configuration["chargers"][0]
+        charger.update(kind="variable_current", rated_power_kw=3.6,
+                       voltage_v=230, min_current_a=6, max_current_a=16,
+                       current_step_a=1, dedicated_asset_id="car",
+                       current_control_entity="number.charge_limit",
+                       current_readback_entity="sensor.actual_current")
+        rt.configuration["chargers"].append({
+            "id": "external", "name": "External", "kind": "on_off",
+            "rated_power_kw": 1.3, "control_owner": "external",
+            "physical_commissioned": False, "control_entity": "switch.external",
+            "power_entity": "sensor.external_power",
+        })
+        rt.configuration = validate_configuration(rt.configuration)
+        native = state(6, "A")
+        native.attributes.update(min=6, max=16, step=1)
+        states["number.charge_limit"] = native
+        states["sensor.actual_current"] = state(0, "A")
+        states["switch.external"] = state("off")
+        states["sensor.external_power"] = state(0, "W")
+        rt.executor._plug_confirmations.clear()
+        at = datetime.now(timezone.utc)
+        quarter = at.replace(minute=at.minute//15*15, second=0, microsecond=0)
+        for source in states.values():
+            source.last_updated = quarter+timedelta(seconds=1)
+        states["binary_sensor.cable"].last_changed = quarter
+        rt.refresh(quarter)
+        self.assertEqual(rt.assessment.plan.slots[0].current_a, 15)
+        states["switch.external"].state = "on"
+        states["sensor.external_power"].state = "1300"
+        states["sensor.external_power"].last_updated = datetime.now(timezone.utc)
+        await rt.executor.advance_plan(quarter)
+        self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 10)
+        accepted = list(rt.executor.accepted_slots().values())[0]
+        self.assertEqual(accepted["current_a"], 10)
+        self.assertAlmostEqual(accepted["power_kw"], 2.3)
+        self.assertTrue(all(call[2]["entity_id"] != "switch.external" for call in services.calls))
+        # Released external capacity may restore the original authorized
+        # setpoint, but only after the selected regulation interval.
+        states["switch.external"].state = "off"
+        states["sensor.external_power"].state = "0"
+        states["sensor.external_power"].last_updated = datetime.now(timezone.utc)
+        rt.configuration["controller"]["power_adjustment_interval_minutes"] = 7
+        before = len(services.calls)
+        rt.executor._last_power_adjustment_tick = monotonic()-6*60
+        await rt.executor.regulate_active_plan()
+        self.assertEqual(len(services.calls), before)
+        rt.executor._last_power_adjustment_tick = monotonic()-7*60
+        await rt.executor.regulate_active_plan()
+        self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 15)
+        receipt = list(rt.executor.accepted_slots().values())[0]
+        self.assertEqual(receipt["current_a"], 10)
+        self.assertEqual(receipt["changes"][-1]["current_a"], 15)
+        self.assertGreater(datetime.fromisoformat(receipt["changes"][-1]["at"]), quarter)
+        before = len(services.calls)
+        await rt.executor.regulate_active_plan()
+        self.assertEqual(len(services.calls), before)
+        # Protective reduction is not delayed by the normal seven-minute cadence.
+        states["switch.external"].state = "on"
+        states["sensor.external_power"].state = "1300"
+        states["sensor.external_power"].last_updated = datetime.now(timezone.utc)
+        await rt.executor.supervise()
+        self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 10)
+        receipt = list(rt.executor.accepted_slots().values())[0]
+        self.assertEqual(receipt["changes"][-1]["current_a"], 10)
+        view = rt.read_plan(quarter, quarter+timedelta(minutes=15))
+        segments = [row for row in view["slots"] if row["accepted_power_kw"] is not None]
+        self.assertEqual([row["accepted_current_a"] for row in segments], [10, 15, 10])
+        self.assertEqual(segments[0]["start"], receipt["confirmed_from"])
+        self.assertEqual(segments[0]["end"], segments[1]["start"])
+        self.assertEqual(segments[1]["end"], segments[2]["start"])
+        saved = rt.executor.export_state()
+        restored = MultiChargeRuntime(rt.hass, rt.configuration)
+        restored.executor.restore_state(saved)
+        self.assertTrue(restored.executor._persistence_verified)
+        self.assertEqual(restored.executor.accepted_slots(), rt.executor.accepted_slots())
+        # Restored history is evidence, not live authorization.
+        self.assertFalse(restored.executor._accepted)
+
+    async def test_interval_requalifies_new_binding_headroom_without_new_start(self):
+        rt, states, services = rig(group_kw=3.6, mode="Automatic")
+        rt.configuration["controller"]["binding_entity"] = "sensor.capacity"
+        charger = rt.configuration["chargers"][0]
+        charger.update(kind="variable_current", rated_power_kw=3.6,
+                       voltage_v=230, min_current_a=6, max_current_a=16,
+                       current_step_a=1, dedicated_asset_id="car",
+                       current_control_entity="number.charge_limit",
+                       current_readback_entity="sensor.actual_current")
+        native = state(6, "A")
+        native.attributes.update(min=6, max=16, step=1)
+        states["number.charge_limit"] = native
+        states["sensor.actual_current"] = state(0, "A")
+        rt.configuration = validate_configuration(rt.configuration)
+        rt.executor._plug_confirmations.clear()
+        at = datetime.now(timezone.utc)
+        quarter = at.replace(minute=at.minute//15*15, second=0, microsecond=0)
+        envelope = state("ready")
+        envelope.attributes.update({
+            "kind": "binding_power_envelope", "authority": "binding",
+            "provider_id": "capacity", "revision": "1",
+            "issued_at": (quarter-timedelta(minutes=1)).isoformat(),
+            "valid_until": (quarter+timedelta(hours=2)).isoformat(),
+            "intervals": [{
+                "start": quarter.isoformat(),
+                "end": (quarter+timedelta(hours=2)).isoformat(),
+                "max_charging_kw": 2.3,
+            }],
+        })
+        states["sensor.capacity"] = envelope
+        for source in states.values():
+            source.last_updated = quarter+timedelta(seconds=1)
+        states["binary_sensor.cable"].last_changed = quarter
+        rt.refresh(quarter)
+        self.assertEqual(rt.assessment.plan.slots[0].current_a, 10)
+        await rt.executor.advance_plan(quarter)
+        self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 10)
+        envelope.attributes["revision"] = "2"
+        envelope.attributes["intervals"][0]["max_charging_kw"] = 3.6
+        envelope.last_updated = datetime.now(timezone.utc)
+        rt.refresh()
+        before = len(services.calls)
+        rt.executor._last_power_adjustment_tick = monotonic()-4*60
+        await rt.executor.regulate_active_plan()
+        self.assertEqual(len(services.calls), before)
+        rt.executor._last_power_adjustment_tick = monotonic()-5*60
+        await rt.executor.regulate_active_plan()
+        self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 15)
+        self.assertEqual(len([call for call in services.calls if call[1] == "turn_on"]), 1)
+        # A missing mandatory binding is still an immediate safety STOP.
+        envelope.state = "unavailable"
+        await rt.executor.supervise()
+        self.assertEqual(states["switch.evse_control"].state, "off")
+
+    async def test_seven_minute_regulation_keeps_cadence_across_quarter_and_expiry(self):
+        for finite in (False, True):
+            with self.subTest(finite_duration=finite):
+                await self._exercise_seven_minute_regulation(finite)
+
+    async def _exercise_seven_minute_regulation(self, finite):
+        from unittest.mock import patch
+        from multicharge_physical_execution_test import execution, runtime
+        real_datetime = datetime
+        quarter = real_datetime.now(timezone.utc).replace(
+            minute=0, second=0, microsecond=0,
+        )
+
+        class Clock(real_datetime):
+            current = quarter+timedelta(seconds=2)
+
+            @classmethod
+            def now(cls, tz=None):
+                return cls.fromtimestamp(cls.current.timestamp(), tz)
+
+        with patch.object(execution, "datetime", Clock), patch.object(runtime, "datetime", Clock), \
+                patch.object(execution, "monotonic", lambda: Clock.current.timestamp()), \
+                patch.dict(globals(), {"datetime": Clock}):
+            rt, states, services = rig(group_kw=3.6, mode="Automatic")
+            rt.configuration["controller"].update(
+                binding_entity="sensor.capacity", power_adjustment_interval_minutes=7,
+            )
+            if finite:
+                rt.configuration["assets"][0].pop("requested_kwh")
+                rt.configuration["assets"][0]["requested_duration_minutes"] = 60
+            else:
+                rt.configuration["assets"][0]["requested_kwh"] = 8
+            charger = rt.configuration["chargers"][0]
+            charger.update(kind="variable_current", rated_power_kw=3.6, voltage_v=230,
+                           min_current_a=6, max_current_a=16, current_step_a=1,
+                           dedicated_asset_id="car", current_control_entity="number.charge_limit",
+                           current_readback_entity="sensor.actual_current")
+            native = state(6, "A")
+            native.attributes.update(min=6, max=16, step=1)
+            states["number.charge_limit"] = native
+            states["sensor.actual_current"] = state(0, "A")
+            envelope = state("ready")
+            envelope.attributes.update({
+                "kind": "binding_power_envelope", "authority": "binding",
+                "provider_id": "capacity", "revision": "1",
+                "issued_at": (quarter-timedelta(minutes=1)).isoformat(),
+                "valid_until": (quarter+timedelta(hours=2)).isoformat(),
+                "intervals": [{"start": quarter.isoformat(),
+                               "end": (quarter+timedelta(hours=2)).isoformat(),
+                               "max_charging_kw": 2.3}],
+            })
+            states["sensor.capacity"] = envelope
+            rt.configuration = validate_configuration(rt.configuration)
+            rt.executor._plug_confirmations.clear()
+            states["binary_sensor.cable"].last_changed = Clock.fromtimestamp(quarter.timestamp(), timezone.utc)
+
+            async def tick(minute, *, admit=False):
+                Clock.current = quarter+timedelta(minutes=minute, seconds=2)
+                for source in states.values():
+                    source.last_updated = Clock.current
+                at = quarter+timedelta(minutes=minute) if admit else Clock.current
+                rt.refresh(at)
+                if admit:
+                    await rt.executor.advance_plan(at)
+                await rt.executor.supervise()
+                await rt.executor.regulate_active_plan()
+
+            await tick(0, admit=True)
+            self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 10)
+            await tick(7)
+            await tick(14)
+            envelope.attributes["revision"] = "2"
+            envelope.attributes["intervals"][0]["max_charging_kw"] = 3.6
+            count = len(services.calls)
+            await tick(15, admit=True)
+            self.assertEqual(len(services.calls), count)
+            self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 10)
+            await tick(20)
+            self.assertEqual(len(services.calls), count)
+            await tick(21)
+            self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 15)
+            self.assertEqual(len(services.calls), count+1)
+            self.assertEqual(sum(call[1] == "turn_on" for call in services.calls), 1)
+            # Missed quarter event: expiration must not retain the old grant.
+            await tick(30)
+            self.assertEqual(states["switch.evse_control"].state, "off")
+            self.assertEqual(services.calls[-1][1], "turn_off")
+
+    async def test_regulation_uses_elapsed_time_not_wall_clock(self):
+        from unittest.mock import patch
+        from multicharge_physical_execution_test import execution
+        rt, _, _ = rig()
+        rt.configuration["controller"]["power_adjustment_interval_minutes"] = 20
+        with patch.object(execution, "monotonic", side_effect=[1000, 1001, 2199, 2200]):
+            self.assertTrue(rt.executor._power_adjustment_due())
+            self.assertFalse(rt.executor._power_adjustment_due())
+            self.assertFalse(rt.executor._power_adjustment_due())
+            self.assertTrue(rt.executor._power_adjustment_due())
+
+    async def test_economy_tariff_loss_stops_between_adjustments(self):
+        rt, states, services = rig(mode="Economy")
+        quarter = datetime.now(timezone.utc).replace(
+            minute=(datetime.now(timezone.utc).minute//15)*15, second=0, microsecond=0)
+        provider = state("ready")
+        provider.attributes.update({
+            "kind": "effective_price_kwh", "currency": "EUR",
+            "valid_until": (quarter+timedelta(hours=2)).isoformat(),
+            "intervals": [{"start": quarter.isoformat(),
+                           "end": (quarter+timedelta(hours=2)).isoformat(), "value": 0.15}],
+        })
+        states["sensor.tariff"] = provider
+        rt.configuration["controller"]["price_entity"] = "sensor.tariff"
+        rt.configuration["controller"]["power_adjustment_interval_minutes"] = 60
+        for source in states.values():
+            source.last_updated = quarter+timedelta(seconds=1)
+        rt.refresh(quarter)
+        await rt.executor.advance_plan(quarter)
+        self.assertEqual(states["switch.evse_control"].state, "on")
+        provider.state = "unavailable"
+        # Do not depend on a prior planner refresh to revoke live authority.
+        await rt.executor.supervise()
+        self.assertEqual(states["switch.evse_control"].state, "off")
+        self.assertEqual([call[1] for call in services.calls], ["turn_on", "turn_off"])
 
     async def test_quarter_grant_rechecks_changed_configuration_before_start(self):
         rt, states, services = rig(mode="Automatic")
@@ -901,6 +1361,127 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(services.calls[0][2]["value"], 15)
         self.assertEqual((await rt.executor.execute("evse", "stop"))["status"], "confirmed")
 
+    async def test_sustained_draw_qualification_rejects_single_sample_and_changed_setpoint(self):
+        rt, states, _ = rig(group_kw=3.6)
+        charger = rt.configuration["chargers"][0]
+        charger.update(kind="variable_current", rated_power_kw=3.68,
+                       voltage_v=230, min_current_a=6, max_current_a=16, current_step_a=1,
+                       current_control_entity="number.charge_limit",
+                       current_readback_entity="sensor.actual_current")
+        native = state(6, "A")
+        native.attributes.update(min=6, max=16, step=1)
+        states["number.charge_limit"] = native
+        states["sensor.actual_current"] = state(0, "A")
+        self.assertEqual((await rt.executor.execute("evse", "start", current_a=15))["status"],
+                         "confirmed")
+        from multicharge_physical_execution_test.source_evidence import number, Evidence
+        start = datetime.now(timezone.utc)
+        asset = rt.configuration["assets"][0]
+        def estimate(minute):
+            at = start+timedelta(minutes=minute)
+            states["sensor.actual_power"].state = "1610"
+            states["sensor.actual_current"].state = "7"
+            for source in states.values():
+                source.last_updated = at
+            return rt.executor.qualified_session_draw(
+                charger, asset, at, number(rt.hass, "sensor.actual_power", "power", at),
+                Evidence(None, "unknown", None, "SOC_SOURCE_NOT_SELECTED"),
+            )
+        self.assertIsNone(estimate(0))
+        self.assertIsNone(estimate(2))
+        self.assertIsNone(estimate(4))
+        draw = estimate(6)
+        self.assertAlmostEqual(draw["power_kw"], 1.61)
+        self.assertEqual(draw["sample_count"], 4)
+        for second in range(1, 61):
+            draw = estimate(6+second/60)
+        self.assertIsNotNone(draw)
+        self.assertLess(draw["sample_count"], 10)
+        rt.executor._sessions["evse"]["target_current_a"] = 10
+        states["number.charge_limit"].state = "10"
+        self.assertIsNone(estimate(7))
+
+    async def test_long_lived_receipt_views_filter_without_truncating_originals(self):
+        rt, _, _ = rig()
+        at = datetime.now(timezone.utc)
+        history = []
+        for index in range(1001):
+            end = at-timedelta(days=1000-index)
+            history.append({"charger_id": "evse", "asset_id": "car" if index % 2 else "old",
+                            "started_at": (end-timedelta(hours=1)).isoformat(),
+                            "ended_at": end.isoformat()})
+        # Restore exercises the same retained history path as native Store.
+        snapshot = rt.executor.export_state()
+        snapshot["sessions"] = history
+        revision = rt.executor.session_history_revision
+        rt.executor.restore_state(snapshot)
+        self.assertGreater(rt.executor.session_history_revision, revision)
+        self.assertEqual(len(rt.executor.completed_sessions()), 1001)
+        recent = rt.executor.completed_sessions(limit=200, asset_id="car")
+        self.assertEqual(len(recent), 200)
+        self.assertEqual(recent[-1], history[-2])
+        self.assertEqual(rt.executor.completed_sessions(limit=0), [])
+        self.assertEqual(rt.executor.completed_sessions(
+            start=at-timedelta(hours=48), end=at+timedelta(hours=1)), history[-3:])
+        self.assertEqual(rt.executor.export_state()["sessions"], history)
+
+    async def test_prior_session_draw_receipt_reuse_and_changed_context(self):
+        rt, states, _ = rig(group_kw=3.6)
+        charger = rt.configuration["chargers"][0]
+        charger.update(kind="variable_current", rated_power_kw=3.68,
+                       voltage_v=230, min_current_a=6, max_current_a=16, current_step_a=1,
+                       current_control_entity="number.charge_limit",
+                       current_readback_entity="sensor.actual_current")
+        asset = rt.configuration["assets"][0]
+        asset["soc_entity"] = "sensor.car_soc"
+        states["number.charge_limit"] = native = state(6, "A")
+        native.attributes.update(min=6, max=16, step=1)
+        states["sensor.actual_current"] = state(0, "A")
+        states["sensor.car_soc"] = state(50, "%")
+        self.assertEqual((await rt.executor.execute("evse", "start", current_a=15))["status"],
+                         "confirmed")
+        from multicharge_physical_execution_test.source_evidence import number, Evidence
+        now = datetime.now(timezone.utc)
+        # Clock-controlled source reports in a completed six-minute window.
+        session = rt.executor._sessions["evse"]
+        session["started_at"] = session["confirmed_at"] = now-timedelta(minutes=6)
+        for minute in (6, 4, 2, 0):
+            at = now-timedelta(minutes=minute)
+            states["sensor.actual_power"].state = "1610"
+            states["sensor.actual_current"].state = "7"
+            for source in states.values():
+                source.last_updated = at
+            draw = rt.executor.qualified_session_draw(
+                charger, asset, at, number(rt.hass, "sensor.actual_power", "power", at),
+                Evidence(50, "ok", at, "NATIVE_SOC"),
+            )
+        self.assertIsNotNone(draw)
+        self.assertAlmostEqual(draw["setpoint_kw"], 3.45)
+        stopped = await rt.executor.execute("evse", "stop")
+        self.assertEqual(stopped["status"], "confirmed")
+        self.assertEqual(len(rt.executor.completed_sessions()), 1)
+        snapshot = rt.executor.export_state()
+        rt.executor.restore_state(snapshot)
+        at = datetime.now(timezone.utc)
+        def prior(c=charger, a=asset, level=52, stamp=at):
+            return rt.executor.prior_session_draw(
+                c, a, stamp, Evidence(level, "ok", stamp, "NATIVE_SOC"),
+            )
+        self.assertEqual(prior()["basis"], "qualified_prior_session")
+        self.assertAlmostEqual(prior()["power_kw"], 1.61)
+        self.assertIsNone(prior(level=70))
+        self.assertIsNone(prior(c={**charger, "voltage_v": 240}))
+        self.assertIsNone(prior(a={**asset, "id": "different"}))
+        self.assertIsNone(prior(a={**asset, "soc_entity": "sensor.other_soc"}))
+        self.assertIsNone(prior(stamp=at+timedelta(days=31)))
+        # Unknown/missing context does not inherit a prior observation.
+        self.assertIsNone(rt.executor.prior_session_draw(
+            charger, asset, at, Evidence(None, "unknown", None, "NO_SOC")))
+        rt.executor._session_history.append({
+            **rt.executor._session_history[-1], "draw_evidence": None,
+        })
+        self.assertIsNone(prior())
+
     async def test_adjustable_native_ceiling_accepts_lower_actual_vehicle_draw(self):
         rt, states, services = rig(group_kw=3.6)
         charger = rt.configuration["chargers"][0]
@@ -915,7 +1496,8 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         original = services.async_call
         async def vehicle_draw(domain, service, data, **kwargs):
             await original(domain, service, data, **kwargs)
-            if service in ("turn_on", "set_value"):
+            if service == "turn_on" or (service == "set_value"
+                                        and states["switch.evse_control"].state == "on"):
                 states["sensor.actual_current"].state = "7"
                 states["sensor.actual_current"].last_updated = datetime.now(timezone.utc)
                 states["sensor.actual_power"].state = "1610"
@@ -948,6 +1530,30 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         await rt.executor.supervise()
         self.assertEqual(states["switch.evse_control"].state, "on")
         self.assertEqual((await rt.executor.execute("evse", "stop"))["status"], "confirmed")
+
+    async def test_effective_current_intersects_native_and_configured_grid(self):
+        rt, states, services = rig(group_kw=7.5, mode="Automatic")
+        charger = rt.configuration["chargers"][0]
+        charger.update(kind="variable_current", rated_power_kw=7.36,
+                       voltage_v=230, min_current_a=6, max_current_a=32,
+                       current_step_a=2, current_control_entity="number.charge_limit")
+        native = state(6, "A")
+        native.attributes.update(min=6, max=15, step=1)
+        states["number.charge_limit"] = native
+        effective = rt.executor.effective_charger(charger)
+        self.assertEqual((effective["min_current_a"], effective["max_current_a"],
+                          effective["current_step_a"]), (6, 14, 2))
+        self.assertEqual(charger["max_current_a"], 32)
+        rt.refresh()
+        self.assertTrue(rt.assessment.plan.slots)
+        self.assertTrue(all(slot.current_a <= 14 for slot in rt.assessment.plan.slots))
+        native.attributes.update(min=7, max=15, step=2)
+        effective = rt.executor.effective_charger(charger)
+        self.assertIsNone(effective["max_current_a"])
+        rt.refresh()
+        self.assertFalse(rt.assessment.plan.slots)
+        self.assertTrue(rt.forecast_assessment.plan.slots)
+        self.assertEqual(services.calls, [])
 
     async def test_wrong_native_current_unit_rejected_before_service(self):
         rt, states, services = rig(group_kw=3.6)
@@ -1110,6 +1716,38 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(denied["reason"], "CONTROL_STATE_UNVERIFIED")
         self.assertEqual(services.calls, [])
         self.assertTrue(rt.executor.capabilities()["evse"]["stop_allowed"])
+
+    async def test_corrupt_store_is_not_overwritten_by_physical_stop_or_settings_save(self):
+        from copy import deepcopy
+        from unittest.mock import AsyncMock
+        for corrupt_binding in (False, True):
+            rt, states, services = rig()
+            snapshot = rt.executor.export_state()
+            if corrupt_binding:
+                snapshot["power_bindings"] = {"evse": [
+                    {"start": "bad-time", "entity": "sensor.actual_power"},
+                ]}
+            else:
+                snapshot["sessions"] = [{"charger_id": "evse", "asset_id": "car",
+                                         "started_at": "bad-time"}]
+            original = deepcopy(snapshot)
+            store = SimpleNamespace(async_save=AsyncMock())
+            rt.attach_control_store(store, snapshot)
+            self.assertFalse(rt.executor._persistence_verified)
+            self.assertEqual((await rt.executor.execute("evse", "start"))["reason"],
+                             "CONTROL_STATE_UNVERIFIED")
+            # An already energized owned charger must still be stoppable.
+            states["switch.evse_control"] = state("on")
+            states["sensor.actual_power"] = state(1600, "W")
+            stopped = await rt.executor.execute("evse", "stop")
+            self.assertEqual(stopped["status"], "confirmed")
+            self.assertEqual(states["sensor.actual_power"].state, "0")
+            self.assertEqual([call[1] for call in services.calls], ["turn_off"])
+            self.assertFalse(await rt.persist_control_state())
+            store.async_save.assert_not_called()
+            self.assertEqual(snapshot, original)
+            self.assertTrue(await rt.executor.shutdown())
+            store.async_save.assert_not_called()
 
     async def test_minimal_unassigned_charger_exposes_specific_manual_start_holds(self):
         """UC05/11/17: no SoC, price or PV prerequisite; no fake cable proof."""
@@ -1362,9 +2000,12 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
                 break
             await asyncio.sleep(0.005)
         self.assertIn("evse", rt.executor._start_pending)
+        rt.executor._grants["other"] = object()
         pending_b = asyncio.create_task(
             rt.executor.execute("other", "stop", readback_seconds=0.05))
         await asyncio.sleep(0.05)
+        self.assertNotIn("other", rt.executor._grants,
+                         "STOP revokes B's outstanding quarter admission")
         self.assertTrue(any(
             action == "turn_off" and args.get("entity_id") ==
             "switch.other_control"
@@ -1377,6 +2018,158 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(result_a["status"], "confirmed")
         self.assertNotEqual(result_b["status"], "confirmed")
         # A second request cannot bypass physical confirmation of B's STOP.
+
+    async def test_other_charger_stop_preempts_pending_current_readback(self):
+        rt, states, services = rig(group_kw=8)
+        rt.configuration["controller"]["max_parallel"] = 2
+        rt.configuration["chargers"][0].update(
+            kind="variable_current", rated_power_kw=3.68, voltage_v=230,
+            min_current_a=6, max_current_a=16, current_step_a=1,
+            current_control_entity="number.charge_limit",
+            current_readback_entity="sensor.actual_current",
+        )
+        native = state(6, "A")
+        native.attributes.update(min=6, max=16, step=1)
+        states["number.charge_limit"] = native
+        states["sensor.actual_current"] = state(0, "A")
+        self.assertEqual((await rt.executor.execute("evse", "start", current_a=6))["status"],
+                         "confirmed")
+        rt.configuration["chargers"].append({
+            "id": "other", "name": "Other", "kind": "on_off",
+            "rated_power_kw": 2, "phase_count": 1, "control_owner": "multicharge",
+            "physical_commissioned": True, "control_entity": "switch.other",
+            "power_entity": "sensor.other_power",
+        })
+        states["switch.other"] = state("on")
+        states["sensor.other_power"] = state(1600, "W")
+        original = services.async_call
+
+        async def slow_current(domain, service, data, **kwargs):
+            if data["entity_id"] == "switch.other":
+                services.calls.append((domain, service, dict(data), True, None))
+                states["switch.other"].state = "off"
+                states["sensor.other_power"].state = "0"
+                states["sensor.other_power"].last_updated = datetime.now(timezone.utc)
+            elif domain == "number":
+                services.calls.append((domain, service, dict(data), True, None))
+            else:
+                await original(domain, service, data, **kwargs)
+        services.async_call = slow_current
+        pending = asyncio.create_task(rt.executor.execute(
+            "evse", "set_current", current_a=10, readback_seconds=0.6))
+        for _ in range(80):
+            if rt.executor._current_pending:
+                break
+            await asyncio.sleep(0.005)
+        self.assertIn("evse", rt.executor._current_pending)
+        stop = asyncio.create_task(rt.executor.execute("other", "stop"))
+        await asyncio.sleep(0.03)
+        self.assertEqual(states["switch.other"].state, "off")
+        self.assertFalse(pending.done())
+        first, second = await asyncio.gather(pending, stop)
+        self.assertEqual(first["status"], "execution_unknown")
+        self.assertEqual(second["status"], "confirmed")
+        self.assertFalse(rt.executor._current_pending)
+
+    async def test_peer_source_disconnect_dispatches_stop_during_pending_start(self):
+        rt, states, services = rig(group_kw=8)
+        rt.configuration["controller"]["max_parallel"] = 2
+        rt.configuration["chargers"].append({
+            "id": "other", "name": "Other", "kind": "on_off",
+            "rated_power_kw": 2, "phase_count": 1, "control_owner": "multicharge",
+            "physical_commissioned": True, "control_entity": "switch.other",
+            "power_entity": "sensor.other_power", "connected_entity": "binary_sensor.other_cable",
+        })
+        states["switch.other"] = state("on")
+        states["sensor.other_power"] = state(1600, "W")
+        states["binary_sensor.other_cable"] = state("off")
+        original = services.async_call
+        async def readback(domain, service, data, **kwargs):
+            if data["entity_id"] == "switch.other":
+                services.calls.append((domain, service, dict(data), True, None))
+                states["switch.other"].state = "off"
+                states["sensor.other_power"].state = "0"
+                states["sensor.other_power"].last_updated = datetime.now(timezone.utc)
+            else:
+                await original(domain, service, data, **kwargs)
+        services.reconcile_observations = False
+        services.async_call = readback
+        first = asyncio.create_task(rt.executor.execute("evse", "start", readback_seconds=0.6))
+        for _ in range(80):
+            if rt.executor._start_pending:
+                break
+            await asyncio.sleep(0.005)
+        self.assertIn("evse", rt.executor._start_pending)
+        rt.executor.schedule_pending_protection(asyncio.create_task, "binary_sensor.other_cable")
+        rt.executor.schedule_pending_protection(asyncio.create_task, "binary_sensor.other_cable")
+        await asyncio.sleep(0.03)
+        self.assertEqual(states["switch.other"].state, "off")
+        self.assertFalse(first.done())
+        await first
+        await asyncio.gather(*rt.executor._source_stop_tasks.values())
+        self.assertEqual(sum(call[1] == "turn_off" and call[2]["entity_id"] == "switch.other"
+                             for call in services.calls), 1)
+
+    async def test_pause_during_start_persistence_prevents_energization(self):
+        rt, states, services = rig()
+        entered, release = asyncio.Event(), asyncio.Event()
+        original = rt.persist_control_state
+        first = True
+        async def blocked_save():
+            nonlocal first
+            if first:
+                first = False
+                entered.set()
+                await release.wait()
+            return await original()
+        rt.persist_control_state = blocked_save
+        start = asyncio.create_task(rt.executor.execute("evse", "start"))
+        await asyncio.wait_for(entered.wait(), timeout=1)
+        pause = asyncio.create_task(rt.executor.execute("evse", "pause"))
+        await asyncio.sleep(0)
+        release.set()
+        outcome, paused = await asyncio.gather(start, pause)
+        self.assertEqual(outcome["status"], "rejected", outcome)
+        self.assertIn("STOP_REQUESTED_DURING_START", outcome["reason"])
+        self.assertEqual(paused["status"], "confirmed", paused)
+        self.assertIn("evse", rt.executor._paused)
+        self.assertFalse(any(call[1] == "turn_on" for call in services.calls))
+        self.assertFalse(rt.executor._start_pending)
+        self.assertFalse(rt.executor._stop_requested)
+
+    async def test_lost_connection_during_unconfirmed_start_stops_before_timeout(self):
+        rt, states, services = rig()
+        original = services.async_call
+        async def disconnect(domain, service, data, **kwargs):
+            await original(domain, service, data, **kwargs)
+            if service == "turn_on":
+                states["binary_sensor.cable"].state = "off"
+                states["binary_sensor.cable"].last_updated = datetime.now(timezone.utc)
+                states["sensor.actual_power"].state = "0"
+        services.async_call = disconnect
+        outcome = await asyncio.wait_for(
+            rt.executor.execute("evse", "start", readback_seconds=5), timeout=1,
+        )
+        self.assertEqual(outcome["status"], "execution_unknown", outcome)
+        self.assertIn("PHYSICAL_CONNECTION_UNVERIFIED", outcome["reason"])
+        self.assertEqual(states["switch.evse_control"].state, "off")
+        self.assertFalse(rt.executor._start_pending)
+
+    async def test_same_charger_stop_revokes_pending_start_readback(self):
+        rt, states, services = rig()
+        services.reconcile_observations = False
+        start = asyncio.create_task(rt.executor.execute("evse", "start", readback_seconds=2))
+        for _ in range(80):
+            if rt.executor._start_pending:
+                break
+            await asyncio.sleep(0.005)
+        self.assertIn("evse", rt.executor._start_pending)
+        stop = asyncio.create_task(rt.executor.execute("evse", "stop"))
+        result, _ = await asyncio.wait_for(asyncio.gather(start, stop), timeout=1.5)
+        self.assertNotEqual(result["status"], "confirmed")
+        self.assertIn("STOP_REQUESTED_DURING_START", result["reason"])
+        self.assertFalse(rt.executor._sessions)
+        self.assertFalse(rt.executor._start_pending)
 
     async def test_qualified_eur_budget_physically_stops_with_measured_kwh(self):
         rt, states, service = rig()
@@ -2088,6 +2881,57 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         states["sensor.actual_power"].state = "1600"
         await rt.executor.supervise()
         self.assertEqual(services.calls, [])
+
+    async def test_energy_delivered_before_start_readback_counts_towards_target(self):
+        rt, states, _ = rig()
+        class DelayedMeter(NativeServices):
+            async def async_call(self, domain, service, data, *, blocking, context):
+                await super().async_call(domain, service, data, blocking=blocking, context=context)
+                if service == "turn_on":
+                    states["sensor.meter"].state = "5.4"
+                    states["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        rt.hass.services = DelayedMeter(states)
+        outcome = await rt.executor.execute("evse", "start")
+        self.assertEqual(outcome["status"], "confirmed", outcome)
+        session = rt.executor.session_snapshot()["evse"]
+        self.assertEqual(session["starting_energy_kwh"], 5)
+        self.assertAlmostEqual(session["actual_energy_kwh"], 0.4)
+        self.assertLessEqual(datetime.fromisoformat(session["started_at"]),
+                             datetime.fromisoformat(session["confirmed_at"]))
+        states["sensor.meter"].state = "6.01"
+        states["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        await rt.executor.supervise()
+        self.assertEqual(states["switch.evse_control"].state, "off")
+        self.assertAlmostEqual(rt.executor.completed_sessions()[-1]["actual_energy_kwh"], 1.01)
+
+    async def test_unqualified_meter_reset_during_start_does_not_rebase_finite_goal(self):
+        rt, states, _ = rig()
+        class ResetMeter(NativeServices):
+            async def async_call(self, domain, service, data, *, blocking, context):
+                await super().async_call(domain, service, data, blocking=blocking, context=context)
+                if service == "turn_on":
+                    states["sensor.meter"].state = "0.1"
+                    states["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        rt.hass.services = ResetMeter(states)
+        outcome = await rt.executor.execute("evse", "start")
+        self.assertEqual(outcome["status"], "execution_unknown", outcome)
+        self.assertIn("SESSION_ENERGY_METER_RESET_AT_START", outcome["reason"])
+        self.assertEqual(states["switch.evse_control"].state, "off")
+        self.assertFalse(rt.executor.session_snapshot())
+        self.assertIn("car", rt.executor._inflight)
+
+    async def test_capacity_change_during_start_readback_triggers_protective_stop(self):
+        rt, states, _ = rig()
+        class CapacityChange(NativeServices):
+            async def async_call(self, domain, service, data, *, blocking, context):
+                await super().async_call(domain, service, data, blocking=blocking, context=context)
+                if service == "turn_on":
+                    rt.configuration["controller"]["max_power_kw"] = 1
+        rt.hass.services = CapacityChange(states)
+        outcome = await rt.executor.execute("evse", "start")
+        self.assertEqual(outcome["status"], "execution_unknown", outcome)
+        self.assertIn("CONFIGURATION_CHANGED_DURING_START", outcome["reason"])
+        self.assertEqual(states["switch.evse_control"].state, "off")
 
     async def test_measured_energy_target_stops_only_from_real_meter_delta(self):
         rt, sources, services = rig()

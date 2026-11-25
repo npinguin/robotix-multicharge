@@ -153,6 +153,7 @@
           "phase_limits_a": "Límites de fase (A) (opcional)",
           "site_power_entity": "Fuente de límite de potencia (opcional)",
           "mode": "Modo de carga",
+          "power_adjustment_interval_minutes": "Intervalo de ajuste de potencia (min)",
           "max_parallel": "Cargadores paralelos máximos",
           "max_power_kw": "Potencia máxima del sitio (kW)"
         }
@@ -400,6 +401,9 @@
       "max_charge_kw": {
         "name": "Potencia máx. de carga"
       },
+      "power_adjustment_interval_minutes": {
+        "name": "Intervalo de ajuste de potencia"
+      },
       "max_parallel": {
         "name": "Puntos simultáneos"
       },
@@ -564,6 +568,36 @@
       },
       "actual_current": {
         "name": "Corriente medida"
+      },
+      "current_import_price": {
+        "name": "Precio actual de importación"
+      },
+      "planned_charging_cost": {
+        "name": "Coste de carga previsto"
+      },
+      "active_session_cost": {
+        "name": "Coste de sesión activa"
+      },
+      "last_session_cost": {
+        "name": "Coste de última sesión"
+      },
+      "charging_cost_today": {
+        "name": "Coste de carga hoy"
+      },
+      "charging_cost_month": {
+        "name": "Coste de carga este mes"
+      },
+      "charging_cost_year": {
+        "name": "Coste de carga este año"
+      },
+      "average_charging_price_today": {
+        "name": "Precio medio de carga hoy"
+      },
+      "average_charging_price_month": {
+        "name": "Precio medio de carga este mes"
+      },
+      "average_charging_price_year": {
+        "name": "Precio medio de carga este año"
       }
     },
     "text": {

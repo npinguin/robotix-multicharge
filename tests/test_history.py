@@ -24,6 +24,310 @@ def recorded(at, value, units="W"):
 
 
 class NativeMeasuredHistoryTests(unittest.TestCase):
+    def test_planned_cost_shared_owners_and_negative_prices(self):
+        start = NOW
+        mid = start + timedelta(minutes=15)
+        end = mid + timedelta(minutes=15)
+        def slot(uid, asset, a, b):
+            return SimpleNamespace(
+                charger_uid=uid, asset_uid=asset, start=a, end=b, power_kw=4)
+        rows = [slot("a", "car_a", start, mid),
+                slot("b", "car_b", mid, end)]
+        prices = [self._price(start, mid, -0.10, basis="spot"),
+                  self._price(mid, end, 0.30, basis="spot")]
+        result = mod.planned_costs(rows, prices, start)
+        self.assertAlmostEqual(result["controller"]["site"]["cost"], 0.2)
+        self.assertAlmostEqual(result["asset"]["car_a"]["cost"], -0.1)
+        self.assertAlmostEqual(result["charger"]["b"]["cost"], 0.3)
+        partial = mod.planned_costs(rows, prices[:1], start)
+        self.assertIsNone(partial["controller"]["site"]["cost"])
+        self.assertEqual(partial["controller"]["site"]["quality"], "incomplete_tariff")
+        clipped = mod.planned_costs(rows, prices, mid)
+        self.assertAlmostEqual(clipped["controller"]["site"]["cost"], 0.3)
+        bounded = mod.planned_costs(rows, prices, start, until=mid)
+        self.assertAlmostEqual(bounded["controller"]["site"]["cost"], -0.1)
+
+
+    def test_session_costs_do_not_reassign_external_or_duplicate_site(self):
+        started = (NOW-timedelta(minutes=15)).isoformat()
+        active = {"a": {"started_at": started, "asset_id": "car_a"}}
+        metrics = {("a", started, None): {
+            "estimated_cost": 0.3, "estimated_cost_currency": "EUR",
+            "estimated_cost_basis": "spot", "observed_energy_kwh": 1.0}}
+        observed = [{"charger_id": "b", "asset_id": "wrong", "started_at": started,
+                     "ended_at": NOW.isoformat(), "ongoing": True,
+                     "complete_observed_window": True, "estimated_cost": 0.6,
+                     "estimated_cost_currency": "EUR", "estimated_cost_basis": "spot",
+                     "observed_energy_kwh": 2.0}]
+        result = mod.session_costs([], active, observed, {}, metrics)
+        self.assertAlmostEqual(result["controller"]["site"]["active"]["cost"], 0.9)
+        self.assertAlmostEqual(result["asset"]["car_a"]["active"]["cost"], 0.3)
+        self.assertNotIn("wrong", result["asset"])
+        self.assertAlmostEqual(result["charger"]["b"]["active"]["average_price_per_kwh"], 0.3)
+        observed[0]["complete_observed_window"] = False
+        result = mod.session_costs([], active, observed, {}, metrics)
+        self.assertIsNone(result["controller"]["site"]["active"]["cost"])
+        self.assertEqual(result["charger"]["b"]["active"]["quality"], "partial_observation")
+        self.assertIsNone(result["charger"]["b"]["active"]["cost"])
+        self.assertAlmostEqual(result["charger"]["b"]["active"]["covered_cost"], 0.6)
+        self.assertAlmostEqual(result["controller"]["site"]["active"]["covered_cost"], 0.9)
+
+    def test_long_history_cost_summary_keeps_original_latest_per_owner(self):
+        receipts = []
+        for index in range(1000):
+            ended = NOW-timedelta(days=1000-index)
+            receipts.append({
+                "charger_id": "drive", "asset_id": "old" if index == 0 else "car",
+                "started_at": (ended-timedelta(hours=1)).isoformat(),
+                "ended_at": ended.isoformat(), "physical_stop_confirmed": True,
+                "actual_energy_kwh": 1, "cost": index/1000, "currency": "EUR",
+                "cost_quality": "qualified_effective_tariff",
+            })
+        # A later unconfirmed stop belongs to the Charger but not the Asset.
+        receipts.append({**receipts[-1], "ended_at": NOW.isoformat(),
+                         "physical_stop_confirmed": False})
+        summary = mod.session_costs(receipts, {}, [], {}, {})
+        self.assertEqual(summary["asset"]["old"]["last"]["ended_at"], receipts[0]["ended_at"])
+        self.assertEqual(summary["asset"]["car"]["last"]["cost"], 0.999)
+        self.assertEqual(summary["charger"]["drive"]["last"]["ended_at"], NOW.isoformat())
+        self.assertIsNone(summary["charger"]["drive"]["last"]["cost"])
+        self.assertEqual(len(receipts), 1001)
+        self.assertFalse(mod.receipt_overlaps(receipts[0], NOW-timedelta(hours=48), NOW))
+        self.assertTrue(mod.receipt_overlaps(receipts[-1], NOW-timedelta(hours=48), NOW))
+
+    def test_tariff_remap_keeps_old_source_and_clips_forecast(self):
+        first = NOW-timedelta(minutes=30)
+        changed = NOW-timedelta(minutes=10)
+        config = {"controller": {"current_price_entity": "sensor.old"}}
+        before = mod.reconcile_tariff_bindings(None, config, first)
+        config["controller"]["price_entity"] = "sensor.new"
+        after = mod.reconcile_tariff_bindings(before, config, changed)
+        self.assertEqual(mod._binding_for_interval(after["site"], first, changed), "sensor.old")
+        self.assertEqual(mod._binding_for_interval(after["site"], changed, NOW), "sensor.new")
+        self.assertIsNone(mod._binding_for_interval(after["site"], first, NOW))
+        old = self._price(first, NOW, 0.2, basis="spot")
+        new = self._price(first, NOW, 0.6, basis="spot")
+        from unittest.mock import patch
+        with patch.object(mod, "_historical_reference_quotes",
+                          side_effect=lambda hass, historical, entity, current, a, b:
+                          (old,) if entity == "sensor.old" else (new,)):
+            quotes = mod._quotes_at_binding(None, {}, after["site"], "sensor.new",
+                                            [new], first, NOW)
+        self.assertEqual([(q.start, q.end, q.effective_price_per_kwh) for q in quotes],
+                         [(first, changed, 0.2), (changed, NOW, 0.6)])
+        result = mod._run_valuation([(first, NOW, 3.0)], quotes)
+        self.assertAlmostEqual(result["estimated_cost"], 0.5)
+
+    def test_unconfirmed_closed_session_cost_is_not_attributed_to_car(self):
+        row = {"charger_id": "drive", "asset_id": "car",
+               "started_at": (NOW-timedelta(minutes=15)).isoformat(),
+               "ended_at": NOW.isoformat(), "physical_stop_confirmed": False}
+        result = mod.session_costs([row], {}, [], {}, {})
+        self.assertNotIn("car", result["asset"])
+        self.assertIn("last", result["charger"]["drive"])
+
+    def test_civil_day_costs_split_actual_session_and_tariff_boundaries(self):
+        start = NOW-timedelta(minutes=30)
+        mid = start+timedelta(minutes=10)
+        remap = start+timedelta(minutes=20)
+        config = {"chargers": [{"id": "a"}, {"id": "b"}],
+                  "assets": [{"id": "old"}, {"id": "new"}]}
+        bindings = {"a": [{"start": None, "entity": "sensor.a"}],
+                    "b": [{"start": None, "entity": "sensor.b"}]}
+        states = {"sensor.a": [recorded(start, 3000), recorded(mid, 6000), recorded(remap, 0)],
+                  "sensor.b": [recorded(start, 0), recorded(remap, 3000)]}
+        quotes = [self._price(start, remap, 0.2, basis="spot"),
+                  self._price(remap, NOW, -0.1, basis="spot")]
+        receipts = [{"charger_id": "a", "asset_id": "old", "started_at": start.isoformat(),
+                     "ended_at": mid.isoformat(), "physical_stop_confirmed": True},
+                    {"charger_id": "a", "asset_id": "new", "started_at": mid.isoformat(),
+                     "ended_at": remap.isoformat(), "physical_stop_confirmed": True}]
+        result = mod.daily_costs(states, bindings, config, start, NOW, quotes, receipts)
+        key = ("EUR", "spot")
+        self.assertAlmostEqual(result["charger"]["a"]["valuations"][key][0], 0.3)
+        self.assertAlmostEqual(result["charger"]["b"]["valuations"][key][0], -0.05)
+        self.assertAlmostEqual(result["controller"]["site"]["valuations"][key][0], 0.25)
+        self.assertAlmostEqual(result["asset"]["old"]["valuations"][key][0], 0.1)
+        self.assertAlmostEqual(result["asset"]["new"]["valuations"][key][0], 0.2)
+        self.assertAlmostEqual(result["controller"]["site"]["unattributed_energy_kwh"], 0.5)
+        days = {"2026-11-21": (start-timedelta(days=1), start),
+                "2026-11-22": (start, NOW)}
+        periods = mod.civil_period_costs(days, {"2026-11-22": result})
+        site = periods["controller"]["site"]
+        self.assertAlmostEqual(site["today"]["cost"], 0.25)
+        self.assertAlmostEqual(site["today"]["average_price_per_kwh"], 0.125)
+        self.assertIsNone(site["month"]["cost"])
+        self.assertAlmostEqual(site["month"]["covered_cost"], 0.25)
+        self.assertIsNone(periods["asset"]["old"]["today"]["cost"])
+        self.assertAlmostEqual(periods["asset"]["old"]["today"]["covered_cost"], 0.1)
+
+    def test_overlapping_historic_power_claim_is_not_double_counted(self):
+        first = NOW-timedelta(minutes=30)
+        middle = NOW-timedelta(minutes=15)
+        configuration = {"chargers": [{"id": "a"}, {"id": "b"}], "assets": []}
+        bindings = {"a": [{"start": None, "entity": "sensor.shared"}],
+                    "b": [{"start": middle.isoformat(), "entity": "sensor.shared"}]}
+        states = {"sensor.shared": [recorded(first, 4000), recorded(middle, 4000)]}
+        result = mod.daily_costs(states, bindings, configuration, first, NOW,
+                                 [self._price(first, NOW, 0.3)])
+        site = result["controller"]["site"]
+        self.assertAlmostEqual(site["observed_energy_kwh"], 1.0)
+        self.assertEqual(site["observed_seconds"], 900)
+        period = mod.civil_period_costs({"2026-11-22": (first, NOW)}, {"2026-11-22": result})
+        self.assertIsNone(period["controller"]["site"]["today"]["cost"])
+        self.assertAlmostEqual(period["controller"]["site"]["today"]["covered_cost"], 0.3)
+
+    def test_civil_cost_zero_idle_is_not_missing_or_mixed_with_charged_basis(self):
+        first = NOW-timedelta(minutes=15)
+        configuration = {"chargers": [{"id": "a"}], "assets": []}
+        bindings = {"a": [{"start": None, "entity": "sensor.a"}]}
+        idle = mod.daily_costs({"sensor.a": [recorded(first, 0)]}, bindings,
+                               configuration, first, NOW, [self._price(first, NOW, 0.4)])
+        period = mod.civil_period_costs({"2026-11-22": (first, NOW)}, {"2026-11-22": idle})
+        self.assertEqual(period["controller"]["site"]["today"]["cost"], 0)
+        self.assertIsNone(period["controller"]["site"]["today"]["average_price_per_kwh"])
+
+    def test_civil_cost_days_respect_dst_and_missing_measurements(self):
+        at = datetime(2026, 10, 26, 11, tzinfo=timezone.utc)
+        days = mod.civil_cost_days(at, "Europe/Brussels")
+        start, end = days["2026-10-25"]
+        self.assertEqual(end-start, timedelta(hours=25))
+        self.assertEqual(days["2026-10-26"][1], at)
+        config = {"chargers": [{"id": "a"}], "assets": []}
+        binding = {"a": [{"start": None, "entity": "sensor.a"}]}
+        result = mod.daily_costs({"sensor.a": [recorded(start, 2000)]}, binding,
+                                 config, start, end, [self._price(start, end, 0.2)])
+        day = result["controller"]["site"]
+        self.assertEqual(day["observed_seconds"], 1800)
+        self.assertEqual(day["expected_seconds"], 25*3600)
+        self.assertAlmostEqual(day["valuations"][("EUR", "effective")][0], 0.2)
+        period = mod.civil_period_costs({"2026-10-25": (start, end)}, {"2026-10-25": result})
+        self.assertIsNone(period["controller"]["site"]["today"]["cost"])
+        self.assertAlmostEqual(period["controller"]["site"]["today"]["covered_cost"], 0.2)
+
+    def test_constant_power_gap_uses_exact_cumulative_meter_without_double_counting(self):
+        first = NOW-timedelta(hours=2)
+        middle = first+timedelta(hours=1)
+        cfg = {"chargers": [{"id": "a"}], "assets": [{"id": "car"}]}
+        power = {"a": [{"start": None, "entity": "sensor.a"}]}
+        energy = {"a": [{"start": None, "entity": "sensor.meter"}]}
+        states = {"sensor.a": [recorded(first, 3000)],
+                  "sensor.meter": [recorded(first, 10, "kWh"),
+                                   recorded(middle, 13, "kWh"),
+                                   recorded(NOW, 16, "kWh")]}
+        receipts = [{"charger_id": "a", "asset_id": "car",
+                     "started_at": first.isoformat(), "ended_at": NOW.isoformat(),
+                     "physical_stop_confirmed": True}]
+        quotes = [self._price(first, middle, 0.2), self._price(middle, NOW, 0.4)]
+        result = mod.daily_costs(states, power, cfg, first, NOW, quotes, receipts,
+                                 energy_bindings=energy)
+        site = result["controller"]["site"]
+        self.assertEqual(site["observed_seconds"], 7200)
+        self.assertAlmostEqual(site["observed_energy_kwh"], 6)
+        self.assertAlmostEqual(site["valuations"][("EUR", "effective")][0], 1.8)
+        self.assertEqual(result["asset"]["car"]["observed_energy_kwh"], 6)
+        self.assertEqual(site["unattributed_energy_kwh"], 0)
+        # No boundary reading: the known whole meter delta cannot be
+        # distributed between differing tariffs by assuming constant power.
+        states["sensor.meter"].pop(1)
+        mixed = mod.daily_costs(states, power, cfg, first, NOW, quotes, receipts,
+                                energy_bindings=energy)["controller"]["site"]
+        self.assertEqual(mixed["observed_energy_kwh"], 6)
+        self.assertEqual(mixed["unpriced_energy_kwh"], 6)
+        self.assertFalse(mixed["valuations"])
+        # A reset, conflicting meter or shared source must not repair the gap.
+        states["sensor.meter"][-1] = recorded(NOW, 8, "kWh")
+        reset = mod.daily_costs(states, power, cfg, first, NOW, quotes, receipts,
+                                energy_bindings=energy)["controller"]["site"]
+        self.assertEqual(reset["observed_seconds"], 1800)
+        self.assertAlmostEqual(reset["observed_energy_kwh"], 1.5)
+        states["sensor.meter"][-1] = recorded(NOW, 16, "kWh")
+        energy["other"] = [{"start": middle.isoformat(), "entity": "sensor.meter"}]
+        ambiguous = mod.daily_costs(states, power, cfg, first, NOW, quotes, receipts,
+                                    energy_bindings=energy)["controller"]["site"]
+        self.assertEqual(ambiguous["observed_seconds"], 1800)
+        # No interpolation of a meter increment crossing an archive boundary.
+        clipped = mod.daily_costs(states, power, cfg, first, middle, quotes, receipts,
+                                  energy_bindings={"a": energy["a"]})["controller"]["site"]
+        self.assertEqual(clipped["observed_seconds"], 1800)
+
+    def test_quarter_history_reconciles_exact_meter_gap_without_proration_or_duplicate_owner(self):
+        first = NOW-timedelta(hours=1)
+        mid = first+timedelta(minutes=30)
+        power = {"a": [{"start": None, "entity": "sensor.power"}]}
+        energy = {"a": [{"start": None, "entity": "sensor.meter"}]}
+        states = {"sensor.power": [recorded(first, 2000)],
+                  "sensor.meter": [recorded(first, 5, "kWh"),
+                                   recorded(mid, 6, "kWh"),
+                                   recorded(mid+timedelta(minutes=15), 6.5, "kWh"),
+                                   recorded(NOW, 7, "kWh")]}
+        receipts = [{"charger_id": "a", "asset_id": "car",
+                     "started_at": first.isoformat(), "ended_at": NOW.isoformat(),
+                     "physical_stop_confirmed": True}]
+        rows = mod.reconciled_quarter_history(states, power, energy, ["a"],
+                                              receipts, None, first, NOW, NOW)
+        self.assertEqual([r["quality"] for r in rows],
+                         ["measured_power_integral", "measured_power_integral",
+                          "measured_energy_delta", "measured_energy_delta"])
+        self.assertEqual([r["actual_energy_kwh"] for r in rows], [0.5]*4)
+        self.assertTrue(all(r["asset_id"] == "car" for r in rows))
+        # A single meter increment straddles the quarter boundary:
+        # do not split the kWh or falsely represent a measured average.
+        states["sensor.meter"].pop(2)
+        rows = mod.reconciled_quarter_history(states, power, energy, ["a"],
+                                              receipts, None, first, NOW, NOW)
+        self.assertIsNone(rows[2]["actual_energy_kwh"])
+        self.assertIsNone(rows[3]["actual_energy_kwh"])
+        power["other"] = [{"start": None, "entity": "sensor.power"}]
+        rows = mod.reconciled_quarter_history(states, power, energy, ["a", "other"],
+                                              receipts, None, first, NOW, NOW)
+        self.assertTrue(all(r["actual_energy_kwh"] is None for r in rows))
+
+    def test_owned_session_valuation_reuses_exact_meter_reconciliation(self):
+        first = NOW-timedelta(hours=2)
+        middle = first+timedelta(hours=1)
+        binding = {"a": [{"start": None, "entity": "sensor.power"}]}
+        meter = {"a": [{"start": None, "entity": "sensor.meter"}]}
+        states = {"sensor.power": [recorded(first, 3000)],
+                  "sensor.meter": [recorded(first, 10, "kWh"),
+                                   recorded(middle, 13, "kWh"),
+                                   recorded(NOW, 16, "kWh")]}
+        receipt = {"charger_id": "a", "asset_id": "car",
+                   "started_at": first.isoformat(), "ended_at": NOW.isoformat(),
+                   "physical_stop_confirmed": True, "actual_energy_kwh": 6}
+        quotes = [self._price(first, middle, 0.2), self._price(middle, NOW, 0.4)]
+        metrics = mod._receipt_view_metrics(states, binding, ["a"], first, NOW, NOW,
+                                            [receipt], {}, quotes, None, meter)
+        row = next(iter(metrics.values()))
+        self.assertEqual(row["energy_evidence"], "reconciled_native_meter")
+        self.assertNotIn("peak_power_kw", row)
+        self.assertAlmostEqual(row["estimated_cost"], 1.8)
+        cost = mod.session_costs([receipt], {}, [], {}, metrics)["asset"]["car"]["last"]
+        self.assertAlmostEqual(cost["cost"], 1.8)
+        self.assertAlmostEqual(cost["average_price_per_kwh"], 0.3)
+        # Missing exact tariff boundary: report no complete or guessed cost.
+        states["sensor.meter"].pop(1)
+        metrics = mod._receipt_view_metrics(states, binding, ["a"], first, NOW, NOW,
+                                            [receipt], {}, quotes, None, meter)
+        cost = mod.session_costs([receipt], {}, [], {}, metrics)["asset"]["car"]["last"]
+        self.assertIsNone(cost["cost"])
+
+    def test_civil_costs_do_not_combine_currencies_or_missing_tariff(self):
+        start = NOW-timedelta(minutes=30)
+        mid = start+timedelta(minutes=15)
+        config = {"chargers": [{"id": "a"}], "assets": []}
+        bindings = {"a": [{"start": None, "entity": "sensor.a"}]}
+        states = {"sensor.a": [recorded(start, 4000), recorded(mid, 4000)]}
+        for quotes, quality in (
+            ([self._price(start, mid, 0.2)], "partial_coverage"),
+            ([self._price(start, mid, 0.2), self._price(mid, NOW, 0.3, currency="USD")],
+             "mixed_price_basis_or_currency"),
+        ):
+            day = mod.daily_costs(states, bindings, config, start, NOW, quotes)
+            result = mod.civil_period_costs({"2026-11-22": (start, NOW)}, {"2026-11-22": day})
+            self.assertIsNone(result["controller"]["site"]["today"]["cost"])
+            self.assertEqual(result["controller"]["site"]["today"]["quality"], quality)
+
     def test_historical_attribution_uses_session_at_time_not_new_assignment(self):
         beginning = NOW - timedelta(minutes=45)
         receipts = [{
@@ -136,6 +440,21 @@ class NativeMeasuredHistoryTests(unittest.TestCase):
             meter, power, start, NOW, NOW, False)["meter_energy_kwh"], 0.5)
         reset = [meter[0], recorded(NOW, 0.5, "kWh")]
         self.assertIsNone(mod._meter_delta(reset, power, start, NOW, NOW, False))
+
+    def test_conflicting_duplicate_power_is_unknown_across_all_projections(self):
+        start = NOW-timedelta(minutes=15)
+        states = [recorded(start, 1000), recorded(start, 2000), recorded(start, 1000)]
+        self.assertIsNone(actual_quarters(states, start, NOW, NOW)[0]["actual_energy_kwh"])
+        self.assertIsNone(mod._covered_power_segments(states, start, NOW))
+        self.assertEqual(mod._observed_runs(states, start, NOW, NOW), [])
+        self.assertEqual(mod._power_spans(states, start, NOW), [(start, NOW, None)])
+        # Identical repeated observations do not change the physical value.
+        states = [recorded(start, 1000), recorded(start, 1000)]
+        self.assertEqual(actual_quarters(states, start, NOW, NOW)[0]["actual_energy_kwh"], 0.25)
+
+    def test_quarter_history_excludes_partial_first_second(self):
+        first = NOW-timedelta(minutes=15)+timedelta(microseconds=1)
+        self.assertEqual(actual_quarters([recorded(first, 1000)], first, NOW, NOW), [])
 
     def test_real_meter_integrates_recorded_power_changes(self):
         start = NOW - timedelta(minutes=15)

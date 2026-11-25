@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from bisect import bisect_left, bisect_right
 from copy import deepcopy
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 from math import isfinite
 
 QUARTER = timedelta(minutes=15)
@@ -61,6 +62,14 @@ def reconcile_power_bindings(previous, configuration, at, *, field="power_entity
     return bindings
 
 
+def reconcile_tariff_bindings(previous, configuration, at):
+    """Same epoch contract as physical meter sources, no price data in Store."""
+    ctl = configuration["controller"]
+    return reconcile_power_bindings(previous, {"chargers": [{
+        "id": "site", "price_entity": ctl.get("price_entity") or ctl.get("current_price_entity"),
+    }]}, at, field="price_entity")
+
+
 def _binding_for_interval(epochs, start, end):
     """A whole interval must belong to one known native source."""
     selected = None
@@ -95,40 +104,49 @@ def _sample(state):
         return None
 
 
+def _power_samples(states):
+    """One normalization rule for all historical power projections."""
+    samples = {}
+    for state in states:
+        reading = _sample(state)
+        if reading is None:
+            continue
+        stamp, value = reading
+        # An ambiguous timestamp stays unknown even after a third reading.
+        samples[stamp] = (None if stamp in samples and samples[stamp] != value
+                          else value)
+    return sorted(samples.items())
+
+
 def _quarter_actuals(states, first, last, now):
-    """Integrate timestamped actual power, without inventing uncovered spans."""
-    observations = sorted((value for row in states if (value := _sample(row))),
-                          key=lambda row: row[0])
-    stamps = [value[0] for value in observations]
+    """Integrate the same qualified spans used for session and civil costs."""
+    last = min(last, now)
+    spans = _power_spans(states, first, last)
+    edges = [a for a, _, _ in spans]
     series = []
-    slot = datetime.fromtimestamp(
-        (int(first.timestamp()) + 899) // 900 * 900, timezone.utc
-    )
-    while slot + QUARTER <= min(last, now):
+    slot = first.replace(minute=(first.minute//15)*15, second=0, microsecond=0)
+    if slot < first:
+        slot += QUARTER
+    while slot + QUARTER <= last:
         finish = slot + QUARTER
-        first_event = bisect_right(stamps, slot)
-        active = observations[first_event - 1] if first_event else None
-        events = observations[first_event:bisect_left(stamps, finish)]
-        cursor = slot
-        energy = 0.0
-        valid = active is not None
-        for next_stamp, value in (*events, (finish, None)):
-            if (active is None or active[1] is None or active[0] > cursor
-                    or next_stamp - active[0] > MAX_OBSERVATION_AGE):
-                valid = False
-                break
-            energy += active[1] * (next_stamp - cursor).total_seconds() / 3600
-            cursor = next_stamp
-            active = (next_stamp, value)
+        energy, observed = _interval_power_evidence(spans, edges, slot, finish)
+        valid = abs(observed-QUARTER.total_seconds()) < 0.001
         series.append({
-            "start": slot.isoformat(),
-            "end": finish.isoformat(),
+            "start": slot.isoformat(), "end": finish.isoformat(),
             "actual_power_kw": round(energy * 4, 6) if valid else None,
             "actual_energy_kwh": round(energy, 6) if valid else None,
             "quality": "measured_power_integral" if valid else "unknown",
         })
         slot = finish
     return series
+
+def receipt_overlaps(receipt, start, end):
+    """Use original aware session boundaries, never current owner mapping."""
+    try:
+        return (datetime.fromisoformat(receipt["started_at"]) < end
+                and datetime.fromisoformat(receipt["ended_at"]) >= start)
+    except (KeyError, ValueError, TypeError, OverflowError):
+        return False
 
 
 def _session_asset_at_time(receipts, charger_id, start, end):
@@ -184,70 +202,24 @@ def _estimated_session_variable_cost(states, receipt, price_slots, now):
         return None
     if not start < end <= at or end - start > timedelta(hours=48):
         return None
-    observed = sorted(
-        (item for state in states if (item := _sample(state)) is not None),
-        key=lambda item: item[0],
-    )
-    if not observed or any(
-        first[0] == second[0] for first, second in zip(observed, observed[1:])
-    ):
+    # Reuse the same complete native-power and interval valuation paths as
+    # all other session/plan cost projections. Keep the stricter independent
+    # receipt and effective-only requirements of this existing public field.
+    if any(getattr(row, "basis", None) != "effective" for row in price_slots):
         return None
-    # Convert provider-local aware timestamps to UTC before ordering.
-    # Python's local-zone comparison can otherwise collapse distinct fold=0
-    # and fold=1 instants on a 25-hour DST fallback day.
-    tariffs = []
-    try:
-        for slot in price_slots:
-            if (slot.start.utcoffset() is None
-                    or slot.end.utcoffset() is None
-                    or slot.basis != "effective"
-                    or not isfinite(slot.effective_price_per_kwh)):
-                return None
-            left = slot.start.astimezone(timezone.utc)
-            right = slot.end.astimezone(timezone.utc)
-            if left >= right:
-                return None
-            if left < end and right > start:
-                tariffs.append((left, right, slot))
-    except (AttributeError, TypeError, ValueError, OverflowError):
+    segments = _covered_power_segments(states, start, end)
+    if not segments:
         return None
-    tariffs.sort(key=lambda row: row[0])
-    if not tariffs:
+    value = _run_valuation(segments, price_slots)
+    if value is None:
         return None
-    currencies = {slot.currency for _, _, slot in tariffs}
-    if len(currencies) != 1 or not next(iter(currencies)):
-        return None
-    if any(first[1] > second[0]
-           for first, second in zip(tariffs, tariffs[1:])):
-        return None
-    boundaries = sorted(
-        {start, end}
-        | {stamp for stamp, _ in observed if start < stamp < end}
-        | {edge for left, right, _ in tariffs for edge in (left, right)
-           if start < edge < end}
-    )
-    cost = 0.0
-    measured_kwh = 0.0
-    for left, right in zip(boundaries, boundaries[1:]):
-        candidates = [slot for from_utc, to_utc, slot in tariffs
-                      if from_utc <= left and to_utc >= right]
-        if len(candidates) != 1:
-            return None
-        readings = [reading for reading in observed if reading[0] <= left]
-        if not readings:
-            return None
-        stamp, power_kw = readings[-1]
-        if (power_kw is None or stamp > left
-                or right - stamp > MAX_OBSERVATION_AGE):
-            return None
-        energy_kwh = power_kw * (right - left).total_seconds() / 3600
-        measured_kwh += energy_kwh
-        cost += energy_kwh * candidates[0].effective_price_per_kwh
-    if not isfinite(cost) or not isfinite(measured_kwh):
+    measured_kwh = sum(power*(right-left).total_seconds()/3600
+                       for left, right, power in segments)
+    if not isfinite(measured_kwh):
         return None
     return {
-        "estimated_variable_cost": round(cost, 6),
-        "estimated_variable_cost_currency": next(iter(currencies)),
+        "estimated_variable_cost": value["estimated_cost"],
+        "estimated_variable_cost_currency": value["estimated_cost_currency"],
         "estimated_variable_cost_energy_kwh": round(measured_kwh, 6),
         "estimated_variable_cost_quality":
             "observed_power_integral_effective_tariff",
@@ -264,18 +236,9 @@ def _observed_runs(states, first, last, now):
     stale spans, source boundaries and window edges never become STOP proof.
     """
     last = min(last, now)
-    samples = sorted((item for state in states if (item := _sample(state))),
-                     key=lambda item: item[0])
+    samples = _power_samples(states)
     if first >= last or not samples:
         return []
-    # Duplicate timestamps with conflicting values are ambiguous.
-    by_stamp = {}
-    for stamp, value in samples:
-        if stamp in by_stamp and by_stamp[stamp] != value:
-            by_stamp[stamp] = None
-        else:
-            by_stamp[stamp] = value
-    samples = sorted(by_stamp.items())
     result = []
     run = None
     previous = None
@@ -329,37 +292,36 @@ def _observed_runs(states, first, last, now):
 
 
 def _run_valuation(segments, price_slots):
-    """Exact overlap of measured power segments with one quote per instant.
-
-    Reference, spot and effective series can produce a read-only estimate;
-    none of these estimates is a billed cost or budget-control input.
-    """
-    quotes = []
-    for row in price_slots:
-        try:
-            if (row.basis not in ("effective", "variable_reference", "spot")
-                    or not isfinite(row.effective_price_per_kwh)
-                    or row.start.utcoffset() is None or row.end.utcoffset() is None
-                    or not row.currency or row.end <= row.start):
-                continue
-            quotes.append((row.start.astimezone(timezone.utc),
-                           row.end.astimezone(timezone.utc), row))
-        except (AttributeError, TypeError, ValueError, OverflowError):
-            continue
+    """Exact overlap of measured power with the shared unique price partition."""
+    if not segments:
+        return None
+    try:
+        normalized = [
+            (a.astimezone(timezone.utc), b.astimezone(timezone.utc), power)
+            for a, b, power in segments
+            if a.utcoffset() is not None and b.utcoffset() is not None
+            and isfinite(power) and power >= 0
+        ]
+        if len(normalized) != len(segments) or any(a >= b for a, b, _ in normalized):
+            return None
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        return None
+    spans = _price_spans(price_slots, min(a for a, _, _ in normalized),
+                         max(b for _, b, _ in normalized))
+    starts = [a for a, _, _ in spans]
     total = 0.0
     kinds = set()
-    for start, end, power in segments:
-        overlapping = [(a, b, row) for a, b, row in quotes if a < end and b > start]
-        edges = sorted({start, end} | {
-            edge for a, b, _ in overlapping for edge in (a, b) if start < edge < end
-        })
-        for left, right in zip(edges, edges[1:]):
-            matched = [row for a, b, row in overlapping if a <= left and b >= right]
-            if len(matched) != 1:
-                return None
-            price = matched[0]
-            kinds.add((price.currency, price.basis))
-            total += power * (right-left).total_seconds()/3600 * price.effective_price_per_kwh
+    for start, end, power in normalized:
+        index = max(0, bisect_right(starts, start)-1)
+        while index < len(spans) and spans[index][0] < end:
+            a, b, quote = spans[index]
+            left, right = max(a, start), min(b, end)
+            if left < right:
+                if quote is None:
+                    return None
+                kinds.add((quote.currency, quote.basis))
+                total += power*(right-left).total_seconds()/3600*quote.effective_price_per_kwh
+            index += 1
     if len(kinds) != 1 or not isfinite(total):
         return None
     currency, basis = next(iter(kinds))
@@ -367,8 +329,47 @@ def _run_valuation(segments, price_slots):
             "estimated_cost_currency": currency, "estimated_cost_basis": basis}
 
 
-def _meter_delta(states, power_states, start, end, now, ongoing):
-    """Use cumulative kWh only with known idle boundaries and no meter reset."""
+def planned_costs(slots, price_slots, at, *, until=None):
+    """Single read-only valuation of proposed executable plan, by stable owner.
+
+    Only future energy in the current planner's actual slots is counted.
+    Conditional alternatives and accepted historical slots are not added.
+    Unknown/mixed prices never become a zero or a deceptively complete total.
+    """
+    groups = {"controller": {"site": []}, "charger": {}, "asset": {}}
+    for row in slots:
+        start, end = max(at, row.start), min(until, row.end) if until else row.end
+        power = getattr(row, "expected_power_kw", row.power_kw)
+        if end <= start or power <= 0:
+            continue
+        segment = (start, end, power)
+        groups["controller"]["site"].append(segment)
+        groups["charger"].setdefault(row.charger_uid, []).append(segment)
+        if row.asset_uid is not None:
+            groups["asset"].setdefault(row.asset_uid, []).append(segment)
+    result = {}
+    for kind, owners in groups.items():
+        result[kind] = {}
+        for uid, segments in owners.items():
+            energy = sum(power * (end-start).total_seconds()/3600
+                         for start, end, power in segments)
+            value = _run_valuation(segments, price_slots) if segments else None
+            cost = value["estimated_cost"] if value is not None else None
+            result[kind][uid] = {
+                "energy_kwh": round(energy, 6),
+                "cost": cost,
+                "currency": value["estimated_cost_currency"] if value else None,
+                "basis": value["estimated_cost_basis"] if value else None,
+                "average_price_per_kwh": round(cost/energy, 6) if cost is not None and energy else None,
+                "quality": "qualified_plan_estimate" if value else (
+                    "no_planned_energy" if not segments else "incomplete_tariff"
+                ),
+            }
+    return result
+
+
+def _energy_samples(states):
+    """Native cumulative kWh observations; invalid values split evidence."""
     samples = []
     for state in states:
         try:
@@ -386,6 +387,12 @@ def _meter_delta(states, power_states, start, end, now, ongoing):
             value = None
         samples.append((stamp.astimezone(timezone.utc), value))
     samples.sort(key=lambda row: row[0])
+    return samples
+
+
+def _meter_delta(states, power_states, start, end, now, ongoing):
+    """Use cumulative kWh only with known idle boundaries and no meter reset."""
+    samples = _energy_samples(states)
     if not samples or len({row[0] for row in samples}) != len(samples):
         return None
     before = [row for row in samples if row[0] <= start]
@@ -548,33 +555,47 @@ def _historical_reference_quotes(hass, historical, entity, current, first, last)
     return tuple(unique.values())
 
 
-def _covered_power_segments(states, start, end):
-    """A complete, timestamp-qualified power trajectory within a known receipt."""
-    samples = sorted((item for state in states if (item := _sample(state))),
-                     key=lambda item: item[0])
-    if not samples or end <= start:
-        return None
-    stamps = [row[0] for row in samples]
-    if len(set(stamps)) != len(stamps):
-        return None
-    idx = bisect_right(stamps, start)
-    active = samples[idx-1] if idx else None
-    events = samples[idx:bisect_left(stamps, end)]
-    cursor = start
-    segments = []
-    for next_stamp, value in (*events, (end, None)):
-        if (active is None or active[1] is None or active[0] > cursor
-                or next_stamp-active[0] > MAX_OBSERVATION_AGE):
-            return None
-        if next_stamp > cursor:
-            segments.append((cursor, next_stamp, active[1]))
-        cursor = next_stamp
-        active = (next_stamp, value)
-    return segments
+def _quotes_at_binding(hass, historical, epochs, current_entity, current, first, last):
+    """Use each original tariff source only during its recorded binding epoch.
 
+    Do not value a former source's intervals using the current provider or
+    let its future forecasts spill across a remap. A boundary within a quote
+    is clipped to the actual change instant, never extrapolated.
+    """
+    result = []
+    for i, epoch in enumerate(epochs):
+        entity = epoch["entity"]
+        if not entity:
+            continue
+        begin = max(first, datetime.fromisoformat(epoch["start"])) if epoch["start"] else first
+        end = min(last, datetime.fromisoformat(epochs[i+1]["start"])) if i+1 < len(epochs) else last
+        if begin >= end:
+            continue
+        quotes = _historical_reference_quotes(
+            hass, historical, entity,
+            current if entity == current_entity and i+1 == len(epochs) else (),
+            begin, end,
+        )
+        for row in quotes:
+            left = max(begin, row.start.astimezone(timezone.utc))
+            right = min(end, row.end.astimezone(timezone.utc))
+            if left < right:
+                result.append(type(row)(
+                    start=left, end=right, effective_price_per_kwh=row.effective_price_per_kwh,
+                    currency=row.currency, basis=row.basis,
+                ))
+    return tuple(result)
+
+
+def _covered_power_segments(states, start, end):
+    """Return complete coverage only, using the canonical power partition."""
+    if end <= start:
+        return None
+    spans = _power_spans(states, start, end)
+    return spans if spans and all(power is not None for _, _, power in spans) else None
 
 def _receipt_view_metrics(historical, bindings, selected, first, last, now,
-                          receipts, active_sessions, quotes, asset_id):
+                          receipts, active_sessions, quotes, asset_id, energy_bindings=None):
     """Enrich the existing receipt/readback, never create a second receipt."""
     result = {}
     for receipt in [*receipts, *active_sessions.values()]:
@@ -601,11 +622,608 @@ def _receipt_view_metrics(historical, bindings, selected, first, last, now,
             if segments:
                 metrics["peak_power_kw"] = round(max(power for _, _, power in segments), 6)
                 measured = sum(power*(right-left).total_seconds()/3600 for left, right, power in segments)
+                # The cost estimator's denominator is the same observed power
+                # integral, not an independent meter delta with different coverage.
+                metrics["observed_energy_kwh"] = round(measured, 6)
                 if energy is None:
-                    metrics["observed_energy_kwh"] = round(measured, 6)
                     metrics["average_power_kw"] = round(measured*60/duration, 6)
                 metrics.update(_run_valuation(segments, quotes) or {})
+            elif energy_bindings and uid in energy_bindings:
+                # Same source/ownership/price reconciliation as civil costs.
+                # No peak power from cumulative energy or guessed time split.
+                bucket = daily_costs(
+                    historical, bindings, {"chargers": [{"id": uid}], "assets": []},
+                    a, b, quotes, energy_bindings=energy_bindings,
+                    selected_chargers={uid},
+                )["charger"][uid]
+                measured = bucket["observed_energy_kwh"]
+                complete = abs(bucket["observed_seconds"]-(b-a).total_seconds()) < 0.001
+                # Independent session receipt can reveal an incompatible
+                # integral. Do not label conflicting energy as full coverage.
+                if type(energy) in (int, float) and isfinite(energy) and abs(measured-energy) > 0.0001:
+                    complete = False
+                if complete:
+                    metrics["observed_energy_kwh"] = round(measured, 6)
+                    if energy is None:
+                        metrics["average_power_kw"] = round(measured*60/duration, 6)
+                    metrics["energy_evidence"] = "reconciled_native_meter"
+                pairs = bucket["valuations"]
+                if len(pairs) == 1:
+                    (currency, basis), (cost, priced) = next(iter(pairs.items()))
+                    if complete and bucket["unpriced_energy_kwh"] < 0.000001:
+                        metrics.update(estimated_cost=round(cost, 6),
+                                       estimated_cost_currency=currency,
+                                       estimated_cost_basis=basis)
+                    elif priced > 0:
+                        metrics.update(estimated_covered_cost=round(cost, 6),
+                                       estimated_covered_energy_kwh=round(priced, 6),
+                                       estimated_cost_currency=currency,
+                                       estimated_cost_basis=basis)
         result[(uid, receipt["started_at"], receipt.get("ended_at"))] = metrics
+    return result
+
+
+def session_costs(receipts, active_sessions, observed, estimates, metrics):
+    """Select the current/last cost evidence on each existing logical owner.
+
+    An external observation has no inferred vehicle identity. Cost estimates
+    retain their own measured denominator; receipts are never rewritten.
+    """
+    groups = {"controller": {"site": {"active": [], "last": []}},
+              "charger": {}, "asset": {}}
+
+    def add(row, phase, observed_only=False):
+        uid = row["charger_id"]
+        asset = (None if observed_only or (phase == "last"
+                 and row.get("physical_stop_confirmed") is not True)
+                 else row.get("asset_id"))
+        key = (uid, row["started_at"], row.get("ended_at"))
+        evidence = {**row, **metrics.get(key, {}), **estimates.get(key, {})}
+        verified = (not observed_only and phase == "last"
+                    and row.get("physical_stop_confirmed") is True
+                    and row.get("cost_quality") == "qualified_effective_tariff")
+        if verified:
+            cost, currency, basis = row.get("cost"), row.get("currency"), "effective"
+            energy = row.get("actual_energy_kwh")
+            quality = "qualified_effective_tariff"
+        else:
+            cost = evidence.get("estimated_cost")
+            currency = evidence.get("estimated_cost_currency")
+            basis = evidence.get("estimated_cost_basis")
+            energy = evidence.get("observed_energy_kwh")
+            if cost is None:
+                cost = evidence.get("estimated_variable_cost")
+                currency = evidence.get("estimated_variable_cost_currency")
+                basis = "effective" if cost is not None else None
+                energy = evidence.get("estimated_variable_cost_energy_kwh")
+            quality = "reference_estimate"
+            if cost is None and evidence.get("estimated_covered_cost") is not None:
+                cost = evidence["estimated_covered_cost"]
+                energy = evidence.get("estimated_covered_energy_kwh")
+                currency = evidence.get("estimated_cost_currency")
+                basis = evidence.get("estimated_cost_basis")
+                quality = "partial_observation"
+            if observed_only and not row.get("complete_observed_window"):
+                quality = "partial_observation"
+        if (type(cost) not in (int, float) or not isfinite(cost)
+                or not currency or not basis):
+            cost, currency, basis, quality = None, None, None, "unknown"
+        projection = {
+            "charger_id": uid, "asset_id": asset,
+            "started_at": row["started_at"], "ended_at": row.get("ended_at"),
+            "cost": None if quality == "partial_observation" else cost,
+            "covered_cost": cost, "currency": currency, "basis": basis,
+            "quality": quality, "energy_kwh": energy,
+            "average_price_per_kwh": (
+                round(cost/energy, 6) if cost is not None
+                and type(energy) in (int, float) and isfinite(energy) and energy > 0 else None),
+        }
+        if phase == "active":
+            groups["controller"]["site"][phase].append(projection)
+        groups["charger"].setdefault(uid, {"active": [], "last": []})[phase].append(projection)
+        if asset is not None:
+            groups["asset"].setdefault(asset, {"active": [], "last": []})[phase].append(projection)
+
+    for uid, row in active_sessions.items():
+        add({**row, "charger_id": uid}, "active")
+    # Only the latest closed receipt per owner contributes to this summary.
+    # Older receipts remain in the durable history and interval valuations.
+    latest = {}
+    for index, row in enumerate(receipts):
+        ended = datetime.fromisoformat(row["ended_at"])
+        owners = [("charger", row["charger_id"])]
+        if row.get("physical_stop_confirmed") is True and row.get("asset_id") is not None:
+            owners.append(("asset", row["asset_id"]))
+        for owner in owners:
+            if owner not in latest or ended > latest[owner][0]:
+                latest[owner] = (ended, index, row)
+    selected = {index: row for _, index, row in latest.values()}
+    for index in sorted(selected):
+        add(selected[index], "last")
+    for row in observed:
+        if row.get("ongoing"):
+            add(row, "active", True)
+        elif row.get("end_known"):
+            add(row, "last", True)
+
+    result = {}
+    for kind, owners in groups.items():
+        result[kind] = {}
+        for uid, phases in owners.items():
+            result[kind][uid] = {}
+            for phase, rows in phases.items():
+                if not rows:
+                    continue
+                if phase == "last":
+                    if kind != "controller":
+                        result[kind][uid][phase] = max(
+                            rows, key=lambda r: datetime.fromisoformat(r["ended_at"]))
+                    continue
+                if kind != "controller" and len(rows) == 1:
+                    result[kind][uid][phase] = rows[0]
+                    continue
+                valued = [r for r in rows if r["covered_cost"] is not None]
+                kinds = {(r["currency"], r["basis"]) for r in valued}
+                compatible = len(kinds) == 1
+                complete = compatible and all(r["cost"] is not None for r in rows)
+                currency, basis = next(iter(kinds)) if compatible else (None, None)
+                subtotal = round(sum(r["covered_cost"] for r in valued), 6) if compatible else None
+                cost = subtotal if complete else None
+                covered = [r["energy_kwh"] for r in valued]
+                covered_energy = (round(sum(covered), 6) if covered and all(
+                    type(v) in (int, float) and isfinite(v) for v in covered) else None)
+                energies = [r["energy_kwh"] for r in rows]
+                energy = (round(sum(energies), 6) if all(
+                    type(v) in (int, float) and isfinite(v) for v in energies) else None)
+                result[kind][uid][phase] = {
+                    "cost": cost, "covered_cost": subtotal, "currency": currency, "basis": basis,
+                    "energy_kwh": energy, "covered_energy_kwh": covered_energy,
+                    "quality": "reference_estimate" if complete else "incomplete_coverage",
+                    "average_price_per_kwh": round(subtotal/covered_energy, 6)
+                        if subtotal is not None and covered_energy else None,
+                    "session_count": len(rows), "scope": "observed_sessions_only",
+                }
+    return result
+
+
+def civil_cost_days(at, zone):
+    """Exact UTC boundaries of local civil days in the current calendar year."""
+    local = at.astimezone(ZoneInfo(zone))
+    day = local.date().replace(month=1, day=1)
+    result = {}
+    while day <= local.date():
+        start = datetime.combine(day, time.min, local.tzinfo).astimezone(timezone.utc)
+        end = datetime.combine(day+timedelta(days=1), time.min, local.tzinfo).astimezone(timezone.utc)
+        result[day.isoformat()] = (start, min(end, at))
+        day += timedelta(days=1)
+    return result
+
+
+def _cost_bucket():
+    return {"expected_seconds": 0.0, "observed_seconds": 0.0,
+            "observed_energy_kwh": 0.0, "unpriced_energy_kwh": 0.0,
+            "unattributed_energy_kwh": 0.0, "valuations": {}}
+
+
+def _add_cost_bucket(target, source):
+    for key in target.keys() - {"valuations"}:
+        target[key] += source[key]
+    for key, value in source["valuations"].items():
+        bucket = target["valuations"].setdefault(key, [0.0, 0.0])
+        bucket[0] += value[0]
+        bucket[1] += value[1]
+
+
+def _power_spans(states, first, last):
+    """Partition a bounded native source timeline into known and unknown spans.
+
+    A state can support at most MAX_OBSERVATION_AGE after its last update.
+    Missing or duplicate conflicting readings remain explicit gaps.
+    """
+    if first >= last:
+        return []
+    samples = _power_samples(states)
+    stamps = [stamp for stamp, _ in samples]
+    edges = sorted({first, last} | {edge for stamp in stamps
+                    for edge in (stamp, stamp+MAX_OBSERVATION_AGE)
+                    if first < edge < last})
+    spans = []
+    for a, b in zip(edges, edges[1:]):
+        index = bisect_right(stamps, a)-1
+        value = None
+        if index >= 0 and b-stamps[index] <= MAX_OBSERVATION_AGE:
+            value = samples[index][1]
+        spans.append((a, b, value))
+    return spans
+
+
+def _price_spans(quotes, first, last):
+    """Qualified, unique source quote at each boundary, including explicit gaps."""
+    rows = []
+    for row in quotes:
+        try:
+            a = row.start.astimezone(timezone.utc)
+            b = row.end.astimezone(timezone.utc)
+            if (row.start.utcoffset() is None or row.end.utcoffset() is None
+                    or b <= a or row.basis not in ("effective", "spot", "variable_reference")
+                    or not isfinite(row.effective_price_per_kwh) or not row.currency):
+                continue
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            continue
+        if a < last and b > first:
+            rows.append((a, b, row))
+    edges = sorted({first, last} | {edge for a, b, _ in rows
+                                  for edge in (a, b) if first < edge < last})
+    result = []
+    for a, b in zip(edges, edges[1:]):
+        found = [row for left, right, row in rows if left <= a and right >= b]
+        result.append((a, b, found[0] if len(found) == 1 else None))
+    return result
+
+
+def _source_claims(bindings, first, last):
+    """Physical source ownership intervals, including historical remaps."""
+    claims = {}
+    for uid, epochs in bindings.items():
+        for i, epoch in enumerate(epochs):
+            if not epoch["entity"]:
+                continue
+            a = max(first, datetime.fromisoformat(epoch["start"])) if epoch["start"] else first
+            b = min(last, datetime.fromisoformat(epochs[i+1]["start"])) if i+1 < len(epochs) else last
+            if a < b:
+                claims.setdefault(epoch["entity"], []).append((uid, a, b))
+    return claims
+
+
+def _meter_gap_blocks(historical, meter_epochs, uid, start, end,
+                      meter_claims, other_claims, spans, span_edges, price_spans,
+                      attribution, cache):
+    """Exact whole meter increments repair missing energy coverage, not power.
+
+    No interpolation at a tariff, source, session or archive boundary. A
+    multi-price increment remains unpriced; an ambiguous session is not
+    attributed. Fully covered power intervals retain the existing estimate.
+    """
+    blocks = []
+    for epoch in meter_epochs:
+        entity = epoch["entity"]
+        if not entity:
+            continue
+        if entity not in cache:
+            samples = _energy_samples(historical.get(entity, ()))
+            # Duplicate stamps, including conflicting readings, cannot bound
+            # an independently measured interval.
+            samples = samples if len({a for a, _ in samples}) == len(samples) else []
+            cache[entity] = (samples, [a for a, _ in samples])
+        samples, stamps = cache[entity]
+        # Bounded indexed slice: a high-frequency native meter must not be
+        # rescanned from the start of the day for each quarter/hour.
+        relevant = samples[bisect_left(stamps, start):bisect_right(stamps, end)]
+        for (a, initial), (b, final) in zip(relevant, relevant[1:]):
+            if (not start <= a < b <= end or initial is None or final is None
+                    or final < initial
+                    or _binding_for_interval(meter_epochs, a, b) != entity
+                    or any(left < b and right > a for left, right in other_claims)
+                    or any(other != uid and left < b and right > a
+                           for other, left, right in meter_claims.get(entity, ()))):
+                continue
+            known, observed = _interval_power_evidence(spans, span_edges, a, b)
+            delta = final-initial
+            if observed >= (b-a).total_seconds() or known > delta+0.00001:
+                continue  # preserve complete power evidence or expose conflict
+            prices = [p for left, right, p in price_spans if left < b and right > a]
+            signatures = {(p.currency, p.basis, p.effective_price_per_kwh)
+                          for p in prices if p is not None}
+            price = (prices[0] if prices and all(p is not None for p in prices)
+                     and len(signatures) == 1 else None)
+            overlapping = [(left, right, asset) for left, right, asset in attribution
+                           if left < b and right > a]
+            asset = (overlapping[0][2] if len(overlapping) == 1
+                     and overlapping[0][0] <= a and overlapping[0][1] >= b else None)
+            blocks.append((a, b, delta, price, asset))
+    # A repeated source epoch can reference the same samples. Retain each
+    # physical increment once; overlapping source claims were rejected above.
+    return sorted({(a, b): (a, b, e, p, uid)
+                   for a, b, e, p, uid in blocks}.values(), key=lambda row: row[0])
+
+
+def _interval_power_evidence(spans, edges, first, last):
+    """Measured power integral and seconds, not a filled/assumed gap."""
+    energy, observed = 0.0, 0.0
+    for index in range(max(0, bisect_right(edges, first)-1), len(spans)):
+        a, b, power = spans[index]
+        if a >= last:
+            break
+        seconds = (min(b, last)-max(a, first)).total_seconds()
+        if power is not None and seconds > 0:
+            observed += seconds
+            energy += power*seconds/3600
+    return energy, observed
+
+
+def reconciled_quarter_history(historical, bindings, energy_bindings, selected,
+                               receipts, asset_id, first, last, now):
+    """One physical quarter per owner; exact native meter repair only.
+
+    A recovered average is labelled as energy-derived, never represented
+    as an independently measured instantaneous power. Unknown source
+    remaps, shared owners, resets and cross-quarter meter deltas stay gaps.
+    """
+    empty = _quarter_actuals([], first, last, now)
+    power_claims = _source_claims(bindings, first, last)
+    meter_claims = _source_claims(energy_bindings, first, last)
+    power_cache, meter_cache, by_source = {}, {}, {}
+    result = []
+    for uid in selected:
+        epochs = bindings.get(uid, ())
+        meter_epochs = energy_bindings.get(uid, ())
+        for unknown in empty:
+            since = datetime.fromisoformat(unknown["start"])
+            until = datetime.fromisoformat(unknown["end"])
+            source = _binding_for_interval(epochs, since, until)
+            meter = _binding_for_interval(meter_epochs, since, until)
+            overlaps = [(a, b) for other, a, b in power_claims.get(source, ())
+                        if other != uid and a < until and b > since]
+            row = dict(unknown)
+            if source and not overlaps:
+                if source not in by_source:
+                    by_source[source] = {r["start"]: r for r in _quarter_actuals(
+                        historical.get(source, ()), first, last, now)}
+                row = dict(by_source[source].get(unknown["start"], unknown))
+            # An ambiguous power remap or overlapping physical owner is not
+            # repaired by assigning its kWh to an arbitrary logical owner.
+            remap = any(epoch["start"] is not None and
+                        since < datetime.fromisoformat(epoch["start"]) < until
+                        for epoch in epochs)
+            if (row["quality"] != "measured_power_integral" and meter
+                    and not overlaps and not remap):
+                if source not in power_cache:
+                    spans = _power_spans(historical.get(source, ()), first, last)
+                    power_cache[source] = (spans, [r[0] for r in spans])
+                spans, edges = power_cache[source]
+                blocks = _meter_gap_blocks(
+                    historical, meter_epochs, uid, since, until, meter_claims,
+                    overlaps, spans, edges, (), (), meter_cache,
+                )
+                energy, observed = _interval_power_evidence(spans, edges, since, until)
+                for a, b, delta, _, _ in blocks:
+                    already, seconds = _interval_power_evidence(spans, edges, a, b)
+                    energy += delta-already
+                    observed += (b-a).total_seconds()-seconds
+                if blocks and abs(observed-(until-since).total_seconds()) < 0.001:
+                    row.update(actual_energy_kwh=round(energy, 6),
+                               actual_power_kw=round(energy*4, 6),
+                               quality="measured_energy_delta")
+            attributed = (_session_asset_at_time(receipts, uid, since, until)
+                          if (source or meter) and not overlaps and not remap else None)
+            row.update(charger_id=uid, asset_id=attributed,
+                       asset_provenance=("confirmed_closed_session" if attributed is not None
+                                         else "unattributed_charger_actual"))
+            if asset_id is None or asset_id == attributed:
+                result.append(row)
+    return result
+
+
+def daily_costs(historical, bindings, configuration, first, last, quotes,
+                receipts=(), active_sessions=None, *, energy_bindings=None,
+                selected_chargers=None):
+    """Project one civil day from native power and the original tariff intervals.
+
+    Every physical span is counted once at Charger/Site, then attributed to
+    an asset only on a confirmed session interval. No session-average
+    proration, assumed idle, duplicated native ledger or current assignment.
+    """
+    cfg_chargers = {row["id"] for row in configuration["chargers"]}
+    cfg_assets = {row["id"] for row in configuration["assets"]}
+    groups = {"controller": {"site": _cost_bucket()}, "charger": {},
+              "asset": {uid: _cost_bucket() for uid in cfg_assets}}
+    if last <= first:
+        return groups
+    price_spans = _price_spans(quotes, first, last)
+    price_edges = [row[0] for row in price_spans]
+    sessions = {}
+    for row in (*receipts, *(dict(row, charger_id=uid)
+                              for uid, row in (active_sessions or {}).items())):
+        if not row.get("asset_id") or (row.get("ended_at") is not None
+                and row.get("physical_stop_confirmed") is not True):
+            continue
+        try:
+            a = datetime.fromisoformat(row["started_at"])
+            b = datetime.fromisoformat(row["ended_at"]) if row.get("ended_at") else last
+            if a.utcoffset() is None or b.utcoffset() is None:
+                continue
+            a, b = a.astimezone(timezone.utc), b.astimezone(timezone.utc)
+            if a < b and a < last and b > first:
+                sessions.setdefault(row["charger_id"], []).append((a, b, row["asset_id"]))
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+
+    # A physical source may be reused sequentially, never charged twice for
+    # overlapping historic claims. Keep the exclusive portions and disclose
+    # ambiguous periods as missing coverage, without assigning an arbitrary owner.
+    claims = _source_claims(bindings, first, last)
+    energy_bindings = energy_bindings or {}
+    meter_claims = _source_claims(energy_bindings, first, last)
+    meter_cache = {}
+    power_cache = {}
+
+    def record_energy(bucket, energy, price, asset):
+        if energy == 0:
+            return  # verified zero has no tariff requirement
+        targets = [bucket]
+        if asset is not None:
+            targets.append(groups["asset"].setdefault(asset, _cost_bucket()))
+        else:
+            bucket["unattributed_energy_kwh"] += energy
+        for target in targets:
+            target["observed_energy_kwh"] += energy
+            if price is None:
+                target["unpriced_energy_kwh"] += energy
+            else:
+                key = (price.currency, price.basis)
+                value = target["valuations"].setdefault(key, [0.0, 0.0])
+                value[0] += energy*price.effective_price_per_kwh
+                value[1] += energy
+    for uid in sorted(cfg_chargers | set(bindings)):
+        if selected_chargers is not None and uid not in selected_chargers:
+            continue
+        bucket = groups["charger"].setdefault(uid, _cost_bucket())
+        epochs = bindings.get(uid, ()) or ({"start": None, "entity": None},)
+        attribution = sessions.get(uid, ())
+        owner_edges = sorted({edge for a, b, _ in attribution for edge in (a, b)
+                              if first < edge < last})
+        for i, epoch in enumerate(epochs):
+            start = max(first, datetime.fromisoformat(epoch["start"])) if epoch["start"] else first
+            end = min(last, datetime.fromisoformat(epochs[i+1]["start"])) if i+1 < len(epochs) else last
+            entity = epoch["entity"]
+            if start >= end:
+                continue
+            # A retired charger's final None epoch is a deletion tombstone,
+            # while a configured charger without a source is missing evidence.
+            if not entity and uid not in cfg_chargers and i+1 == len(epochs):
+                continue
+            bucket["expected_seconds"] += (end-start).total_seconds()
+            if not entity:
+                continue
+            if entity not in power_cache:
+                spans = _power_spans(historical.get(entity, ()), first, last)
+                power_cache[entity] = (spans, [row[0] for row in spans])
+            spans, span_edges = power_cache[entity]
+            index = max(0, bisect_right(span_edges, start)-1)
+            other_claims = [(a, b) for other, a, b in claims.get(entity, ()) if other != uid
+                            and a < end and b > start]
+            claim_edges = sorted({edge for a, b in other_claims for edge in (a, b)})
+            blocks = _meter_gap_blocks(
+                historical, energy_bindings.get(uid, ()), uid, start, end,
+                meter_claims, other_claims, spans, span_edges, price_spans,
+                attribution, meter_cache,
+            )
+            block_starts = [row[0] for row in blocks]
+            block_edges = sorted({edge for a, b, *_ in blocks for edge in (a, b)})
+            for a, b, energy, price, asset in blocks:
+                bucket["observed_seconds"] += (b-a).total_seconds()
+                record_energy(bucket, energy, price, asset)
+            for left, right, power in spans[index:]:
+                if left >= end:
+                    break
+                a, b = max(left, start), min(right, end)
+                if a >= b or power is None:
+                    continue
+                # Split at exact physical/session/tariff boundaries; the
+                # measured power remains constant only inside this span.
+                edges = sorted({a, b} | {
+                    edge for edge in claim_edges[bisect_right(claim_edges, a):bisect_left(claim_edges, b)]
+                } | {
+                    edge for edge in owner_edges[bisect_right(owner_edges, a):bisect_left(owner_edges, b)]
+                } | {
+                    edge for edge in price_edges[bisect_right(price_edges, a):bisect_left(price_edges, b)]
+                } | {
+                    edge for edge in block_edges[bisect_right(block_edges, a):bisect_left(block_edges, b)]
+                })
+                for x, y in zip(edges, edges[1:]):
+                    if any(left < y and right > x for left, right in other_claims):
+                        continue
+                    block_index = bisect_right(block_starts, x)-1
+                    if block_index >= 0 and blocks[block_index][1] >= y:
+                        continue  # this exact native meter increment was already counted
+                    bucket["observed_seconds"] += (y-x).total_seconds()
+                    if power == 0:
+                        continue  # proven idle does not require a tariff
+                    energy = power*(y-x).total_seconds()/3600
+                    matching = [asset for since, until, asset in attribution
+                                if since <= x and until >= y]
+                    asset = matching[0] if len(matching) == 1 else None
+                    price_index = bisect_right(price_edges, x)-1
+                    price = price_spans[price_index][2] if price_index >= 0 else None
+                    record_energy(bucket, energy, price, asset)
+        _add_cost_bucket(groups["controller"]["site"], bucket)
+    # Asset attribution completeness depends on all site observations, not
+    # only the periods where an asset could already be identified.
+    site = groups["controller"]["site"]
+    for bucket in groups["asset"].values():
+        bucket["expected_seconds"] = site["expected_seconds"]
+        bucket["observed_seconds"] = site["observed_seconds"]
+        bucket["unattributed_energy_kwh"] = site["unattributed_energy_kwh"]
+    # A fully observed zero-energy day is a real zero only if the currency
+    # is known; it must not introduce a second basis into a charged period.
+    known_prices = {(price.currency, price.basis) for _, _, price in price_spans if price}
+    if len(known_prices) == 1:
+        key = next(iter(known_prices))
+        for owners in groups.values():
+            for bucket in owners.values():
+                if (bucket["expected_seconds"] > 0
+                        and abs(bucket["expected_seconds"]-bucket["observed_seconds"]) < 0.001
+                        and bucket["observed_energy_kwh"] == 0):
+                    bucket["valuations"][key] = [0.0, 0.0]
+    return groups
+
+
+def civil_period_costs(days, available):
+    """Merge day evidence without inventing missing dates, currency or prices."""
+    if not days:
+        return {}
+    today = next(reversed(days))
+    periods = {
+        "today": [today],
+        "month": [day for day in days if day[:7] == today[:7]],
+        "year": list(days),
+    }
+    owners = {"controller": {"site"}, "charger": set(), "asset": set()}
+    for day in available.values():
+        for kind, values in day.items():
+            owners[kind].update(values)
+    result = {kind: {} for kind in owners}
+    for kind, ids in owners.items():
+        for uid in ids:
+            result[kind][uid] = {}
+            for period, keys in periods.items():
+                bucket = _cost_bucket()
+                present = 0
+                for day in keys:
+                    if day not in available:
+                        continue
+                    present += 1
+                    daily = available[day].get(kind, {}).get(uid)
+                    if daily is not None:
+                        _add_cost_bucket(bucket, daily)
+                    elif kind == "asset":
+                        site = available[day]["controller"]["site"]
+                        bucket["expected_seconds"] += site["expected_seconds"]
+                        bucket["observed_seconds"] += site["observed_seconds"]
+                        bucket["unattributed_energy_kwh"] += site["unattributed_energy_kwh"]
+                values = bucket["valuations"]
+                # Idle days have zero monetary impact and cannot make a
+                # charged period mixed merely because their quote basis differs.
+                charged_values = {key: value for key, value in values.items() if value[1] > 0}
+                values = charged_values or values
+                currency, basis = next(iter(values)) if len(values) == 1 else (None, None)
+                covered_cost, covered_energy = values[(currency, basis)] if currency else (None, None)
+                complete = (present == len(keys)
+                            and abs(bucket["expected_seconds"]-bucket["observed_seconds"]) < 0.001
+                            and bucket["unpriced_energy_kwh"] < 0.000001
+                            and (kind != "asset" or bucket["unattributed_energy_kwh"] < 0.000001)
+                            and bucket["expected_seconds"] > 0)
+                row = {
+                    "start": days[keys[0]][0].isoformat(),
+                    "end": days[keys[-1]][1].isoformat(),
+                    "days_available": present, "days_expected": len(keys),
+                    "cost": round(covered_cost, 6) if complete and covered_cost is not None else None,
+                    "covered_cost": round(covered_cost, 6) if covered_cost is not None else None,
+                    "covered_energy_kwh": round(covered_energy, 6) if covered_energy is not None else None,
+                    "observed_energy_kwh": round(bucket["observed_energy_kwh"], 6),
+                    "unpriced_energy_kwh": round(bucket["unpriced_energy_kwh"], 6),
+                    "unattributed_energy_kwh": round(bucket["unattributed_energy_kwh"], 6),
+                    "observed_seconds": round(bucket["observed_seconds"], 3),
+                    "expected_seconds": round(bucket["expected_seconds"], 3),
+                    "currency": currency, "basis": basis,
+                    "average_price_per_kwh": round(covered_cost/covered_energy, 6)
+                        if covered_cost is not None and covered_energy else None,
+                    "quality": ("qualified_reference_estimate" if complete and currency else
+                                "no_charging" if complete and not values else
+                                "mixed_price_basis_or_currency" if len(values) > 1 else
+                                "partial_coverage" if present else "history_pending"),
+                }
+                result[kind][uid][period] = row
     return result
 
 
@@ -614,7 +1232,8 @@ async def read_actual_history(hass, configuration, start, end, *,
                               session_receipts=(), price_slots=(),
                               include_valuations=False, power_bindings=None,
                               include_observed_sessions=False, active_sessions=None,
-                              tariff_entity=None, energy_bindings=None):
+                              tariff_entity=None, energy_bindings=None, tariff_bindings=None,
+                              financial_days=None):
     """Query the installed native Recorder once for exact configured chargers."""
     now = datetime.now(timezone.utc)
     first, last = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
@@ -628,16 +1247,58 @@ async def read_actual_history(hass, configuration, start, end, *,
     bindings = (power_bindings if power_bindings is not None else
                 {c["id"]: [{"start": None, "entity": c.get("power_entity")}]
                  for c in configuration["chargers"]})
+    energy_bindings = (energy_bindings if energy_bindings is not None else
+                       {c["id"]: [{"start": None, "entity": c.get("energy_entity")}]
+                        for c in configuration["chargers"]})
     selected = [c["id"] for c in configuration["chargers"]
                 if charger_id is None or c["id"] == charger_id]
     if charger_id is not None and charger_id in bindings and not selected:
         selected = [charger_id]
 
-    def reply(rows, quality, historical=None):
-        if not include_valuations and not include_observed_sessions:
+    if financial_days is not None:
+        selected = sorted(set(selected) | set(bindings))
+
+    # Avoid scanning years of irrelevant receipts in each measured quarter
+    # or tariff partition. All overlapping owners remain in scope, including
+    # ambiguous attribution and previously deleted logical assets.
+    session_receipts = [
+        row for row in session_receipts
+        if row.get("charger_id") in selected
+        and receipt_overlaps(row, history_first, history_end)
+    ]
+
+    async def reply(rows, quality, historical=None):
+        if not include_valuations and not include_observed_sessions and financial_days is None:
             return rows, quality
         valued = {}
-        if historical is not None and price_slots:
+        quotes = price_slots
+        if historical is not None and tariff_bindings is not None:
+            quotes = _quotes_at_binding(
+                hass, historical, tariff_bindings.get("site", ()), tariff_entity,
+                price_slots, history_first, history_end,
+            )
+        elif historical is not None and tariff_entity:
+            quotes = _historical_reference_quotes(
+                hass, historical, tariff_entity, price_slots, history_first, history_end,
+            )
+        day_projection = None
+        if financial_days is not None:
+            # Computation is independent of physical control and off the HA
+            # event loop; the raw data came from this same Recorder query.
+            def project_days():
+                return {
+                    day: daily_costs(
+                        historical or {}, bindings, configuration, a, min(b, history_end),
+                        quotes if historical is not None else (), session_receipts, active_sessions,
+                        energy_bindings=energy_bindings,
+                    )
+                    for day, (a, b) in financial_days.items()
+                    if history_first <= a <= b <= history_end
+                }
+            day_projection = await hass.async_add_executor_job(project_days)
+            if not include_valuations and not include_observed_sessions:
+                return rows, quality, day_projection
+        if historical is not None and quotes:
             for receipt in session_receipts:
                 charger = receipt.get("charger_id")
                 if (charger not in selected
@@ -656,29 +1317,28 @@ async def read_actual_history(hass, configuration, start, end, *,
                 if not source:
                     continue
                 evidence = _estimated_session_variable_cost(
-                    historical.get(source, []), receipt, price_slots, now,
+                    historical.get(source, []), receipt, tuple(
+                        row for row in quotes if row.start < ended and row.end > started
+                    ), now,
                 )
                 if evidence is not None:
                     valued[(charger, receipt["started_at"],
                             receipt["ended_at"])] = evidence
         if include_observed_sessions:
-            quotes = price_slots
-            if historical is not None and tariff_entity:
-                quotes = _historical_reference_quotes(
-                    hass, historical, tariff_entity, price_slots, history_first, history_end,
-                )
             observed = (_observed_session_rows(
                 historical, bindings, selected, history_first, history_end, now,
                 session_receipts, active_sessions, quotes, energy_bindings,
             ) if historical is not None and asset_id is None else [])
-            metrics = (_receipt_view_metrics(
-                historical, bindings, selected, history_first, history_end, now,
-                session_receipts, active_sessions, quotes, asset_id,
+            metrics = (await hass.async_add_executor_job(
+                _receipt_view_metrics, historical, bindings, selected, history_first, history_end, now,
+                session_receipts, active_sessions, quotes, asset_id, energy_bindings,
             ) if historical is not None else {})
-            return rows, quality, valued, observed, metrics
-        return rows, quality, valued
+            result = (rows, quality, valued, observed, metrics)
+        else:
+            result = (rows, quality, valued)
+        return (*result, day_projection) if financial_days is not None else result
     if not selected:
-        return reply([], "NO_MATCHING_CHARGER")
+        return await reply([], "NO_MATCHING_CHARGER")
     # Include only sources which were actually mapped during this request.
     # Query the existing native Recorder once, even across a remap.
     entities = sorted({
@@ -689,65 +1349,59 @@ async def read_actual_history(hass, configuration, start, end, *,
         and (index + 1 == len(bindings[uid])
              or datetime.fromisoformat(bindings[uid][index + 1]["start"]) > history_first)
     })
-    if not entities:
-        return reply([], "POWER_METER_NOT_CONFIGURED")
     if history_first >= history_end:
-        return reply([], "FUTURE_ONLY")
-    power_entities = tuple(entities)
-    if include_observed_sessions:
-        if tariff_entity and tariff_entity not in entities:
-            entities.append(tariff_entity)
-        for uid in selected:
-            for epoch in (energy_bindings or {}).get(uid, ()):
-                if epoch["entity"] and epoch["entity"] not in entities:
-                    entities.append(epoch["entity"])
+        return await reply([], "FUTURE_ONLY")
+    for uid in selected:
+        for index, epoch in enumerate(energy_bindings.get(uid, ())):
+            if (epoch["entity"] and epoch["entity"] not in entities
+                    and (epoch["start"] is None or datetime.fromisoformat(epoch["start"]) < history_end)
+                    and (index+1 == len(energy_bindings[uid])
+                         or datetime.fromisoformat(energy_bindings[uid][index+1]["start"]) > history_first)):
+                entities.append(epoch["entity"])
+    if not entities:
+        return await reply([], "POWER_METER_NOT_CONFIGURED")
+    if include_observed_sessions or include_valuations or financial_days is not None:
+        tariff_sources = {
+            epoch["entity"] for i, epoch in enumerate((tariff_bindings or {}).get("site", ()))
+            if epoch["entity"]
+            and (epoch["start"] is None or datetime.fromisoformat(epoch["start"]) < history_end)
+            and (i+1 == len(tariff_bindings["site"])
+                 or datetime.fromisoformat(tariff_bindings["site"][i+1]["start"]) > history_first)
+        }
+        if tariff_bindings is None and tariff_entity:
+            tariff_sources.add(tariff_entity)
+        entities.extend(sorted(tariff_sources - set(entities)))
     if "recorder" not in hass.config.components:
-        return reply([], "RECORDER_NOT_LOADED")
+        return await reply([], "RECORDER_NOT_LOADED")
     try:
         from homeassistant.components.recorder import get_instance, history
 
         # Use the Recorder's own executor, preserving the native DB lifecycle.
         historical = await get_instance(hass).async_add_executor_job(
             history.get_significant_states,
-            hass, history_first, history_end, entities,
+            hass, history_first, min(now, history_end+timedelta(microseconds=1)), entities,
             None, True, False, False, False, False,
         )
     except (ImportError, RuntimeError, ValueError, OSError, KeyError):
-        return reply([], "RECORDER_UNAVAILABLE")
+        return await reply([], "RECORDER_UNAVAILABLE")
+    if financial_days is not None and not include_valuations and not include_observed_sessions:
+        return await reply([], "FINANCIAL_DAY", historical)
     if first >= now:
-        return reply([], "FUTURE_ONLY", historical)
-    # Integrate each physical source once; only then assign the measured
-    # quarter to the logical Charger that owned that source at that time.
-    empty = _quarter_actuals([], first, last, now)
-    by_source = {
-        entity: {row["start"]: row for row in _quarter_actuals(
-            historical.get(entity, []), first, last, now)}
-        for entity in power_entities
-    }
-    result = []
-    for uid in selected:
-        epochs = bindings.get(uid, ())
-        for unknown in empty:
-            since = datetime.fromisoformat(unknown["start"])
-            until = datetime.fromisoformat(unknown["end"])
-            source = _binding_for_interval(epochs, since, until)
-            row = dict(by_source.get(source, {}).get(unknown["start"], unknown))
-            attributed = (_session_asset_at_time(session_receipts, uid, since, until)
-                          if source else None)
-            row.update({
-                "charger_id": uid, "asset_id": attributed,
-                "asset_provenance": (
-                    "confirmed_closed_session" if attributed is not None
-                    else "unattributed_charger_actual"
-                ),
-            })
-            if asset_id is None or asset_id == attributed:
-                result.append(row)
+        return await reply([], "FUTURE_ONLY", historical)
+    # The same bounded Recorder evidence feeds both measured and exact
+    # energy-reconciled quarters, off the HA event loop.
+    result = await hass.async_add_executor_job(
+        reconciled_quarter_history, historical, bindings, energy_bindings, selected,
+        session_receipts, asset_id, first, last, now,
+    )
     if not result:
-        return reply([], (
+        return await reply([], (
             "NO_CONFIRMED_ASSET_HISTORY" if asset_id is not None
             else "NO_RECORDED_QUARTERS"
         ), historical)
-    if any(row["quality"] != "measured_power_integral" for row in result):
-        return reply(result, "INCOMPLETE_POWER_HISTORY", historical)
-    return reply(result, "MEASURED_POWER_HISTORY", historical)
+    if any(row["quality"] not in ("measured_power_integral", "measured_energy_delta")
+           for row in result):
+        return await reply(result, "INCOMPLETE_POWER_HISTORY", historical)
+    if any(row["quality"] == "measured_energy_delta" for row in result):
+        return await reply(result, "MEASURED_ENERGY_HISTORY", historical)
+    return await reply(result, "MEASURED_POWER_HISTORY", historical)
