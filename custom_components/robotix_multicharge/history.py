@@ -255,13 +255,186 @@ def _estimated_session_variable_cost(states, receipt, price_slots, now):
     }
 
 
+
+def _observed_runs(states, first, last, now):
+    """Continuous positive-power observations, not command/session receipts.
+
+    A real zero-to-positive transition establishes a start; a qualified
+    positive-to-zero transition establishes an observed end. Missing samples,
+    stale spans, source boundaries and window edges never become STOP proof.
+    """
+    last = min(last, now)
+    samples = sorted((item for state in states if (item := _sample(state))),
+                     key=lambda item: item[0])
+    if first >= last or not samples:
+        return []
+    # Duplicate timestamps with conflicting values are ambiguous.
+    by_stamp = {}
+    for stamp, value in samples:
+        if stamp in by_stamp and by_stamp[stamp] != value:
+            by_stamp[stamp] = None
+        else:
+            by_stamp[stamp] = value
+    samples = sorted(by_stamp.items())
+    result = []
+    run = None
+    previous = None
+
+    def finish(ended_known=False, ongoing=False):
+        nonlocal run
+        if run and run["segments"]:
+            run["end_known"] = ended_known
+            run["ongoing"] = ongoing
+            result.append(run)
+        run = None
+
+    for i, (stamp, value) in enumerate(samples):
+        if stamp > last:
+            break
+        if stamp < first and i+1 < len(samples) and samples[i+1][0] <= first:
+            previous = (stamp, value)
+            continue
+        right = min(samples[i+1][0] if i+1 < len(samples) else last, last)
+        left = max(first, stamp)
+        if left > last:
+            break
+        fresh_end = min(right, stamp + MAX_OBSERVATION_AGE)
+        if value is None or fresh_end < left:
+            finish()
+            previous = (stamp, None)
+            continue
+        if value <= 0.05:
+            if run:
+                finish(ended_known=run["segments"][-1][1] == stamp and stamp <= last)
+            previous = (stamp, value)
+            continue
+        if run and run["segments"][-1][1] != left:
+            finish()
+        if run is None:
+            known = (stamp >= first and previous is not None
+                     and previous[1] is not None and previous[1] <= 0.05
+                     and stamp - previous[0] <= MAX_OBSERVATION_AGE)
+            run = {"start_known": known, "segments": []}
+        if fresh_end > left:
+            run["segments"].append((left, fresh_end, value))
+        if fresh_end < right:
+            finish()
+            previous = (stamp, None)
+        else:
+            previous = (stamp, value)
+        if right == last and (i+1 == len(samples) or samples[i+1][0] > last):
+            finish(ongoing=last == now and fresh_end == last)
+    finish()
+    return result
+
+
+def _run_valuation(segments, price_slots):
+    """Exact overlap of measured power segments with one quote per instant.
+
+    Reference, spot and effective series can produce a read-only estimate;
+    none of these estimates is a billed cost or budget-control input.
+    """
+    quotes = []
+    for row in price_slots:
+        try:
+            if (row.basis not in ("effective", "variable_reference", "spot")
+                    or not isfinite(row.effective_price_per_kwh)
+                    or row.start.utcoffset() is None or row.end.utcoffset() is None
+                    or not row.currency or row.end <= row.start):
+                continue
+            quotes.append((row.start.astimezone(timezone.utc),
+                           row.end.astimezone(timezone.utc), row))
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            continue
+    total = 0.0
+    kinds = set()
+    for start, end, power in segments:
+        overlapping = [(a, b, row) for a, b, row in quotes if a < end and b > start]
+        edges = sorted({start, end} | {
+            edge for a, b, _ in overlapping for edge in (a, b) if start < edge < end
+        })
+        for left, right in zip(edges, edges[1:]):
+            matched = [row for a, b, row in overlapping if a <= left and b >= right]
+            if len(matched) != 1:
+                return None
+            price = matched[0]
+            kinds.add((price.currency, price.basis))
+            total += power * (right-left).total_seconds()/3600 * price.effective_price_per_kwh
+    if len(kinds) != 1 or not isfinite(total):
+        return None
+    currency, basis = next(iter(kinds))
+    return {"estimated_cost": round(total, 6),
+            "estimated_cost_currency": currency, "estimated_cost_basis": basis}
+
+
+def _observed_session_rows(historical, bindings, selected, first, last, now,
+                           receipts, active_sessions, price_slots):
+    """Project native charging observations using existing source epochs.
+
+    Never duplicate an executor-owned receipt or infer vehicle identity from
+    the current selected asset. A clipped run is an observed portion only.
+    """
+    rows = []
+    last = min(last, now)
+    for uid in selected:
+        owned = []
+        for receipt in [*receipts, *active_sessions.values()]:
+            if receipt.get("charger_id") != uid:
+                continue
+            try:
+                a = datetime.fromisoformat(receipt["started_at"])
+                b = datetime.fromisoformat(receipt["ended_at"]) if receipt.get("ended_at") else now
+                if a.utcoffset() is not None and b.utcoffset() is not None:
+                    owned.append((a, b))
+            except (ValueError, TypeError, KeyError):
+                continue
+        epochs = bindings.get(uid, ())
+        for i, epoch in enumerate(epochs):
+            entity = epoch["entity"]
+            if not entity:
+                continue
+            start = max(first, datetime.fromisoformat(epoch["start"])) if epoch["start"] else first
+            end = min(last, datetime.fromisoformat(epochs[i+1]["start"])) if i+1 < len(epochs) else last
+            if start >= end:
+                continue
+            for run in _observed_runs(historical.get(entity, ()), start, end, now):
+                segments = run["segments"]
+                a, b = segments[0][0], segments[-1][1]
+                if any(left < b and right > a for left, right in owned):
+                    continue
+                hours = sum((right-left).total_seconds()/3600 for left, right, _ in segments)
+                kwh = sum(power*(right-left).total_seconds()/3600 for left, right, power in segments)
+                complete = run["start_known"] and (run["end_known"] or run["ongoing"])
+                estimate = _run_valuation(segments, price_slots)
+                rows.append({
+                    "charger_id": uid, "asset_id": None,
+                    "started_at": a.isoformat(), "ended_at": b.isoformat(),
+                    "start_known": run["start_known"], "end_known": run["end_known"],
+                    "ongoing": run["ongoing"], "complete_observed_window": complete,
+                    "observed_energy_kwh": round(kwh, 6),
+                    "observed_duration_minutes": round(hours*60, 3),
+                    "average_power_kw": round(kwh/hours, 6),
+                    "peak_power_kw": round(max(power for _, _, power in segments), 6),
+                    "energy_quality": "observed_power_integral",
+                    "estimated_cost": None, **(estimate or {}),
+                })
+    return sorted(rows, key=lambda row: (row["ended_at"], row["charger_id"]))
+
+
 async def read_actual_history(hass, configuration, start, end, *,
                               charger_id=None, asset_id=None,
                               session_receipts=(), price_slots=(),
-                              include_valuations=False, power_bindings=None):
+                              include_valuations=False, power_bindings=None,
+                              include_observed_sessions=False, active_sessions=None):
     """Query the installed native Recorder once for exact configured chargers."""
     now = datetime.now(timezone.utc)
     first, last = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
+    if last <= first or last-first > timedelta(hours=49):
+        raise ValueError("historical view must be bounded to two civil days (<=49h)")
+    history_end = min(last, now)
+    history_first = min(first, history_end-timedelta(hours=48)) if include_observed_sessions else first
+    active_sessions = {uid: {**row, "charger_id": uid}
+                       for uid, row in (active_sessions or {}).items()}
 
     bindings = (power_bindings if power_bindings is not None else
                 {c["id"]: [{"start": None, "entity": c.get("power_entity")}]
@@ -272,7 +445,7 @@ async def read_actual_history(hass, configuration, start, end, *,
         selected = [charger_id]
 
     def reply(rows, quality, historical=None):
-        if not include_valuations:
+        if not include_valuations and not include_observed_sessions:
             return rows, quality
         valued = {}
         if historical is not None and price_slots:
@@ -299,6 +472,12 @@ async def read_actual_history(hass, configuration, start, end, *,
                 if evidence is not None:
                     valued[(charger, receipt["started_at"],
                             receipt["ended_at"])] = evidence
+        if include_observed_sessions:
+            observed = (_observed_session_rows(
+                historical, bindings, selected, history_first, history_end, now,
+                session_receipts, active_sessions, price_slots,
+            ) if historical is not None and asset_id is None else [])
+            return rows, quality, valued, observed
         return rows, quality, valued
     if not selected:
         return reply([], "NO_MATCHING_CHARGER")
@@ -308,15 +487,13 @@ async def read_actual_history(hass, configuration, start, end, *,
         epoch["entity"] for uid in selected
         for index, epoch in enumerate(bindings.get(uid, ()))
         if epoch["entity"]
-        and (epoch["start"] is None or datetime.fromisoformat(epoch["start"]) < last)
+        and (epoch["start"] is None or datetime.fromisoformat(epoch["start"]) < history_end)
         and (index + 1 == len(bindings[uid])
-             or datetime.fromisoformat(bindings[uid][index + 1]["start"]) > first)
+             or datetime.fromisoformat(bindings[uid][index + 1]["start"]) > history_first)
     })
     if not entities:
         return reply([], "POWER_METER_NOT_CONFIGURED")
-    if last <= first or last - first > timedelta(hours=49):
-        raise ValueError("historical view must be bounded to two civil days (<=49h)")
-    if first >= now:
+    if history_first >= history_end:
         return reply([], "FUTURE_ONLY")
     if "recorder" not in hass.config.components:
         return reply([], "RECORDER_NOT_LOADED")
@@ -326,7 +503,7 @@ async def read_actual_history(hass, configuration, start, end, *,
         # Use the Recorder's own executor, preserving the native DB lifecycle.
         historical = await get_instance(hass).async_add_executor_job(
             history.get_significant_states,
-            hass, first, min(last, now), entities,
+            hass, history_first, history_end, entities,
             None, True, False, False, False, False,
         )
     except (ImportError, RuntimeError, ValueError, OSError, KeyError):
