@@ -153,6 +153,7 @@
           "phase_limits_a": "Phasengrenzen (A) (optional)",
           "site_power_entity": "Leistungsgrenzquelle (optional)",
           "mode": "Lademodus",
+          "power_adjustment_interval_minutes": "Leistungsregelintervall (min)",
           "max_parallel": "Maximale parallele Ladepunkte",
           "max_power_kw": "Standortleistung (kW)"
         }
@@ -399,6 +400,9 @@
       },
       "max_charge_kw": {
         "name": "Max. Ladeleistung"
+      },
+      "power_adjustment_interval_minutes": {
+        "name": "Leistungsregelintervall"
       },
       "max_parallel": {
         "name": "Gleichzeitige Ladepunkte"

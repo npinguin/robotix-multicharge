@@ -35,7 +35,7 @@ async def async_setup_entry(
         _AssetNumber(entry, runtime, asset, field)
         for asset in runtime.configuration["assets"] for field in FIELDS
     ]
-    for field in ("max_parallel", "max_power_kw"):
+    for field in ("max_parallel", "max_power_kw", "power_adjustment_interval_minutes"):
         entities.append(_SiteNumber(entry, runtime, field))
     for charger in runtime.configuration["chargers"]:
         # The logical Charger owns its inputs from the moment it is added.
@@ -142,12 +142,15 @@ class _SiteNumber(NumberEntity):
         ctl = runtime.configuration["controller"]
         self._attr_unique_id = f"{DOMAIN}:controller:{ctl['id']}:{field}"
         self._attr_translation_key = field
-        self._attr_native_min_value = 1 if field == "max_parallel" else 0.1
-        self._attr_native_max_value = 16 if field == "max_parallel" else 100
-        self._attr_native_step = 1 if field == "max_parallel" else 0.1
-        self._attr_native_unit_of_measurement = (
-            None if field == "max_parallel" else "kW"
-        )
+        minimum, maximum, step, unit = {
+            "max_parallel": (1, 16, 1, None),
+            "max_power_kw": (0.1, 100, 0.1, "kW"),
+            "power_adjustment_interval_minutes": (1, 1440, 1, "min"),
+        }[field]
+        self._attr_native_min_value = minimum
+        self._attr_native_max_value = maximum
+        self._attr_native_step = step
+        self._attr_native_unit_of_measurement = unit
         self._attr_device_info = {
             "identifiers": {(DOMAIN, f"controller/{ctl['id']}")},
             "name": ctl["name"], "manufacturer": "Robotix",
@@ -177,7 +180,7 @@ class _SiteNumber(NumberEntity):
 
     async def async_set_native_value(self, value: float):
         await require_native_admin(self.hass, self._context)
-        if self.field == "max_parallel":
+        if self.field in ("max_parallel", "power_adjustment_interval_minutes"):
             if not float(value).is_integer():
                 raise ValueError("whole_number_required")
             value = int(value)

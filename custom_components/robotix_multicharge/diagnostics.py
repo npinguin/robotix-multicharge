@@ -66,6 +66,7 @@ def build_diagnostics(runtime, entry, captured_at=None):
             "id": _alias(cfg["controller"]["id"]),
             "mode": cfg["controller"]["mode"],
             "max_parallel": cfg["controller"]["max_parallel"],
+            "power_adjustment_interval_minutes": cfg["controller"].get("power_adjustment_interval_minutes", 5),
             "max_power_kw": cfg["controller"].get("max_power_kw"),
             "phase_limits_a": cfg["controller"].get("phase_limits_a"),
             "bindings": {

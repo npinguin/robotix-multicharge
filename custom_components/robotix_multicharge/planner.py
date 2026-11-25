@@ -701,7 +701,7 @@ def compile_plan(
             allocations.append(PlannedChargeSlot(
                 charger_uid=uid, asset_uid=demand.asset_uid, start=slot,
                 end=slot + QUARTER, power_kw=power,
-                current_a=current if adjustable else None,
+                current_a=current if adjustable else None, strategy=method,
             ))
             active.setdefault(slot, set()).add(uid)
             used_kw[slot] = used_kw.get(slot, 0.0) + power
@@ -813,7 +813,7 @@ def compile_plan(
         *(f"locked:{s.charger_uid}:{s.start.isoformat()}:{s.power_kw}:{s.current_a}"
           for s in reserved_slots),
         *(
-            f"{s.charger_uid}:{s.start.isoformat()}:{s.power_kw}:{s.current_a}:{s.planning_power_kw}"
+            f"{s.charger_uid}:{s.start.isoformat()}:{s.power_kw}:{s.current_a}:{s.planning_power_kw}:{s.strategy}"
             for s in allocations
         ),
         *(f"{uid}:{reasons[uid]}:{strategy.get(uid, '')}" for uid in sorted(reasons)),

@@ -964,6 +964,33 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(accepted["current_a"], 10)
         self.assertAlmostEqual(accepted["power_kw"], 2.3)
         self.assertTrue(all(call[2]["entity_id"] != "switch.external" for call in services.calls))
+        # Released external capacity may restore the original authorized
+        # setpoint, but only after the selected regulation interval.
+        states["switch.external"].state = "off"
+        states["sensor.external_power"].state = "0"
+        states["sensor.external_power"].last_updated = datetime.now(timezone.utc)
+        rt.configuration["controller"]["power_adjustment_interval_minutes"] = 7
+        before = len(services.calls)
+        rt.executor._last_power_adjustment_at = datetime.now(timezone.utc)-timedelta(minutes=6)
+        await rt.executor.regulate_active_plan()
+        self.assertEqual(len(services.calls), before)
+        rt.executor._last_power_adjustment_at = datetime.now(timezone.utc)-timedelta(minutes=7)
+        await rt.executor.regulate_active_plan()
+        self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 15)
+        receipt = list(rt.executor.accepted_slots().values())[0]
+        self.assertEqual(receipt["current_a"], 10)
+        self.assertEqual(receipt["changes"][-1]["current_a"], 15)
+        self.assertGreater(datetime.fromisoformat(receipt["changes"][-1]["at"]), quarter)
+        before = len(services.calls)
+        await rt.executor.regulate_active_plan()
+        self.assertEqual(len(services.calls), before)
+        # Protective reduction is not delayed by the normal seven-minute cadence.
+        states["switch.external"].state = "on"
+        states["sensor.external_power"].state = "1300"
+        states["sensor.external_power"].last_updated = datetime.now(timezone.utc)
+        await rt.executor.supervise()
+        self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 10)
+        self.assertEqual(receipt["changes"][-1]["current_a"], 10)
 
     async def test_quarter_grant_rechecks_changed_configuration_before_start(self):
         rt, states, services = rig(mode="Automatic")

@@ -197,6 +197,7 @@ class PlannedChargeSlot:
     power_kw: float
     current_a: float | None = None
     planning_power_kw: float | None = None
+    strategy: str | None = None
 
     @property
     def expected_power_kw(self) -> float:

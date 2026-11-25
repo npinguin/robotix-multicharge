@@ -198,6 +198,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             else:
                 runtime.refresh(at)
             await runtime.executor.supervise()
+            await runtime.executor.regulate_active_plan()
 
     async def fetch_price():
         result = await async_native_nordpool_prices(hass, price_source, utc_datetime.now(timezone.utc))

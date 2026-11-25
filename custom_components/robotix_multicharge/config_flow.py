@@ -1002,15 +1002,16 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             for key in ("name", "mode", "max_power_kw"):
                 if key in user_input:
                     ctl[key] = user_input[key]
-            if "max_parallel" in user_input:
-                parallel = user_input["max_parallel"]
-                if (type(parallel) not in (int, float)
-                        or parallel != int(parallel)):
+            for key in ("max_parallel", "power_adjustment_interval_minutes"):
+                if key not in user_input:
+                    continue
+                value = user_input[key]
+                if (type(value) not in (int, float)
+                        or not float(value).is_integer()):
                     errors["base"] = "invalid_config"
                 else:
-                    # HA NumberSelector returns a float even with step=1;
-                    # canonical schema correctly requires a positive int.
-                    ctl["max_parallel"] = int(parallel)
+                    # HA NumberSelector returns a float even with step=1.
+                    ctl[key] = int(value)
             if user_input.get("phase_limits_a"):
                 try:
                     ctl["phase_limits_a"] = _phase_limits(user_input["phase_limits_a"])
@@ -1031,6 +1032,12 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             vol.Required("max_parallel", default=current.get("max_parallel", 1)):
                 selector.NumberSelector(selector.NumberSelectorConfig(
                     min=1, max=16, step=1, mode=selector.NumberSelectorMode.BOX,
+                )),
+            vol.Required("power_adjustment_interval_minutes",
+                         default=current.get("power_adjustment_interval_minutes", 5)):
+                selector.NumberSelector(selector.NumberSelectorConfig(
+                    min=1, max=1440, step=1, mode=selector.NumberSelectorMode.BOX,
+                    unit_of_measurement="min",
                 )),
             vol.Optional("phase_limits_a", default=",".join(
                 f"{p}:{x}" for p, x in current.get("phase_limits_a", {}).items()

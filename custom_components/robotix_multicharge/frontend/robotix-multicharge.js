@@ -580,15 +580,33 @@ function mcPlanSeries(data,visibleChargers,rows,actuals,forecast,includeTotals=f
   // Preserve aggregate known site power for simultaneous qualified loads.
   // Never total independent conditional alternatives or mix plan and actual.
   if(includeTotals)for(const [index,status] of [[0,"Proposed"],[1,"Accepted"],[2,"Measured"]]){
-    const totals=new Map();
+    const totals=new Map(),events=new Map(),active=new Map();
     for(const g of ownerGroups.filter(x=>x.index===index)){
       for(const q of g.intervals.values()){
-        const key=q.start;
-        if(!totals.has(key))totals.set(key,{start:q.start,end:q.end,power:0,owners:new Set()});
-        const total=totals.get(key);
-        if(total.end!==q.end||total.owners.has(g.chargerId))continue;
-        total.power+=q.power;total.owners.add(g.chargerId);
+        for(const [stamp,add] of [[q.start,true],[q.end,false]]){
+          if(!events.has(stamp))events.set(stamp,[]);
+          events.get(stamp).push({id:g.chargerId,add,q});
+        }
       }
+    }
+    const boundaries=[...events.keys()].sort((a,b)=>a-b);
+    for(let i=0;i<boundaries.length-1;i++){
+      const stamp=boundaries[i],batch=events.get(stamp);
+      for(const event of batch.filter(e=>!e.add)){
+        const rows=active.get(event.id);
+        rows?.delete(event.q);
+        if(!rows?.size)active.delete(event.id);
+      }
+      for(const event of batch.filter(e=>e.add)){
+        if(!active.has(event.id))active.set(event.id,new Set());
+        active.get(event.id).add(event.q);
+      }
+      const total={start:stamp,end:boundaries[i+1],power:0,owners:new Set()};
+      for(const [id,rows] of active){
+        if(rows.size!==1)continue; // ambiguous overlap is not additional power
+        total.power+=[...rows][0].power;total.owners.add(id);
+      }
+      if(total.owners.size)totals.set(stamp,total);
     }
     if([...totals.values()].some(q=>q.owners.size>1))
       ownerGroups.push({name:status+" · known site total",index:5,color:"#697582",intervals:totals});
@@ -917,13 +935,16 @@ const MC_OWNER_UX_LOCALES = {
 };
 for(const [locale,entries] of Object.entries(MC_OWNER_UX_LOCALES))
   Object.assign(MC_TEXT[locale],entries);
+for(const [locale,label] of Object.entries({"da":"Interval for effektregulering","de":"Leistungsregelintervall","en":"Power adjustment interval","es":"Intervalo de ajuste de potencia","fr":"Intervalle de régulation de puissance","nb":"Intervall for effektregulering","nl":"Interval vermogensregeling","sv":"Intervall för effektreglering"})){
+  if(MC_TEXT[locale])MC_TEXT[locale]["Power adjustment interval"]=label;
+}
 
 // A schema-aligned read-only projection of the ONE persisted Config Entry.
 // Native entity controls and Options Flow below stay the only real writers.
 const MC_OWNER_GROUPS = {
   controller: [
     ["Identity & strategy",[
-      "id","name","mode","max_parallel","max_power_kw",
+      "id","name","mode","max_parallel","max_power_kw","power_adjustment_interval_minutes",
       "phase_limits_a","plan_label_mode","plan_color_by",
       "show_indicative_forecast"
     ]],
@@ -977,6 +998,7 @@ const MC_OWNER_NAMES = {
   id:"Object ID",name:"Name",kind:"Type",asset:"Assigned vehicle",dedicated_asset_id:"Fixed vehicle assignment",
   mode:"Charging mode",max_parallel:"Simultaneous chargers",
   max_power_kw:"Site power ceiling",phase_limits_a:"Maximum per-phase current",
+  power_adjustment_interval_minutes:"Power adjustment interval",
   plan_label_mode:"Plan labels",plan_color_by:"Colors represent",
   show_indicative_forecast:"Show unreserved forecast",
   price_entity:"Future tariff interval source",
@@ -1042,6 +1064,7 @@ const MC_OWNER_NAMES = {
 };
 const MC_OWNER_UNITS={
   max_power_kw:" kW",rated_power_kw:" kW",max_charge_kw:" kW",
+  power_adjustment_interval_minutes:" min",
   min_charging_power_kw:" kW",max_charging_power_kw:" kW",
   capacity_kwh:" kWh",requested_kwh:" kWh",
   requested_duration_minutes:" min",maximum_price_per_kwh:" /kWh",
@@ -1052,7 +1075,7 @@ const MC_OWNER_UNITS={
 };
 
 const MC_EDIT_NUMBERS=new Set([
-  "max_parallel","max_power_kw","target_soc","requested_kwh",
+  "max_parallel","max_power_kw","power_adjustment_interval_minutes","target_soc","requested_kwh",
   "requested_duration_minutes","requested_budget_amount","minimum_soc_pct",
   "maximum_price_per_kwh","low_price_trigger_per_kwh","low_soc_trigger_pct",
   "opportunistic_level_pct","priority","capacity_kwh","max_charge_kw",
@@ -3781,6 +3804,8 @@ class RobotixMultiChargeCard extends HTMLElement {
             "Parallel chargers",ctl.max_parallel);
           this.nativeNumberEditor(detail,"controller",ctl.id,"max_power_kw",
             "Maximum group power",ctl.max_power_kw,"kW");
+          this.nativeNumberEditor(detail,"controller",ctl.id,"power_adjustment_interval_minutes",
+            "Power adjustment interval",ctl.power_adjustment_interval_minutes??5,"min");
           this.ownerFacts(detail,"controller",ctl,[
             "solar_power_entity","home_power_entity","grid_power_entity","solar_surplus_entity",
             "current_price_entity","price_entity","export_price_entity","solar_entity",

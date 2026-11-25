@@ -1166,6 +1166,29 @@ class MultiChargeRuntime:
                 continue
             if asset_id is not None and accepted["asset_id"] != asset_id:
                 continue
+            if accepted.get("changes") or accepted.get("closed_at"):
+                # Keep the original proposal's quarter intact. Physical
+                # setpoint readback has its own exact sub-quarter intervals.
+                close = (datetime.fromisoformat(accepted["closed_at"])
+                         if accepted.get("closed_at") else accepted["end"])
+                cursor = accepted["start"]
+                power, current = accepted["power_kw"], accepted["current_a"]
+                changes = [*accepted.get("changes", []),
+                           {"at": close.isoformat(), "power_kw": None, "current_a": None}]
+                for change in changes:
+                    stamp = datetime.fromisoformat(change["at"])
+                    if cursor < stamp and stamp > first and cursor < last:
+                        slots.append({
+                            "charger_id": accepted["charger_id"],
+                            "asset_id": accepted["asset_id"],
+                            "start": cursor.isoformat(), "end": stamp.isoformat(),
+                            "proposed_power_kw": None, "proposed_energy_kwh": None,
+                            "proposed_current_a": None,
+                            "accepted_power_kw": power, "accepted_current_a": current,
+                            "actual_power_kw": None, "actual_energy_kwh": None,
+                        })
+                    cursor, power, current = stamp, change["power_kw"], change["current_a"]
+                continue
             match = next((row for row in slots if
                 row["charger_id"] == accepted["charger_id"]
                 and row["start"] == accepted["start"].isoformat()), None)

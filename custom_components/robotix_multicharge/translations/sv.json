@@ -154,6 +154,7 @@
           "phase_limits_a": "Faser (valfritt)",
           "site_power_entity": "Effekt (valfritt)",
           "mode": "Laddningsläge",
+          "power_adjustment_interval_minutes": "Intervall för effektreglering (min)",
           "max_parallel": "Maximalt antal samtidiga laddare",
           "max_power_kw": "Effektgräns (kW)"
         }
@@ -400,6 +401,9 @@
       },
       "max_charge_kw": {
         "name": "Effekt"
+      },
+      "power_adjustment_interval_minutes": {
+        "name": "Intervall för effektreglering"
       },
       "max_parallel": {
         "name": "Antal"

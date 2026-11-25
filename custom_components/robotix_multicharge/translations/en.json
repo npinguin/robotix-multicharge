@@ -153,6 +153,7 @@
           "phase_limits_a": "Verified phase limits, e.g. L1:16,L2:16,L3:16 (A) (optional)",
           "site_power_entity": "Optional binding power envelope (fail closed if unavailable) (optional)",
           "mode": "Charging mode",
+          "power_adjustment_interval_minutes": "Power adjustment interval (min)",
           "max_parallel": "Maximum parallel chargers",
           "max_power_kw": "Site power limit (kW)"
         }
@@ -399,6 +400,9 @@
       },
       "max_charge_kw": {
         "name": "Max. charging power"
+      },
+      "power_adjustment_interval_minutes": {
+        "name": "Power adjustment interval"
       },
       "max_parallel": {
         "name": "Parallel chargers"

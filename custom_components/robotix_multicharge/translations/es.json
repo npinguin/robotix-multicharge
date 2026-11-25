@@ -153,6 +153,7 @@
           "phase_limits_a": "Límites de fase (A) (opcional)",
           "site_power_entity": "Fuente de límite de potencia (opcional)",
           "mode": "Modo de carga",
+          "power_adjustment_interval_minutes": "Intervalo de ajuste de potencia (min)",
           "max_parallel": "Cargadores paralelos máximos",
           "max_power_kw": "Potencia máxima del sitio (kW)"
         }
@@ -399,6 +400,9 @@
       },
       "max_charge_kw": {
         "name": "Potencia máx. de carga"
+      },
+      "power_adjustment_interval_minutes": {
+        "name": "Intervalo de ajuste de potencia"
       },
       "max_parallel": {
         "name": "Puntos simultáneos"
