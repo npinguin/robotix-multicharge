@@ -222,7 +222,7 @@ const MC_STYLE = [
   ".legend{display:flex;flex-wrap:wrap;gap:8px;font-size:12px;color:var(--secondary-text-color,#65717e)}.legend-toggle{font-size:12px;border:0;padding:4px;min-height:30px;background:transparent;color:inherit}.legend-toggle[aria-pressed=false]{opacity:.5;text-decoration:line-through}",
   ".dot{display:inline-block;width:11px;height:11px;margin-right:5px;border-radius:2px}",
   ".plan-lane{margin:10px 0;border:1px solid var(--divider-color,#d8dde3);border-radius:11px;padding:11px}",
-  ".session-summary{margin:8px 0;padding:8px 0;border-top:1px solid var(--divider-color,#ddd)}.session-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:7px;margin:7px 0}",
+  ".setup-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:0 12px}.setup-fields .field{min-width:0}.setup-fields>p{grid-column:1/-1}.goal-track,.goal-ticks{box-sizing:border-box}.session-summary{margin:8px 0;padding:8px 0;border-top:1px solid var(--divider-color,#ddd)}.session-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:7px;margin:7px 0}",
   ".plan-lane svg{display:block;min-width:680px;width:100%;height:auto}",
   ".plan-lane .chart{margin-top:5px}",
   ".owner-inventory{margin-top:14px;border-top:1px solid var(--divider-color,#bbb);padding-top:12px}.owner-inventory>h4{font-size:15px;margin:0 0 9px}.owner-group{margin:7px 0 12px;padding:8px 10px;border:1px solid var(--divider-color,#ccc);border-radius:8px;min-width:0}.owner-group h4{font-size:13px;margin:0 0 8px}.owner-group .pair{word-break:break-word}.owner-configure{margin-top:8px}.owner-configure a{display:inline-block;margin-top:4px}.owner-hint{font-size:12px}.owner-inventory .row{flex-wrap:wrap}",
@@ -367,6 +367,59 @@ function mcEnsureApex(){
   }).catch(error=>{mcApexLibrary=null;throw error;});
   return mcApexLibrary;
 }
+// Align the *rendered* time axes, not just their timestamp ranges. The
+// right-hand price axis, labels and responsive card padding consume different
+// amounts of space. Reuse Apex's actual grid geometry and its native padding.
+function mcPlotBounds(plot){
+  const lines=[...plot.querySelectorAll(".apexcharts-gridline")];
+  const horizontal=lines.map(el=>el.getBoundingClientRect())
+    .filter(r=>r.width>20&&r.height<3).sort((a,b)=>b.width-a.width)[0];
+  if(horizontal)return {left:horizontal.left,right:horizontal.right};
+  return null;
+}
+function mcSchedulePlanAlignment(root){
+  if(!root?.querySelectorAll||typeof window==="undefined")return;
+  if(root._mcAlignTimer!=null||root._mcAlignBusy)return;
+  root._mcAlignTimer=setTimeout(async()=>{
+    root._mcAlignTimer=null;root._mcAlignBusy=true;
+    try{
+      for(let pass=0;pass<4;pass++){
+        const plots=[...root.querySelectorAll(".mc-apex")];
+        if(!plots.length||plots.some(p=>!p._mcApex||!mcPlotBounds(p)))return;
+        const bounds=plots.map(p=>({p,...mcPlotBounds(p)}));
+        // Recover natural grid edges before our additional padding. This
+        // allows axes to expand again after resizing or changing series.
+        const left=Math.max(...bounds.map(b=>b.left-(b.p._mcExtraLeft||0)));
+        const right=Math.min(...bounds.map(b=>b.right+(b.p._mcExtraRight||0)));
+        if(right-left<40)return;
+        const updates=[];
+        for(const b of bounds){
+          const l=Math.max(0,Math.round(left-(b.left-(b.p._mcExtraLeft||0))));
+          const r=Math.max(0,Math.round((b.right+(b.p._mcExtraRight||0))-right));
+          if(Math.abs(l-(b.p._mcExtraLeft||0))<=1&&Math.abs(r-(b.p._mcExtraRight||0))<=1)continue;
+          b.p._mcExtraLeft=l;b.p._mcExtraRight=r;
+          updates.push(b.p._mcApex.updateOptions({grid:{padding:{left:3+l,right:8+r}}},false,false,false));
+        }
+        if(updates.length)await Promise.all(updates);
+        else break;
+      }
+      const bounds=[...root.querySelectorAll(".mc-apex")].map(mcPlotBounds).filter(Boolean);
+      if(!bounds.length)return;
+      const left=Math.max(...bounds.map(b=>b.left)),right=Math.min(...bounds.map(b=>b.right));
+      for(const block of root.querySelectorAll(".goal-timeline")){
+        const box=block.getBoundingClientRect();
+        for(const el of block.querySelectorAll(".goal-track,.goal-ticks")){
+          el.style.marginLeft=Math.max(0,left-box.left)+"px";
+          el.style.marginRight=Math.max(0,box.right-right)+"px";
+        }
+      }
+    }catch(error){
+      // Chart rendering stays usable; a failed alignment is not hidden from
+      // browser acceptance (which compares actual geometry).
+      console.warn("MultiCharge plot alignment",error);
+    }finally{root._mcAlignBusy=false;}
+  },0);
+}
 function mcMountApex(plot,options){
   plot.className+=" mc-apex";
   plot.setAttribute("role","img");
@@ -390,9 +443,12 @@ function mcMountApex(plot,options){
     return;
   void mcEnsureApex().then(Chart=>{
     if(plot.isConnected===false)return;
+    options.chart.events={...options.chart.events,
+      mounted:()=>mcSchedulePlanAlignment(plot.getRootNode()),
+      updated:()=>mcSchedulePlanAlignment(plot.getRootNode())};
     const chart=new Chart(plot,options);
     plot._mcApex=chart;
-    return chart.render().catch(error=>{
+    return chart.render().then(()=>mcSchedulePlanAlignment(plot.getRootNode())).catch(error=>{
       chart.destroy();plot._mcApex=null;
       plot.append(mcEl("p","plan-caution","ApexCharts render failed: "+String(error?.stack||error?.message||error).slice(0,650)));
     });
@@ -531,11 +587,13 @@ function mcPlanChartOptions(data,series,height,title,price=null){
   options.xaxis={...options.xaxis,type:"numeric",tickAmount:4,decimalsInFloat:0,
     labels:{formatter:value=>mcPlanTickText(value,data)}};
   options.tooltip.x={formatter:value=>mcPlanTickText(value,data)};
-  options.yaxis[0].title.text="Charging power · kW";
+  options.yaxis[0].title.text="";
+  // Units are already visible in chart headings, legend and hover readback.
+  // Avoid a second vertical title stealing scarce mobile plot width.
   if(price){
     options.yaxis[0].seriesName=series.map(s=>s.name);
     options.yaxis[1].seriesName=price.name;
-    options.yaxis[1].title.text="Price · "+price.currency+"/kWh";
+    options.yaxis[1].title.text="";
     if(!series.length)options.yaxis=[options.yaxis[1]];
   }
   options.tooltip.shared=false;options.tooltip.intersect=false;
@@ -1974,6 +2032,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       }
     }
     for(const old of previousCharts){try{old._mcApex?.destroy();}catch(_){}old._mcApex=null;}
+    if(this._tab==="Charging Plan")mcSchedulePlanAlignment(root);
     if(anchor&&typeof root.querySelectorAll==="function"){
       const replacement=[...root.querySelectorAll("[data-mc-object]")].find(
         node=>node.getAttribute("data-mc-object")===anchor.id);
@@ -3099,6 +3158,10 @@ class RobotixMultiChargeCard extends HTMLElement {
       "No native device match; choose sources explicitly."));
     const readers={};
     const draft={...charger,...proposal};
+    const primary=mcEl("div","setup-fields");
+    const advanced=mcEl("details","owner-group");
+    advanced.append(mcEl("summary","","Electrical limits & optional sources"));
+    const secondary=mcEl("div","setup-fields");advanced.append(secondary);
     const editable=["control_entity","connected_entity","power_entity","energy_entity","session_entity"];
     if(charger.kind==="variable_current")editable.push("current_control_entity",
       "current_readback_entity","min_current_a","max_current_a","current_step_a");
@@ -3109,8 +3172,10 @@ class RobotixMultiChargeCard extends HTMLElement {
       else if((setup.candidates?.[field]||[]).length>1&&!charger[field])
         panel.append(mcEl("p","muted small","Multiple native candidates · "+
           setup.candidates[field].join(", ")));
-      readers[field]=this.dashboardFieldControl(panel,"charger",draft,field);
+      const target=["control_entity","connected_entity","power_entity","current_control_entity","energy_entity"].includes(field)?primary:secondary;
+      readers[field]=this.dashboardFieldControl(target,"charger",draft,field);
     }
+    panel.append(primary,advanced);
     const actions=mcEl("div","dashboard-edit-actions");
     const save=mcButton("Save charger setup",async()=>{
       const changes={};
@@ -3203,7 +3268,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       }
       const selectedAsset=(d.configuration.assets||[]).find(a=>a.id===c.asset);
       this.chargerQuickSelection(card,c);
-      mcPair(card,"Assigned asset",selectedAsset?selectedAsset.name:mcTr("Not assigned"));
+      // The owning native chooser already displays the assigned vehicle.
       const identity=(d.connection_identity||{})[c.id]||null;
       const confirmed=(identity&&identity.asset_id===c.asset);
       mcPair(card,mcTr("Connected vehicle"),confirmed?
@@ -3221,21 +3286,14 @@ class RobotixMultiChargeCard extends HTMLElement {
         const historyPanel=mcEl("div","history-values");
         mcPair(historyPanel,"Last confirmed session",mcTime(latest.ended_at,d.timezone));
         this.sessionMetrics(historyPanel,latest,false);
-        mcPair(historyPanel,"Verified cost",latest.cost===null?
-          mcTr("Unknown"):latest.cost+" "+latest.currency);
+        // Cost is shown once in the shared session metrics.
         mcPair(historyPanel,mcTr("Original vehicle at session time"),
           latest.asset_id||mcTr("Anonymous charger-only session"));
         mcPair(historyPanel,mcTr("Physical STOP confirmed"),
           latest.physical_stop_confirmed===true?mcTr("Yes"):mcTr("Unknown"));
         if(latest.stop_reason)
           mcPair(historyPanel,mcTr("Session stop reason"),mcReason(latest.stop_reason));
-        if(latest.cost===null && latest.estimated_variable_cost!==undefined){
-          mcPair(historyPanel,mcTr("Indicative variable energy cost"),
-            latest.estimated_variable_cost+" "+
-            latest.estimated_variable_cost_currency);
-          historyPanel.append(mcEl("p","muted small",
-            mcTr("Power-derived estimate, not a bill")));
-        }
+
         for(const earlier of history.slice(-4,-1).reverse()){
           const row=mcEl("div","session-summary");
           row.append(mcEl("strong","",mcTime(earlier.ended_at,d.timezone)));
