@@ -88,6 +88,7 @@ def build_diagnostics(runtime, entry, captured_at=None):
             "control_owner": item.get("control_owner", "external"),
             "physical_commissioned": item.get("physical_commissioned", False),
             "assigned_asset": _alias(item.get("asset")),
+            "dedicated_asset": _alias(item.get("dedicated_asset_id")),
             "bindings": {
                 field: _alias(value) for field, value in item.items()
                 if field.endswith("_entity")

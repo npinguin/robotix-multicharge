@@ -63,8 +63,8 @@ class NativeSwitchExecutor:
         self._inflight = {}
         self._session_history = []
         self._persistence_verified = True
-        # Current physical plug identity is volatile by design. Never assume a
-        # stored vehicle assignment remains valid after restart or re-plug.
+        # Current physical plug identity is volatile. Only an explicit
+        # dedicated assignment may qualify a new fresh physical connection.
         self._plug_confirmations = {}
         self._plug_epochs = {}
 
@@ -121,7 +121,7 @@ class NativeSwitchExecutor:
             return
         # Preserve no identity on an unobserved or non-continuous transition.
         # A subsequent fresh connected reading may start a NEW plug epoch,
-        # but only an explicit confirmation can attach an Asset to it.
+        # but shared connectors still need explicit current-plug confirmation.
         self._plug_epochs.pop(uid, None)
         self._plug_confirmations.pop(uid, None)
 

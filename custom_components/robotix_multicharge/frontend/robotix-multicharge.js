@@ -2569,7 +2569,8 @@ class RobotixMultiChargeCard extends HTMLElement {
       mcEl("span","muted small"," → "+mcAssetGoalText(asset)));
     const state=mcEl("div","vehicle-state muted small");
     state.append(mcEl("div","",connection+(activation?" · "+activation:"")),
-      mcEl("div","",charger?.name||mcTr("No charger assigned")));
+      mcEl("div","",(charger?.name||mcTr("No charger assigned"))+
+        (charger?.dedicated_asset_id===asset.id?" · "+mcTr("Fixed assignment"):"")));
     row.append(goal,state);summary.append(row);mcSocBar(summary,obs.soc,color);
     const due=obs.next_ready_by!==undefined?obs.next_ready_by:asset.ready_by;
     const schedule=mcEl("div","row vehicle-deadline");
@@ -2619,11 +2620,13 @@ class RobotixMultiChargeCard extends HTMLElement {
     const labels={target_met:"Goal reached",achievable:"Goal achievable by deadline",
       planned:"Goal planned",shortfall:"Goal not covered by current plan",
       cannot_assess:"Cannot assess goal"};
-    const good=["target_met","achievable"].includes(goal.status);
-    const warn=["shortfall","cannot_assess"].includes(goal.status);
+    const good=goal.status==="target_met"||(goal.status==="achievable"&&!goal.conditional);
+    const warn=["shortfall","cannot_assess"].includes(goal.status)||
+      (goal.conditional&&goal.status!=="target_met");
     const result=mcEl("div","goal-outcome");
     result.setAttribute("data-goal-status",goal.status);
-    const label=mcTr(labels[goal.status]||"Cannot assess goal");
+    const label=(goal.conditional&&goal.status!=="target_met"?mcTr("Indicative")+" · ":"")+
+      mcTr(labels[goal.status]||"Cannot assess goal");
     result.append(mcIconLabel(mcEl("strong","goal-status "+(good?"confirmed":warn?"pending":""),label),
       label,good?"check-circle-outline":warn?"alert-circle-outline":"clock-outline",good?"good":warn?"warn":"quiet"));
     const metrics=mcEl("div","goal-metrics");
@@ -2772,11 +2775,6 @@ class RobotixMultiChargeCard extends HTMLElement {
       this.nativeButton("charger",charger.id,"confirm_connection"));
     confirm.disabled=this._settingsBusy;
     card.append(confirm);
-    if(this.canEditSettings()&&!asset.temporary&&charger.connected_entity&&
-        charger.dedicated_asset_id!==asset.id){
-      const fixed=mcButton(mcTr("Use fixed assignment"),()=>{this._assignmentEditor=asset.id;this.render();});
-      fixed.disabled=this._settingsBusy;card.append(fixed);
-    }
   }
   assetChargerAssignment(card,a,charger,chargers,actions=card){
   if(this.canEditSettings()&&chargers.length){
@@ -3428,16 +3426,12 @@ class RobotixMultiChargeCard extends HTMLElement {
       this.chargerQuickSelection(card,c);
       // The owning native chooser already displays the assigned vehicle.
       const identity=(d.connection_identity||{})[c.id]||null;
-      const confirmed=(identity&&identity.asset_id===c.asset);
-      mcPair(card,mcTr("Connected vehicle"),confirmed?
-        (selectedAsset?selectedAsset.name:c.asset):mcTr("Not confirmed"));
-      if(this.canManage()&&obs.connected?.quality==="ok"&&obs.connected.value===true&&
-          c.asset&&!confirmed&&this.ownerEntity("charger",c.id,"confirm_connection")){
-        const confirm=mcButton(mcTr("Confirm connected vehicle"),()=>
-          this.nativeButton("charger",c.id,"confirm_connection"));
-        confirm.disabled=this._settingsBusy;
-        card.append(confirm);
-      }
+      if(selectedAsset&&c.dedicated_asset_id===selectedAsset.id)
+        mcPair(card,mcTr("Fixed assignment"),selectedAsset.name);
+      if(obs.connected?.quality==="ok"&&obs.connected.value===true&&
+          (!identity||identity.asset_id!==c.asset))
+        mcPair(card,mcTr("Connected vehicle"),mcTr("Vehicle unknown"));
+      if(selectedAsset)this.assetConnectionConfirmation(card,selectedAsset,c);
       const history=(d.recent_completed_sessions||d.completed_sessions||[]).filter(x=>x.charger_id===c.id);
       const latest=history.length?history[history.length-1]:null;
       if(latest){

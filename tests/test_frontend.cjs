@@ -1762,6 +1762,22 @@ async function main(){
   assert.ok(pressed.some(c=>c.args.entity_id==="button.drive_confirm"),
     "Confirmation invokes the owning native HA button, never frontend identity inference");
 
+  fixture.configuration.chargers[0].dedicated_asset_id="car";
+  fixture.connection_identity={drive:{asset_id:"car",basis:"dedicated_assignment"}};
+  for(const tab of ["Overview","Chargeable Assets","Chargers"]){
+    card._tab=tab;card.render();
+    assert.ok(!find(card.shadowRoot,"button","Confirm connected vehicle"),
+      "Dedicated physical identity must not require repeated action on "+tab);
+    assert.ok(content(card.shadowRoot).includes("Fixed assignment"));
+  }
+  delete fixture.configuration.chargers[0].dedicated_asset_id;
+  fixture.connection_identity={drive:null};
+  fixture.observations.chargers.drive.connected={quality:"ok",value:false};
+  card._tab="Chargers";card.render();
+  assert.ok(!find(card.shadowRoot,"button","Confirm connected vehicle"),
+    "Disconnected charger must not ask for confirmation");
+  fixture.observations.chargers.drive.connected={quality:"ok",value:true};
+  card.render();
   assert.ok(!find(card.shadowRoot,"button","Start charging"),
             "uncommissioned hardware cannot gain optimistic action");
   fixture.command_capabilities={drive:{start_allowed:true,stop_allowed:true,reason:"READY"}};
