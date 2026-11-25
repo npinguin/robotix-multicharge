@@ -2755,7 +2755,20 @@ async def test_native_control_store_failed_restore_keeps_original_receipts(hass:
         runtime = MultiChargeRuntime(hass, cfg)
         runtime.attach_control_store(store, await store.async_load())
         assert not runtime.executor._persistence_verified
+        assert runtime._control_restore_failed
         assert not await runtime.persist_control_state()
+        from custom_components.robotix_multicharge.config_flow import (
+            _assert_safe_expert_import, _assert_safe_yaml_ui_commit,
+        )
+        from custom_components.robotix_multicharge.diagnostics import build_diagnostics
+        from types import SimpleNamespace
+        revised = {**cfg, "controller": {**cfg["controller"], "name": "New"}}
+        for save in (_assert_safe_expert_import, _assert_safe_yaml_ui_commit):
+            save(runtime, cfg)  # identical configuration remains a no-op
+            with pytest.raises(ValueError, match="CONTROL_STATE_UNVERIFIED"):
+                save(runtime, revised)
+        runtime.refresh()
+        assert build_diagnostics(runtime, SimpleNamespace())["execution"]["original_store_retained"]
         reopened = Store(hass, 1, key)
         assert await reopened.async_load() == original
         # Explicit recovery of valid state, followed by a fresh runtime.
@@ -2763,6 +2776,8 @@ async def test_native_control_store_failed_restore_keeps_original_receipts(hass:
         recovered = MultiChargeRuntime(hass, cfg)
         recovered.attach_control_store(reopened, await reopened.async_load())
         assert recovered.executor._persistence_verified
+        assert not recovered._control_restore_failed
+        _assert_safe_yaml_ui_commit(recovered, revised)
         assert len(recovered.executor.completed_sessions()) == 201
         assert await recovered.persist_control_state()
         assert (await Store(hass, 1, key).async_load())["sessions"] == valid["sessions"]

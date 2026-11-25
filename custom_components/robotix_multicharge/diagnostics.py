@@ -164,6 +164,7 @@ def build_diagnostics(runtime, entry, captured_at=None):
         "execution": {
             "action_health": runtime.live_state()["action_health"],
             "persistence_verified": runtime.executor._persistence_verified,
+            "original_store_retained": runtime._control_restore_failed,
             "quarantined_chargers": sorted(
                 _alias(uid) for uid in runtime.executor._quarantine
             ),

@@ -93,9 +93,11 @@ def _assert_safe_expert_import(runtime, updated, *, source_changed=False):
     No import may consume unresolved stored commands as if they were idle.
     """
     current = runtime.configuration
-    if (not source_changed and (
-            updated == current
-            or is_plan_presentation_only_change(current, updated))):
+    if not source_changed and updated == current:
+        return
+    if getattr(runtime, "_control_restore_failed", False):
+        raise ValueError("CONTROL_STATE_UNVERIFIED: recover the original control Store and reload")
+    if not source_changed and is_plan_presentation_only_change(current, updated):
         return
     before = {item["id"]: item for item in current["chargers"]}
     after = {item["id"]: item for item in updated["chargers"]}
@@ -176,6 +178,8 @@ def _assert_safe_yaml_ui_commit(runtime, updated):
     before = runtime.configuration
     if before == updated:
         return
+    if getattr(runtime, "_control_restore_failed", False):
+        raise ValueError("CONTROL_STATE_UNVERIFIED: recover the original control Store and reload")
     # Existing preferences apply in place: no unload, no authority transfer.
     # Runtime execution/supervision enforces the updated goals and limits.
     in_place = (is_plan_presentation_only_change(before, updated)
