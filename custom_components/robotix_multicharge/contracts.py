@@ -196,6 +196,12 @@ class PlannedChargeSlot:
     end: datetime
     power_kw: float
     current_a: float | None = None
+    planning_power_kw: float | None = None
+
+    @property
+    def expected_power_kw(self) -> float:
+        """Conservative energy basis; power_kw remains the electrical reservation."""
+        return self.power_kw if self.planning_power_kw is None else self.planning_power_kw
 
     def __post_init__(self) -> None:
         if not self.charger_uid.strip():
@@ -203,6 +209,10 @@ class PlannedChargeSlot:
         _interval(self.start, self.end)
         if not isfinite(self.power_kw) or self.power_kw < 0:
             raise ValueError("planned power must be nonnegative")
+        if self.planning_power_kw is not None and (
+                not isfinite(self.planning_power_kw)
+                or not 0 < self.planning_power_kw <= self.power_kw):
+            raise ValueError("planning power must fit the electrical reservation")
         if self.current_a is not None and (
             not isfinite(self.current_a) or self.current_a <= 0
         ):

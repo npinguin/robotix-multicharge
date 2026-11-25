@@ -880,6 +880,8 @@ class MultiChargeRuntime:
                 "minimum_planning_power_kw": minimum_planning_power(chargers[uid]),
                 "minimum_planning_power_assumed": missing_current_conversion(chargers[uid]),
                 "deadline_recovery": recovery,
+                "maximum_reserved_power_kw": max((slot.power_kw for slot in future), default=None),
+                "headroom_boost": any(slot.planning_power_kw is not None for slot in future),
             }
         # Revalue the current proposal once per planner refresh, not per entity notification.
         self.planned_costs = planned_costs(
@@ -1113,10 +1115,11 @@ class MultiChargeRuntime:
                     "asset_id": slot.asset_uid,
                     "start": slot.start.isoformat(),
                     "end": slot.end.isoformat(),
-                    "proposed_power_kw": slot.power_kw,
+                    "proposed_power_kw": slot.expected_power_kw,
+                    "reserved_power_kw": slot.power_kw,
                     "proposed_current_a": slot.current_a,
                     "proposed_energy_kwh": round(
-                        slot.power_kw * (slot.end - slot.start).total_seconds() / 3600, 6
+                        slot.expected_power_kw * (slot.end - slot.start).total_seconds() / 3600, 6
                     ),
                     "accepted_power_kw": None,
                     "actual_power_kw": None,

@@ -339,9 +339,10 @@ def planned_costs(slots, price_slots, at, *, until=None):
     groups = {"controller": {"site": []}, "charger": {}, "asset": {}}
     for row in slots:
         start, end = max(at, row.start), min(until, row.end) if until else row.end
-        if end <= start or row.power_kw <= 0:
+        power = getattr(row, "expected_power_kw", row.power_kw)
+        if end <= start or power <= 0:
             continue
-        segment = (start, end, row.power_kw)
+        segment = (start, end, power)
         groups["controller"]["site"].append(segment)
         groups["charger"].setdefault(row.charger_uid, []).append(segment)
         if row.asset_uid is not None:

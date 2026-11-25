@@ -221,11 +221,13 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(result["slots"], [])
         self.assertTrue(result["forecast_slots"])
         goal = result["goal_assessments"]["drive"]
-        self.assertEqual(goal["status"], "achievable")
+        self.assertEqual(goal["status"], "cannot_assess")
         self.assertTrue(goal["conditional"])
         self.assertAlmostEqual(goal["required_grid_kwh"], 1.4/0.9)
-        self.assertEqual(goal["shortfall_grid_kwh"], 0)
-        self.assertEqual(datetime.fromisoformat(goal["next_charge_at"]).astimezone(zone).hour, 2)
+        self.assertIsNone(goal["shortfall_grid_kwh"])
+        self.assertTrue(all(s["indicative_power_kw"] == 1.38 for s in result["forecast_slots"]))
+        self.assertTrue(any(datetime.fromisoformat(s["start"]).astimezone(zone).hour == 2
+                            for s in result["forecast_slots"]))
         self.assertLessEqual(datetime.fromisoformat(goal["planned_finish_at"]),
                              datetime.fromisoformat(goal["deadline"]))
         self.assertTrue(goal["timeline_windows"])
@@ -237,8 +239,9 @@ class RuntimeTests(unittest.TestCase):
                             for s in result["forecast_slots"]))
         cfg["assets"][0]["capacity_kwh"] = 1000
         rt.refresh(at)
-        self.assertEqual(rt.goal_assessments["drive"]["status"], "shortfall")
-        self.assertGreater(rt.goal_assessments["drive"]["shortfall_grid_kwh"], 0)
+        self.assertEqual(rt.goal_assessments["drive"]["status"], "cannot_assess")
+        self.assertIsNone(rt.goal_assessments["drive"]["shortfall_grid_kwh"])
+        self.assertGreater(rt.forecast_assessment.shortfall_kwh["drive"], 0)
         self.assertFalse(rt.assessment.plan.slots)
 
     def test_stale_solar_last_report_is_display_only(self):

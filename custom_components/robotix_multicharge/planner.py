@@ -7,7 +7,7 @@ The HA adapter supplies qualified source readings; the command owner is separate
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 from hashlib import sha256
@@ -276,6 +276,7 @@ def compile_plan(
     strategy: dict[str, str] = {}
     proposed: dict[str, float] = {}
     allocations: list[PlannedChargeSlot] = []
+    boostable = {}
     ends = at + timedelta(hours=horizon_hours)
     begin = _ceil_quarter(at)
     intervals: list[datetime] = []
@@ -694,7 +695,9 @@ def compile_plan(
             delivered += power / 4
         chosen.sort(key=lambda item: item[0])
         strategy[uid] = ",".join(sorted({method for _, method, _, _ in chosen})) if chosen else mode
-        for slot, _, power, current in chosen:
+        for slot, method, power, current in chosen:
+            if conservative and not indicative_only and not incomplete_current:
+                boostable[(uid, slot)] = (demand, method)
             allocations.append(PlannedChargeSlot(
                 charger_uid=uid, asset_uid=demand.asset_uid, start=slot,
                 end=slot + QUARTER, power_kw=power,
@@ -747,13 +750,70 @@ def compile_plan(
             )
             coverage[uid] = "INCOMPLETE"
 
+    # All minimum allocations and existing reservations have been accounted
+    # for before spending any residual capacity. Boost only selected energy
+    # quarters, without dropping fallback time or inflating expected kWh.
+    for index, row in enumerate(allocations):
+        selected = boostable.get((row.charger_uid, row.start))
+        if selected is None:
+            continue
+        demand, method = selected
+        charger = chargers[row.charger_uid]
+        stamp, finish = row.start, row.end
+        factor = charger.voltage_v * charger.phase_count / 1000
+        cap = controller.max_group_power_kw
+        if cap is None:
+            cap = sum(c.rated_power_kw for c in chargers.values())
+        if binding is not None:
+            bound = _cover(binding.slots, stamp, finish)
+            if bound is None or _utc(binding.issued_at) > stamp or _utc(binding.valid_until) < finish:
+                continue
+            cap = min(cap, bound.max_charging_kw)
+        if mode == "Solar" or method == "solar":
+            source = _cover(solar or (), stamp, finish)
+            if source is None:
+                continue
+            cap = min(cap, source.max_charging_kw)
+        remaining = max(0.0, cap - used_kw[stamp]) + row.power_kw
+        limit = min(remaining, charger.rated_power_kw)
+        if demand.max_power_kw is not None:
+            limit = min(limit, demand.max_power_kw)
+        if charger.max_charging_power_kw is not None:
+            limit = min(limit, charger.max_charging_power_kw)
+        amp_cap = min(charger.max_current_a, limit / factor)
+        if controller.phase_limits_a is not None:
+            amp_cap = min(amp_cap, *(
+                controller.phase_limits_a[phase] -
+                used_phase_a.get(stamp, {}).get(phase, 0) + row.current_a
+                for phase in charger.phase_ids
+            ))
+        if charger.circuit_id:
+            amp_cap = min(amp_cap, charger.circuit_limit_a -
+                          used_circuit_a.get(stamp, {}).get(charger.circuit_id, 0)
+                          + row.current_a)
+        steps = floor((amp_cap - charger.min_current_a + 1e-9) / charger.current_step_a)
+        current = round(charger.min_current_a + max(0, steps) * charger.current_step_a, 6)
+        if current <= row.current_a + 1e-6:
+            continue
+        power = round(current * factor, 6)
+        delta = current - row.current_a
+        used_kw[stamp] += power - row.power_kw
+        for phase in charger.phase_ids:
+            phase_usage = used_phase_a.setdefault(stamp, {})
+            phase_usage[phase] = phase_usage.get(phase, 0) + delta
+        if charger.circuit_id:
+            circuits = used_circuit_a.setdefault(stamp, {})
+            circuits[charger.circuit_id] = circuits.get(charger.circuit_id, 0) + delta
+        allocations[index] = replace(row, power_kw=power, current_a=current,
+                                     planning_power_kw=row.power_kw)
+
     allocations.sort(key=lambda s: (s.start, s.charger_uid))
     signature = "|".join((
         controller.uid, mode,
         *(f"locked:{s.charger_uid}:{s.start.isoformat()}:{s.power_kw}:{s.current_a}"
           for s in reserved_slots),
         *(
-            f"{s.charger_uid}:{s.start.isoformat()}:{s.power_kw}:{s.current_a}"
+            f"{s.charger_uid}:{s.start.isoformat()}:{s.power_kw}:{s.current_a}:{s.planning_power_kw}"
             for s in allocations
         ),
         *(f"{uid}:{reasons[uid]}:{strategy.get(uid, '')}" for uid in sorted(reasons)),

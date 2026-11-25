@@ -698,7 +698,10 @@ class PlannerTests(unittest.TestCase):
         covered = [ChargeDemand("car", "c", 2, NOW+timedelta(hours=2))]
         plan = compile_plan(controller, {"c": known}, covered, NOW, mode="Automatic")
         self.assertTrue(plan.plan.slots)
-        self.assertTrue(all(s.current_a == 6 and s.power_kw == 1.38 for s in plan.plan.slots))
+        self.assertTrue(all(s.expected_power_kw == 1.38 and s.current_a == 15
+                            and s.power_kw == 3.45 for s in plan.plan.slots))
+        self.assertEqual(len(plan.plan.slots), 6)
+        self.assertAlmostEqual(plan.proposed_kwh["c"], 2.07)
         self.assertEqual(plan.shortfall_kwh["c"], 0)
         recovered = compile_plan(controller, {"c": known}, demand, NOW, mode="Automatic")
         self.assertEqual(recovered.shortfall_kwh["c"], 0)
@@ -709,13 +712,37 @@ class PlannerTests(unittest.TestCase):
                          max_current_a=16, current_step_a=1, min_charging_power_kw=1.8)
         self.assertAlmostEqual(minimum_planning_power(custom), 1.84)
         plan = compile_plan(controller, {"c": custom}, demand, NOW, mode="Ready By")
-        self.assertTrue(all(s.current_a == 8 and s.power_kw == 1.84 for s in plan.plan.slots))
+        self.assertTrue(all(s.expected_power_kw == 1.84 and s.current_a == 15
+                            for s in plan.plan.slots))
         self.assertEqual(plan.shortfall_kwh["c"], 0)
         forced = compile_plan(controller, {"c": known}, demand, NOW, mode="Force Charge")
         self.assertTrue(any(s.current_a > 6 for s in forced.plan.slots))
         limited = ChargeController(uid="site", name="Site", max_group_power_kw=1)
         self.assertFalse(compile_plan(limited, {"c": unknown}, demand, NOW,
                                      mode="Automatic", indicative_only=True).plan.slots)
+
+    def test_boost_respects_other_minimum_allocations_and_solar(self):
+        ctl = ChargeController(uid="site", name="Site", max_parallel=2,
+                               max_group_power_kw=3.6, phase_limits_a={"L1": 15})
+        chargers = {uid: Charger(uid=uid, name=uid, controller_uid="site",
+                    control_kind="variable_current", rated_power_kw=3.6,
+                    phase_count=1, phase_ids=("L1",), voltage_v=230,
+                    min_current_a=6, max_current_a=16, current_step_a=1)
+                    for uid in ("a", "b")}
+        demands = [ChargeDemand(uid, uid, 0.6, NOW+timedelta(hours=1))
+                   for uid in chargers]
+        result = compile_plan(ctl, chargers, demands, NOW, mode="Ready By")
+        self.assertEqual(result.coverage, {"a": "COMPLETE", "b": "COMPLETE"})
+        self.assertEqual(len(result.plan.slots), 4)
+        for start in {s.start for s in result.plan.slots}:
+            rows = [s for s in result.plan.slots if s.start == start]
+            self.assertEqual(len(rows), 2)
+            self.assertEqual(sum(s.current_a for s in rows), 15)
+            self.assertTrue(all(s.expected_power_kw == 1.38 for s in rows))
+        solar = tuple(PowerLimitSlot(NOW+timedelta(minutes=i*15),
+                    NOW+timedelta(minutes=(i+1)*15), 2.76) for i in range(4))
+        result = compile_plan(ctl, chargers, demands, NOW, mode="Solar", solar=solar)
+        self.assertTrue(all(s.current_a == 6 for s in result.plan.slots))
 
     def test_variable_current_without_verified_wiring_cannot_be_planned(self):
         controller = ChargeController(uid="site", name="Site", max_group_power_kw=11)
