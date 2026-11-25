@@ -567,6 +567,9 @@
       },
       "current_import_price": {
         "name": "Current import price"
+      },
+      "planned_charging_cost": {
+        "name": "Planned charging cost"
       }
     },
     "text": {

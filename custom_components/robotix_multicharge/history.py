@@ -367,6 +367,44 @@ def _run_valuation(segments, price_slots):
             "estimated_cost_currency": currency, "estimated_cost_basis": basis}
 
 
+def planned_costs(slots, price_slots, at):
+    """Single read-only valuation of proposed executable plan, by stable owner.
+
+    Only future energy in the current planner's actual slots is counted.
+    Conditional alternatives and accepted historical slots are not added.
+    Unknown/mixed prices never become a zero or a deceptively complete total.
+    """
+    groups = {"controller": {"site": []}, "charger": {}, "asset": {}}
+    for row in slots:
+        start, end = max(at, row.start), row.end
+        if end <= start or row.power_kw <= 0:
+            continue
+        segment = (start, end, row.power_kw)
+        groups["controller"]["site"].append(segment)
+        groups["charger"].setdefault(row.charger_uid, []).append(segment)
+        if row.asset_uid is not None:
+            groups["asset"].setdefault(row.asset_uid, []).append(segment)
+    result = {}
+    for kind, owners in groups.items():
+        result[kind] = {}
+        for uid, segments in owners.items():
+            energy = sum(power * (end-start).total_seconds()/3600
+                         for start, end, power in segments)
+            value = _run_valuation(segments, price_slots) if segments else None
+            cost = value["estimated_cost"] if value is not None else None
+            result[kind][uid] = {
+                "energy_kwh": round(energy, 6),
+                "cost": cost,
+                "currency": value["estimated_cost_currency"] if value else None,
+                "basis": value["estimated_cost_basis"] if value else None,
+                "average_price_per_kwh": round(cost/energy, 6) if cost is not None and energy else None,
+                "quality": "qualified_plan_estimate" if value else (
+                    "no_planned_energy" if not segments else "incomplete_tariff"
+                ),
+            }
+    return result
+
+
 def _meter_delta(states, power_states, start, end, now, ongoing):
     """Use cumulative kWh only with known idle boundaries and no meter reset."""
     samples = []

@@ -20,7 +20,7 @@ from .source_evidence import (
     live_power, live_price, soc_with_health,
 )
 from .execution import NativeSwitchExecutor
-from .history import reconcile_power_bindings
+from .history import planned_costs, reconcile_power_bindings
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -58,6 +58,7 @@ class MultiChargeRuntime:
         self.observations = {"chargers": {}, "assets": {}, "sources": {}}
         self.excluded = {}
         self.price_slots = ()
+        self.planned_costs = {}
         self.nordpool_prices = None
         self.executor = NativeSwitchExecutor(self)
         self._control_store = None
@@ -199,6 +200,11 @@ class MultiChargeRuntime:
         return lambda: self._listeners.discard(callback)
 
     def notify(self):
+        # One backend projection shared by all native entities and the UI.
+        self.planned_costs = planned_costs(
+            self.assessment.plan.slots if self.assessment else (),
+            self.price_slots, datetime.now(timezone.utc),
+        )
         # Native entity listeners share one projection during this synchronous dispatch.
         self._notification_capabilities = self.executor.capabilities() if self._listeners else None
         self._notification_live = self.live_state() if self._listeners else None
@@ -1042,6 +1048,7 @@ class MultiChargeRuntime:
         return {
             "schema_major": 1,
             "plan_palette": dict(PLAN_COLORS),
+            "planned_costs": self.planned_costs,
             "live": self.live_state(),
             "configuration_revision": configuration_revision(self.configuration),
             "controller_id": self.configuration["controller"]["id"],

@@ -24,6 +24,27 @@ def recorded(at, value, units="W"):
 
 
 class NativeMeasuredHistoryTests(unittest.TestCase):
+    def test_planned_cost_shared_owners_and_negative_prices(self):
+        start = NOW
+        mid = start + timedelta(minutes=15)
+        end = mid + timedelta(minutes=15)
+        slot = lambda uid, asset, a, b: SimpleNamespace(
+            charger_uid=uid, asset_uid=asset, start=a, end=b, power_kw=4)
+        rows = [slot("a", "car_a", start, mid),
+                slot("b", "car_b", mid, end)]
+        prices = [self._price(start, mid, -0.10, basis="spot"),
+                  self._price(mid, end, 0.30, basis="spot")]
+        result = mod.planned_costs(rows, prices, start)
+        self.assertAlmostEqual(result["controller"]["site"]["cost"], 0.2)
+        self.assertAlmostEqual(result["asset"]["car_a"]["cost"], -0.1)
+        self.assertAlmostEqual(result["charger"]["b"]["cost"], 0.3)
+        partial = mod.planned_costs(rows, prices[:1], start)
+        self.assertIsNone(partial["controller"]["site"]["cost"])
+        self.assertEqual(partial["controller"]["site"]["quality"], "incomplete_tariff")
+        clipped = mod.planned_costs(rows, prices, mid)
+        self.assertAlmostEqual(clipped["controller"]["site"]["cost"], 0.3)
+
+
     def test_historical_attribution_uses_session_at_time_not_new_assignment(self):
         beginning = NOW - timedelta(minutes=45)
         receipts = [{

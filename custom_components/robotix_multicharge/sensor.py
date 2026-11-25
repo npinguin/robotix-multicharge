@@ -75,9 +75,10 @@ async def async_setup_entry(
         ("charger", cfg["chargers"]),
     ):
         entities.extend(_CurrentImportPriceSensor(kind, row, runtime) for row in rows)
+        entities.extend(_PlannedCostSensor(kind, row, runtime) for row in rows)
     # Localized native sensor titles and states, without altering unique IDs
     # or the stable machine values consumed by existing HA automations.
-    names = {"current_import_price":"current_import_price","readiness":"readiness","plan_status":"plan_status","power":"actual_power","soc":"battery_level","connected":"connection","session_energy":"session_energy","command_status":"command_status","last_session_energy":"last_session_energy","mode":"charging_mode","configuration_revision":"settings_revision","connected_chargers":"connected_chargers","charging_chargers":"charging_chargers","action_health":"action_health","last_action":"last_physical_action","last_settings_action":"last_settings_action","selected_vehicle":"selected_vehicle","intent":"charging_intention","confirmed_current":"confirmed_current_setpoint","actual_current":"actual_current"}
+    names = {"planned_charging_cost":"planned_charging_cost","current_import_price":"current_import_price","readiness":"readiness","plan_status":"plan_status","power":"actual_power","soc":"battery_level","connected":"connection","session_energy":"session_energy","command_status":"command_status","last_session_energy":"last_session_energy","mode":"charging_mode","configuration_revision":"settings_revision","connected_chargers":"connected_chargers","charging_chargers":"charging_chargers","action_health":"action_health","last_action":"last_physical_action","last_settings_action":"last_settings_action","selected_vehicle":"selected_vehicle","intent":"charging_intention","confirmed_current":"confirmed_current_setpoint","actual_current":"actual_current"}
     for entity in entities:
         key = names.get(entity.unique_id.rsplit(":", 1)[-1])
         if key is not None:
@@ -154,6 +155,28 @@ class _CurrentImportPriceSensor(_NativeMultiChargeSensor):
                 else sources.get("tariff_source")
             ),
             "shared_site_import_rate": True,
+        }
+
+
+class _PlannedCostSensor(_NativeMultiChargeSensor):
+    """Qualified proposal, never actual billed or budget-admission cost."""
+
+    _attr_device_class = SensorDeviceClass.MONETARY
+
+    def __init__(self, kind, data, runtime):
+        super().__init__(kind, data, runtime)
+        self._attr_name = "Planned charging cost"
+        self._attr_unique_id = f"{DOMAIN}:{kind}:{data['id']}:planned_charging_cost"
+        self._update_value()
+
+    def _update_value(self):
+        owner = "site" if self.kind == "controller" else self.data["id"]
+        projection = self.runtime.planned_costs.get(self.kind, {}).get(owner, {})
+        self._attr_native_value = projection.get("cost")
+        self._attr_native_unit_of_measurement = projection.get("currency")
+        self._attr_extra_state_attributes = {
+            **projection, "quality": projection.get("quality", "no_planned_energy"),
+            "valuation": "proposal_not_actual",
         }
 
 

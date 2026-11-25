@@ -72,6 +72,7 @@ for(const [locale,translations] of Object.entries({
   de:{"Configure in Home Assistant":"In Home Assistant konfigurieren","Selected":"Ausgewählt"},
   es:{"Configure in Home Assistant":"Configurar en Home Assistant","Selected":"Seleccionado"}
 }))Object.assign(MC_TEXT[locale],translations);
+for(const [locale,label] of Object.entries({"nl":"Geplande laadkosten","fr":"Coût de recharge prévu","da":"Planlagte ladeomkostninger","nb":"Planlagt ladekostnad","sv":"Planerad laddkostnad","de":"Geplante Ladekosten","es":"Coste de carga previsto"}))MC_TEXT[locale]["Planned charging cost"]=label;
 // Native setup and observed-session labels reuse the existing card locale map.
 for(const [locale,terms] of Object.entries({"nl":{"Review charger setup":"Laadpaalconfiguratie","Save charger setup":"Configuratie opslaan","Discover native sources":"Native bronnen zoeken","Native device current range":"Stroomgebied apparaat","Configured current range":"Ingesteld stroomgebied","Effective current range":"Effectief stroomgebied","Observed charging now":"Laden gemeten","Observed charging run":"Gemeten laadsessie","Earlier observed runs":"Eerdere gemeten sessies","Power-derived energy":"Energie uit vermogen","Average power":"Gemiddeld vermogen","Peak power":"Piekvermogen","Estimated energy cost":"Geschatte energiekosten","Verified energy cost":"Bevestigde energiekosten","Electrical limits & optional sources":"Elektrische limieten en optionele bronnen","Stop charging with the current owner before changing activation":"Stop het laden via de huidige eigenaar vóór activering","Incomplete start/end or source coverage · observed portion only":"Onvolledig begin/einde of brongegevens · alleen gemeten deel","Save not confirmed; refresh and retry":"Opslaan niet bevestigd; vernieuw en probeer opnieuw","suggestions":"voorstellen"},"fr":{"Review charger setup":"Configuration de la borne","Save charger setup":"Enregistrer la configuration","Discover native sources":"Détecter les sources natives","Native device current range":"Plage native de courant","Configured current range":"Plage de courant configurée","Effective current range":"Plage effective de courant","Observed charging now":"Charge observée en cours","Observed charging run":"Charge observée","Earlier observed runs":"Charges précédentes observées","Power-derived energy":"Énergie déduite de la puissance","Average power":"Puissance moyenne","Peak power":"Puissance de pointe","Estimated energy cost":"Coût énergétique estimé","Verified energy cost":"Coût énergétique confirmé","Electrical limits & optional sources":"Limites électriques et sources facultatives","Stop charging with the current owner before changing activation":"Arrêtez la charge via le contrôleur actuel avant activation","Incomplete start/end or source coverage · observed portion only":"Début/fin ou données incomplets · portion observée uniquement","Save not confirmed; refresh and retry":"Enregistrement non confirmé ; actualisez et réessayez","suggestions":"suggestions"},"de":{"Review charger setup":"Ladepunkt konfigurieren","Save charger setup":"Konfiguration speichern","Discover native sources":"Native Quellen suchen","Native device current range":"Nativer Strombereich","Configured current range":"Konfigurierter Strombereich","Effective current range":"Effektiver Strombereich","Observed charging now":"Aktuell beobachtete Ladung","Observed charging run":"Beobachteter Ladevorgang","Earlier observed runs":"Frühere beobachtete Vorgänge","Power-derived energy":"Energie aus Leistung","Average power":"Durchschnittsleistung","Peak power":"Spitzenleistung","Estimated energy cost":"Geschätzte Energiekosten","Verified energy cost":"Bestätigte Energiekosten","Electrical limits & optional sources":"Elektrische Grenzen und optionale Quellen","Stop charging with the current owner before changing activation":"Ladevorgang über den aktuellen Besitzer vor Aktivierung stoppen","Incomplete start/end or source coverage · observed portion only":"Start/Ende oder Quellen unvollständig · nur beobachteter Abschnitt","Save not confirmed; refresh and retry":"Speichern nicht bestätigt; aktualisieren und erneut versuchen","suggestions":"Vorschläge"},"es":{"Review charger setup":"Configurar cargador","Save charger setup":"Guardar configuración","Discover native sources":"Buscar fuentes nativas","Native device current range":"Rango de corriente nativo","Configured current range":"Rango de corriente configurado","Effective current range":"Rango de corriente efectivo","Observed charging now":"Carga observada en curso","Observed charging run":"Carga observada","Earlier observed runs":"Cargas observadas anteriores","Power-derived energy":"Energía derivada de potencia","Average power":"Potencia media","Peak power":"Potencia máxima","Estimated energy cost":"Coste energético estimado","Verified energy cost":"Coste energético confirmado","Electrical limits & optional sources":"Límites eléctricos y fuentes opcionales","Stop charging with the current owner before changing activation":"Detenga la carga con el controlador actual antes de activar","Incomplete start/end or source coverage · observed portion only":"Inicio/fin o datos incompletos · solo tramo observado","Save not confirmed; refresh and retry":"Guardado no confirmado; actualice e inténtelo de nuevo","suggestions":"sugerencias"},"da":{"Review charger setup":"Konfigurer lader","Save charger setup":"Gem konfiguration","Discover native sources":"Find native kilder","Native device current range":"Enhedens strømområde","Configured current range":"Konfigureret strømområde","Effective current range":"Effektivt strømområde","Observed charging now":"Observeret opladning nu","Observed charging run":"Observeret opladning","Earlier observed runs":"Tidligere observerede opladninger","Power-derived energy":"Energi ud fra effekt","Average power":"Gennemsnitseffekt","Peak power":"Spidseffekt","Estimated energy cost":"Estimeret energiomkostning","Verified energy cost":"Bekræftet energiomkostning","Electrical limits & optional sources":"Elektriske grænser og valgfrie kilder","Stop charging with the current owner before changing activation":"Stop opladning via nuværende ejer før aktivering","Incomplete start/end or source coverage · observed portion only":"Ufuldstændig start/slut eller kildedata · kun observeret del","Save not confirmed; refresh and retry":"Lagring ikke bekræftet; opdater og prøv igen","suggestions":"forslag"},"nb":{"Review charger setup":"Konfigurer lader","Save charger setup":"Lagre konfigurasjon","Discover native sources":"Finn native kilder","Native device current range":"Enhetens strømområde","Configured current range":"Konfigurert strømområde","Effective current range":"Effektivt strømområde","Observed charging now":"Observert lading nå","Observed charging run":"Observert lading","Earlier observed runs":"Tidligere observerte ladinger","Power-derived energy":"Energi fra effekt","Average power":"Gjennomsnittlig effekt","Peak power":"Toppeffekt","Estimated energy cost":"Estimert energikostnad","Verified energy cost":"Bekreftet energikostnad","Electrical limits & optional sources":"Elektriske grenser og valgfrie kilder","Stop charging with the current owner before changing activation":"Stopp lading via nåværende eier før aktivering","Incomplete start/end or source coverage · observed portion only":"Ufullstendig start/slutt eller kildedata · bare observert del","Save not confirmed; refresh and retry":"Lagring ikke bekreftet; oppdater og prøv igjen","suggestions":"forslag"},"sv":{"Review charger setup":"Konfigurera laddare","Save charger setup":"Spara konfiguration","Discover native sources":"Hitta inbyggda källor","Native device current range":"Enhetens strömområde","Configured current range":"Konfigurerat strömområde","Effective current range":"Effektivt strömområde","Observed charging now":"Observerad laddning nu","Observed charging run":"Observerad laddning","Earlier observed runs":"Tidigare observerade laddningar","Power-derived energy":"Energi från effekt","Average power":"Medeleffekt","Peak power":"Toppeffekt","Estimated energy cost":"Beräknad energikostnad","Verified energy cost":"Bekräftad energikostnad","Electrical limits & optional sources":"Elektriska gränser och valfria källor","Stop charging with the current owner before changing activation":"Stoppa laddning via nuvarande ägare före aktivering","Incomplete start/end or source coverage · observed portion only":"Ofullständig start/slut eller källdata · endast observerad del","Save not confirmed; refresh and retry":"Sparande inte bekräftat; uppdatera och försök igen","suggestions":"förslag"}}))
   Object.assign(MC_TEXT[locale],terms);
@@ -2116,7 +2117,8 @@ class RobotixMultiChargeCard extends HTMLElement {
       chips.append(button);
     }
     const site=mcEl("section","card charging-site-overview");
-    site.append(mcEl("h3","",mcTr("Charging site")),metrics,chips);container.append(site);
+    site.append(mcEl("h3","",mcTr("Charging site")),metrics,chips);
+    this.plannedCost(site,"controller","site");container.append(site);
     this.feedback(container);
     for(const charger of chargers){
       if(!(d.observed_sessions||[]).some(row=>row.charger_id===charger.id&&row.ongoing))continue;
@@ -2138,6 +2140,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       card.append(mcIconLabel(mcEl("h3","",a.name),a.name,mcAssetIcon(a)));
       this.vehicleSummary(card,a,charger);
       this.goalAssessment(card,a,charger);
+      this.plannedCost(card,"asset",a.id);
       const running=charger&&d.active_sessions?.[charger.id];
       if(running?.asset_id===a.id)this.sessionMetrics(card,running,false);
       if(a.temporary)card.append(mcEl("p","small",mcTr("Guest")+" · "+mcTime(a.expires_at,d.timezone)));
@@ -2809,6 +2812,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       card.append(header);
       this.vehicleSummary(card,a,charger);
       this.goalAssessment(card,a,charger);
+      this.plannedCost(card,"asset",a.id);
       card.append(mcEl("p","muted small",mcTr("Effective charging power")+" · "+mcValue(obs.effective_power_kw," kW")));
       // One explicit action opens the goal editor; the default view is a summary.
       const goalVisible=this._goalEditor===a.id;
@@ -3114,6 +3118,15 @@ class RobotixMultiChargeCard extends HTMLElement {
     }));
     box.append(actions);container.append(box);
   }
+  plannedCost(container,kind,id){
+    const row=this._data.planned_costs?.[kind]?.[id];
+    if(!row||row.quality==="no_planned_energy")return;
+    const value=typeof row.cost==="number"&&row.currency?
+      new Intl.NumberFormat(undefined,{style:"currency",currency:row.currency}).format(row.cost):
+      mcTr("Unknown");
+    mcPair(container,mcTr("Planned charging cost"),value);
+    if(row.basis)container.append(mcEl("p","muted small",row.basis+" · "+mcTr("reference price, not an invoice")));
+  }
   sessionMetrics(container,row,observed){
     const num=(v,unit,dec=2)=>typeof v==="number"&&Number.isFinite(v)?v.toFixed(dec)+" "+unit:mcTr("Unknown");
     const meter=observed?row.meter_energy_kwh:row.actual_energy_kwh;
@@ -3285,6 +3298,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       powerLine.append(mcEl("span","muted small",mcTr("Effective charging power")),
         mcEl("strong","value",mcValue(obs.power_kw," kW")));
       card.append(powerLine);
+      this.plannedCost(card,"charger",c.id);
       if(this.canEditSettings()){
         const activationKey="charger:"+c.id+":control_owner";
         if(this._editingField===activationKey){

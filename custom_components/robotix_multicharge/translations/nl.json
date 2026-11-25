@@ -568,6 +568,9 @@
       },
       "current_import_price": {
         "name": "Actuele afnameprijs"
+      },
+      "planned_charging_cost": {
+        "name": "Geplande laadkosten"
       }
     },
     "text": {

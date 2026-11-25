@@ -568,6 +568,9 @@
       },
       "current_import_price": {
         "name": "Aktuellt inköpspris"
+      },
+      "planned_charging_cost": {
+        "name": "Planerad laddkostnad"
       }
     },
     "text": {

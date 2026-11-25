@@ -567,6 +567,9 @@
       },
       "current_import_price": {
         "name": "Precio actual de importación"
+      },
+      "planned_charging_cost": {
+        "name": "Coste de carga previsto"
       }
     },
     "text": {

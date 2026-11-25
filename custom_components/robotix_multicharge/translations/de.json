@@ -567,6 +567,9 @@
       },
       "current_import_price": {
         "name": "Aktueller Bezugspreis"
+      },
+      "planned_charging_cost": {
+        "name": "Geplante Ladekosten"
       }
     },
     "text": {
