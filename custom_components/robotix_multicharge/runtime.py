@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from .contracts import ChargeDemand, PowerEnvelope, PowerLimitSlot
 from .configuration import configuration_revision, PLAN_COLORS
 from .domain import ChargeController, Charger
-from .planner import compile_plan, missing_current_conversion, resolve_recurring_ready_by
+from .planner import compile_plan, minimum_planning_power, missing_current_conversion, resolve_recurring_ready_by
 from .source_evidence import (
     Evidence, binding, connection, intervals, number, session_status,
     live_power, live_price, soc_with_health,
@@ -836,8 +836,8 @@ class MultiChargeRuntime:
             elif reason == "TARGET_MET":
                 status = "target_met"
             elif conditional and not self.forecast_assumptions[uid]["power_capability_verified"]:
-                # A nominal-kW preview is useful for orientation, but its
-                # optimistic energy/shortfall cannot qualify the deadline.
+                # A conservative minimum-power preview is useful for orientation,
+                # but assumed electrical conversion cannot qualify the deadline.
                 status, reason = "cannot_assess", "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED"
                 shortfall = None
             elif reason == "PROPOSED" and coverage == "COMPLETE":
@@ -875,6 +875,8 @@ class MultiChargeRuntime:
                 "assumption": self.forecast_assumptions.get(uid, {}).get("assumption"),
                 "power_capability_verified": self.forecast_assumptions.get(uid, {}).get(
                     "power_capability_verified", not missing_current_conversion(chargers[uid])),
+                "minimum_planning_power_kw": minimum_planning_power(chargers[uid]),
+                "minimum_planning_power_assumed": missing_current_conversion(chargers[uid]),
             }
         # Revalue the current proposal once per planner refresh, not per entity notification.
         self.planned_costs = planned_costs(

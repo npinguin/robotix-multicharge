@@ -23,7 +23,7 @@ for name in ("domain", "contracts", "planner"):
 from multicharge_plan_test.contracts import ChargeDemand, PowerEnvelope, PowerLimitSlot, PriceSlot  # noqa: E402 - imported after isolated pure-module bootstrap
 from multicharge_plan_test.domain import Charger, ChargeController  # noqa: E402 - imported after isolated pure-module bootstrap
 from multicharge_plan_test.planner import (  # noqa: E402 - imported after isolated pure-module bootstrap
-    compile_plan, resolve_recurring_ready_by, charging_window_allows,
+    compile_plan, minimum_planning_power, resolve_recurring_ready_by, charging_window_allows,
 )
 
 NOW = datetime(2026, 11, 22, 12, tzinfo=timezone.utc)
@@ -677,6 +677,39 @@ class PlannerTests(unittest.TestCase):
             self.assertLessEqual(sum(s.power_kw for s in selected), 12)
         self.assertTrue(any(s.current_a < 16 for s in result.plan.slots
                             if s.charger_uid == "b"))
+
+    def test_ac_minimum_energy_planning_and_unverified_defaults(self):
+        controller = ChargeController(uid="site", name="Site", max_group_power_kw=3.6)
+        base = dict(uid="c", name="C", controller_uid="site",
+                    control_kind="variable_current", rated_power_kw=3.6)
+        demand = [ChargeDemand("car", "c", 3, NOW+timedelta(hours=2))]
+        unknown = Charger(**base)
+        self.assertAlmostEqual(minimum_planning_power(unknown), 1.38)
+        self.assertAlmostEqual(minimum_planning_power(Charger(**base, phase_count=2)), 2.76)
+        self.assertAlmostEqual(minimum_planning_power(Charger(**base, phase_count=3)), 4.14)
+        preview = compile_plan(controller, {"c": unknown}, demand, NOW,
+                               mode="Automatic", indicative_only=True)
+        self.assertTrue(preview.plan.slots)
+        self.assertTrue(all(s.power_kw == 1.38 and s.current_a is None
+                            for s in preview.plan.slots))
+        self.assertAlmostEqual(preview.shortfall_kwh["c"], 0.24)
+        known = Charger(**base, phase_count=1, voltage_v=230,
+                        min_current_a=6, max_current_a=16, current_step_a=1)
+        plan = compile_plan(controller, {"c": known}, demand, NOW, mode="Automatic")
+        self.assertTrue(plan.plan.slots)
+        self.assertTrue(all(s.current_a == 6 and s.power_kw == 1.38 for s in plan.plan.slots))
+        self.assertAlmostEqual(plan.shortfall_kwh["c"], 0.24)
+        custom = Charger(**base, phase_count=1, voltage_v=230, min_current_a=6,
+                         max_current_a=16, current_step_a=1, min_charging_power_kw=1.8)
+        self.assertAlmostEqual(minimum_planning_power(custom), 1.84)
+        plan = compile_plan(controller, {"c": custom}, demand, NOW, mode="Ready By")
+        self.assertTrue(all(s.current_a == 8 and s.power_kw == 1.84 for s in plan.plan.slots))
+        self.assertEqual(plan.shortfall_kwh["c"], 0)
+        forced = compile_plan(controller, {"c": known}, demand, NOW, mode="Force Charge")
+        self.assertTrue(any(s.current_a > 6 for s in forced.plan.slots))
+        limited = ChargeController(uid="site", name="Site", max_group_power_kw=1)
+        self.assertFalse(compile_plan(limited, {"c": unknown}, demand, NOW,
+                                     mode="Automatic", indicative_only=True).plan.slots)
 
     def test_variable_current_without_verified_wiring_cannot_be_planned(self):
         controller = ChargeController(uid="site", name="Site", max_group_power_kw=11)

@@ -212,6 +212,24 @@ def missing_current_conversion(charger: Charger) -> bool:
     )
 
 
+def minimum_planning_power(charger: Charger) -> float:
+    """AC energy planning floor; defaults are estimates, not wiring evidence.
+
+    Existing configured minimum power remains the owner preference. An actual
+    verified current grid may require rounding that minimum upward.
+    Fixed on/off loads retain their configured fixed-power model.
+    """
+    if charger.control_kind == "on_off":
+        return charger.rated_power_kw
+    factor = (charger.voltage_v or 230.0) * (charger.phase_count or 1) / 1000
+    minimum = charger.min_current_a or 6.0
+    target = max(minimum * factor, charger.min_charging_power_kw or 0.0)
+    if not missing_current_conversion(charger):
+        steps = max(0, ceil((target / factor - minimum) / charger.current_step_a - 1e-9))
+        target = (minimum + steps * charger.current_step_a) * factor
+    return round(target, 6)
+
+
 def compile_plan(
     controller: ChargeController,
     chargers: Mapping[str, Charger],
@@ -376,8 +394,13 @@ def compile_plan(
         # fictitious fractional on/off switch. Unknown wiring remains unavailable.
         adjustable = charger.control_kind == "variable_current"
         incomplete_current = missing_current_conversion(charger)
-        # Only nonbinding previews may use rated/user-limited kW without
-        # conversion, where no declared phase/circuit constraint requires A.
+        # Only nonbinding previews may use default AC minimum assumptions
+        # without conversion, where no declared phase/circuit constraint requires A.
+        minimum_kw = minimum_planning_power(charger)
+        conservative = (adjustable and mode != "Force Charge"
+                        and demand.remaining_grid_kwh is not None
+                        and demand.remaining_budget_amount is None
+                        and demand.remaining_duration_minutes is None)
         estimate_kw = bool(indicative_only and incomplete_current
                            and controller.phase_limits_a is None and not charger.circuit_id)
         if incomplete_current and not estimate_kw:
@@ -461,10 +484,13 @@ def compile_plan(
             phases = charger.phase_ids
             voltage = charger.voltage_v
             if estimate_kw:
-                power = min(remaining_kw, charger.rated_power_kw,
-                            charger.max_charging_power_kw or charger.rated_power_kw)
+                # Unknown physical capability never justifies a rated-power
+                # forecast. Use the same conservative minimum and skip slots
+                # where the actual declared ceilings cannot accommodate it.
+                power = minimum_kw
                 current = None
-                if power <= 0 or power < (charger.min_charging_power_kw or 0):
+                if power > min(remaining_kw, charger.rated_power_kw,
+                               charger.max_charging_power_kw or charger.rated_power_kw) + 1e-9:
                     continue
             elif adjustable:
                 remaining_kw = min(remaining_kw, charger.rated_power_kw)
@@ -486,14 +512,18 @@ def compile_plan(
                         current_cap, charger.circuit_limit_a
                         - used_circuit_a.get(slot, {}).get(charger.circuit_id, 0)
                     )
+                if conservative:
+                    current_cap = min(current_cap, minimum_kw * 1000 /
+                                      (voltage * charger.phase_count))
                 steps = floor((current_cap - charger.min_current_a + 1e-9)
                               / charger.current_step_a)
                 current = (charger.min_current_a + max(0, steps) * charger.current_step_a)
                 if current_cap + 1e-9 < charger.min_current_a:
                     continue
                 power = round(current * voltage * charger.phase_count / 1000, 6)
-                if (charger.min_charging_power_kw is not None
-                        and power + 1e-9 < charger.min_charging_power_kw):
+                if ((conservative and power + 1e-6 < minimum_kw)
+                        or (charger.min_charging_power_kw is not None
+                            and power + 1e-9 < charger.min_charging_power_kw)):
                     continue
             else:
                 power = charger.rated_power_kw

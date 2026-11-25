@@ -148,6 +148,8 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(rt.excluded["drive"], "CURRENT_PLUG_ASSET_UNCONFIRMED")
         self.assertTrue(rt.forecast_assessment.plan.slots)
         self.assertFalse(goal["power_capability_verified"])
+        self.assertAlmostEqual(goal["minimum_planning_power_kw"], 1.38)
+        self.assertTrue(all(s.power_kw == 1.38 for s in rt.forecast_assessment.plan.slots))
         self.assertEqual(goal["status"], "cannot_assess")
         self.assertIsNone(goal["shortfall_grid_kwh"])
         self.assertEqual(goal["reason"], "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED")
