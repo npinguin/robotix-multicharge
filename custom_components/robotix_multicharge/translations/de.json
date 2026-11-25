@@ -570,6 +570,12 @@
       },
       "planned_charging_cost": {
         "name": "Geplante Ladekosten"
+      },
+      "active_session_cost": {
+        "name": "Aktuelle Sitzungskosten"
+      },
+      "last_session_cost": {
+        "name": "Letzte Sitzungskosten"
       }
     },
     "text": {

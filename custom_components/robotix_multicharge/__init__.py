@@ -176,6 +176,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     pending_quarter = None
     price_pending = None
     price_last_attempt = None
+    finance_pending = None
     price_source = cfg["controller"].get("price_entity") or cfg["controller"].get("current_price_entity")
 
     async def reconcile():
@@ -232,11 +233,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     def on_minute(_now):
         # HA interval callbacks receive datetime, not a state-change Event.
         on_source_change()
+        refresh_finance()
+
+    @callback
+    def refresh_finance():
+        nonlocal finance_pending
+        if runtime.active and (finance_pending is None or finance_pending.done()):
+            finance_pending = hass.async_create_task(runtime.refresh_session_costs())
 
     runtime.set_unsubscribe(
         async_track_time_interval(hass, on_minute, timedelta(minutes=1))
     )
     runtime.set_unsubscribe(lambda: price_pending.cancel() if price_pending is not None and not price_pending.done() else None)
+    runtime.set_unsubscribe(lambda: finance_pending.cancel() if finance_pending is not None and not finance_pending.done() else None)
 
     @callback
     def on_quarter(now):
@@ -275,6 +284,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     if price_source:
         on_source_change()
+    refresh_finance()
     return True
 
 

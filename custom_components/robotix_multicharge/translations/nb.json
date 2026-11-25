@@ -571,6 +571,12 @@
       },
       "planned_charging_cost": {
         "name": "Planlagt ladekostnad"
+      },
+      "active_session_cost": {
+        "name": "Kostnad for aktiv økt"
+      },
+      "last_session_cost": {
+        "name": "Kostnad for siste økt"
       }
     },
     "text": {

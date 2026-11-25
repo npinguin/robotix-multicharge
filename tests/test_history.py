@@ -28,8 +28,9 @@ class NativeMeasuredHistoryTests(unittest.TestCase):
         start = NOW
         mid = start + timedelta(minutes=15)
         end = mid + timedelta(minutes=15)
-        slot = lambda uid, asset, a, b: SimpleNamespace(
-            charger_uid=uid, asset_uid=asset, start=a, end=b, power_kw=4)
+        def slot(uid, asset, a, b):
+            return SimpleNamespace(
+                charger_uid=uid, asset_uid=asset, start=a, end=b, power_kw=4)
         rows = [slot("a", "car_a", start, mid),
                 slot("b", "car_b", mid, end)]
         prices = [self._price(start, mid, -0.10, basis="spot"),
@@ -44,6 +45,27 @@ class NativeMeasuredHistoryTests(unittest.TestCase):
         clipped = mod.planned_costs(rows, prices, mid)
         self.assertAlmostEqual(clipped["controller"]["site"]["cost"], 0.3)
 
+
+    def test_session_costs_do_not_reassign_external_or_duplicate_site(self):
+        started = (NOW-timedelta(minutes=15)).isoformat()
+        active = {"a": {"started_at": started, "asset_id": "car_a"}}
+        metrics = {("a", started, None): {
+            "estimated_cost": 0.3, "estimated_cost_currency": "EUR",
+            "estimated_cost_basis": "spot", "observed_energy_kwh": 1.0}}
+        observed = [{"charger_id": "b", "asset_id": "wrong", "started_at": started,
+                     "ended_at": NOW.isoformat(), "ongoing": True,
+                     "complete_observed_window": True, "estimated_cost": 0.6,
+                     "estimated_cost_currency": "EUR", "estimated_cost_basis": "spot",
+                     "observed_energy_kwh": 2.0}]
+        result = mod.session_costs([], active, observed, {}, metrics)
+        self.assertAlmostEqual(result["controller"]["site"]["active"]["cost"], 0.9)
+        self.assertAlmostEqual(result["asset"]["car_a"]["active"]["cost"], 0.3)
+        self.assertNotIn("wrong", result["asset"])
+        self.assertAlmostEqual(result["charger"]["b"]["active"]["average_price_per_kwh"], 0.3)
+        observed[0]["complete_observed_window"] = False
+        result = mod.session_costs([], active, observed, {}, metrics)
+        self.assertIsNone(result["controller"]["site"]["active"]["cost"])
+        self.assertEqual(result["charger"]["b"]["active"]["quality"], "partial_observation")
 
     def test_historical_attribution_uses_session_at_time_not_new_assignment(self):
         beginning = NOW - timedelta(minutes=45)

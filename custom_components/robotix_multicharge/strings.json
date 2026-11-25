@@ -570,6 +570,12 @@
       },
       "planned_charging_cost": {
         "name": "Planned charging cost"
+      },
+      "active_session_cost": {
+        "name": "Active session cost"
+      },
+      "last_session_cost": {
+        "name": "Last session cost"
       }
     },
     "text": {

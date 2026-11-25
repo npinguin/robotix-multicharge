@@ -570,6 +570,12 @@
       },
       "planned_charging_cost": {
         "name": "Coste de carga previsto"
+      },
+      "active_session_cost": {
+        "name": "Coste de sesión activa"
+      },
+      "last_session_cost": {
+        "name": "Coste de última sesión"
       }
     },
     "text": {

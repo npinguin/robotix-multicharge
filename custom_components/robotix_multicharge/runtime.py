@@ -20,7 +20,7 @@ from .source_evidence import (
     live_power, live_price, soc_with_health,
 )
 from .execution import NativeSwitchExecutor
-from .history import planned_costs, reconcile_power_bindings
+from .history import planned_costs, read_actual_history, reconcile_power_bindings, session_costs
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,6 +59,7 @@ class MultiChargeRuntime:
         self.excluded = {}
         self.price_slots = ()
         self.planned_costs = {}
+        self.session_costs = {}
         self.nordpool_prices = None
         self.executor = NativeSwitchExecutor(self)
         self._control_store = None
@@ -69,6 +70,34 @@ class MultiChargeRuntime:
         self._listeners = set()
         self._unsubscribers = []
         self.active = True
+
+    async def refresh_session_costs(self):
+        """One bounded Recorder read for native financial projections, off the command loop."""
+        at = datetime.now(timezone.utc)
+        cfg = self.configuration
+        revision = configuration_revision(cfg)
+        receipts = self.executor.completed_sessions()
+        active = self.executor.session_snapshot()
+        _, _, estimates, observed, metrics = await read_actual_history(
+            self.hass, cfg, at-timedelta(hours=48), at,
+            session_receipts=receipts, price_slots=self.price_slots,
+            include_valuations=True, include_observed_sessions=True,
+            power_bindings=self.power_bindings, energy_bindings=self.energy_bindings,
+            active_sessions=active,
+            tariff_entity=(cfg["controller"].get("price_entity") or
+                           cfg["controller"].get("current_price_entity")),
+        )
+        if not self.active or revision != configuration_revision(self.configuration):
+            return
+        # Never publish a stale active/closed identity after a concurrent command.
+        if self.executor.session_snapshot().keys() != active.keys() or any(
+                row.get("started_at") != active[uid].get("started_at")
+                for uid, row in self.executor.session_snapshot().items()):
+            return
+        if self.executor.completed_sessions() != receipts:
+            return
+        self.session_costs = session_costs(receipts, active, observed, estimates, metrics)
+        self.notify()
 
     def native_surplus_power(self, at):
         """Compute strictly current, not forecast solar/export capacity.
@@ -200,11 +229,6 @@ class MultiChargeRuntime:
         return lambda: self._listeners.discard(callback)
 
     def notify(self):
-        # One backend projection shared by all native entities and the UI.
-        self.planned_costs = planned_costs(
-            self.assessment.plan.slots if self.assessment else (),
-            self.price_slots, datetime.now(timezone.utc),
-        )
         # Native entity listeners share one projection during this synchronous dispatch.
         self._notification_capabilities = self.executor.capabilities() if self._listeners else None
         self._notification_live = self.live_state() if self._listeners else None
@@ -747,6 +771,11 @@ class MultiChargeRuntime:
                 "coverage": coverage,
                 "assumption": self.forecast_assumptions.get(uid, {}).get("assumption"),
             }
+        # Revalue the current proposal once per planner refresh, not per entity notification.
+        self.planned_costs = planned_costs(
+            self.assessment.plan.slots if self.assessment else (),
+            self.price_slots, at,
+        )
         self.notify()
 
     def charger_states(self, capabilities=None):
@@ -1049,6 +1078,7 @@ class MultiChargeRuntime:
             "schema_major": 1,
             "plan_palette": dict(PLAN_COLORS),
             "planned_costs": self.planned_costs,
+            "session_costs": self.session_costs,
             "live": self.live_state(),
             "configuration_revision": configuration_revision(self.configuration),
             "controller_id": self.configuration["controller"]["id"],

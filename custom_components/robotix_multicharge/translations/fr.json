@@ -571,6 +571,12 @@
       },
       "planned_charging_cost": {
         "name": "Coût de recharge prévu"
+      },
+      "active_session_cost": {
+        "name": "Coût de la session active"
+      },
+      "last_session_cost": {
+        "name": "Coût de la dernière session"
       }
     },
     "text": {

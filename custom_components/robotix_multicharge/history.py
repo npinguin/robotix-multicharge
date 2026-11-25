@@ -639,11 +639,107 @@ def _receipt_view_metrics(historical, bindings, selected, first, last, now,
             if segments:
                 metrics["peak_power_kw"] = round(max(power for _, _, power in segments), 6)
                 measured = sum(power*(right-left).total_seconds()/3600 for left, right, power in segments)
+                # The cost estimator's denominator is the same observed power
+                # integral, not an independent meter delta with different coverage.
+                metrics["observed_energy_kwh"] = round(measured, 6)
                 if energy is None:
-                    metrics["observed_energy_kwh"] = round(measured, 6)
                     metrics["average_power_kw"] = round(measured*60/duration, 6)
                 metrics.update(_run_valuation(segments, quotes) or {})
         result[(uid, receipt["started_at"], receipt.get("ended_at"))] = metrics
+    return result
+
+
+def session_costs(receipts, active_sessions, observed, estimates, metrics):
+    """Select the current/last cost evidence on each existing logical owner.
+
+    An external observation has no inferred vehicle identity. Cost estimates
+    retain their own measured denominator; receipts are never rewritten.
+    """
+    groups = {"controller": {"site": {"active": [], "last": []}},
+              "charger": {}, "asset": {}}
+
+    def add(row, phase, observed_only=False):
+        uid = row["charger_id"]
+        asset = None if observed_only else row.get("asset_id")
+        key = (uid, row["started_at"], row.get("ended_at"))
+        evidence = {**row, **metrics.get(key, {}), **estimates.get(key, {})}
+        verified = (not observed_only and phase == "last"
+                    and row.get("physical_stop_confirmed") is True
+                    and row.get("cost_quality") == "qualified_effective_tariff")
+        if verified:
+            cost, currency, basis = row.get("cost"), row.get("currency"), "effective"
+            energy = row.get("actual_energy_kwh")
+            quality = "qualified_effective_tariff"
+        else:
+            cost = evidence.get("estimated_cost")
+            currency = evidence.get("estimated_cost_currency")
+            basis = evidence.get("estimated_cost_basis")
+            energy = evidence.get("observed_energy_kwh")
+            if cost is None:
+                cost = evidence.get("estimated_variable_cost")
+                currency = evidence.get("estimated_variable_cost_currency")
+                basis = "effective" if cost is not None else None
+                energy = evidence.get("estimated_variable_cost_energy_kwh")
+            quality = "reference_estimate"
+            if observed_only and not row.get("complete_observed_window"):
+                quality = "partial_observation"
+        if (type(cost) not in (int, float) or not isfinite(cost)
+                or not currency or not basis):
+            cost, currency, basis, quality = None, None, None, "unknown"
+        projection = {
+            "charger_id": uid, "asset_id": asset,
+            "started_at": row["started_at"], "ended_at": row.get("ended_at"),
+            "cost": cost, "currency": currency, "basis": basis,
+            "quality": quality, "energy_kwh": energy,
+            "average_price_per_kwh": (
+                round(cost/energy, 6) if cost is not None
+                and type(energy) in (int, float) and isfinite(energy) and energy > 0 else None),
+        }
+        groups["controller"]["site"][phase].append(projection)
+        groups["charger"].setdefault(uid, {"active": [], "last": []})[phase].append(projection)
+        if asset is not None:
+            groups["asset"].setdefault(asset, {"active": [], "last": []})[phase].append(projection)
+
+    for uid, row in active_sessions.items():
+        add({**row, "charger_id": uid}, "active")
+    for row in receipts:
+        add(row, "last")
+    for row in observed:
+        if row.get("ongoing"):
+            add(row, "active", True)
+        elif row.get("end_known"):
+            add(row, "last", True)
+
+    result = {}
+    for kind, owners in groups.items():
+        result[kind] = {}
+        for uid, phases in owners.items():
+            result[kind][uid] = {}
+            for phase, rows in phases.items():
+                if not rows:
+                    continue
+                if phase == "last":
+                    if kind != "controller":
+                        result[kind][uid][phase] = max(rows, key=lambda r: r["ended_at"] or "")
+                    continue
+                if kind != "controller" and len(rows) == 1:
+                    result[kind][uid][phase] = rows[0]
+                    continue
+                kinds = {(r["currency"], r["basis"]) for r in rows}
+                complete = (len(kinds) == 1 and all(r["cost"] is not None
+                            and r["quality"] != "partial_observation" for r in rows))
+                currency, basis = next(iter(kinds)) if complete else (None, None)
+                cost = round(sum(r["cost"] for r in rows), 6) if complete else None
+                energies = [r["energy_kwh"] for r in rows]
+                energy = (round(sum(energies), 6) if all(
+                    type(v) in (int, float) and isfinite(v) for v in energies) else None)
+                result[kind][uid][phase] = {
+                    "cost": cost, "currency": currency, "basis": basis,
+                    "energy_kwh": energy,
+                    "quality": "reference_estimate" if complete else "incomplete_coverage",
+                    "average_price_per_kwh": round(cost/energy, 6) if cost is not None and energy else None,
+                    "session_count": len(rows),
+                }
     return result
 
 
