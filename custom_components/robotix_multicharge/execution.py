@@ -13,6 +13,7 @@ from math import floor, isfinite
 from datetime import datetime, timedelta, timezone
 from copy import deepcopy
 from uuid import uuid4
+from time import monotonic
 
 from .source_evidence import Evidence, binding, connection, intervals, number, soc_with_health
 from .configuration import is_plan_presentation_only_change
@@ -66,7 +67,7 @@ class NativeSwitchExecutor:
         self._grant_plan_revision = None
         self._grant_prices = ()
         self._last_advance = None
-        self._last_power_adjustment_at = None
+        self._last_power_adjustment_tick = None
         self._regulating = False
         self._completed = {}
         self._inflight = {}
@@ -1804,14 +1805,17 @@ class NativeSwitchExecutor:
                     return False
         return True
 
-    def _power_adjustment_due(self, at):
+    def _power_adjustment_due(self):
         interval = self.runtime.configuration["controller"].get(
             "power_adjustment_interval_minutes", 5,
         )
-        last = self._last_power_adjustment_at
-        if last is not None and at - last < timedelta(minutes=interval):
+        # Wall time governs the quarter and physical receipts; elapsed
+        # regulation time must not jump on NTP/timezone corrections.
+        tick = monotonic()
+        last = self._last_power_adjustment_tick
+        if last is not None and tick-last < interval*60:
             return False
-        self._last_power_adjustment_at = at
+        self._last_power_adjustment_tick = tick
         return True
 
     def _active_grant_is_current(self, slot, at):
@@ -1824,8 +1828,6 @@ class NativeSwitchExecutor:
         if (not accepted or accepted.get("_slot") != slot
                 or not session or session.get("asset_id") != slot.asset_uid
                 or session.get("manual_mode") is not None
-                or session.get("requested_duration_minutes") is not None
-                or session.get("requested_budget_amount") is not None
                 or uid in self._paused or uid in self._quarantine
                 or not self._persistence_verified or self._stopped):
             return False
@@ -1851,9 +1853,8 @@ class NativeSwitchExecutor:
         The original forecast and minimum reservations are never rewritten.
         No unplanned START, separate scheduler, or delayed safety intervention.
         """
-        at = datetime.now(timezone.utc)
         if (self._stopped or self._supervising or self._regulating
-                or not self._accepted or not self._power_adjustment_due(at)):
+                or not self._accepted or not self._power_adjustment_due()):
             return
         slots = {
             uid: record["_slot"] for uid, record in self._accepted.items()
@@ -1876,8 +1877,15 @@ class NativeSwitchExecutor:
                     previous = self._sessions[uid].get("target_current_a")
                     if previous is None or self._session_stop_reason(charger, now):
                         continue
+                    session = self._sessions[uid]
+                    finite = (session.get("requested_duration_minutes") is not None
+                              or session.get("requested_budget_amount") is not None)
+                    # Finite time/money goals can restore their planned
+                    # setpoint, never spend capacity beyond their original
+                    # quarter reservation or change the budget projection.
                     target = self._highest_safe_current(
                         charger, now, plan_slot=slot, reserve_minima=True,
+                        ceiling=slot.current_a if finite else None,
                     )
                     if target is None or abs(target - previous) <= 1e-6:
                         continue
@@ -1971,10 +1979,7 @@ class NativeSwitchExecutor:
                         # A lower new-quarter grant is binding and cannot wait.
                         # Normal energy/SoC increases belong to the one
                         # regulation cycle AFTER all quarter admissions.
-                        finite = (session.get("requested_duration_minutes") is not None
-                                  or session.get("requested_budget_amount") is not None)
-                        if (target < previous - 1e-6
-                                or (finite and target > previous + 1e-6)):
+                        if target < previous - 1e-6:
                             outcome = await self.execute(
                                 uid, "set_current", current_a=target, plan_slot=slot
                             )
@@ -2025,8 +2030,8 @@ class NativeSwitchExecutor:
                     if not self._accept_slot(charger, slot, assessment.plan.revision):
                         await self.execute(uid, "stop")
                         continue
-                    if self._last_power_adjustment_at is None:
-                        self._last_power_adjustment_at = datetime.now(timezone.utc)
+                    if self._last_power_adjustment_tick is None:
+                        self._last_power_adjustment_tick = monotonic()
                 elif result["status"] == "rejected":
                     self._inflight.pop(asset["id"], None)
                 if not await self.runtime.persist_control_state():

@@ -13,6 +13,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from time import monotonic
 
 PKG = Path(__file__).resolve().parents[1] / "custom_components" / "robotix_multicharge"
 ROOT = "multicharge_physical_execution_test"
@@ -959,7 +960,7 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         before = len(services.calls)
         await rt.executor.regulate_active_plan()
         self.assertEqual(len(services.calls), before)
-        rt.executor._last_power_adjustment_at = datetime.now(timezone.utc)-timedelta(minutes=5)
+        rt.executor._last_power_adjustment_tick = monotonic()-5*60
         await rt.executor.regulate_active_plan()
         self.assertEqual(rt.executor.session_snapshot()[remaining]["target_current_a"], 16)
         self.assertEqual(sum(call[1] == "turn_on" for call in services.calls), 2)
@@ -1061,10 +1062,10 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         states["sensor.external_power"].last_updated = datetime.now(timezone.utc)
         rt.configuration["controller"]["power_adjustment_interval_minutes"] = 7
         before = len(services.calls)
-        rt.executor._last_power_adjustment_at = datetime.now(timezone.utc)-timedelta(minutes=6)
+        rt.executor._last_power_adjustment_tick = monotonic()-6*60
         await rt.executor.regulate_active_plan()
         self.assertEqual(len(services.calls), before)
-        rt.executor._last_power_adjustment_at = datetime.now(timezone.utc)-timedelta(minutes=7)
+        rt.executor._last_power_adjustment_tick = monotonic()-7*60
         await rt.executor.regulate_active_plan()
         self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 15)
         receipt = list(rt.executor.accepted_slots().values())[0]
@@ -1138,10 +1139,10 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         envelope.last_updated = datetime.now(timezone.utc)
         rt.refresh()
         before = len(services.calls)
-        rt.executor._last_power_adjustment_at = datetime.now(timezone.utc)-timedelta(minutes=4)
+        rt.executor._last_power_adjustment_tick = monotonic()-4*60
         await rt.executor.regulate_active_plan()
         self.assertEqual(len(services.calls), before)
-        rt.executor._last_power_adjustment_at = datetime.now(timezone.utc)-timedelta(minutes=5)
+        rt.executor._last_power_adjustment_tick = monotonic()-5*60
         await rt.executor.regulate_active_plan()
         self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 15)
         self.assertEqual(len([call for call in services.calls if call[1] == "turn_on"]), 1)
@@ -1151,6 +1152,11 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(states["switch.evse_control"].state, "off")
 
     async def test_seven_minute_regulation_keeps_cadence_across_quarter_and_expiry(self):
+        for finite in (False, True):
+            with self.subTest(finite_duration=finite):
+                await self._exercise_seven_minute_regulation(finite)
+
+    async def _exercise_seven_minute_regulation(self, finite):
         from unittest.mock import patch
         from multicharge_physical_execution_test import execution, runtime
         real_datetime = datetime
@@ -1166,12 +1172,17 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
                 return cls.fromtimestamp(cls.current.timestamp(), tz)
 
         with patch.object(execution, "datetime", Clock), patch.object(runtime, "datetime", Clock), \
+                patch.object(execution, "monotonic", lambda: Clock.current.timestamp()), \
                 patch.dict(globals(), {"datetime": Clock}):
             rt, states, services = rig(group_kw=3.6, mode="Automatic")
             rt.configuration["controller"].update(
                 binding_entity="sensor.capacity", power_adjustment_interval_minutes=7,
             )
-            rt.configuration["assets"][0]["requested_kwh"] = 8
+            if finite:
+                rt.configuration["assets"][0].pop("requested_kwh")
+                rt.configuration["assets"][0]["requested_duration_minutes"] = 60
+            else:
+                rt.configuration["assets"][0]["requested_kwh"] = 8
             charger = rt.configuration["chargers"][0]
             charger.update(kind="variable_current", rated_power_kw=3.6, voltage_v=230,
                            min_current_a=6, max_current_a=16, current_step_a=1,
@@ -1227,6 +1238,17 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
             await tick(30)
             self.assertEqual(states["switch.evse_control"].state, "off")
             self.assertEqual(services.calls[-1][1], "turn_off")
+
+    async def test_regulation_uses_elapsed_time_not_wall_clock(self):
+        from unittest.mock import patch
+        from multicharge_physical_execution_test import execution
+        rt, _, _ = rig()
+        rt.configuration["controller"]["power_adjustment_interval_minutes"] = 20
+        with patch.object(execution, "monotonic", side_effect=[1000, 1001, 2199, 2200]):
+            self.assertTrue(rt.executor._power_adjustment_due())
+            self.assertFalse(rt.executor._power_adjustment_due())
+            self.assertFalse(rt.executor._power_adjustment_due())
+            self.assertTrue(rt.executor._power_adjustment_due())
 
     async def test_economy_tariff_loss_stops_between_adjustments(self):
         rt, states, services = rig(mode="Economy")
