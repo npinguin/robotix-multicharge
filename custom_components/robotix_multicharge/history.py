@@ -720,7 +720,8 @@ def session_costs(receipts, active_sessions, observed, estimates, metrics):
                     continue
                 if phase == "last":
                     if kind != "controller":
-                        result[kind][uid][phase] = max(rows, key=lambda r: r["ended_at"] or "")
+                        result[kind][uid][phase] = max(
+                            rows, key=lambda r: datetime.fromisoformat(r["ended_at"]))
                     continue
                 if kind != "controller" and len(rows) == 1:
                     result[kind][uid][phase] = rows[0]

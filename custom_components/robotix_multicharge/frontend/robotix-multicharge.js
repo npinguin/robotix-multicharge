@@ -2122,7 +2122,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     }
     const site=mcEl("section","card charging-site-overview");
     site.append(mcEl("h3","",mcTr("Charging site")),metrics,chips);
-    this.plannedCost(site,"controller","site");container.append(site);
+    this.financialSummary(site,"controller","site");container.append(site);
     this.feedback(container);
     for(const charger of chargers){
       if(!(d.observed_sessions||[]).some(row=>row.charger_id===charger.id&&row.ongoing))continue;
@@ -2144,7 +2144,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       card.append(mcIconLabel(mcEl("h3","",a.name),a.name,mcAssetIcon(a)));
       this.vehicleSummary(card,a,charger);
       this.goalAssessment(card,a,charger);
-      this.plannedCost(card,"asset",a.id);
+      this.financialSummary(card,"asset",a.id);
       const running=charger&&d.active_sessions?.[charger.id];
       if(running?.asset_id===a.id)this.sessionMetrics(card,running,false);
       if(a.temporary)card.append(mcEl("p","small",mcTr("Guest")+" · "+mcTime(a.expires_at,d.timezone)));
@@ -2816,7 +2816,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       card.append(header);
       this.vehicleSummary(card,a,charger);
       this.goalAssessment(card,a,charger);
-      this.plannedCost(card,"asset",a.id);
+      this.financialSummary(card,"asset",a.id);
       card.append(mcEl("p","muted small",mcTr("Effective charging power")+" · "+mcValue(obs.effective_power_kw," kW")));
       // One explicit action opens the goal editor; the default view is a summary.
       const goalVisible=this._goalEditor===a.id;
@@ -3122,7 +3122,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     }));
     box.append(actions);container.append(box);
   }
-  plannedCost(container,kind,id){
+  financialSummary(container,kind,id){
     const sessions=this._data.session_costs?.[kind]?.[id]||{};
     for(const [phase,label] of [["active","Active session cost"],["last","Last session cost"]]){
       const session=sessions[phase];
@@ -3312,7 +3312,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       powerLine.append(mcEl("span","muted small",mcTr("Effective charging power")),
         mcEl("strong","value",mcValue(obs.power_kw," kW")));
       card.append(powerLine);
-      this.plannedCost(card,"charger",c.id);
+      this.financialSummary(card,"charger",c.id);
       if(this.canEditSettings()){
         const activationKey="charger:"+c.id+":control_owner";
         if(this._editingField===activationKey){
