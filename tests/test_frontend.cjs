@@ -589,14 +589,24 @@ async function main(){
      asset:"other_car"}
   );
   const assignmentWS=[];
+  const assignReadback=JSON.parse(JSON.stringify(assignData));
   const assignCard=new Card();
   assignCard.setConfig({});
   assignCard.hass={
     user:{is_admin:true},states:{},
     callWS:async request=>{
       assignmentWS.push(request);
-      return request.type==="robotix_multicharge/update_settings"?
-        {status:"accepted_unconfirmed",expected_revision:"revision-b"}:assignData;
+      if(request.type==="robotix_multicharge/update_settings"){
+        const assigned=request.changes.asset;
+        for(const row of assignReadback.configuration.chargers){
+          if(row.id===request.target_id){
+            if(assigned===null)delete row.asset;else row.asset=assigned;
+          }else if(assigned&&row.asset===assigned)delete row.asset;
+        }
+        assignReadback.configuration_revision="revision-"+assignmentWS.length;
+        return {status:"accepted_unconfirmed",expected_revision:assignReadback.configuration_revision};
+      }
+      return assignReadback;
     }
   };
   await new Promise(resolve=>setImmediate(resolve));
@@ -631,7 +641,7 @@ async function main(){
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(assignmentWS.some(x=>
     x.type==="robotix_multicharge/update_settings"&&x.scope==="charger"&&
-    x.target_id==="drive"&&Object.hasOwn(x.changes,"asset")&&
+    x.target_id==="patio"&&Object.hasOwn(x.changes,"asset")&&
     x.changes.asset===null
   ),"Unassign clears the authoritative Charger.asset instead of deleting Asset");
   assert.equal(assignmentWS.filter(x=>x.type==="robotix_multicharge/command").length,0,
