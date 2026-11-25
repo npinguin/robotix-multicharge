@@ -577,6 +577,24 @@
       },
       "last_session_cost": {
         "name": "Kostnad for siste økt"
+      },
+      "charging_cost_today": {
+        "name": "Ladekostnad i dag"
+      },
+      "charging_cost_month": {
+        "name": "Ladekostnad denne måneden"
+      },
+      "charging_cost_year": {
+        "name": "Ladekostnad i år"
+      },
+      "average_charging_price_today": {
+        "name": "Gjennomsnittlig ladepris i dag"
+      },
+      "average_charging_price_month": {
+        "name": "Gjennomsnittlig ladepris denne måneden"
+      },
+      "average_charging_price_year": {
+        "name": "Gjennomsnittlig ladepris i år"
       }
     },
     "text": {

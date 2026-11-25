@@ -576,6 +576,24 @@
       },
       "last_session_cost": {
         "name": "Letzte Sitzungskosten"
+      },
+      "charging_cost_today": {
+        "name": "Ladekosten heute"
+      },
+      "charging_cost_month": {
+        "name": "Ladekosten diesen Monat"
+      },
+      "charging_cost_year": {
+        "name": "Ladekosten dieses Jahr"
+      },
+      "average_charging_price_today": {
+        "name": "Durchschnittlicher Ladepreis heute"
+      },
+      "average_charging_price_month": {
+        "name": "Durchschnittlicher Ladepreis diesen Monat"
+      },
+      "average_charging_price_year": {
+        "name": "Durchschnittlicher Ladepreis dieses Jahr"
       }
     },
     "text": {

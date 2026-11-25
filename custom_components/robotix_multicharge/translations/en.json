@@ -576,6 +576,24 @@
       },
       "last_session_cost": {
         "name": "Last session cost"
+      },
+      "charging_cost_today": {
+        "name": "Charging cost today"
+      },
+      "charging_cost_month": {
+        "name": "Charging cost this month"
+      },
+      "charging_cost_year": {
+        "name": "Charging cost this year"
+      },
+      "average_charging_price_today": {
+        "name": "Average charging price today"
+      },
+      "average_charging_price_month": {
+        "name": "Average charging price this month"
+      },
+      "average_charging_price_year": {
+        "name": "Average charging price this year"
       }
     },
     "text": {

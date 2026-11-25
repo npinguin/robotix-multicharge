@@ -617,6 +617,14 @@ async def test_native_setup_registry_diagnostics_and_unload(hass: HomeAssistant)
             assert cost_id is not None
             assert registry.async_get(cost_id).device_id == owning.id
             assert hass.states.get(cost_id).state == "unknown"
+        for period in ("today", "month", "year"):
+            for metric in ("charging_cost", "average_charging_price"):
+                entity_id = registry.async_get_entity_id(
+                    "sensor", DOMAIN, f"{DOMAIN}:{kind}:{uid}:{metric}_{period}",
+                )
+                assert entity_id is not None
+                assert registry.async_get(entity_id).device_id == owning.id
+                assert hass.states.get(entity_id).state == "unknown"
     named = [registry.async_get_entity_id("sensor", DOMAIN, f"{DOMAIN}:charger:charger:{field}") for field in ("power", "readiness", "command_status", "selected_vehicle")]
     names = [registry.async_get(entity_id).original_name for entity_id in named]
     assert all(names) and len(set(names)) == len(names), names

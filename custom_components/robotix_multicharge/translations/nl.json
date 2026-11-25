@@ -577,6 +577,24 @@
       },
       "last_session_cost": {
         "name": "Laatste sessiekosten"
+      },
+      "charging_cost_today": {
+        "name": "Laadkosten vandaag"
+      },
+      "charging_cost_month": {
+        "name": "Laadkosten deze maand"
+      },
+      "charging_cost_year": {
+        "name": "Laadkosten dit jaar"
+      },
+      "average_charging_price_today": {
+        "name": "Gemiddelde laadprijs vandaag"
+      },
+      "average_charging_price_month": {
+        "name": "Gemiddelde laadprijs deze maand"
+      },
+      "average_charging_price_year": {
+        "name": "Gemiddelde laadprijs dit jaar"
       }
     },
     "text": {

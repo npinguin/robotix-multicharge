@@ -1042,7 +1042,8 @@ async def read_actual_history(hass, configuration, start, end, *,
                               session_receipts=(), price_slots=(),
                               include_valuations=False, power_bindings=None,
                               include_observed_sessions=False, active_sessions=None,
-                              tariff_entity=None, energy_bindings=None, tariff_bindings=None):
+                              tariff_entity=None, energy_bindings=None, tariff_bindings=None,
+                              financial_days=None):
     """Query the installed native Recorder once for exact configured chargers."""
     now = datetime.now(timezone.utc)
     first, last = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
@@ -1061,8 +1062,11 @@ async def read_actual_history(hass, configuration, start, end, *,
     if charger_id is not None and charger_id in bindings and not selected:
         selected = [charger_id]
 
-    def reply(rows, quality, historical=None):
-        if not include_valuations and not include_observed_sessions:
+    if financial_days is not None:
+        selected = sorted(set(selected) | set(bindings))
+
+    async def reply(rows, quality, historical=None):
+        if not include_valuations and not include_observed_sessions and financial_days is None:
             return rows, quality
         valued = {}
         quotes = price_slots
@@ -1075,6 +1079,22 @@ async def read_actual_history(hass, configuration, start, end, *,
             quotes = _historical_reference_quotes(
                 hass, historical, tariff_entity, price_slots, history_first, history_end,
             )
+        day_projection = None
+        if financial_days is not None:
+            # Computation is independent of physical control and off the HA
+            # event loop; the raw data came from this same Recorder query.
+            def project_days():
+                return {
+                    day: daily_costs(
+                        historical or {}, bindings, configuration, a, min(b, history_end),
+                        quotes if historical is not None else (), session_receipts, active_sessions,
+                    )
+                    for day, (a, b) in financial_days.items()
+                    if history_first <= a <= b <= history_end
+                }
+            day_projection = await hass.async_add_executor_job(project_days)
+            if not include_valuations and not include_observed_sessions:
+                return rows, quality, day_projection
         if historical is not None and quotes:
             for receipt in session_receipts:
                 charger = receipt.get("charger_id")
@@ -1110,10 +1130,12 @@ async def read_actual_history(hass, configuration, start, end, *,
                 historical, bindings, selected, history_first, history_end, now,
                 session_receipts, active_sessions, quotes, asset_id,
             ) if historical is not None else {})
-            return rows, quality, valued, observed, metrics
-        return rows, quality, valued
+            result = (rows, quality, valued, observed, metrics)
+        else:
+            result = (rows, quality, valued)
+        return (*result, day_projection) if financial_days is not None else result
     if not selected:
-        return reply([], "NO_MATCHING_CHARGER")
+        return await reply([], "NO_MATCHING_CHARGER")
     # Include only sources which were actually mapped during this request.
     # Query the existing native Recorder once, even across a remap.
     entities = sorted({
@@ -1125,11 +1147,11 @@ async def read_actual_history(hass, configuration, start, end, *,
              or datetime.fromisoformat(bindings[uid][index + 1]["start"]) > history_first)
     })
     if not entities:
-        return reply([], "POWER_METER_NOT_CONFIGURED")
+        return await reply([], "POWER_METER_NOT_CONFIGURED")
     if history_first >= history_end:
-        return reply([], "FUTURE_ONLY")
+        return await reply([], "FUTURE_ONLY")
     power_entities = tuple(entities)
-    if include_observed_sessions or include_valuations:
+    if include_observed_sessions or include_valuations or financial_days is not None:
         tariff_sources = {
             epoch["entity"] for i, epoch in enumerate((tariff_bindings or {}).get("site", ()))
             if epoch["entity"]
@@ -1146,7 +1168,7 @@ async def read_actual_history(hass, configuration, start, end, *,
                 if epoch["entity"] and epoch["entity"] not in entities:
                     entities.append(epoch["entity"])
     if "recorder" not in hass.config.components:
-        return reply([], "RECORDER_NOT_LOADED")
+        return await reply([], "RECORDER_NOT_LOADED")
     try:
         from homeassistant.components.recorder import get_instance, history
 
@@ -1157,9 +1179,11 @@ async def read_actual_history(hass, configuration, start, end, *,
             None, True, False, False, False, False,
         )
     except (ImportError, RuntimeError, ValueError, OSError, KeyError):
-        return reply([], "RECORDER_UNAVAILABLE")
+        return await reply([], "RECORDER_UNAVAILABLE")
+    if financial_days is not None and not include_valuations and not include_observed_sessions:
+        return await reply([], "FINANCIAL_DAY", historical)
     if first >= now:
-        return reply([], "FUTURE_ONLY", historical)
+        return await reply([], "FUTURE_ONLY", historical)
     # Integrate each physical source once; only then assign the measured
     # quarter to the logical Charger that owned that source at that time.
     empty = _quarter_actuals([], first, last, now)
@@ -1188,10 +1212,10 @@ async def read_actual_history(hass, configuration, start, end, *,
             if asset_id is None or asset_id == attributed:
                 result.append(row)
     if not result:
-        return reply([], (
+        return await reply([], (
             "NO_CONFIRMED_ASSET_HISTORY" if asset_id is not None
             else "NO_RECORDED_QUARTERS"
         ), historical)
     if any(row["quality"] != "measured_power_integral" for row in result):
-        return reply(result, "INCOMPLETE_POWER_HISTORY", historical)
-    return reply(result, "MEASURED_POWER_HISTORY", historical)
+        return await reply(result, "INCOMPLETE_POWER_HISTORY", historical)
+    return await reply(result, "MEASURED_POWER_HISTORY", historical)

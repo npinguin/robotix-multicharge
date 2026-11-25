@@ -80,9 +80,15 @@ async def async_setup_entry(
             entities.append(_SessionCostSensor(kind, row, runtime, "active"))
             if kind != "controller":
                 entities.append(_SessionCostSensor(kind, row, runtime, "last"))
+            for period in ("today", "month", "year"):
+                entities.append(_PeriodCostSensor(kind, row, runtime, period))
+                entities.append(_PeriodCostSensor(kind, row, runtime, period, average=True))
     # Localized native sensor titles and states, without altering unique IDs
     # or the stable machine values consumed by existing HA automations.
-    names = {"active_session_cost":"active_session_cost","last_session_cost":"last_session_cost","planned_charging_cost":"planned_charging_cost","current_import_price":"current_import_price","readiness":"readiness","plan_status":"plan_status","power":"actual_power","soc":"battery_level","connected":"connection","session_energy":"session_energy","command_status":"command_status","last_session_energy":"last_session_energy","mode":"charging_mode","configuration_revision":"settings_revision","connected_chargers":"connected_chargers","charging_chargers":"charging_chargers","action_health":"action_health","last_action":"last_physical_action","last_settings_action":"last_settings_action","selected_vehicle":"selected_vehicle","intent":"charging_intention","confirmed_current":"confirmed_current_setpoint","actual_current":"actual_current"}
+    names = {
+        **{f"charging_cost_{period}": f"charging_cost_{period}" for period in ("today", "month", "year")},
+        **{f"average_charging_price_{period}": f"average_charging_price_{period}" for period in ("today", "month", "year")},
+        "active_session_cost":"active_session_cost","last_session_cost":"last_session_cost","planned_charging_cost":"planned_charging_cost","current_import_price":"current_import_price","readiness":"readiness","plan_status":"plan_status","power":"actual_power","soc":"battery_level","connected":"connection","session_energy":"session_energy","command_status":"command_status","last_session_energy":"last_session_energy","mode":"charging_mode","configuration_revision":"settings_revision","connected_chargers":"connected_chargers","charging_chargers":"charging_chargers","action_health":"action_health","last_action":"last_physical_action","last_settings_action":"last_settings_action","selected_vehicle":"selected_vehicle","intent":"charging_intention","confirmed_current":"confirmed_current_setpoint","actual_current":"actual_current"}
     for entity in entities:
         key = names.get(entity.unique_id.rsplit(":", 1)[-1])
         if key is not None:
@@ -203,6 +209,32 @@ class _SessionCostSensor(_NativeMultiChargeSensor):
         self._attr_native_unit_of_measurement = projection.get("currency")
         self._attr_extra_state_attributes = {
             **projection, "quality": projection.get("quality", "unknown"),
+        }
+
+
+class _PeriodCostSensor(_NativeMultiChargeSensor):
+    """Native monetary/weighted-rate projections; incomplete total is unknown."""
+
+    def __init__(self, kind, data, runtime, period, *, average=False):
+        super().__init__(kind, data, runtime)
+        self.period = period
+        self.average = average
+        self._attr_name = ("Average charging price " if average else "Charging cost ") + period
+        metric = "average_charging_price" if average else "charging_cost"
+        self._attr_unique_id = f"{DOMAIN}:{kind}:{data['id']}:{metric}_{period}"
+        if not average:
+            self._attr_device_class = SensorDeviceClass.MONETARY
+        self._update_value()
+
+    def _update_value(self):
+        owner = "site" if self.kind == "controller" else self.data["id"]
+        projection = self.runtime.period_costs.get(self.kind, {}).get(owner, {}).get(self.period, {})
+        currency = projection.get("currency")
+        self._attr_native_value = projection.get("average_price_per_kwh" if self.average else "cost")
+        self._attr_native_unit_of_measurement = f"{currency}/kWh" if self.average and currency else currency
+        self._attr_extra_state_attributes = {
+            **projection, "quality": projection.get("quality", "history_pending"),
+            "valuation": "observed_variable_energy_reference",
         }
 
 

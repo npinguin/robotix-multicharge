@@ -576,6 +576,24 @@
       },
       "last_session_cost": {
         "name": "Coste de última sesión"
+      },
+      "charging_cost_today": {
+        "name": "Coste de carga hoy"
+      },
+      "charging_cost_month": {
+        "name": "Coste de carga este mes"
+      },
+      "charging_cost_year": {
+        "name": "Coste de carga este año"
+      },
+      "average_charging_price_today": {
+        "name": "Precio medio de carga hoy"
+      },
+      "average_charging_price_month": {
+        "name": "Precio medio de carga este mes"
+      },
+      "average_charging_price_year": {
+        "name": "Precio medio de carga este año"
       }
     },
     "text": {

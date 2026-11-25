@@ -21,8 +21,8 @@ from .source_evidence import (
 )
 from .execution import NativeSwitchExecutor
 from .history import (
-    planned_costs, read_actual_history, reconcile_power_bindings,
-    reconcile_tariff_bindings, session_costs,
+    civil_cost_days, civil_period_costs, planned_costs, read_actual_history,
+    reconcile_power_bindings, reconcile_tariff_bindings, session_costs,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -63,6 +63,9 @@ class MultiChargeRuntime:
         self.price_slots = ()
         self.planned_costs = {}
         self.session_costs = {}
+        self.period_costs = {}
+        self._daily_costs = {}
+        self._daily_cost_identity = None
         self._session_cost_identity = None
         self.nordpool_prices = None
         self.executor = NativeSwitchExecutor(self)
@@ -87,26 +90,62 @@ class MultiChargeRuntime:
         )
 
     async def refresh_session_costs(self):
-        """One bounded Recorder read for native financial projections, off the command loop."""
+        """Shared session and civil-period projections, bounded Recorder work.
+
+        Reuse the recent history read for current day evidence; backfill one
+        older day in the same coalesced minute task, never a full-year query
+        in the command or browser path. Missing purged data remains partial.
+        """
         at = datetime.now(timezone.utc)
         cfg = self.configuration
         identity = self._current_session_cost_identity()
         receipts = self.executor.completed_sessions()
         active = self.executor.session_snapshot()
-        _, _, estimates, observed, metrics = await read_actual_history(
-            self.hass, cfg, at-timedelta(hours=48), at+timedelta(minutes=1),
+        zone = getattr(getattr(self.hass, "config", None), "time_zone", "UTC")
+        days = civil_cost_days(at, zone)
+        today = next(reversed(days))
+        self._daily_costs = {day: row for day, row in self._daily_costs.items() if day in days}
+        recent_days = {today: days[today]}
+        if len(days) > 1:
+            yesterday = list(days)[-2]
+            if yesterday not in self._daily_costs or identity != self._daily_cost_identity:
+                recent_days[yesterday] = days[yesterday]
+        first = min(at-timedelta(hours=48), *(a for a, _ in recent_days.values()))
+        last = min(at+timedelta(minutes=1), first+timedelta(hours=49))
+        common = dict(
             session_receipts=receipts, price_slots=self.price_slots,
-            include_valuations=True, include_observed_sessions=True,
             power_bindings=self.power_bindings, energy_bindings=self.energy_bindings,
             tariff_bindings=self.tariff_bindings, active_sessions=active,
             tariff_entity=(cfg["controller"].get("price_entity") or
                            cfg["controller"].get("current_price_entity")),
         )
+        _, _, estimates, observed, metrics, daily = await read_actual_history(
+            self.hass, cfg, first, last, include_valuations=True,
+            include_observed_sessions=True, financial_days=recent_days, **common,
+        )
         if not self.active or identity != self._current_session_cost_identity():
             return
+        self._daily_costs.update(daily)
+        self._daily_cost_identity = identity
+        self.period_costs = civil_period_costs(days, self._daily_costs)
         self.session_costs = session_costs(receipts, active, observed, estimates, metrics)
         self._session_cost_identity = identity
         self.notify()
+        # Recent data first. Read one bounded historical civil day per cycle;
+        # retain the derived in-memory projection, not another durable ledger.
+        missing = next((day for day in reversed(days) if day not in self._daily_costs), None)
+        if missing is None or not self.active:
+            return
+        a, b = days[missing]
+        if b <= a:
+            return
+        _, _, older = await read_actual_history(
+            self.hass, cfg, a, b, financial_days={missing: (a, b)}, **common,
+        )
+        if self.active and identity == self._current_session_cost_identity():
+            self._daily_costs.update(older)
+            self.period_costs = civil_period_costs(days, self._daily_costs)
+            self.notify()
 
     def native_surplus_power(self, at):
         """Compute strictly current, not forecast solar/export capacity.
@@ -250,6 +289,7 @@ class MultiChargeRuntime:
         if (self._session_cost_identity is not None
                 and self._session_cost_identity != self._current_session_cost_identity()):
             self.session_costs = {}
+            self.period_costs = {}
             self._session_cost_identity = None
         # Native entity listeners share one projection during this synchronous dispatch.
         self._notification_capabilities = self.executor.capabilities() if self._listeners else None
@@ -1101,6 +1141,7 @@ class MultiChargeRuntime:
             "plan_palette": dict(PLAN_COLORS),
             "planned_costs": self.planned_costs,
             "session_costs": self.session_costs,
+            "period_costs": self.period_costs,
             "live": self.live_state(),
             "configuration_revision": configuration_revision(self.configuration),
             "controller_id": self.configuration["controller"]["id"],
