@@ -1997,6 +1997,51 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sum(call[1] == "turn_off" and call[2]["entity_id"] == "switch.other"
                              for call in services.calls), 1)
 
+    async def test_pause_during_start_persistence_prevents_energization(self):
+        rt, states, services = rig()
+        entered, release = asyncio.Event(), asyncio.Event()
+        original = rt.persist_control_state
+        first = True
+        async def blocked_save():
+            nonlocal first
+            if first:
+                first = False
+                entered.set()
+                await release.wait()
+            return await original()
+        rt.persist_control_state = blocked_save
+        start = asyncio.create_task(rt.executor.execute("evse", "start"))
+        await asyncio.wait_for(entered.wait(), timeout=1)
+        pause = asyncio.create_task(rt.executor.execute("evse", "pause"))
+        await asyncio.sleep(0)
+        release.set()
+        outcome, paused = await asyncio.gather(start, pause)
+        self.assertEqual(outcome["status"], "rejected", outcome)
+        self.assertIn("STOP_REQUESTED_DURING_START", outcome["reason"])
+        self.assertEqual(paused["status"], "confirmed", paused)
+        self.assertIn("evse", rt.executor._paused)
+        self.assertFalse(any(call[1] == "turn_on" for call in services.calls))
+        self.assertFalse(rt.executor._start_pending)
+        self.assertFalse(rt.executor._stop_requested)
+
+    async def test_lost_connection_during_unconfirmed_start_stops_before_timeout(self):
+        rt, states, services = rig()
+        original = services.async_call
+        async def disconnect(domain, service, data, **kwargs):
+            await original(domain, service, data, **kwargs)
+            if service == "turn_on":
+                states["binary_sensor.cable"].state = "off"
+                states["binary_sensor.cable"].last_updated = datetime.now(timezone.utc)
+                states["sensor.actual_power"].state = "0"
+        services.async_call = disconnect
+        outcome = await asyncio.wait_for(
+            rt.executor.execute("evse", "start", readback_seconds=5), timeout=1,
+        )
+        self.assertEqual(outcome["status"], "execution_unknown", outcome)
+        self.assertIn("PHYSICAL_CONNECTION_UNVERIFIED", outcome["reason"])
+        self.assertEqual(states["switch.evse_control"].state, "off")
+        self.assertFalse(rt.executor._start_pending)
+
     async def test_same_charger_stop_revokes_pending_start_readback(self):
         rt, states, services = rig()
         services.reconcile_observations = False
