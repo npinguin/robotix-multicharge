@@ -58,6 +58,7 @@ class NativeSwitchExecutor:
         self._grants = {}
         self._grant_configuration = None
         self._grant_plan_revision = None
+        self._grant_prices = ()
         self._last_advance = None
         self._last_power_adjustment_at = None
         self._regulating = False
@@ -653,7 +654,17 @@ class NativeSwitchExecutor:
             self._close_accepted_history(uid, observed_at)
             self._accepted.pop(uid, None)
         if status == "confirmed":
+            # A command receipt legitimately changes the remaining-demand
+            # proposal. Do not revoke a different charger's immutable grant
+            # merely because our own confirmed command refreshed the view.
+            # An unrelated revision change still invalidates this batch.
+            prior = self.runtime.assessment
+            own_refresh = (self._grant_configuration is not None and prior is not None
+                           and prior.plan.revision == self._grant_plan_revision)
             self.runtime.refresh()
+            if own_refresh:
+                refreshed = self.runtime.assessment
+                self._grant_plan_revision = refreshed.plan.revision if refreshed else None
         else:
             self.runtime.notify()
         return result
@@ -1622,9 +1633,35 @@ class NativeSwitchExecutor:
             return False
         current = self.runtime.configuration
         assessment = self.runtime.assessment
-        return bool(assessment and assessment.plan.revision == self._grant_plan_revision
-                    and (current == self._grant_configuration
-                         or is_plan_presentation_only_change(self._grant_configuration, current)))
+        if not (assessment and assessment.plan.revision == self._grant_plan_revision
+                and (current == self._grant_configuration
+                     or is_plan_presentation_only_change(self._grant_configuration, current))):
+            return False
+        # Immutable selected quarter, fresh physical and tariff admission.
+        # A changed quote must not inherit an earlier price-based decision,
+        # even if a preceding confirmed command legitimately refreshed the plan.
+        asset = next((a for a in current["assets"] if a["id"] == slot.asset_uid), None)
+        if asset is None:
+            return False
+        needs_price = (current["controller"]["mode"] == "Economy"
+                       or slot.strategy in ("economy", "negative_tariff")
+                       or any(asset.get(k) is not None for k in (
+                           "maximum_price_per_kwh", "low_price_trigger_per_kwh",
+                           "requested_budget_amount")))
+        if needs_price:
+            fresh, quality, _ = self.runtime.qualified_tariff(at)
+            expected = [q for q in self._grant_prices if q.start <= slot.start and q.end >= slot.end]
+            available = [q for q in fresh if q.start <= at and q.end >= slot.end]
+            if (quality != "OK" or len(expected) != 1 or len(available) != 1
+                    or expected[0] != available[0]):
+                return False
+            # Opportunistic price thresholds depend on the future series.
+            # A new horizon may change the selected strategy.
+            if asset.get("opportunistic_kind", "off") != "off":
+                if tuple(q for q in fresh if q.end > at) != tuple(
+                        q for q in self._grant_prices if q.end > at):
+                    return False
+        return True
 
     def _power_adjustment_due(self, at):
         interval = self.runtime.configuration["controller"].get(
@@ -1666,9 +1703,9 @@ class NativeSwitchExecutor:
             return False
         if (slot.strategy in ("economy", "negative_tariff")
                 or self.runtime.configuration["controller"].get("mode") == "Economy"):
-            quotes = [row for row in self.runtime.price_slots if row.start <= at < row.end]
-            if (self.runtime.observations.get("sources", {}).get("tariff_quality") != "OK"
-                    or len(quotes) != 1
+            fresh, quality, _ = self.runtime.qualified_tariff(at)
+            quotes = [row for row in fresh if row.start <= at < row.end]
+            if (quality != "OK" or len(quotes) != 1
                     or (slot.strategy == "negative_tariff"
                         and quotes[0].effective_price_per_kwh >= 0)):
                 return False
@@ -1766,8 +1803,10 @@ class NativeSwitchExecutor:
         self._grants = dict(slots)
         self._grant_configuration = deepcopy(self.runtime.configuration)
         self._grant_plan_revision = assessment.plan.revision
+        self._grant_prices = tuple(self.runtime.price_slots)
         try:
-            for charger in self._quarter_order(self.runtime.configuration["chargers"], slots):
+            for configured in self._quarter_order(self.runtime.configuration["chargers"], slots):
+                charger = self.effective_charger(configured)
                 uid = charger["id"]
                 if (charger.get("control_owner", "external") != "multicharge"
                         or charger.get("physical_commissioned") is not True
@@ -1785,7 +1824,10 @@ class NativeSwitchExecutor:
                     if session is None or uid not in self._accepted:
                         await self.execute(uid, "stop")
                         continue
-                    if slot is None or slot.asset_uid != session["asset_id"]:
+                    now = datetime.now(timezone.utc)
+                    if (slot is None or slot.asset_uid != session["asset_id"]
+                            or not self._grant_is_current(slot, now)
+                            or self._session_stop_reason(charger, now)):
                         await self.execute(uid, "stop")
                         continue
                     if charger["kind"] == "variable_current":
@@ -1807,6 +1849,9 @@ class NativeSwitchExecutor:
                                 continue
                     # Still-owned physical session and verified slot continuity.
                     self._accept_slot(charger, slot, assessment.plan.revision)
+                    if not await self.runtime.persist_control_state():
+                        self._persistence_verified = False
+                        await self.execute(uid, "stop")
                     continue
                 if slot is None:
                     continue
@@ -1853,6 +1898,7 @@ class NativeSwitchExecutor:
             self._grants.clear()
             self._grant_configuration = None
             self._grant_plan_revision = None
+            self._grant_prices = ()
 
     async def _reduce_current(self, charger, at):
         """Only confirmed smaller supported setpoints may avert a safety STOP."""

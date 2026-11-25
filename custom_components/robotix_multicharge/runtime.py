@@ -383,6 +383,23 @@ class MultiChargeRuntime:
         self._unsubscribers.clear()
         self._listeners.clear()
 
+    def qualified_tariff(self, at):
+        """One native price reader for proposals and fresh physical admission."""
+        setting = self.configuration["controller"]
+        tariff_source = setting.get("price_entity") or setting.get("current_price_entity")
+        tariff_coverage = {}
+        tariff, tariff_quality = intervals(
+            self.hass, tariff_source, "price", at, coverage_details=tariff_coverage,
+        )
+        if (tariff_quality != "OK" and self.nordpool_prices
+                and self.nordpool_prices[0] == tariff_source):
+            _, cached, quality, fetched_at = self.nordpool_prices
+            if at - fetched_at <= timedelta(minutes=45) and any(row.end > at for row in cached):
+                tariff, tariff_quality = cached, quality
+            elif quality != "OK":
+                tariff_quality = quality
+        return tuple(tariff), tariff_quality, tariff_coverage
+
     def refresh(self, at=None):
         at = (at or datetime.now(timezone.utc)).astimezone(timezone.utc)
         cfg = self.configuration
@@ -694,17 +711,7 @@ class MultiChargeRuntime:
                     power = source_power
             readings["effective_power_kw"] = power
         tariff_source = setting.get("price_entity") or setting.get("current_price_entity")
-        tariff_coverage = {}
-        tariff, tariff_quality = intervals(
-            self.hass, tariff_source, "price", at, coverage_details=tariff_coverage,
-        )
-        if (tariff_quality != "OK" and self.nordpool_prices
-                and self.nordpool_prices[0] == tariff_source):
-            _, cached, quality, fetched_at = self.nordpool_prices
-            if at - fetched_at <= timedelta(minutes=45) and any(row.end > at for row in cached):
-                tariff, tariff_quality = cached, quality
-            elif quality != "OK":
-                tariff_quality = quality
+        tariff, tariff_quality, tariff_coverage = self.qualified_tariff(at)
         solar_kind = setting.get(
             "solar_source_kind", "intervals" if setting.get("solar_entity") else "none",
         )
