@@ -2229,13 +2229,14 @@ class RobotixMultiChargeCard extends HTMLElement {
     filter.value=this._filter;
     filter.addEventListener("change",()=>{this.selectViewRange(this._day,filter.value);});
     day.append(filter);container.append(day);
-    const costs=mcEl("section","card");
-    for(const [row,label] of [[d.view_planned_cost,"Planned charging cost"],
-        [forecastVisible?d.view_indicative_cost:null,"Indicative charging cost"]]){
-      if(!row||row.quality==="no_planned_energy")continue;
-      this.planCostLine(costs,row,label);
+    const visibleCosts=[[d.view_planned_cost,"Planned charging cost"],
+        [forecastVisible?d.view_indicative_cost:null,"Indicative charging cost"]]
+      .filter(([row])=>row&&row.quality!=="no_planned_energy");
+    if(visibleCosts.length){
+      const costs=mcEl("section","card");
+      for(const [row,label] of visibleCosts)this.planCostLine(costs,row,label);
+      container.append(costs);
     }
-    if(costs.childNodes.length)container.append(costs);
     const selectors=mcEl("div","controls");
     const option=(title,setting,value,variants)=>{
       const wrap=mcEl("div","field");const label=mcEl("label","",title);
@@ -3155,10 +3156,10 @@ class RobotixMultiChargeCard extends HTMLElement {
     for(const [phase,label] of [["active","Active session cost"],["last","Last session cost"]]){
       const session=sessions[phase];
       if(!session)continue;
-      const amount=typeof session.cost==="number"&&session.currency?
-        new Intl.NumberFormat(undefined,{style:"currency",currency:session.currency}).format(session.cost):
-        mcTr("Unknown");
-      mcPair(container,mcTr(label),amount+(session.basis?" · "+session.basis:""));
+      const partial=session.cost==null&&session.covered_cost!=null;
+      const amount=money(partial?session.covered_cost:session.cost,session.currency);
+      mcPair(container,mcTr(label),amount+(partial?" · "+mcTr("Partial coverage"):"")+
+        (session.basis?" · "+session.basis:""));
       if(session.quality==="partial_observation")container.append(mcEl("p","muted small",mcTr("Incomplete start/end or source coverage · observed portion only")));
     }
     const row=this._data.planned_costs?.[kind]?.[id];

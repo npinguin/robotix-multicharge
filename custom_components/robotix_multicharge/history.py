@@ -685,7 +685,8 @@ def session_costs(receipts, active_sessions, observed, estimates, metrics):
         projection = {
             "charger_id": uid, "asset_id": asset,
             "started_at": row["started_at"], "ended_at": row.get("ended_at"),
-            "cost": cost, "currency": currency, "basis": basis,
+            "cost": None if quality == "partial_observation" else cost,
+            "covered_cost": cost, "currency": currency, "basis": basis,
             "quality": quality, "energy_kwh": energy,
             "average_price_per_kwh": (
                 round(cost/energy, 6) if cost is not None
@@ -722,20 +723,26 @@ def session_costs(receipts, active_sessions, observed, estimates, metrics):
                 if kind != "controller" and len(rows) == 1:
                     result[kind][uid][phase] = rows[0]
                     continue
-                kinds = {(r["currency"], r["basis"]) for r in rows}
-                complete = (len(kinds) == 1 and all(r["cost"] is not None
-                            and r["quality"] != "partial_observation" for r in rows))
-                currency, basis = next(iter(kinds)) if complete else (None, None)
-                cost = round(sum(r["cost"] for r in rows), 6) if complete else None
+                valued = [r for r in rows if r["covered_cost"] is not None]
+                kinds = {(r["currency"], r["basis"]) for r in valued}
+                compatible = len(kinds) == 1
+                complete = compatible and all(r["cost"] is not None for r in rows)
+                currency, basis = next(iter(kinds)) if compatible else (None, None)
+                subtotal = round(sum(r["covered_cost"] for r in valued), 6) if compatible else None
+                cost = subtotal if complete else None
+                covered = [r["energy_kwh"] for r in valued]
+                covered_energy = (round(sum(covered), 6) if covered and all(
+                    type(v) in (int, float) and isfinite(v) for v in covered) else None)
                 energies = [r["energy_kwh"] for r in rows]
                 energy = (round(sum(energies), 6) if all(
                     type(v) in (int, float) and isfinite(v) for v in energies) else None)
                 result[kind][uid][phase] = {
-                    "cost": cost, "currency": currency, "basis": basis,
-                    "energy_kwh": energy,
+                    "cost": cost, "covered_cost": subtotal, "currency": currency, "basis": basis,
+                    "energy_kwh": energy, "covered_energy_kwh": covered_energy,
                     "quality": "reference_estimate" if complete else "incomplete_coverage",
-                    "average_price_per_kwh": round(cost/energy, 6) if cost is not None and energy else None,
-                    "session_count": len(rows),
+                    "average_price_per_kwh": round(subtotal/covered_energy, 6)
+                        if subtotal is not None and covered_energy else None,
+                    "session_count": len(rows), "scope": "observed_sessions_only",
                 }
     return result
 

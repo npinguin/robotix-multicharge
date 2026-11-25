@@ -68,6 +68,9 @@ class NativeMeasuredHistoryTests(unittest.TestCase):
         result = mod.session_costs([], active, observed, {}, metrics)
         self.assertIsNone(result["controller"]["site"]["active"]["cost"])
         self.assertEqual(result["charger"]["b"]["active"]["quality"], "partial_observation")
+        self.assertIsNone(result["charger"]["b"]["active"]["cost"])
+        self.assertAlmostEqual(result["charger"]["b"]["active"]["covered_cost"], 0.6)
+        self.assertAlmostEqual(result["controller"]["site"]["active"]["covered_cost"], 0.9)
 
     def test_tariff_remap_keeps_old_source_and_clips_forecast(self):
         first = NOW-timedelta(minutes=30)
