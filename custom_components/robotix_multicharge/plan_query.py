@@ -19,13 +19,13 @@ def charger_setup_projection(hass, registry, runtime, charger):
 
     No guessed entity names, no writes, and no automatic electrical limit changes.
     """
-    anchor = registry.async_get(charger.get("control_entity", ""))
+    from homeassistant.helpers import entity_registry as er
+
+    anchor = registry.async_get(charger.get("control_entity") or "")
     device_id = anchor.device_id if anchor is not None else None
     candidates = {}
     if device_id is not None:
-        for entry in registry.entities.values():
-            if entry.device_id != device_id or entry.disabled_by is not None:
-                continue
+        for entry in er.async_entries_for_device(registry, device_id, include_disabled_entities=False):
             state = hass.states.get(entry.entity_id)
             if state is None:
                 continue
@@ -58,6 +58,9 @@ def charger_setup_projection(hass, registry, runtime, charger):
     effective = runtime.executor.effective_charger(charger)
     preview = runtime.executor.effective_charger({**charger, **proposals})
     bounds = ("min_current_a", "max_current_a", "current_step_a")
+    native = runtime.executor.effective_charger({
+        key: value for key, value in charger.items() if key not in bounds
+    })
     for field in bounds:
         if charger.get(field) is None and preview.get(field) is not None:
             proposals[field] = preview[field]
@@ -67,6 +70,7 @@ def charger_setup_projection(hass, registry, runtime, charger):
         "proposed_missing": proposals,
         "configured_current": {field: charger.get(field) for field in bounds},
         "effective_current": {field: effective.get(field) for field in bounds},
+        "native_current": {field: native.get(field) for field in bounds},
     }
 
 
@@ -177,12 +181,16 @@ async def websocket_get_plan(
         # Use the same configuration snapshot as the response, even if an
         # asynchronous Recorder query overlapped a settings update.
         cfg = result["configuration"]
-        result["charger_setup"] = {
-            row["id"]: charger_setup_projection(hass, registry, runtime, row)
-            for row in cfg["chargers"]
-        }
+        admin = getattr(getattr(connection, "user", None), "is_admin", False)
+        result["charger_setup"] = {}
+        for row in cfg["chargers"]:
+            projection = charger_setup_projection(hass, registry, runtime, row)
+            if not admin:
+                projection.pop("candidates", None)
+                projection.pop("proposed_missing", None)
+            result["charger_setup"][row["id"]] = projection
         if "discover_charger" in msg:
-            if not getattr(getattr(connection, "user", None), "is_admin", False):
+            if not admin:
                 connection.send_error(msg["id"], websocket_api.ERR_UNAUTHORIZED, "Admin required")
                 return
             # Only an explicitly selected native switch may anchor discovery.
