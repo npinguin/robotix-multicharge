@@ -114,7 +114,6 @@ def rig(*, owner="multicharge", commissioned=True, group_kw=4.0,
         config=SimpleNamespace(time_zone="Europe/Brussels"),
     )
     runtime = MultiChargeRuntime(hass, cfg)
-    assert runtime.executor.confirm_current_connection("evse")["status"] == "confirmed"
     runtime.refresh()
     return runtime, sources, services
 
@@ -288,9 +287,10 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         runtime.executor.observe_connection_event(charger, charging, available)
         runtime.executor.observe_connection_event(charger, available, preparing_again)
         runtime.refresh()
-        self.assertIsNone(runtime.executor.connection_confirmation(
-            charger, datetime.now(timezone.utc)
-        ), "Brief disconnected state invalidates previous vehicle identity")
+        new_plug = runtime.executor.connection_confirmation(charger, datetime.now(timezone.utc))
+        self.assertIsNotNone(new_plug)
+        self.assertNotEqual(new_plug["connected_at"], first_epoch)
+        self.assertEqual(new_plug["basis"], "user_assignment")
         self.assertEqual(services.calls, [])
 
     async def test_unwitnessed_native_substate_jump_never_retains_vehicle_identity(self):
@@ -302,17 +302,13 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         charger["disconnected_states"] = ["available"]
         sources["sensor.native_charger_state"] = state("Preparing")
         runtime.refresh()
-        self.assertEqual(
-            runtime.executor.confirm_current_connection("evse")["status"],
-            "confirmed",
-        )
+        first = runtime.executor.connection_confirmation(charger, datetime.now(timezone.utc))
         sources["sensor.native_charger_state"] = state("Charging")
-        # No on_source_change event was witnessed: fail closed.
+        # No witnessed transition: new idle epoch, never reuse old identity.
         runtime.refresh()
-        self.assertIsNone(runtime.executor.connection_confirmation(
-            charger, datetime.now(timezone.utc)
-        ))
-        self.assertFalse(runtime.assessment.plan.slots)
+        current = runtime.executor.connection_confirmation(charger, datetime.now(timezone.utc))
+        self.assertNotEqual(current["connected_at"], first["connected_at"])
+        self.assertEqual(current["basis"], "user_assignment")
         self.assertEqual(services.calls, [])
 
     async def test_native_same_status_refresh_vs_provider_recreation(self):
@@ -349,9 +345,9 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         sources["sensor.native_status"] = restarted
         runtime.executor.observe_connection_event(charger, reported, restarted)
         runtime.refresh()
-        self.assertIsNone(runtime.executor.connection_confirmation(
-            charger, datetime.now(timezone.utc)
-        ))
+        recreated = runtime.executor.connection_confirmation(charger, datetime.now(timezone.utc))
+        self.assertNotEqual(recreated["connected_at"], first["connected_at"])
+        self.assertEqual(recreated["basis"], "user_assignment")
         self.assertEqual(services.calls, [])
 
     async def test_manual_force_start_is_durably_held_across_restart(self):
@@ -823,25 +819,20 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stopped["status"], "confirmed")
         self.assertAlmostEqual(stopped["measured_power_kw"], 0)
 
-    async def test_unconfirmed_or_replugged_vehicle_cannot_start(self):
+    async def test_assignment_and_native_connection_need_no_extra_confirmation(self):
         rt, states, services = rig()
         rt.executor._plug_confirmations.clear()
         rt.refresh()
-        self.assertFalse(rt.assessment.plan.slots)
-        denied = await rt.executor.execute("evse", "start")
-        self.assertEqual(denied["reason"], "CURRENT_PLUG_ASSET_UNCONFIRMED")
-        self.assertEqual(services.calls, [])
-        confirmed = rt.executor.confirm_current_connection("evse")
-        self.assertEqual(confirmed["status"], "confirmed")
-        self.assertTrue(rt.executor.connection_confirmation(
+        self.assertTrue(rt.assessment.plan.slots)
+        self.assertEqual(rt.executor.connection_confirmation(
             rt.configuration["chargers"][0], datetime.now(timezone.utc)
-        ))
-        states["binary_sensor.cable"].last_changed = datetime.now(timezone.utc)
+        )["basis"], "user_assignment")
+        states["binary_sensor.cable"].state = "off"
         rt.refresh()
         self.assertFalse(rt.assessment.plan.slots)
-        self.assertIsNone(rt.executor.connection_confirmation(
-            rt.configuration["chargers"][0], datetime.now(timezone.utc)
-        ))
+        denied = await rt.executor.execute("evse", "start")
+        self.assertEqual(denied["reason"], "PHYSICAL_CONNECTION_UNVERIFIED")
+        self.assertEqual(services.calls, [])
 
 
     async def test_indicative_unplugged_vehicle_never_reaches_physical_writer(self):
@@ -860,11 +851,8 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(rt.executor.accepted_slots())
         self.assertEqual(rt.executor.session_snapshot(), {})
 
-    async def test_dedicated_vehicle_reconnects_without_manual_confirmation(self):
+    async def test_assigned_vehicle_reconnects_without_manual_confirmation(self):
         rt, states, services = rig(mode="Automatic")
-        charger = rt.configuration["chargers"][0]
-        charger["dedicated_asset_id"] = "car"
-        rt.configuration = validate_configuration(rt.configuration)
         rt.executor._plug_confirmations.clear()
         states["binary_sensor.cable"].state = "off"
         rt.refresh()
@@ -878,7 +866,7 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         rt.refresh(quarter)
         self.assertTrue(rt.assessment.plan.slots)
         self.assertEqual(rt.executor.connection_confirmation(
-            rt.configuration["chargers"][0], quarter)["basis"], "dedicated_assignment")
+            rt.configuration["chargers"][0], quarter)["basis"], "user_assignment")
         await rt.executor.advance_plan(quarter)
         self.assertEqual([row[1] for row in services.calls], ["turn_on"])
         self.assertTrue(rt.executor.accepted_slots())
@@ -1530,6 +1518,89 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         await rt.executor.supervise()
         self.assertEqual(states["switch.evse_control"].state, "on")
         self.assertEqual((await rt.executor.execute("evse", "stop"))["status"], "confirmed")
+
+    async def test_zero_origin_native_current_starts_without_extra_resident_action(self):
+        rt, states, services = rig(group_kw=3.6, mode="Automatic")
+        charger = rt.configuration["chargers"][0]
+        charger.update(kind="variable_current", rated_power_kw=3.6,
+                       current_control_entity="number.charge_limit")
+        # Known installation facts, no duplicate current or resident settings.
+        charger["voltage_v"] = 230
+        rt.executor._plug_confirmations.clear()
+        native = state(16, "A")
+        native.attributes.update(min=0, max=16, step=1)
+        states["number.charge_limit"] = native
+        at = datetime.now(timezone.utc)
+        quarter = at.replace(minute=at.minute//15*15, second=0, microsecond=0)
+        for sample in states.values():
+            sample.last_updated = quarter+timedelta(seconds=1)
+        rt.refresh(quarter)
+        effective = rt.executor.effective_charger(charger)
+        self.assertEqual((effective["min_current_a"], effective["max_current_a"],
+                          effective["current_step_a"]), (6, 16, 1))
+        self.assertTrue(rt.assessment.plan.slots)
+        self.assertTrue(all(6 <= slot.current_a <= 15 for slot in rt.assessment.plan.slots))
+        await rt.executor.advance_plan(quarter)
+        self.assertEqual([call[1] for call in services.calls], ["set_value", "turn_on"])
+        self.assertTrue(rt.executor.accepted_slots())
+        self.assertEqual((await rt.executor.execute("evse", "stop"))["status"], "confirmed")
+        self.assertNotIn("min_current_a", charger)
+        self.assertNotIn("dedicated_asset_id", charger)
+        self.assertEqual((effective["phase_count"], effective["voltage_v"]), (1, 230))
+        # A fresh runtime with the unchanged existing config needs no button.
+        restarted = MultiChargeRuntime(rt.hass, rt.configuration)
+        restarted.refresh(quarter)
+        self.assertTrue(restarted.assessment.plan.slots)
+        self.assertEqual(restarted.executor.connection_confirmation(charger, quarter)["basis"],
+                         "user_assignment")
+
+    async def test_ac_defaults_respect_native_floor_and_configured_topology(self):
+        rt, states, services = rig()
+        charger = rt.configuration["chargers"][0]
+        charger.pop("phase_count", None)
+        charger.update(kind="variable_current", current_control_entity="number.limit")
+        native = state(16, "A")
+        native.attributes.update(min=2, max=16, step=1)
+        states["number.limit"] = native
+        effective = rt.executor.effective_charger(charger)
+        self.assertEqual(effective["min_current_a"], 6)
+        self.assertIsNone(effective.get("phase_count"))
+        self.assertIsNone(effective.get("voltage_v"))
+        rt.refresh()
+        self.assertEqual(rt.excluded["evse"], "ELECTRICAL_WIRING_UNVERIFIED")
+        self.assertFalse(rt.assessment.plan.slots)
+        self.assertEqual(services.calls, [])
+        charger["min_current_a"] = 2
+        charger["max_current_a"] = 16
+        self.assertEqual(rt.executor.effective_charger(charger)["min_current_a"], 6)
+        native.attributes.update(min=8)
+        self.assertEqual(rt.executor.effective_charger(charger)["min_current_a"], 8)
+        charger.update(phase_count=3, voltage_v=240)
+        effective = rt.executor.effective_charger(charger)
+        self.assertEqual((effective["phase_count"], effective["voltage_v"]), (3, 240))
+        charger.pop("phase_count")
+        charger.pop("voltage_v")
+        charger["circuit_id"] = "shared"
+        effective = rt.executor.effective_charger(charger)
+        self.assertIsNone(effective.get("phase_count"))
+        self.assertIsNone(effective.get("voltage_v"))
+        self.assertEqual(rt.executor._requested_current(effective, 8,
+                         datetime.now(timezone.utc))[0], "ELECTRICAL_WIRING_UNVERIFIED")
+        self.assertEqual(services.calls, [])
+
+    async def test_zero_origin_grid_respects_native_step_and_no_positive_range(self):
+        rt, states, services = rig()
+        charger = rt.configuration["chargers"][0]
+        charger.update(kind="variable_current", current_control_entity="number.limit")
+        native = state(16, "A")
+        native.attributes.update(min=0, max=16, step=4)
+        states["number.limit"] = native
+        effective = rt.executor.effective_charger(charger)
+        self.assertEqual((effective["min_current_a"], effective["max_current_a"],
+                          effective["current_step_a"]), (8, 16, 4))
+        native.attributes.update(max=4)
+        self.assertIsNone(rt.executor.effective_charger(charger)["min_current_a"])
+        self.assertEqual(services.calls, [])
 
     async def test_effective_current_intersects_native_and_configured_grid(self):
         rt, states, services = rig(group_kw=7.5, mode="Automatic")

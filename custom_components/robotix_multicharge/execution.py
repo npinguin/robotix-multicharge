@@ -133,7 +133,7 @@ class NativeSwitchExecutor:
             return
         # Preserve no identity on an unobserved or non-continuous transition.
         # A subsequent fresh connected reading may start a NEW plug epoch,
-        # but shared connectors still need explicit current-plug confirmation.
+        # using the current resident assignment, never a previous active session.
         self._plug_epochs.pop(uid, None)
         self._plug_confirmations.pop(uid, None)
 
@@ -175,10 +175,11 @@ class NativeSwitchExecutor:
         return changed_at
 
     def connection_confirmation(self, charger, at):
-        """Qualify a fresh plug by explicit confirmation or dedicated assignment.
+        """Associate a fresh physical plug with the user's current assignment.
 
-        A dedicated assignment is a resident declaration, not OEM identification.
-        It never substitutes for a fresh physical connection or electrical checks.
+        Assignment is the resident declaration, not OEM vehicle recognition.
+        Never carry a previous plug epoch into an active/inflight session.
+        All existing electrical, ownership, connection and readback gates apply.
         """
         uid = charger["id"]
         observed = self._connection(charger, at)
@@ -193,11 +194,12 @@ class NativeSwitchExecutor:
             asset_id = charger.get("asset")
             asset = next((a for a in self.runtime.configuration["assets"]
                           if a["id"] == asset_id), None)
-            if (not asset or asset.get("temporary")
-                    or charger.get("dedicated_asset_id") != asset_id):
+            if not asset:
+                return None
+            if asset.get("temporary") and datetime.fromisoformat(asset["expires_at"]) <= at:
                 return None
             return {"asset_id": asset_id, "connected_at": epoch,
-                    "confirmed_at": epoch, "basis": "dedicated_assignment"}
+                    "confirmed_at": epoch, "basis": "user_assignment"}
         return {**receipt, "basis": "manual_confirmation"}
 
     def confirm_current_connection(self, charger_id, *, at=None):
@@ -999,7 +1001,9 @@ class NativeSwitchExecutor:
 
 
     def effective_charger(self, charger):
-        """Use native number bounds when not declared; never persist guesses."""
+        """Intersect native setpoint grid and positive operating constraints."""
+        if charger.get("phase_ids") and charger.get("phase_count") is None:
+            charger = {**charger, "phase_count": len(charger["phase_ids"])}
         if charger["kind"] != "variable_current":
             return charger
         if not str(charger.get("current_control_entity", "")).startswith("number."):
@@ -1012,23 +1016,32 @@ class NativeSwitchExecutor:
             lo, hi, step = (float(attrs[key]) for key in ("min", "max", "step"))
             if (attrs.get("unit_of_measurement") != "A"
                     or not all(isfinite(x) for x in (lo, hi, step))
-                    or lo <= 0 or hi < lo or step <= 0 or (hi-lo)/step > 1000):
+                    or lo < 0 or hi <= 0 or hi < lo or step <= 0 or (hi-lo)/step > 1000):
                 return charger
         except (KeyError, TypeError, ValueError, OverflowError):
             return charger
+        # A nominal 1-phase/230 V forecast cannot prove installed topology.
+        # Keep unknown wiring out of physical conversion and let the existing
+        # installer setup supply the missing installation facts once.
         # Both the configured ceiling and the actual native setpoint grid
         # constrain planning. Never propose a current the executor will reject.
-        declared_min = charger.get("min_current_a", lo)
+        # Zero is a valid native setpoint, not a charging allocation. For
+        # AC EVSEs without a declared positive minimum, start at the 6 A
+        # operating floor (IEC 61851), rounded onto the actual native grid.
+        declared_min = max(6.0, lo, charger.get("min_current_a", 6.0))
         declared_max = charger.get("max_current_a", hi)
-        declared_step = charger.get("current_step_a", step)
+        declared_step = charger.get("current_step_a")
+        origin = charger.get("min_current_a", lo)
         feasible = []
         for index in range(floor((hi-lo)/step+1e-7)+1):
             current = lo+index*step
-            if current < declared_min-1e-7 or current > declared_max+1e-7:
+            if current <= 0 or current < declared_min-1e-7 or current > declared_max+1e-7:
                 continue
-            offset = (current-declared_min)/declared_step
-            if abs(offset-round(offset)) <= 1e-6:
-                feasible.append(round(current, 9))
+            if declared_step is not None:
+                offset = (current-origin)/declared_step
+                if abs(offset-round(offset)) > 1e-6:
+                    continue
+            feasible.append(round(current, 9))
         if not feasible:
             # Preserve the nominal rating for a labelled preview only.
             return {**charger, "min_current_a": None, "max_current_a": None,
@@ -1146,6 +1159,7 @@ class NativeSwitchExecutor:
         for other in cfg["chargers"]:
             if other["id"] == charger["id"]:
                 continue
+            other = self.effective_charger(other)
             power = number(self.runtime.hass, other.get("power_entity"), "power", at)
             state = self._switch(self.runtime.hass, other.get("control_entity"))
             # Use the declared rating as a reservation, not a fabricated measurement.

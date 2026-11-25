@@ -44,7 +44,7 @@ for(let index=0;index<scopeList.length;index++){
     .matchAll(/"([a-z][a-z0-9_]*)"/g)].map(match=>match[1]));
   // Legacy commissioning is a derived compatibility projection, not a UX setting.
   const missing=[...new Set(permitted)].filter(field=>!uiFields.has(field) &&
-    !(scope==="charger"&&field==="physical_commissioned"));
+    !(scope==="charger"&&["physical_commissioned","dedicated_asset_id"].includes(field)));
   assert.deepEqual(missing,[],"No "+scope+
     " configuration field may silently disappear from its logical UX object");
 }
@@ -1746,25 +1746,10 @@ async function main(){
   card._hass.language="en";card.render();
   fixture.preference_entities.chargers.drive.confirm_connection="button.drive_confirm";
   fixture.connection_identity={drive:null};
-  const pressed=[];
-  card._hass.callService=async(domain,action,args)=>{
-    pressed.push({domain,action,args});
-    if(domain!=="button"||action!=="press")
-      throw new Error("Only actual native confirm button allowed");
-    fixture.connection_identity={
-      drive:{asset_id:"car",confirmed_at:new Date().toISOString()}
-    };
-  };
   card.render();
-  assert.ok(find(card.shadowRoot,"button","Confirm connected vehicle"),
-    "Connected unidentified asset must expose a real HA-native confirmation");
-  find(card.shadowRoot,"button","Confirm connected vehicle").click();
-  await new Promise(resolve=>setImmediate(resolve));
-  assert.ok(pressed.some(c=>c.args.entity_id==="button.drive_confirm"),
-    "Confirmation invokes the owning native HA button, never frontend identity inference");
-
-  fixture.configuration.chargers[0].dedicated_asset_id="car";
-  fixture.connection_identity={drive:{asset_id:"car",basis:"dedicated_assignment"}};
+  assert.ok(!find(card.shadowRoot,"button","Confirm connected vehicle"),
+    "Normal resident surfaces must never require an extra confirmation");
+  fixture.connection_identity={drive:{asset_id:"car",basis:"user_assignment"}};
   const statusEvse=fixture.configuration.chargers[0], statusVehicle=fixture.configuration.assets[0];
   const originalStates=fixture.charger_states;
   const originalPower=fixture.observations.chargers.drive.power_kw;
@@ -1789,10 +1774,9 @@ async function main(){
   for(const tab of ["Overview","Chargeable Assets","Chargers"]){
     card._tab=tab;card.render();
     assert.ok(!find(card.shadowRoot,"button","Confirm connected vehicle"),
-      "Dedicated physical identity must not require repeated action on "+tab);
-    assert.ok(content(card.shadowRoot).includes("Fixed assignment"));
+      "Ordinary assignment must not require repeated action on "+tab);
+    assert.ok(!content(card.shadowRoot).includes("Use fixed assignment"));
   }
-  delete fixture.configuration.chargers[0].dedicated_asset_id;
   fixture.connection_identity={drive:null};
   fixture.observations.chargers.drive.connected={quality:"ok",value:false};
   card._tab="Chargers";card.render();

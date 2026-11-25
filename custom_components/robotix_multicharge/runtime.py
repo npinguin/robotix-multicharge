@@ -742,13 +742,20 @@ class MultiChargeRuntime:
             # An Active, confirmed charger without electrical conversion
             # can still show a rated-kW preview, never a guessed current.
             capability_unverified = missing_current_conversion(chargers[uid])
+            capability_reason = (
+                "ELECTRICAL_WIRING_UNVERIFIED"
+                if all(raw.get(field) is not None for field in
+                       ("min_current_a", "max_current_a", "current_step_a"))
+                and (raw.get("phase_count") is None or raw.get("voltage_v") is None)
+                else "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED"
+            )
             if disconnected or inactive or identity_unconfirmed or capability_unverified:
                 if disconnected:
                     self.executor.connection_confirmation(raw, at)
                 self.excluded[uid] = (
                     "DISCONNECTED" if disconnected else "CHARGER_INACTIVE" if inactive
                     else "CURRENT_PLUG_ASSET_UNCONFIRMED" if identity_unconfirmed
-                    else "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED"
+                    else capability_reason
                 )
                 indicative_demands.append(request)
                 self.forecast_assumptions[uid] = {
@@ -970,7 +977,9 @@ class MultiChargeRuntime:
             elif conditional and not self.forecast_assumptions[uid]["power_capability_verified"]:
                 # A conservative minimum-power preview is useful for orientation,
                 # but assumed electrical conversion cannot qualify the deadline.
-                status, reason = "cannot_assess", "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED"
+                status, reason = "cannot_assess", self.excluded.get(uid, "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED")
+                if reason not in ("ELECTRICAL_WIRING_UNVERIFIED", "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED"):
+                    reason = "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED"
                 shortfall = None
             elif reason == "PROPOSED" and coverage == "COMPLETE":
                 status = "achievable" if due is not None and setting["mode"] != "Force Charge" and not recovery else "planned"

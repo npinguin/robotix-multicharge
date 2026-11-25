@@ -546,6 +546,8 @@ def validate_configuration(value):
                 ):
                     raise ValueError("charger.phase_ids: expected unique L1/L2/L3")
                 charger["phase_ids"] = list(phases)
+                if charger.get("phase_count") is None:
+                    charger["phase_count"] = len(phases)
             if source.get("circuit_id"):
                 charger["circuit_id"] = _text(source["circuit_id"], "charger.circuit_id")
             if owner == "multicharge" and source["kind"] == "variable_current":

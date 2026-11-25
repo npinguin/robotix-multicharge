@@ -2182,9 +2182,10 @@ async def test_native_state_events_invalidate_identity_on_fast_replug(hass: Home
     hass.states.async_set("sensor.real_status", "Available")
     hass.states.async_set("sensor.real_status", "Preparing")
     await hass.async_block_till_done()
-    assert runtime.executor.connection_confirmation(
-        charger, datetime.now(timezone.utc)
-    ) is None, "Observed physical disconnect invalidates previous Asset"
+    replugged = runtime.executor.connection_confirmation(charger, datetime.now(timezone.utc))
+    assert replugged is not None
+    assert replugged["connected_at"] != original_epoch
+    assert replugged["basis"] == "user_assignment"
     runtime.refresh()
     assert not runtime.assessment.plan.slots
     assert runtime.executor.snapshot() == {} or all(

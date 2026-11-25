@@ -81,6 +81,16 @@ def build_diagnostics(runtime, entry, captured_at=None):
             "kind": item["kind"],
             "rated_power_kw": item["rated_power_kw"],
             "voltage_v": item.get("voltage_v"),
+            "effective_electrical": {
+                key: runtime.executor.effective_charger(item).get(key)
+                for key in ("phase_count", "voltage_v")
+            },
+            "electrical_basis": {
+                key: ("configured" if item.get(key) is not None
+                      else "phase_ids" if key == "phase_count" and item.get("phase_ids")
+                      else "unknown")
+                for key in ("phase_count", "voltage_v")
+            },
             "configured_current": {key: item.get(key) for key in ("min_current_a", "max_current_a", "current_step_a")},
             "effective_current": {key: runtime.executor.effective_charger(item).get(key) for key in ("min_current_a", "max_current_a", "current_step_a")},
             "min_charging_power_kw": item.get("min_charging_power_kw"),
