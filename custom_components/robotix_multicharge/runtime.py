@@ -68,6 +68,7 @@ class MultiChargeRuntime:
         self._daily_costs = {}
         self._archive_checked_days = set()
         self._archive_partial = {}
+        self._archive_pending = {}
         self._closed_cost_days = set()
         self.statistics_namespace = None
         self._session_cost_identity = None
@@ -113,6 +114,7 @@ class MultiChargeRuntime:
         self._archive_checked_days.intersection_update(days)
         self._closed_cost_days.intersection_update(days)
         self._archive_partial = {day: row for day, row in self._archive_partial.items() if day in days}
+        self._archive_pending = {day: row for day, row in self._archive_pending.items() if day in days}
         common = dict(
             session_receipts=receipts, price_slots=self.price_slots,
             power_bindings=self.power_bindings, energy_bindings=self.energy_bindings,
@@ -154,6 +156,32 @@ class MultiChargeRuntime:
                     elif pieces:
                         self._archive_partial[day] = pieces
 
+        # Confirm queued native statistics before declaring retention complete.
+        # Retain the exact original derived slices in memory until readback;
+        # retries never recalculate them using a newer tariff or owner.
+        retry_day = next(iter(self._archive_pending), None)
+        if retry_day is not None:
+            queued = self._archive_pending[retry_day]
+            restored = await read_archive(
+                self.hass, self.statistics_namespace, {retry_day: days[retry_day]},
+                cfg, self.power_bindings, receipts,
+            )
+            if not self.active or identity != self._current_session_cost_identity():
+                return
+            if restored is not None:
+                missing_rows = {key: row for key, row in queued.items() if key not in restored}
+                if not missing_rows:
+                    self._archive_pending.pop(retry_day, None)
+                else:
+                    try:
+                        write_archive(self.hass, self.statistics_namespace,
+                                      hour_slices(*days[retry_day]), missing_rows)
+                    except (ImportError, RuntimeError, ValueError, OSError):
+                        _LOGGER.exception("Native charging cost retention retry failed")
+                    # Rotate, so one failed day does not starve other readbacks.
+                    self._archive_pending.pop(retry_day)
+                    self._archive_pending[retry_day] = missing_rows
+
         missing = next((day for day in reversed(days) if day != today
                         and day not in self._closed_cost_days
                         and day in self._archive_checked_days), None)
@@ -175,6 +203,7 @@ class MultiChargeRuntime:
                         row["controller"]["site"]["observed_seconds"] > 0 for row in older.values()):
                     # Native rows already recovered are immutable; only absent
                     # slices are written. Never rewrite them from today's tariff.
+                    self._archive_pending[missing] = older
                     try:
                         write_archive(self.hass, self.statistics_namespace, pending, older)
                     except (ImportError, RuntimeError, ValueError, OSError):

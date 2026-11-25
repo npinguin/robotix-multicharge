@@ -1478,6 +1478,22 @@ class RobotixMultiChargeCard extends HTMLElement {
           "Unassign the other vehicle first":
         (detail.includes("STALE_SETTINGS_REFRESH")||detail.includes("stale_settings"))?
           "Settings changed; refresh and retry":
+        detail.includes("STRUCTURAL_SAVE_REQUIRES_IDLE")?
+          "Stop all managed chargers and verify idle power before changing electrical wiring or sources":
+        detail.includes("SETTINGS_CONTROL_RECONCILIATION_REQUIRED")?
+          "Reconcile outstanding charging commands before changing configuration":
+        detail.includes("SETTINGS_PERSISTENCE_UNAVAILABLE")?
+          "Settings could not be persisted; existing configuration retained":
+        detail.includes("CHARGER_POWER_ENVELOPE_INVALID")?
+          "Minimum and maximum power must fit the declared charger capacity":
+        detail.includes("CHARGER_POWER_STEP_INVALID")?
+          "No supported current step fits the configured power range":
+        detail.includes("CHARGER_VOLTAGE_INVALID")?
+          "Check the declared voltage per phase":
+        detail.includes("CHARGER_PHASE_COUNT_INVALID")||detail.includes("CHARGER_PHASE_MAPPING_INVALID")?
+          "Check phase count and phase mapping":
+        detail.includes("DEDICATED_ASSIGNMENT_INVALID")?
+          "Fixed assignment requires a permanent selected vehicle and connection source":
         detail.includes("SETTINGS_REJECTED")?
           "Settings rejected; check source, value and physical idle status":
           "Settings unavailable; check permissions, sources and connection";
@@ -3291,7 +3307,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     const grid=mcEl("div","session-metrics");
     const metrics=[
       [typeof meter!=="number"&&typeof derived==="number"?"Power-derived energy":"Measured energy",num(meter??derived,"kWh")],
-      ["Duration",num(duration,"min",0)],
+      ["Duration",typeof duration==="number"&&duration>0&&duration<1?
+        num(Math.max(1,Math.round(duration*60)),"s",0):num(duration,"min",1)],
       ["Average power",num(avg,"kW")],["Peak power",num(row.peak_power_kw,"kW")],
       [typeof row.cost==="number"?"Verified energy cost":typeof row.estimated_variable_cost==="number"?"Indicative variable energy cost":"Estimated energy cost",
         num(row.cost??row.estimated_cost??row.estimated_variable_cost,
@@ -3583,7 +3600,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(this.canManage()&&!c.asset){
         // One user goal, one input, one command. All readiness is server-owned.
         const oneOff=mcEl("div","details");
-        oneOff.append(mcEl("h4","",mcTr("Manual one-off charge")));
+
         const draft=this._manualDrafts[c.id]||{kind:"duration",duration:"",energy:"",budget:""};
         this._manualDrafts[c.id]=draft;
         const goal=this.field(oneOff,mcTr("Charging goal"),draft.kind,null,[
@@ -3621,7 +3638,8 @@ class RobotixMultiChargeCard extends HTMLElement {
         amount.addEventListener("input",()=>{draft[draft.kind]=amount.value;updateGoal();});
         updateGoal();
         oneOff.append(submit,availability);
-        card.append(oneOff);
+        this.disclosure(card,"charger:"+c.id+":one-off","Manual one-off charge",oneOff,
+          reason==="READY"?"":mcTr("Start unavailable")+" · "+mcReason(reason));
       }
       if(!capability.start_allowed && capability.reason && c.asset)
         card.append(mcEl("p","muted small",mcTr("Unavailable")+" · "+mcReason(capability.reason)));
