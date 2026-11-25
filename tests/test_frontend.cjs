@@ -44,7 +44,7 @@ for(let index=0;index<scopeList.length;index++){
     .matchAll(/"([a-z][a-z0-9_]*)"/g)].map(match=>match[1]));
   // Legacy commissioning is a derived compatibility projection, not a UX setting.
   const missing=[...new Set(permitted)].filter(field=>!uiFields.has(field) &&
-    !(scope==="charger"&&field==="physical_commissioned"));
+    !(scope==="charger"&&["physical_commissioned","dedicated_asset_id"].includes(field)));
   assert.deepEqual(missing,[],"No "+scope+
     " configuration field may silently disappear from its logical UX object");
 }

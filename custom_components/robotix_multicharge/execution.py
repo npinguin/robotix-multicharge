@@ -1001,7 +1001,9 @@ class NativeSwitchExecutor:
 
 
     def effective_charger(self, charger):
-        """Use native number bounds when not declared; never persist guesses."""
+        """Intersect native setpoint grid and positive operating constraints."""
+        if charger.get("phase_ids") and charger.get("phase_count") is None:
+            charger = {**charger, "phase_count": len(charger["phase_ids"])}
         if charger["kind"] != "variable_current":
             return charger
         if not str(charger.get("current_control_entity", "")).startswith("number."):
@@ -1014,23 +1016,29 @@ class NativeSwitchExecutor:
             lo, hi, step = (float(attrs[key]) for key in ("min", "max", "step"))
             if (attrs.get("unit_of_measurement") != "A"
                     or not all(isfinite(x) for x in (lo, hi, step))
-                    or lo <= 0 or hi < lo or step <= 0 or (hi-lo)/step > 1000):
+                    or lo < 0 or hi <= 0 or hi < lo or step <= 0 or (hi-lo)/step > 1000):
                 return charger
         except (KeyError, TypeError, ValueError, OverflowError):
             return charger
         # Both the configured ceiling and the actual native setpoint grid
         # constrain planning. Never propose a current the executor will reject.
-        declared_min = charger.get("min_current_a", lo)
+        # Zero is a valid native setpoint, not a charging allocation. For
+        # AC EVSEs without a declared positive minimum, start at the 6 A
+        # operating floor (IEC 61851), rounded onto the actual native grid.
+        declared_min = charger.get("min_current_a", lo if lo > 0 else 6.0)
         declared_max = charger.get("max_current_a", hi)
-        declared_step = charger.get("current_step_a", step)
+        declared_step = charger.get("current_step_a")
+        origin = charger.get("min_current_a", lo)
         feasible = []
         for index in range(floor((hi-lo)/step+1e-7)+1):
             current = lo+index*step
-            if current < declared_min-1e-7 or current > declared_max+1e-7:
+            if current <= 0 or current < declared_min-1e-7 or current > declared_max+1e-7:
                 continue
-            offset = (current-declared_min)/declared_step
-            if abs(offset-round(offset)) <= 1e-6:
-                feasible.append(round(current, 9))
+            if declared_step is not None:
+                offset = (current-origin)/declared_step
+                if abs(offset-round(offset)) > 1e-6:
+                    continue
+            feasible.append(round(current, 9))
         if not feasible:
             # Preserve the nominal rating for a labelled preview only.
             return {**charger, "min_current_a": None, "max_current_a": None,

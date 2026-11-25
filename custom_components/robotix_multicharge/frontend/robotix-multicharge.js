@@ -2565,7 +2565,7 @@ class RobotixMultiChargeCard extends HTMLElement {
           mcOwnerReadValue(record[field],field,this._data?.timezone)));
       line.append(info);
       const key=scope+":"+record.id+":"+field;
-      if(this.canEditSettings()&&!["id","physical_commissioned"].includes(field)&&
+      if(this.canEditSettings()&&!["id","physical_commissioned","dedicated_asset_id"].includes(field)&&
           !(scope==="charger"&&primaryFields.includes(field))){
         const edit=mcButton(mcTr("Edit"),()=>{
           if(primaryFields.includes(field)){
@@ -2602,7 +2602,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     }
     // A newly supported source key may never disappear during a version
     // upgrade just because the bundled frontend is older than the backend.
-    const extra=Object.keys(record).filter(key=>!covered.has(key)&&!(scope==="charger"&&["physical_commissioned","dedicated_asset_id"].includes(key)));
+    const extra=Object.keys(record).filter(key=>!covered.has(key)&&!(scope==="charger"&&key==="physical_commissioned"));
     if(extra.length)fold("Additional owner settings",extra,
       scope+":"+record.id+":additional");
     wrapper.append(mcEl("p","muted small",

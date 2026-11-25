@@ -1519,6 +1519,45 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(states["switch.evse_control"].state, "on")
         self.assertEqual((await rt.executor.execute("evse", "stop"))["status"], "confirmed")
 
+    async def test_zero_origin_native_current_starts_without_extra_resident_action(self):
+        rt, states, services = rig(group_kw=3.6, mode="Automatic")
+        charger = rt.configuration["chargers"][0]
+        charger.update(kind="variable_current", rated_power_kw=3.6,
+                       voltage_v=230, current_control_entity="number.charge_limit")
+        native = state(16, "A")
+        native.attributes.update(min=0, max=16, step=1)
+        states["number.charge_limit"] = native
+        at = datetime.now(timezone.utc)
+        quarter = at.replace(minute=at.minute//15*15, second=0, microsecond=0)
+        for sample in states.values():
+            sample.last_updated = quarter+timedelta(seconds=1)
+        rt.refresh(quarter)
+        effective = rt.executor.effective_charger(charger)
+        self.assertEqual((effective["min_current_a"], effective["max_current_a"],
+                          effective["current_step_a"]), (6, 16, 1))
+        self.assertTrue(rt.assessment.plan.slots)
+        self.assertTrue(all(6 <= slot.current_a <= 15 for slot in rt.assessment.plan.slots))
+        await rt.executor.advance_plan(quarter)
+        self.assertEqual([call[1] for call in services.calls], ["set_value", "turn_on"])
+        self.assertTrue(rt.executor.accepted_slots())
+        self.assertEqual((await rt.executor.execute("evse", "stop"))["status"], "confirmed")
+        self.assertNotIn("min_current_a", charger)
+        self.assertNotIn("dedicated_asset_id", charger)
+
+    async def test_zero_origin_grid_respects_native_step_and_no_positive_range(self):
+        rt, states, services = rig()
+        charger = rt.configuration["chargers"][0]
+        charger.update(kind="variable_current", current_control_entity="number.limit")
+        native = state(16, "A")
+        native.attributes.update(min=0, max=16, step=4)
+        states["number.limit"] = native
+        effective = rt.executor.effective_charger(charger)
+        self.assertEqual((effective["min_current_a"], effective["max_current_a"],
+                          effective["current_step_a"]), (8, 16, 4))
+        native.attributes.update(max=4)
+        self.assertIsNone(rt.executor.effective_charger(charger)["min_current_a"])
+        self.assertEqual(services.calls, [])
+
     async def test_effective_current_intersects_native_and_configured_grid(self):
         rt, states, services = rig(group_kw=7.5, mode="Automatic")
         charger = rt.configuration["chargers"][0]
