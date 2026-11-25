@@ -1156,7 +1156,7 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
 
             @classmethod
             def now(cls, tz=None):
-                return cls.current.astimezone(tz) if tz else cls.current.replace(tzinfo=None)
+                return cls.fromtimestamp(cls.current.timestamp(), tz)
 
         with patch.object(execution, "datetime", Clock), patch.object(runtime, "datetime", Clock), \
                 patch.dict(globals(), {"datetime": Clock}):
@@ -1187,7 +1187,7 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
             states["sensor.capacity"] = envelope
             rt.configuration = validate_configuration(rt.configuration)
             rt.executor._plug_confirmations.clear()
-            states["binary_sensor.cable"].last_changed = quarter
+            states["binary_sensor.cable"].last_changed = Clock.fromtimestamp(quarter.timestamp(), timezone.utc)
 
             async def tick(minute, *, admit=False):
                 Clock.current = quarter+timedelta(minutes=minute, seconds=2)
