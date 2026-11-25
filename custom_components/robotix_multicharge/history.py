@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from bisect import bisect_left, bisect_right
 from copy import deepcopy
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 from math import isfinite
 
 QUARTER = timedelta(minutes=15)
@@ -783,6 +784,256 @@ def session_costs(receipts, active_sessions, observed, estimates, metrics):
                     "average_price_per_kwh": round(cost/energy, 6) if cost is not None and energy else None,
                     "session_count": len(rows),
                 }
+    return result
+
+
+def civil_cost_days(at, zone):
+    """Exact UTC boundaries of local civil days in the current calendar year."""
+    local = at.astimezone(ZoneInfo(zone))
+    day = local.date().replace(month=1, day=1)
+    result = {}
+    while day <= local.date():
+        start = datetime.combine(day, time.min, local.tzinfo).astimezone(timezone.utc)
+        end = datetime.combine(day+timedelta(days=1), time.min, local.tzinfo).astimezone(timezone.utc)
+        result[day.isoformat()] = (start, min(end, at))
+        day += timedelta(days=1)
+    return result
+
+
+def _cost_bucket():
+    return {"expected_seconds": 0.0, "observed_seconds": 0.0,
+            "observed_energy_kwh": 0.0, "unpriced_energy_kwh": 0.0,
+            "unattributed_energy_kwh": 0.0, "valuations": {}}
+
+
+def _add_cost_bucket(target, source):
+    for key in target.keys() - {"valuations"}:
+        target[key] += source[key]
+    for key, value in source["valuations"].items():
+        bucket = target["valuations"].setdefault(key, [0.0, 0.0])
+        bucket[0] += value[0]
+        bucket[1] += value[1]
+
+
+def _power_spans(states, first, last):
+    """Partition a bounded native source timeline into known and unknown spans.
+
+    A state can support at most MAX_OBSERVATION_AGE after its last update.
+    Missing or duplicate conflicting readings remain explicit gaps.
+    """
+    samples = {}
+    for row in states:
+        reading = _sample(row)
+        if reading is None:
+            continue
+        stamp, value = reading
+        if stamp in samples and samples[stamp] != value:
+            samples[stamp] = None
+        else:
+            samples[stamp] = value
+    stamps = sorted(samples)
+    edges = sorted({first, last} | {edge for stamp in stamps
+                    for edge in (stamp, stamp+MAX_OBSERVATION_AGE)
+                    if first < edge < last})
+    spans = []
+    for a, b in zip(edges, edges[1:]):
+        index = bisect_right(stamps, a)-1
+        value = None
+        if index >= 0 and b-stamps[index] <= MAX_OBSERVATION_AGE:
+            value = samples[stamps[index]]
+        spans.append((a, b, value))
+    return spans
+
+
+def _price_spans(quotes, first, last):
+    """Qualified, unique source quote at each boundary, including explicit gaps."""
+    rows = []
+    for row in quotes:
+        try:
+            a = row.start.astimezone(timezone.utc)
+            b = row.end.astimezone(timezone.utc)
+            if (row.start.utcoffset() is None or row.end.utcoffset() is None
+                    or b <= a or row.basis not in ("effective", "spot", "variable_reference")
+                    or not isfinite(row.effective_price_per_kwh) or not row.currency):
+                continue
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            continue
+        if a < last and b > first:
+            rows.append((a, b, row))
+    edges = sorted({first, last} | {edge for a, b, _ in rows
+                                  for edge in (a, b) if first < edge < last})
+    result = []
+    for a, b in zip(edges, edges[1:]):
+        found = [row for left, right, row in rows if left <= a and right >= b]
+        result.append((a, b, found[0] if len(found) == 1 else None))
+    return result
+
+
+def daily_costs(historical, bindings, configuration, first, last, quotes,
+                receipts=(), active_sessions=None):
+    """Project one civil day from native power and the original tariff intervals.
+
+    Every physical span is counted once at Charger/Site, then attributed to
+    an asset only on a confirmed session interval. No session-average
+    proration, assumed idle, duplicated native ledger or current assignment.
+    """
+    cfg_chargers = {row["id"] for row in configuration["chargers"]}
+    cfg_assets = {row["id"] for row in configuration["assets"]}
+    groups = {"controller": {"site": _cost_bucket()}, "charger": {},
+              "asset": {uid: _cost_bucket() for uid in cfg_assets}}
+    if last <= first:
+        return groups
+    price_spans = _price_spans(quotes, first, last)
+    price_edges = [row[0] for row in price_spans]
+    sessions = {}
+    for row in (*receipts, *(dict(row, charger_id=uid)
+                              for uid, row in (active_sessions or {}).items())):
+        if not row.get("asset_id") or (row.get("ended_at") is not None
+                and row.get("physical_stop_confirmed") is not True):
+            continue
+        try:
+            a = datetime.fromisoformat(row["started_at"]).astimezone(timezone.utc)
+            b = datetime.fromisoformat(row["ended_at"]).astimezone(timezone.utc) if row.get("ended_at") else last
+            if a < b and a < last and b > first:
+                sessions.setdefault(row["charger_id"], []).append((a, b, row["asset_id"]))
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+
+    power_cache = {}
+    for uid in sorted(cfg_chargers | set(bindings)):
+        bucket = groups["charger"].setdefault(uid, _cost_bucket())
+        epochs = bindings.get(uid, ()) or ({"start": None, "entity": None},)
+        attribution = sessions.get(uid, ())
+        owner_edges = sorted({edge for a, b, _ in attribution for edge in (a, b)
+                              if first < edge < last})
+        for i, epoch in enumerate(epochs):
+            start = max(first, datetime.fromisoformat(epoch["start"])) if epoch["start"] else first
+            end = min(last, datetime.fromisoformat(epochs[i+1]["start"])) if i+1 < len(epochs) else last
+            entity = epoch["entity"]
+            if start >= end:
+                continue
+            # A retired charger's final None epoch is a deletion tombstone,
+            # while a configured charger without a source is missing evidence.
+            if not entity and uid not in cfg_chargers and i+1 == len(epochs):
+                continue
+            bucket["expected_seconds"] += (end-start).total_seconds()
+            if not entity:
+                continue
+            if entity not in power_cache:
+                spans = _power_spans(historical.get(entity, ()), first, last)
+                power_cache[entity] = (spans, [row[0] for row in spans])
+            spans, span_edges = power_cache[entity]
+            index = max(0, bisect_right(span_edges, start)-1)
+            for left, right, power in spans[index:]:
+                if left >= end:
+                    break
+                a, b = max(left, start), min(right, end)
+                if a >= b or power is None:
+                    continue
+                bucket["observed_seconds"] += (b-a).total_seconds()
+                if power == 0:
+                    continue  # proven idle does not require a tariff
+                # Split at exact physical/session/tariff boundaries; the
+                # measured power remains constant only inside this span.
+                edges = sorted({a, b} | {
+                    edge for edge in owner_edges[bisect_right(owner_edges, a):bisect_left(owner_edges, b)]
+                } | {
+                    edge for edge in price_edges[bisect_right(price_edges, a):bisect_left(price_edges, b)]
+                })
+                for x, y in zip(edges, edges[1:]):
+                    energy = power*(y-x).total_seconds()/3600
+                    matching = [asset for since, until, asset in attribution
+                                if since <= x and until >= y]
+                    asset = matching[0] if len(matching) == 1 else None
+                    price_index = bisect_right(price_edges, x)-1
+                    price = price_spans[price_index][2] if price_index >= 0 else None
+                    targets = [bucket]
+                    if asset is not None:
+                        targets.append(groups["asset"].setdefault(asset, _cost_bucket()))
+                    else:
+                        bucket["unattributed_energy_kwh"] += energy
+                    for target in targets:
+                        target["observed_energy_kwh"] += energy
+                        if price is None:
+                            target["unpriced_energy_kwh"] += energy
+                        else:
+                            key = (price.currency, price.basis)
+                            value = target["valuations"].setdefault(key, [0.0, 0.0])
+                            value[0] += energy*price.effective_price_per_kwh
+                            value[1] += energy
+        _add_cost_bucket(groups["controller"]["site"], bucket)
+    # Asset attribution completeness depends on all site observations, not
+    # only the periods where an asset could already be identified.
+    site = groups["controller"]["site"]
+    for bucket in groups["asset"].values():
+        bucket["expected_seconds"] = site["expected_seconds"]
+        bucket["observed_seconds"] = site["observed_seconds"]
+        bucket["unattributed_energy_kwh"] = site["unattributed_energy_kwh"]
+    return groups
+
+
+def civil_period_costs(days, available):
+    """Merge day evidence without inventing missing dates, currency or prices."""
+    if not days:
+        return {}
+    today = next(reversed(days))
+    periods = {
+        "today": [today],
+        "month": [day for day in days if day[:7] == today[:7]],
+        "year": list(days),
+    }
+    owners = {"controller": {"site"}, "charger": set(), "asset": set()}
+    for day in available.values():
+        for kind, values in day.items():
+            owners[kind].update(values)
+    result = {kind: {} for kind in owners}
+    for kind, ids in owners.items():
+        for uid in ids:
+            result[kind][uid] = {}
+            for period, keys in periods.items():
+                bucket = _cost_bucket()
+                present = 0
+                for day in keys:
+                    if day not in available:
+                        continue
+                    present += 1
+                    daily = available[day].get(kind, {}).get(uid)
+                    if daily is not None:
+                        _add_cost_bucket(bucket, daily)
+                    elif kind == "asset":
+                        site = available[day]["controller"]["site"]
+                        bucket["expected_seconds"] += site["expected_seconds"]
+                        bucket["observed_seconds"] += site["observed_seconds"]
+                        bucket["unattributed_energy_kwh"] += site["unattributed_energy_kwh"]
+                values = bucket["valuations"]
+                currency, basis = next(iter(values)) if len(values) == 1 else (None, None)
+                covered_cost, covered_energy = values[(currency, basis)] if currency else (None, None)
+                complete = (present == len(keys)
+                            and abs(bucket["expected_seconds"]-bucket["observed_seconds"]) < 0.001
+                            and bucket["unpriced_energy_kwh"] < 0.000001
+                            and (kind != "asset" or bucket["unattributed_energy_kwh"] < 0.000001)
+                            and bucket["expected_seconds"] > 0)
+                row = {
+                    "start": days[keys[0]][0].isoformat(),
+                    "end": days[keys[-1]][1].isoformat(),
+                    "days_available": present, "days_expected": len(keys),
+                    "cost": round(covered_cost, 6) if complete and covered_cost is not None else None,
+                    "covered_cost": round(covered_cost, 6) if covered_cost is not None else None,
+                    "covered_energy_kwh": round(covered_energy, 6) if covered_energy is not None else None,
+                    "observed_energy_kwh": round(bucket["observed_energy_kwh"], 6),
+                    "unpriced_energy_kwh": round(bucket["unpriced_energy_kwh"], 6),
+                    "unattributed_energy_kwh": round(bucket["unattributed_energy_kwh"], 6),
+                    "observed_seconds": round(bucket["observed_seconds"], 3),
+                    "expected_seconds": round(bucket["expected_seconds"], 3),
+                    "currency": currency, "basis": basis,
+                    "average_price_per_kwh": round(covered_cost/covered_energy, 6)
+                        if covered_cost is not None and covered_energy else None,
+                    "quality": ("qualified_reference_estimate" if complete and currency else
+                                "no_charging" if complete and not values else
+                                "mixed_price_basis_or_currency" if len(values) > 1 else
+                                "partial_coverage" if present else "history_pending"),
+                }
+                result[kind][uid][period] = row
     return result
 
 

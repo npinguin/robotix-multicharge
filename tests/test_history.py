@@ -98,6 +98,75 @@ class NativeMeasuredHistoryTests(unittest.TestCase):
         self.assertNotIn("car", result["asset"])
         self.assertIn("last", result["charger"]["drive"])
 
+    def test_civil_day_costs_split_actual_session_and_tariff_boundaries(self):
+        start = NOW-timedelta(minutes=30)
+        mid = start+timedelta(minutes=10)
+        remap = start+timedelta(minutes=20)
+        config = {"chargers": [{"id": "a"}, {"id": "b"}],
+                  "assets": [{"id": "old"}, {"id": "new"}]}
+        bindings = {"a": [{"start": None, "entity": "sensor.a"}],
+                    "b": [{"start": None, "entity": "sensor.b"}]}
+        states = {"sensor.a": [recorded(start, 3000), recorded(mid, 6000), recorded(remap, 0)],
+                  "sensor.b": [recorded(start, 0), recorded(remap, 3000)]}
+        quotes = [self._price(start, remap, 0.2, basis="spot"),
+                  self._price(remap, NOW, -0.1, basis="spot")]
+        receipts = [{"charger_id": "a", "asset_id": "old", "started_at": start.isoformat(),
+                     "ended_at": mid.isoformat(), "physical_stop_confirmed": True},
+                    {"charger_id": "a", "asset_id": "new", "started_at": mid.isoformat(),
+                     "ended_at": remap.isoformat(), "physical_stop_confirmed": True}]
+        result = mod.daily_costs(states, bindings, config, start, NOW, quotes, receipts)
+        key = ("EUR", "spot")
+        self.assertAlmostEqual(result["charger"]["a"]["valuations"][key][0], 0.3)
+        self.assertAlmostEqual(result["charger"]["b"]["valuations"][key][0], -0.05)
+        self.assertAlmostEqual(result["controller"]["site"]["valuations"][key][0], 0.25)
+        self.assertAlmostEqual(result["asset"]["old"]["valuations"][key][0], 0.1)
+        self.assertAlmostEqual(result["asset"]["new"]["valuations"][key][0], 0.2)
+        self.assertAlmostEqual(result["controller"]["site"]["unattributed_energy_kwh"], 0.5)
+        days = {"2026-11-21": (start-timedelta(days=1), start),
+                "2026-11-22": (start, NOW)}
+        periods = mod.civil_period_costs(days, {"2026-11-22": result})
+        site = periods["controller"]["site"]
+        self.assertAlmostEqual(site["today"]["cost"], 0.25)
+        self.assertAlmostEqual(site["today"]["average_price_per_kwh"], 0.125)
+        self.assertIsNone(site["month"]["cost"])
+        self.assertAlmostEqual(site["month"]["covered_cost"], 0.25)
+        self.assertIsNone(periods["asset"]["old"]["today"]["cost"])
+        self.assertAlmostEqual(periods["asset"]["old"]["today"]["covered_cost"], 0.1)
+
+    def test_civil_cost_days_respect_dst_and_missing_measurements(self):
+        at = datetime(2026, 10, 26, 11, tzinfo=timezone.utc)
+        days = mod.civil_cost_days(at, "Europe/Brussels")
+        start, end = days["2026-10-25"]
+        self.assertEqual(end-start, timedelta(hours=25))
+        self.assertEqual(days["2026-10-26"][1], at)
+        config = {"chargers": [{"id": "a"}], "assets": []}
+        binding = {"a": [{"start": None, "entity": "sensor.a"}]}
+        result = mod.daily_costs({"sensor.a": [recorded(start, 2000)]}, binding,
+                                 config, start, end, [self._price(start, end, 0.2)])
+        day = result["controller"]["site"]
+        self.assertEqual(day["observed_seconds"], 1800)
+        self.assertEqual(day["expected_seconds"], 25*3600)
+        self.assertAlmostEqual(day["valuations"][("EUR", "effective")][0], 0.2)
+        period = mod.civil_period_costs({"2026-10-25": (start, end)}, {"2026-10-25": result})
+        self.assertIsNone(period["controller"]["site"]["today"]["cost"])
+        self.assertAlmostEqual(period["controller"]["site"]["today"]["covered_cost"], 0.2)
+
+    def test_civil_costs_do_not_combine_currencies_or_missing_tariff(self):
+        start = NOW-timedelta(minutes=30)
+        mid = start+timedelta(minutes=15)
+        config = {"chargers": [{"id": "a"}], "assets": []}
+        bindings = {"a": [{"start": None, "entity": "sensor.a"}]}
+        states = {"sensor.a": [recorded(start, 4000), recorded(mid, 4000)]}
+        for quotes, quality in (
+            ([self._price(start, mid, 0.2)], "partial_coverage"),
+            ([self._price(start, mid, 0.2), self._price(mid, NOW, 0.3, currency="USD")],
+             "mixed_price_basis_or_currency"),
+        ):
+            day = mod.daily_costs(states, bindings, config, start, NOW, quotes)
+            result = mod.civil_period_costs({"2026-11-22": (start, NOW)}, {"2026-11-22": day})
+            self.assertIsNone(result["controller"]["site"]["today"]["cost"])
+            self.assertEqual(result["controller"]["site"]["today"]["quality"], quality)
+
     def test_historical_attribution_uses_session_at_time_not_new_assignment(self):
         beginning = NOW - timedelta(minutes=45)
         receipts = [{
