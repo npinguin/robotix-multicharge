@@ -26,18 +26,7 @@ from multicharge_runtime_test.configuration import default_configuration, valida
 from multicharge_runtime_test.runtime import MultiChargeRuntime as _ProductionRuntime  # noqa: E402
 
 
-class MultiChargeRuntime(_ProductionRuntime):
-    """Source tests explicitly acknowledge the selected car as the test operator."""
-
-    def __init__(self, hass, config):
-        super().__init__(hass, config)
-        if hass is None:
-            return
-        for charger in config["chargers"]:
-            source = hass.states.get(charger.get("connected_entity"))
-            if (source is not None and source.state in ("on", "connected")
-                    and charger.get("asset")):
-                self.executor.confirm_current_connection(charger["id"], at=NOW)
+MultiChargeRuntime = _ProductionRuntime
 
 NOW = datetime(2026, 11, 22, 12, tzinfo=timezone.utc)
 
@@ -69,33 +58,25 @@ def sample():
 
 
 class RuntimeTests(unittest.TestCase):
-    def test_current_plug_identity_must_be_explicit_for_active_plan(self):
+    def test_assigned_vehicle_plans_on_fresh_connection_without_extra_confirmation(self):
         config = sample()
-        observations = {
-            "sensor.soc": state("65", "%"),
-            "sensor.power": state("0", "W"),
-            "binary_sensor.cable": state("on"),
-        }
-        rt = _ProductionRuntime(
-            SimpleNamespace(states=SimpleNamespace(get=observations.get)), config
-        )
-        rt.refresh(NOW)
-        self.assertFalse(rt.assessment.plan.slots)
-        self.assertEqual(rt.excluded["drive"], "CURRENT_PLUG_ASSET_UNCONFIRMED")
-        self.assertTrue(rt.forecast_assessment.plan.slots)
-        self.assertEqual(rt.goal_assessments["drive"]["status"], "achievable")
-        self.assertEqual(rt.goal_assessments["drive"]["assumption"], "IF_SELECTED_VEHICLE_CONFIRMED")
-        self.assertTrue(rt.goal_assessments["drive"]["conditional"])
-        self.assertEqual(
-            rt.executor.confirm_current_connection("drive", at=NOW)["status"],
-            "confirmed",
-        )
+        observations = {"sensor.soc": state("65", "%"),
+                        "sensor.power": state("0", "W"),
+                        "binary_sensor.cable": state("on")}
+        rt = _ProductionRuntime(SimpleNamespace(states=SimpleNamespace(get=observations.get)), config)
         rt.refresh(NOW)
         self.assertTrue(rt.assessment.plan.slots)
+        self.assertFalse(rt.goal_assessments["drive"]["conditional"])
+        observations["binary_sensor.cable"].state = "off"
+        rt.refresh(NOW)
+        self.assertFalse(rt.assessment.plan.slots)
+        observations["binary_sensor.cable"].state = "on"
         observations["binary_sensor.cable"].last_changed = NOW + timedelta(seconds=2)
         rt.refresh(NOW + timedelta(seconds=3))
-        self.assertFalse(rt.assessment.plan.slots)
-        self.assertEqual(rt.excluded["drive"], "CURRENT_PLUG_ASSET_UNCONFIRMED")
+        self.assertTrue(rt.assessment.plan.slots)
+        restarted = _ProductionRuntime(SimpleNamespace(states=SimpleNamespace(get=observations.get)), config)
+        restarted.refresh(NOW + timedelta(seconds=3))
+        self.assertTrue(restarted.assessment.plan.slots)
 
     def test_inactive_adjustable_kw_preview_without_guessed_current(self):
         cfg = sample()
@@ -136,7 +117,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertFalse(rt.forecast_assessment.plan.slots)
         self.assertEqual(rt.goal_assessments["drive"]["status"], "cannot_assess")
 
-    def test_unconfirmed_identity_cannot_mask_unverified_power(self):
+    def test_assignment_cannot_mask_unverified_power(self):
         cfg = sample()
         cfg["controller"]["mode"] = "Automatic"
         cfg["chargers"][0].update(kind="variable_current", rated_power_kw=3.6)
@@ -145,7 +126,7 @@ class RuntimeTests(unittest.TestCase):
         rt = _ProductionRuntime(SimpleNamespace(states=SimpleNamespace(get=data.get)), cfg)
         rt.refresh(NOW)
         goal = rt.goal_assessments["drive"]
-        self.assertEqual(rt.excluded["drive"], "CURRENT_PLUG_ASSET_UNCONFIRMED")
+        self.assertEqual(rt.excluded["drive"], "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED")
         self.assertTrue(rt.forecast_assessment.plan.slots)
         self.assertFalse(goal["power_capability_verified"])
         self.assertAlmostEqual(goal["minimum_planning_power_kw"], 1.38)

@@ -133,7 +133,7 @@ class NativeSwitchExecutor:
             return
         # Preserve no identity on an unobserved or non-continuous transition.
         # A subsequent fresh connected reading may start a NEW plug epoch,
-        # but shared connectors still need explicit current-plug confirmation.
+        # using the current resident assignment, never a previous active session.
         self._plug_epochs.pop(uid, None)
         self._plug_confirmations.pop(uid, None)
 
@@ -175,10 +175,11 @@ class NativeSwitchExecutor:
         return changed_at
 
     def connection_confirmation(self, charger, at):
-        """Qualify a fresh plug by explicit confirmation or dedicated assignment.
+        """Associate a fresh physical plug with the user's current assignment.
 
-        A dedicated assignment is a resident declaration, not OEM identification.
-        It never substitutes for a fresh physical connection or electrical checks.
+        Assignment is the resident declaration, not OEM vehicle recognition.
+        Never carry a previous plug epoch into an active/inflight session.
+        All existing electrical, ownership, connection and readback gates apply.
         """
         uid = charger["id"]
         observed = self._connection(charger, at)
@@ -193,11 +194,12 @@ class NativeSwitchExecutor:
             asset_id = charger.get("asset")
             asset = next((a for a in self.runtime.configuration["assets"]
                           if a["id"] == asset_id), None)
-            if (not asset or asset.get("temporary")
-                    or charger.get("dedicated_asset_id") != asset_id):
+            if not asset:
+                return None
+            if asset.get("temporary") and datetime.fromisoformat(asset["expires_at"]) <= at:
                 return None
             return {"asset_id": asset_id, "connected_at": epoch,
-                    "confirmed_at": epoch, "basis": "dedicated_assignment"}
+                    "confirmed_at": epoch, "basis": "user_assignment"}
         return {**receipt, "basis": "manual_confirmation"}
 
     def confirm_current_connection(self, charger_id, *, at=None):

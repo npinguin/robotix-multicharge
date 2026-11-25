@@ -114,7 +114,6 @@ def rig(*, owner="multicharge", commissioned=True, group_kw=4.0,
         config=SimpleNamespace(time_zone="Europe/Brussels"),
     )
     runtime = MultiChargeRuntime(hass, cfg)
-    assert runtime.executor.confirm_current_connection("evse")["status"] == "confirmed"
     runtime.refresh()
     return runtime, sources, services
 
@@ -288,9 +287,10 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         runtime.executor.observe_connection_event(charger, charging, available)
         runtime.executor.observe_connection_event(charger, available, preparing_again)
         runtime.refresh()
-        self.assertIsNone(runtime.executor.connection_confirmation(
-            charger, datetime.now(timezone.utc)
-        ), "Brief disconnected state invalidates previous vehicle identity")
+        new_plug = runtime.executor.connection_confirmation(charger, datetime.now(timezone.utc))
+        self.assertIsNotNone(new_plug)
+        self.assertNotEqual(new_plug["connected_at"], first_epoch)
+        self.assertEqual(new_plug["basis"], "user_assignment")
         self.assertEqual(services.calls, [])
 
     async def test_unwitnessed_native_substate_jump_never_retains_vehicle_identity(self):
@@ -302,17 +302,13 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         charger["disconnected_states"] = ["available"]
         sources["sensor.native_charger_state"] = state("Preparing")
         runtime.refresh()
-        self.assertEqual(
-            runtime.executor.confirm_current_connection("evse")["status"],
-            "confirmed",
-        )
+        first = runtime.executor.connection_confirmation(charger, datetime.now(timezone.utc))
         sources["sensor.native_charger_state"] = state("Charging")
-        # No on_source_change event was witnessed: fail closed.
+        # No witnessed transition: new idle epoch, never reuse old identity.
         runtime.refresh()
-        self.assertIsNone(runtime.executor.connection_confirmation(
-            charger, datetime.now(timezone.utc)
-        ))
-        self.assertFalse(runtime.assessment.plan.slots)
+        current = runtime.executor.connection_confirmation(charger, datetime.now(timezone.utc))
+        self.assertNotEqual(current["connected_at"], first["connected_at"])
+        self.assertEqual(current["basis"], "user_assignment")
         self.assertEqual(services.calls, [])
 
     async def test_native_same_status_refresh_vs_provider_recreation(self):
@@ -349,9 +345,9 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         sources["sensor.native_status"] = restarted
         runtime.executor.observe_connection_event(charger, reported, restarted)
         runtime.refresh()
-        self.assertIsNone(runtime.executor.connection_confirmation(
-            charger, datetime.now(timezone.utc)
-        ))
+        recreated = runtime.executor.connection_confirmation(charger, datetime.now(timezone.utc))
+        self.assertNotEqual(recreated["connected_at"], first["connected_at"])
+        self.assertEqual(recreated["basis"], "user_assignment")
         self.assertEqual(services.calls, [])
 
     async def test_manual_force_start_is_durably_held_across_restart(self):
@@ -823,25 +819,20 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stopped["status"], "confirmed")
         self.assertAlmostEqual(stopped["measured_power_kw"], 0)
 
-    async def test_unconfirmed_or_replugged_vehicle_cannot_start(self):
+    async def test_assignment_and_native_connection_need_no_extra_confirmation(self):
         rt, states, services = rig()
         rt.executor._plug_confirmations.clear()
         rt.refresh()
-        self.assertFalse(rt.assessment.plan.slots)
-        denied = await rt.executor.execute("evse", "start")
-        self.assertEqual(denied["reason"], "CURRENT_PLUG_ASSET_UNCONFIRMED")
-        self.assertEqual(services.calls, [])
-        confirmed = rt.executor.confirm_current_connection("evse")
-        self.assertEqual(confirmed["status"], "confirmed")
-        self.assertTrue(rt.executor.connection_confirmation(
+        self.assertTrue(rt.assessment.plan.slots)
+        self.assertEqual(rt.executor.connection_confirmation(
             rt.configuration["chargers"][0], datetime.now(timezone.utc)
-        ))
-        states["binary_sensor.cable"].last_changed = datetime.now(timezone.utc)
+        )["basis"], "user_assignment")
+        states["binary_sensor.cable"].state = "off"
         rt.refresh()
         self.assertFalse(rt.assessment.plan.slots)
-        self.assertIsNone(rt.executor.connection_confirmation(
-            rt.configuration["chargers"][0], datetime.now(timezone.utc)
-        ))
+        denied = await rt.executor.execute("evse", "start")
+        self.assertEqual(denied["reason"], "PHYSICAL_CONNECTION_UNVERIFIED")
+        self.assertEqual(services.calls, [])
 
 
     async def test_indicative_unplugged_vehicle_never_reaches_physical_writer(self):
@@ -860,11 +851,8 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(rt.executor.accepted_slots())
         self.assertEqual(rt.executor.session_snapshot(), {})
 
-    async def test_dedicated_vehicle_reconnects_without_manual_confirmation(self):
+    async def test_assigned_vehicle_reconnects_without_manual_confirmation(self):
         rt, states, services = rig(mode="Automatic")
-        charger = rt.configuration["chargers"][0]
-        charger["dedicated_asset_id"] = "car"
-        rt.configuration = validate_configuration(rt.configuration)
         rt.executor._plug_confirmations.clear()
         states["binary_sensor.cable"].state = "off"
         rt.refresh()
@@ -878,7 +866,7 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         rt.refresh(quarter)
         self.assertTrue(rt.assessment.plan.slots)
         self.assertEqual(rt.executor.connection_confirmation(
-            rt.configuration["chargers"][0], quarter)["basis"], "dedicated_assignment")
+            rt.configuration["chargers"][0], quarter)["basis"], "user_assignment")
         await rt.executor.advance_plan(quarter)
         self.assertEqual([row[1] for row in services.calls], ["turn_on"])
         self.assertTrue(rt.executor.accepted_slots())
