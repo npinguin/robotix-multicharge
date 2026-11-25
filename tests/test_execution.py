@@ -1861,6 +1861,45 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(second["status"], "confirmed")
         self.assertFalse(rt.executor._current_pending)
 
+    async def test_peer_source_disconnect_dispatches_stop_during_pending_start(self):
+        rt, states, services = rig(group_kw=8)
+        rt.configuration["controller"]["max_parallel"] = 2
+        rt.configuration["chargers"].append({
+            "id": "other", "name": "Other", "kind": "on_off",
+            "rated_power_kw": 2, "phase_count": 1, "control_owner": "multicharge",
+            "physical_commissioned": True, "control_entity": "switch.other",
+            "power_entity": "sensor.other_power", "connected_entity": "binary_sensor.other_cable",
+        })
+        states["switch.other"] = state("on")
+        states["sensor.other_power"] = state(1600, "W")
+        states["binary_sensor.other_cable"] = state("off")
+        original = services.async_call
+        async def readback(domain, service, data, **kwargs):
+            if data["entity_id"] == "switch.other":
+                services.calls.append((domain, service, dict(data), True, None))
+                states["switch.other"].state = "off"
+                states["sensor.other_power"].state = "0"
+                states["sensor.other_power"].last_updated = datetime.now(timezone.utc)
+            else:
+                await original(domain, service, data, **kwargs)
+        services.reconcile_observations = False
+        services.async_call = readback
+        first = asyncio.create_task(rt.executor.execute("evse", "start", readback_seconds=0.6))
+        for _ in range(80):
+            if rt.executor._start_pending:
+                break
+            await asyncio.sleep(0.005)
+        self.assertIn("evse", rt.executor._start_pending)
+        rt.executor.schedule_pending_protection(asyncio.create_task, "binary_sensor.other_cable")
+        rt.executor.schedule_pending_protection(asyncio.create_task, "binary_sensor.other_cable")
+        await asyncio.sleep(0.03)
+        self.assertEqual(states["switch.other"].state, "off")
+        self.assertFalse(first.done())
+        await first
+        await asyncio.gather(*rt.executor._source_stop_tasks.values())
+        self.assertEqual(sum(call[1] == "turn_off" and call[2]["entity_id"] == "switch.other"
+                             for call in services.calls), 1)
+
     async def test_same_charger_stop_revokes_pending_start_readback(self):
         rt, states, services = rig()
         services.reconcile_observations = False

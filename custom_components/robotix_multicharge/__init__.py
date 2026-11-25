@@ -224,6 +224,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         charger, event.data.get("old_state"),
                         event.data.get("new_state"),
                     )
+        runtime.executor.schedule_pending_protection(
+            hass.async_create_task, event.data.get("entity_id") if event is not None else None,
+        )
         now = utc_datetime.now(timezone.utc)
         if (price_source and (price_pending is None or price_pending.done())
                 and (price_last_attempt is None or now-price_last_attempt >= timedelta(minutes=15))):
