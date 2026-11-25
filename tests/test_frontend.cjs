@@ -342,9 +342,9 @@ async function main(){
   assert.equal(scheduleButtons.length,2);
   scheduleButtons[1].click();
   const focusedText=content(focus.shadowRoot);
-  assert.equal(focus._focusAsset,"visitor");
+  assert.equal(focus._tab,"Overview","Schedule editing stays on the selected vehicle card");
   assert.equal(focus._scheduleEditor,"visitor");
-  assert.ok(focusedText.includes("Selected vehicle · Visitor"));
+  assert.ok(focusedText.includes("When should the vehicle be ready?"));
   assert.ok(focusedText.includes("8 kWh"));
   assert.ok(!focusedText.includes("Vehicle + Charger ID inferred"),
     "Overview never rewrites historical identity from current assignment");
