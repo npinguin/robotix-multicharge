@@ -3094,7 +3094,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       [typeof meter!=="number"&&typeof derived==="number"?"Power-derived energy":"Measured energy",num(meter??derived,"kWh")],
       ["Duration",num(duration,"min",0)],
       ["Average power",num(avg,"kW")],["Peak power",num(row.peak_power_kw,"kW")],
-      [typeof row.cost==="number"?"Verified energy cost":"Estimated energy cost",
+      [typeof row.cost==="number"?"Verified energy cost":typeof row.estimated_variable_cost==="number"?"Indicative variable energy cost":"Estimated energy cost",
         num(row.cost??row.estimated_cost??row.estimated_variable_cost,
         row.currency??row.estimated_cost_currency??row.estimated_variable_cost_currency??"")]];
     for(const [label,value] of metrics){
@@ -3102,8 +3102,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     }
     container.append(grid);
     if(typeof row.estimated_cost==="number"||typeof row.estimated_variable_cost==="number")
-      container.append(mcEl("p","muted small","Power-derived estimate · "+
-        (row.estimated_cost_basis||"effective")+" · not a bill"));
+      container.append(mcEl("p","muted small",mcTr("Power-derived estimate, not a bill")+" · "+
+        (row.estimated_cost_basis||"effective")));
     if(observed&&row.meter_observed_at)container.append(mcEl("p","muted small",
       "Meter reading · "+mcTime(row.meter_observed_at,this._data.timezone)));
     if(observed&&!row.complete_observed_window)container.append(mcEl("p","plan-caution",
