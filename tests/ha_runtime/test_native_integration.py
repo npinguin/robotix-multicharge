@@ -2629,10 +2629,15 @@ async def test_observed_external_session_from_actual_ha_recorder(hass: HomeAssis
     from homeassistant.components.recorder import get_instance
     from custom_components.robotix_multicharge.history import read_actual_history
 
+    # HA bootstrap normally initializes this shared recorder helper before loading integrations.
+    from homeassistant.helpers.recorder import DATA_RECORDER, async_initialize_recorder
+    if DATA_RECORDER not in hass.data:
+        async_initialize_recorder(hass)
     assert await async_setup_component(hass, "recorder", {
         "recorder": {"db_url": f"sqlite:///{Path(hass.config.config_dir) / 'mc-history.db'}", "commit_interval": 0},
     })
     recorder = get_instance(hass)
+    await recorder.async_recorder_ready.wait()
     await hass.async_block_till_done()
     first = datetime.now(timezone.utc) - timedelta(seconds=1)
     price_start = first - timedelta(minutes=1)
