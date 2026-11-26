@@ -18,7 +18,8 @@ from homeassistant.const import EntityCategory, UnitOfPower, PERCENTAGE
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .const import (DOMAIN, DEFAULT_ASSET_PRIORITY, DEFAULT_CONTINUOUS_CHARGING,
+                    DEFAULT_OPPORTUNISTIC_KIND)
 
 
 async def async_setup_entry(
@@ -650,7 +651,7 @@ class _ControllerLiveSensor(_NativeMultiChargeSensor):
                         "duration_minutes": asset.get("requested_duration_minutes"),
                         "target_soc": asset.get("target_soc"),
                         "ready_by": asset.get("ready_by"),
-                        "priority": asset.get("priority", 0),
+                        "priority": asset.get("priority", DEFAULT_ASSET_PRIORITY),
                     }
                     for asset in self.runtime.configuration["assets"]
                 },
@@ -759,18 +760,18 @@ class _AssetIntentSensor(_NativeMultiChargeSensor):
             "ready_by_repeat": current.get("ready_by_repeat", "none"),
             "ready_by_weekdays": current.get("ready_by_weekdays"),
             "charging_windows": current.get("charging_windows"),
-            "continuous_charging": current.get("continuous_charging", False),
+            "continuous_charging": current.get("continuous_charging", DEFAULT_CONTINUOUS_CHARGING),
             "minimum_soc_pct": current.get("minimum_soc_pct"),
             "maximum_price_per_kwh": current.get("maximum_price_per_kwh"),
             "price_currency": current.get("price_currency"),
             "low_price_trigger_per_kwh": current.get("low_price_trigger_per_kwh"),
             "low_soc_trigger_pct": current.get("low_soc_trigger_pct"),
-            "opportunistic_kind": current.get("opportunistic_kind", "off"),
+            "opportunistic_kind": current.get("opportunistic_kind", DEFAULT_OPPORTUNISTIC_KIND),
             "opportunistic_level_pct": current.get("opportunistic_level_pct"),
             "earliest_start_at": current.get("earliest_start_at"),
             "target_soc": current.get("target_soc"),
             "ready_by": current.get("ready_by"),
-            "priority": current.get("priority", 0),
+            "priority": current.get("priority", DEFAULT_ASSET_PRIORITY),
             "temporary": current.get("temporary", False),
             "expires_at": current.get("expires_at"),
             "connection_verified": False,  # saved assignment is not plug identity
