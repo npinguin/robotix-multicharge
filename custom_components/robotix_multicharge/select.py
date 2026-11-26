@@ -13,7 +13,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .command_query import apply_native_preference, require_native_admin
 from .configuration import PLAN_COLORS, WEEKDAYS, charger_is_active
-from .const import DOMAIN, DEFAULT_CONTINUOUS_CHARGING, DEFAULT_OPPORTUNISTIC_KIND
+from .const import DOMAIN, DEFAULT_CONTINUOUS_CHARGING, DEFAULT_OPPORTUNISTIC_KIND, DEFAULT_MAINTAIN_SOC_UNTIL_READY_BY
 
 MODES = {
     "automatic": "Automatic", "solar": "Solar", "economy": "Economy",
@@ -37,6 +37,7 @@ async def async_setup_entry(
         entities.append(_OwnedSelect(entry, runtime, "asset", asset, "ready_by_repeat"))
         entities.append(_OwnedSelect(entry, runtime, "asset", asset, "kind"))
         entities.append(_OwnedSelect(entry, runtime, "asset", asset, "continuous_charging"))
+        entities.append(_OwnedSelect(entry, runtime, "asset", asset, "maintain_soc_until_ready_by"))
         entities.append(_OwnedSelect(entry, runtime, "asset", asset, "opportunistic_kind"))
         entities.extend(
             _OwnedSelect(entry, runtime, "asset", asset, "ready_day_" + day)
@@ -116,7 +117,7 @@ class _OwnedSelect(SelectEntity):
             return ["vehicle", "charger", "both"]
         if self.field == "plan_color_by":
             return ["vehicle", "charger"]
-        if self.field == "show_indicative_forecast":
+        if self.field in ("show_indicative_forecast", "maintain_soc_until_ready_by"):
             return ["on", "off"]
         if self.field == "control_owner":
             return ["inactive", "active"]
@@ -181,7 +182,7 @@ class _OwnedSelect(SelectEntity):
             ), "off")
         elif self.field == "show_indicative_forecast":
             self._attr_current_option = (
-                "on" if current.get(self.field, True) else "off"
+                "on" if current.get(self.field, DEFAULT_MAINTAIN_SOC_UNTIL_READY_BY if self.field == "maintain_soc_until_ready_by" else True) else "off"
             )
         elif self.field == "continuous_charging":
             self._attr_current_option = ("continuous" if current.get(self.field, DEFAULT_CONTINUOUS_CHARGING)
