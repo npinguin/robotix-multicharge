@@ -368,8 +368,8 @@
       "maintain_soc_until_ready_by": {
         "name": "Ladezustand bis Abfahrt halten",
         "state": {
-          "on": "Anzeigen",
-          "off": "Ausblenden"
+          "on": "Ein",
+          "off": "Aus"
         }
       },
       "continuous_charging": {
