@@ -2478,9 +2478,22 @@ class NativeSwitchExecutor:
                 # Do not queue a spurious STOP against a not-yet-adopted session.
                 if uid in self._start_pending:
                     continue
+                session = self._sessions.get(uid)
+                progress_fields = ("budget_cost", "budget_quality", "budget_last_meter_value",
+                                   "budget_last_meter_at")
+                previous_progress = tuple(session.get(k) for k in progress_fields) if session else None
                 unsafe, limit_reason, session_reason = self._active_safety(charger, at)
                 if not unsafe and limit_reason is not None:
                     unsafe = not await self._reduce_current(charger, at)
+                # Keep qualified budget increments durable across tariff-window
+                # changes and abrupt restart. Do not write on unchanged samples.
+                if (not unsafe and session is not None and self._sessions.get(uid) is session
+                        and session.get("requested_budget_amount") is not None
+                        and previous_progress != tuple(session.get(k) for k in progress_fields)):
+                    if not await self.runtime.persist_control_state():
+                        self._persistence_verified = False
+                        unsafe = True
+                        session_reason = "SESSION_CHECKPOINT_NOT_PERSISTED"
                 if unsafe:
                     await self._stop_active(charger, at, session_reason)
         finally:
