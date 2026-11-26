@@ -3,13 +3,40 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import isfinite
+from math import ceil, floor, isfinite
 from typing import Mapping
+
+from .const import MIN_AC_CURRENT_A
 
 
 def _positive(value: float | None, name: str) -> None:
     if value is not None and (not isfinite(value) or value <= 0):
         raise ValueError(f"{name} must be positive and finite")
+
+
+def operating_current_grid(minimum, maximum, step, phases, voltage, rating,
+                           min_power=None, max_power=None, circuit_limit=None):
+    """Qualified positive Amp grid inside static kW/circuit limits.
+
+    Return (first A, last A, step A, kW/A), or None. Native grid origin
+    is retained; dynamic site/peer/asset capacity is evaluated separately.
+    """
+    if (phases not in (1, 2, 3) or not all(
+            type(v) in (int, float) and isfinite(v) and v > 0
+            for v in (minimum, maximum, step, voltage, rating))
+            or not 200 <= voltage <= 260 or maximum < minimum):
+        return None
+    factor = voltage * phases / 1000
+    lower = max(MIN_AC_CURRENT_A, minimum, (min_power or 0) / factor)
+    upper = min(maximum, rating / factor,
+                max_power / factor if max_power is not None else maximum,
+                circuit_limit if circuit_limit is not None else maximum)
+    first = max(0, ceil((lower - minimum) / step - 1e-9))
+    last = floor((upper - minimum) / step + 1e-9)
+    if last < first:
+        return None
+    return (round(minimum + first * step, 9),
+            round(minimum + last * step, 9), step, factor)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -100,6 +127,18 @@ class Charger:
             raise ValueError("fixed current only valid for on/off")
         if self.current_step_a is not None and self.control_kind != "variable_current":
             raise ValueError("setpoint step only valid for adjustable charger")
+
+
+    def operating_grid(self):
+        """The same static executable envelope used by native controls."""
+        if self.control_kind != "variable_current":
+            return None
+        return operating_current_grid(
+            self.min_current_a, self.max_current_a, self.current_step_a,
+            self.phase_count, self.voltage_v, self.rated_power_kw,
+            self.min_charging_power_kw, self.max_charging_power_kw,
+            self.circuit_limit_a,
+        )
 
 
 @dataclass(frozen=True, kw_only=True)
