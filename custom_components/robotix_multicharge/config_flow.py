@@ -198,7 +198,14 @@ def _assert_safe_yaml_ui_commit(runtime, updated):
     for uid, old in existing.items():
         new = revised.get(uid)
         if uid in runtime.executor._interrupted_sessions:
-            if new != old or old_assets.get(old.get("asset")) != new_assets.get(old.get("asset")):
+            # Presentation-only edits do not alter the source or intent
+            # used for recovery and must not force a manual reconciliation.
+            def recovery_fields(row):
+                return {k: v for k, v in (row or {}).items()
+                        if k not in ("name", "plan_color")}
+            if (recovery_fields(new) != recovery_fields(old)
+                    or recovery_fields(old_assets.get(old.get("asset")))
+                    != recovery_fields(new_assets.get(old.get("asset")))):
                 raise ValueError(f"charger_busy: {old['name']} ({uid}) reconcile interrupted session first")
         if uid in runtime.executor._sessions or uid in runtime.executor._start_pending:
             old_asset = old_assets.get(old.get("asset"), {})
