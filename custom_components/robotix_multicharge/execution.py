@@ -687,6 +687,8 @@ class NativeSwitchExecutor:
         for configured in self.runtime.configuration["chargers"]:
             charger = self.effective_charger(configured)
             uid = charger["id"]
+            grid = charger_operating_grid(charger)
+            minimum_current = grid[0] if grid else charger.get("min_current_a")
             if self._stopped:
                 reason = "INTEGRATION_UNLOADED"
             elif not self._persistence_verified:
@@ -704,10 +706,7 @@ class NativeSwitchExecutor:
             elif self._switch(self.runtime.hass, charger["control_entity"]).state == "on":
                 reason = "SWITCH_ALREADY_ON"
             else:
-                reason = self._admit_start(charger, at, target_current=(
-                    charger.get("min_current_a")
-                    if charger["kind"] == "variable_current" else None
-                ))
+                reason = self._admit_start(charger, at, target_current=minimum_current if charger.get("kind") == "variable_current" else None)
             stop_allowed = (
                 not self._stopped
                 and charger.get("kind") in ("on_off", "variable_current")
@@ -734,10 +733,7 @@ class NativeSwitchExecutor:
             else:
                 manual_reason = self._admit_start(
                     charger, at,
-                    target_current=(
-                        charger.get("min_current_a")
-                        if charger.get("kind") == "variable_current" else None
-                    ),
+                    target_current=minimum_current if charger.get("kind") == "variable_current" else None,
                     manual_request={"duration_minutes": 30},
                 )
             if manual_reason is None and uid in self._quarantine:
@@ -754,10 +750,7 @@ class NativeSwitchExecutor:
                     goal_reason = manual_reason
                 else:
                     goal_reason = self._admit_start(
-                        charger, at, target_current=(
-                            charger.get("min_current_a")
-                            if charger["kind"] == "variable_current" else None
-                        ), manual_request=request,
+                        charger, at, target_current=minimum_current if charger.get("kind") == "variable_current" else None, manual_request=request,
                     )
                 if goal_reason is None and uid in self._quarantine:
                     goal_reason = "PREVIOUS_COMMAND_UNCONFIRMED"
