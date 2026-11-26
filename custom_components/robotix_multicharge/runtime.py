@@ -1211,6 +1211,11 @@ class MultiChargeRuntime:
             reported = session.value if session is not None and session.quality == "ok" else None
             activation = "active" if charger_is_active(charger) else "inactive"
             switch = self.executor._switch(self.hass, charger.get("control_entity"))
+            owned = self.executor._sessions.get(uid)
+            waiting = (owned is not None and owned.get("soc_target") is not None
+                       and switch is not None and switch.state == "on"
+                       and connected is True and measured is not None and measured <= 0.05
+                       and reported not in ("charging", "fault", "unavailable"))
             # Preserve conflicts as unknown rather than choose a convenient source.
             if ((connected is False and (reported in ("charging", "paused") or
                                          measured is not None and measured > 0.05))
@@ -1272,6 +1277,8 @@ class MultiChargeRuntime:
                 readiness, reason = "waiting", "USER_PAUSED"
             elif activation == "active" and connected is not False and blocking:
                 readiness, reason = "unknown", blocking
+            elif waiting:
+                readiness, reason = "waiting", "ENABLED_WAITING_FOR_VEHICLE"
             elif reported == "paused":
                 readiness, reason = "waiting", session.reason if session.reason != "OK" else "PROVIDER_SUSPENDED"
             elif (switch is not None or reported in ("charging", "stopped", "idle", "completed")
@@ -1308,6 +1315,8 @@ class MultiChargeRuntime:
                     return {"status": "ready", "reason": "TARGET_MET"}
                 if problem:
                     return {"status": "problem", "reason": problem_reason}
+                if waiting:
+                    return {"status": "idle", "reason": "ENABLED_WAITING_FOR_VEHICLE"}
                 return {"status": "idle", "reason": None}
 
             goal = self.goal_assessments.get(uid, {})
