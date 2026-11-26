@@ -3350,6 +3350,8 @@ class RobotixMultiChargeCard extends HTMLElement {
       const format=b=>b?.min_current_a!=null&&b?.max_current_a!=null?
         b.min_current_a+"–"+b.max_current_a+" A"+(b.current_step_a!=null?" · "+b.current_step_a+" A step":""):mcTr("Unknown");
       mcPair(card,"Effective current range",format(bounds));
+      if(setup.operating_power_kw)mcPair(card,"Operating power range",
+        setup.operating_power_kw.min+"–"+setup.operating_power_kw.max+" kW");
       const electrical=setup.effective_electrical||{};
       if(electrical.phase_count!=null&&electrical.voltage_v!=null)
         mcPair(card,mcTr("Electrical limits & optional sources"),
@@ -3361,7 +3363,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         mcPair(card,"Native device current range",format(setup.native_current));
         mcPair(card,"Configured current range",format(setup.configured_current));
       }
-      if(setup.native_current?.max_current_a!=null&&bounds.max_current_a>setup.native_current.max_current_a)
+      if(setup.native_current?.max_current_a!=null&&setup.configured_current?.max_current_a>setup.native_current.max_current_a)
         card.append(mcEl("p","plan-caution","Configured maximum exceeds native hardware range; correct the setting."));
     }
     const required=["control_entity","power_entity"];
