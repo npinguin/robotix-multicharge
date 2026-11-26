@@ -11,7 +11,7 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN, NOMINAL_PHASE_COUNT, NOMINAL_PHASE_VOLTAGE_V
-from .configuration import WEEKDAYS, forecast_tariff_source
+from .configuration import WEEKDAYS, forecast_tariff_source, charger_operating_grid
 from .history import read_actual_history
 
 
@@ -58,10 +58,12 @@ def charger_setup_projection(hass, registry, runtime, charger):
     }
     effective = runtime.executor.effective_charger(charger)
     bounds = ("min_current_a", "max_current_a", "current_step_a")
-    native_source = {key: value for key, value in charger.items() if key not in bounds}
+    native = effective.get("_native_current")
     if proposals.get("current_control_entity"):
-        native_source["current_control_entity"] = proposals["current_control_entity"]
-    native = runtime.executor.effective_charger(native_source)
+        native = runtime.executor.effective_charger({
+            **charger, "current_control_entity": proposals["current_control_entity"],
+        }).get("_native_current")
+    grid = charger_operating_grid(effective)
     # Native Amp metadata is a live observation, not an implicit user override.
     # Topology defaults are editable proposals only; explicit Save declares wiring.
     if charger["kind"] == "variable_current":
@@ -75,7 +77,10 @@ def charger_setup_projection(hass, registry, runtime, charger):
         "proposed_missing": proposals,
         "configured_current": {field: charger.get(field) for field in bounds},
         "effective_current": {field: effective.get(field) for field in bounds},
-        "native_current": {field: native.get(field) for field in bounds},
+        "native_current": {field: (native or {}).get(field) for field in bounds},
+        "operating_power_kw": ({"min": round(grid[0] * grid[3], 6),
+                                "max": round(grid[1] * grid[3], 6),
+                                "step": round(grid[2] * grid[3], 6)} if grid else None),
         "current_capability_reason": effective.get("_current_capability_reason"),
         "effective_electrical": {field: effective.get(field)
                                  for field in ("phase_count", "voltage_v")},
