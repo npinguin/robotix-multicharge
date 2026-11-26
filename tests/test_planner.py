@@ -24,6 +24,7 @@ from multicharge_plan_test.contracts import ChargeDemand, PowerEnvelope, PowerLi
 from multicharge_plan_test.domain import Charger, ChargeController  # noqa: E402 - imported after isolated pure-module bootstrap
 from multicharge_plan_test.planner import (  # noqa: E402 - imported after isolated pure-module bootstrap
     compile_plan, minimum_planning_power, resolve_recurring_ready_by, charging_window_allows,
+    _quarter_coverage,
 )
 
 NOW = datetime(2026, 11, 22, 12, tzinfo=timezone.utc)
@@ -52,6 +53,24 @@ def demand(i, kwh=1.0, priority=1, deadline=None):
 
 
 class PlannerTests(unittest.TestCase):
+    def test_indexed_quarter_coverage_matches_unique_full_interval_scan(self):
+        quarter = timedelta(minutes=15)
+        starts = [NOW + i * quarter for i in range(192)]
+        rows = [
+            PriceSlot(NOW, NOW + timedelta(hours=1), -0.02, "EUR"),
+            PriceSlot(NOW + quarter, NOW + 2 * quarter, 0.3, "EUR"),
+            PriceSlot(NOW + timedelta(minutes=65), NOW + timedelta(minutes=100), 0.2, "EUR"),
+            PriceSlot(NOW + timedelta(hours=2), NOW + timedelta(hours=3), 0.1, "EUR"),
+        ]
+        for values in (rows, rows[::-1], rows + rows, [], [
+                PowerLimitSlot(NOW, NOW + timedelta(hours=48), 0),
+                PowerLimitSlot(NOW + 2 * quarter, NOW + 3 * quarter, 4)]):
+            indexed = _quarter_coverage(values, starts)
+            for stamp in starts:
+                matches = [r for r in values if r.start <= stamp
+                           and r.end >= stamp + quarter]
+                self.assertEqual(indexed.get(stamp), matches[0] if len(matches) == 1 else None)
+
     def test_sustained_session_draw_limits_expected_energy_not_electrical_reservation(self):
         ctl, chargers = build(power=3.6, limit=3.6)
         chargers["c0"] = Charger(uid="c0", name="Drive", controller_uid="home",
