@@ -19,6 +19,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (DOMAIN, DEFAULT_ASSET_PRIORITY, DEFAULT_CONTINUOUS_CHARGING,
+                    DEFAULT_MAINTAIN_SOC_UNTIL_READY_BY,
                     DEFAULT_OPPORTUNISTIC_KIND)
 
 
@@ -761,6 +762,7 @@ class _AssetIntentSensor(_NativeMultiChargeSensor):
             "ready_by_weekdays": current.get("ready_by_weekdays"),
             "charging_windows": current.get("charging_windows"),
             "continuous_charging": current.get("continuous_charging", DEFAULT_CONTINUOUS_CHARGING),
+            "maintain_soc_until_ready_by": current.get("maintain_soc_until_ready_by", DEFAULT_MAINTAIN_SOC_UNTIL_READY_BY),
             "minimum_soc_pct": current.get("minimum_soc_pct"),
             "maximum_price_per_kwh": current.get("maximum_price_per_kwh"),
             "price_currency": current.get("price_currency"),
