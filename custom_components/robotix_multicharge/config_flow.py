@@ -14,6 +14,7 @@ from homeassistant import config_entries
 from homeassistant.helpers import selector
 
 from .configuration import (
+    charger_is_active,
     default_configuration, is_plan_presentation_only_change,
     validate_configuration, configuration_revision, effective_configuration,
     apply_new_asset_defaults, apply_new_charger_defaults, apply_new_import_defaults,
@@ -105,8 +106,7 @@ def _assert_safe_expert_import(runtime, updated, *, source_changed=False):
     # to a monitoring-only site. No Charger is commissioned by editing a
     # name, price source or uncommissioned external Charger mapping.
     physical_writer = any(
-        row.get("control_owner") == "multicharge"
-        and row.get("physical_commissioned") is True
+        charger_is_active(row)
         for row in [*before.values(), *after.values()]
     )
     if not physical_writer:
@@ -121,8 +121,7 @@ def _assert_safe_expert_import(runtime, updated, *, source_changed=False):
         proposed = after.get(uid)
         checked = [
             row for row in (old, proposed)
-            if row and row.get("control_owner") == "multicharge"
-            and row.get("physical_commissioned") is True
+            if row and charger_is_active(row)
         ]
         if not checked:
             continue
@@ -231,8 +230,7 @@ def _assert_safe_yaml_ui_commit(runtime, updated):
         power = number(runtime.hass, old.get("power_entity"), "power",
                        datetime.now(timezone.utc))
         switch = executor._switch(runtime.hass, old.get("control_entity"))
-        owned = (old.get("control_owner") == "multicharge"
-                 and old.get("physical_commissioned") is True)
+        owned = (charger_is_active(old))
         # An assignment affects actual energy attribution, not hardware
         # certification. Keep the existing verified-idle rebind contract.
         if ((old.get("power_entity") and power.quality != "ok")
@@ -755,8 +753,7 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "chargers", []
                 )
                 if any(
-                    row.get("control_owner") == "multicharge"
-                    and row.get("physical_commissioned") is True
+                    charger_is_active(row)
                     for row in [*old_chargers, *cfg["chargers"]]
                 ):
                     raise ValueError(
@@ -830,8 +827,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         if runtime is None:
             old = self._current()
             if any(
-                row.get("control_owner") == "multicharge"
-                and row.get("physical_commissioned") is True
+                charger_is_active(row)
                 for row in [*old["chargers"], *updated["chargers"]]
             ):
                 self._last_config_error = "Cannot change a commissioned physical charger while its runtime is unavailable"
