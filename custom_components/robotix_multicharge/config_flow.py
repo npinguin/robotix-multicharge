@@ -197,6 +197,9 @@ def _assert_safe_yaml_ui_commit(runtime, updated):
                       "capacity_kwh", "charge_efficiency")
     for uid, old in existing.items():
         new = revised.get(uid)
+        if uid in runtime.executor._interrupted_sessions:
+            if new != old or old_assets.get(old.get("asset")) != new_assets.get(old.get("asset")):
+                raise ValueError(f"charger_busy: {old['name']} ({uid}) reconcile interrupted session first")
         if uid in runtime.executor._sessions or uid in runtime.executor._start_pending:
             old_asset = old_assets.get(old.get("asset"), {})
             new_asset = new_assets.get(old.get("asset"), {})
