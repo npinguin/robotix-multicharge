@@ -730,6 +730,9 @@ async def test_variable_charger_native_power_controls_share_owning_device(hass: 
         data={"source": "ui", "configuration": cfg},
         unique_id=DOMAIN,
     )
+    hass.states.async_set("number.hardware_limit", "12", {
+        "min": 0, "max": 16, "step": 1, "unit_of_measurement": "A",
+    })
     entry.add_to_hass(hass)
     assert await async_setup_component(hass, DOMAIN, {})
     await hass.async_block_till_done()
@@ -745,6 +748,20 @@ async def test_variable_charger_native_power_controls_share_owning_device(hass: 
         )
         assert entity_id is not None, field
         assert registry.async_get(entity_id).device_id == device.id
+    max_entity = registry.async_get_entity_id(
+        "number", DOMAIN, f"{DOMAIN}:charger:drive:max_charging_power_kw"
+    )
+    maximum = hass.states.get(max_entity)
+    assert float(maximum.state) == 3.0
+    assert maximum.attributes["effective_min_power_kw"] == 1.84
+    assert maximum.attributes["effective_max_power_kw"] == 2.99
+    hass.states.async_set("number.hardware_limit", "11", {
+        "min": 0, "max": 11, "step": 1, "unit_of_measurement": "A",
+    })
+    await hass.async_block_till_done()
+    maximum = hass.states.get(max_entity)
+    assert float(maximum.state) == 3.0
+    assert maximum.attributes["effective_max_power_kw"] == 2.53
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 
