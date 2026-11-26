@@ -1240,13 +1240,24 @@ def civil_period_costs(days, available):
     return result
 
 
+async def read_recorder_samples(hass, first, end, entities):
+    """Exact native Recorder range, without a second history authority."""
+    from homeassistant.components.recorder import get_instance, history
+
+    return await get_instance(hass).async_add_executor_job(
+        history.get_significant_states,
+        hass, first, end, list(entities), None, True, False, False, False, False,
+    )
+
+
 async def read_actual_history(hass, configuration, start, end, *,
                               charger_id=None, asset_id=None,
                               session_receipts=(), price_slots=(),
                               include_valuations=False, power_bindings=None,
                               include_observed_sessions=False, active_sessions=None,
                               tariff_entity=None, energy_bindings=None, tariff_bindings=None,
-                              financial_days=None, as_of=None, include_quarters=True):
+                              financial_days=None, as_of=None, include_quarters=True,
+                              read_samples=None):
     """Query native Recorder once; background finance need not build graph rows."""
     now = as_of or datetime.now(timezone.utc)
     first, last = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
@@ -1396,14 +1407,13 @@ async def read_actual_history(hass, configuration, start, end, *,
     if "recorder" not in hass.config.components:
         return await reply([], "RECORDER_NOT_LOADED")
     try:
-        from homeassistant.components.recorder import get_instance, history
-
-        # Use the Recorder's own executor, preserving the native DB lifecycle.
-        historical = await get_instance(hass).async_add_executor_job(
-            history.get_significant_states,
-            hass, history_first, min(now, history_end+timedelta(microseconds=1)), entities,
-            None, True, False, False, False, False,
-        )
+        # The runtime can share an identical in-flight native query. The
+        # projection still uses its own exact as-of, owner and binding scope.
+        query_end = min(now, history_end+timedelta(microseconds=1))
+        if read_samples is None:
+            historical = await read_recorder_samples(hass, history_first, query_end, entities)
+        else:
+            historical = await read_samples(history_first, query_end, entities)
     except (ImportError, RuntimeError, ValueError, OSError, KeyError):
         return await reply([], "RECORDER_UNAVAILABLE")
     if financial_days is not None and not include_valuations and not include_observed_sessions:
