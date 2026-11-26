@@ -117,7 +117,8 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     const root=card.shadowRoot;
     const finance=[...root.querySelectorAll('details[data-disclosure$=":finance"]')];
     financeCompact=finance.length===count+1&&finance.every(el=>!el.open&&
-      el.querySelector("summary")?.textContent.includes("Charging cost today")&&
+      el.querySelector("summary")?.textContent.includes("Cost details")&&
+      el.parentElement.querySelector(".financial-headline")?.textContent.includes("Charging cost today")&&
       el.querySelector(".financial-details")?.getBoundingClientRect().height===0);
     const first=finance[0];
     first.querySelector("summary").click();
@@ -417,6 +418,11 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     const details=[...card.shadowRoot.querySelectorAll("button")].find(
       b=>b.textContent==="Details");
     if(details)details.click();
+  }
+  if(view==="plan"){
+    const compact=[...card.shadowRoot.querySelectorAll('details[data-disclosure^="plan:compact:"]')];
+    if(compact.some(f=>f.open||f.querySelector(".mc-apex")))throw Error("Compact lanes eagerly render charts");
+    for(const f of compact)f.querySelector("summary").click();
   }
   // The chart must be real Apex-generated SVG, not our previous static SVG
   // or a lightweight Apex-looking replacement.
