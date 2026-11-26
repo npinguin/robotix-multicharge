@@ -16,7 +16,8 @@ from uuid import uuid4
 from time import monotonic
 
 from .source_evidence import Evidence, binding, connection, intervals, number, soc_with_health
-from .configuration import is_plan_presentation_only_change, charger_activation_reason, charger_is_active
+from .configuration import (is_plan_presentation_only_change, charger_activation_reason,
+                            charger_is_active, charger_operating_grid)
 from .const import (DEFAULT_POWER_ADJUSTMENT_INTERVAL_MINUTES, MIN_AC_CURRENT_A,
                     DEFAULT_OPPORTUNISTIC_KIND)
 from .history import receipt_overlaps
@@ -1113,9 +1114,11 @@ class NativeSwitchExecutor:
             charger = {**charger, "phase_count": len(charger["phase_ids"])}
         if charger["kind"] != "variable_current":
             return charger
+        native = None
         def unqualified(reason):
             return {**charger, "min_current_a": None, "max_current_a": None,
-                    "current_step_a": None, "_current_capability_reason": reason}
+                    "current_step_a": None, "_native_current": native,
+                    "_current_capability_reason": reason}
 
         if not str(charger.get("current_control_entity", "")).startswith("number."):
             return unqualified("VARIABLE_CURRENT_CAPABILITY_UNVERIFIED")
@@ -1141,9 +1144,12 @@ class NativeSwitchExecutor:
         # AC EVSEs without a declared positive minimum, start at the 6 A
         # operating floor (IEC 61851), rounded onto the actual native grid.
         declared_min = max(MIN_AC_CURRENT_A, lo, charger.get("min_current_a") or MIN_AC_CURRENT_A)
-        declared_max = charger.get("max_current_a", hi)
+        native = {"min_current_a": lo, "max_current_a": hi, "current_step_a": step}
+        declared_max = charger.get("max_current_a") or hi
         declared_step = charger.get("current_step_a")
-        origin = charger.get("min_current_a", lo)
+        origin = charger.get("min_current_a")
+        if origin is None:
+            origin = lo
         feasible = []
         for index in range(floor((hi-lo)/step+1e-7)+1):
             current = lo+index*step
@@ -1161,7 +1167,8 @@ class NativeSwitchExecutor:
         if any(abs(b-a-spacing)>1e-6 for a, b in zip(feasible, feasible[1:])):
             return unqualified("CURRENT_RANGE_UNVERIFIED")
         return {**charger, "min_current_a": feasible[0],
-                "max_current_a": feasible[-1], "current_step_a": round(spacing, 9)}
+                "max_current_a": feasible[-1], "current_step_a": round(spacing, 9),
+                "_native_current": native, "_current_capability_reason": None}
 
     def _requested_current(self, charger, current, at):
         """Reject a claimed adjustable capability until native source metadata agrees."""
@@ -1228,12 +1235,10 @@ class NativeSwitchExecutor:
     def _highest_safe_current(self, charger, at, *, ceiling=None, plan_slot=None,
                               reserve_minima=False):
         """Highest currently qualified safe setpoint, bounded by any slot grant."""
-        minimum = charger.get("min_current_a")
-        maximum = charger.get("max_current_a")
-        step = charger.get("current_step_a")
-        if not all(isinstance(x, (float, int)) and isfinite(x) and x > 0
-                   for x in (minimum, maximum, step)) or maximum < minimum:
+        grid = charger_operating_grid(charger)
+        if grid is None:
             return None
+        minimum, maximum, step, _ = grid
         if ceiling is not None:
             maximum = min(maximum, ceiling)
         count = floor((maximum - minimum) / step + 1e-9)
@@ -2271,8 +2276,13 @@ class NativeSwitchExecutor:
         existing = session.get("target_current_a")
         if existing is None or not charger.get("current_step_a") or not charger.get("min_current_a"):
             return False
-        step, minimum = charger["current_step_a"], charger["min_current_a"]
-        candidate = round(existing - step, 6)
+        grid = charger_operating_grid(charger)
+        if grid is None:
+            return False
+        minimum, maximum, step, _ = grid
+        # If the native origin changed, choose a lower point on the NEW grid.
+        candidate = round(minimum + min(floor((maximum - minimum) / step + 1e-9),
+                                       floor((existing - minimum - 1e-6) / step)) * step, 6)
         while candidate + 1e-9 >= minimum:
             problem, power = self._requested_current(charger, candidate, at)
             slot = self._accepted.get(charger["id"], {}).get("_slot")
