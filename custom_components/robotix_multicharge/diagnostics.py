@@ -197,6 +197,7 @@ def build_diagnostics(runtime, entry, captured_at=None):
         "execution": {
             "action_health": live["action_health"],
             "inflight_intent_count": len(executor._inflight),
+            "unresolved_intent_holds": [_alias(uid) for uid in sorted(executor.unresolved_intent_keys())],
             "command_receipt_count": len(executor._requests),
             "session_receipt_count": len(executor._session_history),
             "accepted_slot_count": len(executor._accepted_history),
