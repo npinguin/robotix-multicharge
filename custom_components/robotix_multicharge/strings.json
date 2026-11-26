@@ -365,6 +365,9 @@
       "ready_day_sun": {
         "name": "Sunday Ready By"
       },
+      "maintain_soc_until_ready_by": {
+        "name": "Maintain SoC until Ready By"
+      },
       "continuous_charging": {
         "name": "Charging pattern"
       },
