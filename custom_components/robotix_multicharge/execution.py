@@ -2503,17 +2503,18 @@ class NativeSwitchExecutor:
             if current is None or charger.get("_current_capability_reason") or any(
                     charger.get(field) is None for field in ("phase_count", "voltage_v", "current_step_a")):
                 unsafe = True
-            elif charger.get("current_readback_entity"):
-                if (amps.quality != "ok" or amps.value > current + max(
-                        0.25, charger.get("current_step_a", 1) / 2)):
-                    unsafe = True
             else:
+                # The provider's writable ceiling and the vehicle's actual
+                # acceptance are independent. A second client may change the
+                # ceiling while the vehicle still draws less (or zero).
                 setting = number(self.runtime.hass,
                     charger.get("current_control_entity"), "current", at)
                 target_kw = current * charger["voltage_v"] * charger["phase_count"] / 1000
-                if (setting.quality != "ok" or abs(setting.value-current) >
-                        max(0.25, charger.get("current_step_a", 1) / 2)
-                        or power.quality != "ok" or power.value > target_kw * 1.10 + 0.01):
+                tolerance = max(0.25, charger.get("current_step_a", 1) / 2)
+                if (setting.quality != "ok" or abs(setting.value-current) > tolerance
+                        or power.quality != "ok" or power.value > target_kw * 1.10 + 0.01
+                        or (charger.get("current_readback_entity")
+                            and (amps.quality != "ok" or amps.value > current + tolerance))):
                     unsafe = True
         if not unsafe:
             session = self._sessions.get(uid)
