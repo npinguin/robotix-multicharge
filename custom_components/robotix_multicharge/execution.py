@@ -909,6 +909,8 @@ class NativeSwitchExecutor:
         ctl = cfg["controller"]
         if not self._persistence_verified:
             return "CONTROL_STATE_UNVERIFIED"
+        if charger["id"] in self._interrupted_sessions:
+            return "UNRESOLVED_PREVIOUS_CHARGE_INTENT"
         if charger["id"] in self._paused:
             return "USER_PAUSED"
         if not planned and ctl.get("mode") != "Force Charge" and not (
