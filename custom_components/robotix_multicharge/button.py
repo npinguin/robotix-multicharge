@@ -7,6 +7,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
+from .configuration import charger_is_active
 
 
 async def async_setup_entry(
@@ -48,8 +49,7 @@ class _SafeStopButton(ButtonEntity):
              if c["id"] == self._charger_id), None
         )
         return bool(
-            charger and charger.get("control_owner") == "multicharge"
-            and charger.get("physical_commissioned") is True
+            charger and charger_is_active(charger)
         )
 
     async def async_press(self) -> None:
