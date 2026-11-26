@@ -854,12 +854,20 @@ def _price_spans(quotes, first, last):
             continue
         if a < last and b > first:
             rows.append((a, b, row))
-    edges = sorted({first, last} | {edge for a, b, _ in rows
-                                  for edge in (a, b) if first < edge < last})
+    # Sweep once across the clipped quote boundaries. Distinct row indices
+    # keep duplicate/overlapping observations ambiguous, including identical prices.
+    opens, closes = {}, {}
+    for index, (a, b, row) in enumerate(rows):
+        opens.setdefault(max(first, a), []).append((index, row))
+        closes.setdefault(min(last, b), []).append(index)
+    edges = sorted({first, last} | opens.keys() | closes.keys())
+    active = {}
     result = []
     for a, b in zip(edges, edges[1:]):
-        found = [row for left, right, row in rows if left <= a and right >= b]
-        result.append((a, b, found[0] if len(found) == 1 else None))
+        for index in closes.get(a, ()):
+            active.pop(index, None)
+        active.update(opens.get(a, ()))
+        result.append((a, b, next(iter(active.values())) if len(active) == 1 else None))
     return result
 
 
