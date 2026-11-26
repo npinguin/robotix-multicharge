@@ -164,6 +164,56 @@ print("Native HA Core", action, archive.name, "PASS")
 """
 
 
+# Same deterministic workload in two isolated interpreters of the actual
+# predecessor/candidate archives, on the same CI runner. Not HAOS field timing.
+PLAN_BENCHMARK = r"""
+import hashlib
+import json
+import resource
+from datetime import datetime, timedelta, timezone
+from time import perf_counter, process_time
+from custom_components.robotix_multicharge.contracts import ChargeDemand, PriceSlot
+from custom_components.robotix_multicharge.domain import ChargeController, Charger
+from custom_components.robotix_multicharge.planner import compile_plan
+
+now = datetime(2026, 11, 26, 8, tzinfo=timezone.utc)
+quarter = timedelta(minutes=15)
+prices = tuple(PriceSlot(now+i*quarter, now+(i+1)*quarter,
+                         0.1+(i%31)/1000, "EUR") for i in range(192))
+report = {}
+for n in (0, 1, 4, 10):
+    ctl = ChargeController(uid="site", name="Site", max_parallel=max(1,n),
+                           max_group_power_kw=max(1,n)*3.6)
+    chargers = {f"c{i}": Charger(uid=f"c{i}", name=f"Charger {i}",
+                controller_uid="site", control_kind="on_off", rated_power_kw=3.6)
+                for i in range(n)}
+    demands = [ChargeDemand(asset_uid=f"a{i}", charger_uid=f"c{i}",
+                remaining_grid_kwh=12, ready_by=now+timedelta(hours=36), priority=1)
+                for i in range(n)]
+    tariffs = {uid: prices for uid in chargers}
+    def plan():
+        return compile_plan(ctl, chargers, demands, now, mode="Economy", tariffs=tariffs)
+    result = plan()
+    signature = [(slot.charger_uid, slot.asset_uid, slot.start.isoformat(),
+                  slot.end.isoformat(), slot.power_kw, slot.current_a)
+                 for slot in result.plan.slots]
+    samples = []
+    started = process_time()
+    for _ in range(20):
+        first = perf_counter()
+        plan()
+        samples.append((perf_counter()-first)*1000)
+    ranked = sorted(samples)
+    report[str(n)] = {"p50_ms": round((ranked[9]+ranked[10])/2, 3),
+                      "p95_ms": round(ranked[18], 3),
+                      "cpu_ms": round((process_time()-started)*1000, 3),
+                      "peak_rss_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+                      "slots": len(signature),
+                      "signature": hashlib.sha256(json.dumps(signature).encode()).hexdigest()}
+print(json.dumps(report, sort_keys=True))
+"""
+
+
 def verify_rollback_checkpoint(candidate, manifest, work):
     request = json.loads((ROOT / "release/TEST_REQUEST.json").read_text())
     rollback = request["rollback_evidence"]
@@ -188,6 +238,15 @@ def verify_rollback_checkpoint(candidate, manifest, work):
         if json.loads(archive.read(PREFIX + "manifest.json"))["version"] != tag[1:]:
             raise ValueError("rollback archive version mismatch")
         archive.extractall(prior)
+    baseline = json.loads(subprocess.check_output(
+        [sys.executable, "-c", PLAN_BENCHMARK], cwd=prior, text=True))
+    measured = json.loads(subprocess.check_output(
+        [sys.executable, "-c", PLAN_BENCHMARK], cwd=candidate, text=True))
+    for count in baseline:
+        assert measured[count]["signature"] == baseline[count]["signature"], count
+        print("MC_EXACT_ARTIFACT_PLAN", count, "predecessor", tag, baseline[count],
+              "candidate", manifest["version"], measured[count])
+    # No invented physical speedup or arbitrary cross-runner timing threshold.
     pre = work / "pre-upgrade"
     pre.mkdir()
     upgraded = work / "upgraded"
