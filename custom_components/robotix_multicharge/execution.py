@@ -19,6 +19,7 @@ from .source_evidence import Evidence, binding, connection, intervals, number, s
 from .configuration import (is_plan_presentation_only_change, charger_activation_reason,
                             charger_is_active, charger_operating_grid)
 from .const import (DEFAULT_POWER_ADJUSTMENT_INTERVAL_MINUTES, MIN_AC_CURRENT_A,
+                    DEFAULT_MAINTAIN_SOC_UNTIL_READY_BY,
                     DEFAULT_OPPORTUNISTIC_KIND)
 from .history import receipt_overlaps
 from .planner import (resolve_recurring_ready_by, charging_window_allows,
@@ -320,7 +321,18 @@ class NativeSwitchExecutor:
                 "duration_minutes": round(duration, 4),
                 "budget_amount": round(budget_amount, 6)}
 
+    @staticmethod
+    def _closes_soc_occurrence(asset, deadline):
+        return (deadline is not None and asset.get("target_soc") is not None
+                and not asset.get("maintain_soc_until_ready_by", DEFAULT_MAINTAIN_SOC_UNTIL_READY_BY)
+                and all(asset.get(k) is None for k in (
+                    "requested_kwh", "requested_duration_minutes", "requested_budget_amount")))
+
     def intent_completed(self, asset, charger, deadline):
+        if (all(asset.get(k) is None for k in (
+                "requested_kwh", "requested_duration_minutes", "requested_budget_amount"))
+                and not self._closes_soc_occurrence(asset, deadline)):
+            return False
         key = self._intent_key(asset, charger, deadline)
         return self._completed.get(asset["id"]) == key
 
@@ -2259,7 +2271,7 @@ class NativeSwitchExecutor:
                     if deadline is None:
                         continue
                 intent = self._intent_key(asset, charger, deadline)
-                if self._completed.get(asset["id"]) == intent:
+                if self.intent_completed(asset, charger, deadline):
                     continue
                 # A crash, unknown physical outcome or earlier unsafe STOP
                 # leaves an unresolved intent. Never replay the requested kWh
@@ -2425,7 +2437,9 @@ class NativeSwitchExecutor:
                     )
                 if (asset.get("requested_kwh") is not None
                         or asset.get("requested_duration_minutes") is not None
-                        or asset.get("requested_budget_amount") is not None):
+                        or asset.get("requested_budget_amount") is not None
+                        or (session_reason == "SOC_TARGET_REACHED"
+                            and self._closes_soc_occurrence(asset, occurrence))):
                     completed_intent = self._intent_key(
                         asset, charger, occurrence
                     )
