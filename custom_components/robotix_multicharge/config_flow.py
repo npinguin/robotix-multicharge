@@ -22,7 +22,7 @@ from .configuration import (
 )
 from .source_evidence import number
 from .execution import stop_power_limit
-from .const import DOMAIN, NAME
+from .const import DOMAIN, NAME, DEFAULT_POWER_ADJUSTMENT_INTERVAL_MINUTES, NOMINAL_PHASE_COUNT, NOMINAL_PHASE_VOLTAGE_V
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -1038,7 +1038,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                     min=1, max=16, step=1, mode=selector.NumberSelectorMode.BOX,
                 )),
             vol.Required("power_adjustment_interval_minutes",
-                         default=current.get("power_adjustment_interval_minutes", 5)):
+                         default=current.get("power_adjustment_interval_minutes", DEFAULT_POWER_ADJUSTMENT_INTERVAL_MINUTES)):
                 selector.NumberSelector(selector.NumberSelectorConfig(
                     min=1, max=1440, step=1, mode=selector.NumberSelectorMode.BOX,
                     unit_of_measurement="min",
@@ -1209,10 +1209,10 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                                     "control_entity", "connected_entity",
                                     "power_entity", "energy_entity",
                                     "current_control_entity",
-                                    "current_readback_entity"):
+                                    "current_readback_entity", "phase_count", "voltage_v"):
                             if key in user_input:
                                 if user_input[key] not in (None, ""):
-                                    record[key] = user_input[key]
+                                    record[key] = int(user_input[key]) if key == "phase_count" else user_input[key]
                                 else:
                                     record.pop(key, None)
                         record.setdefault("kind", "on_off")
@@ -1262,6 +1262,10 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             field("current_readback_entity"): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")),
         }
+        # Existing variable-current setup shows the same nominal proposals as the dashboard.
+        if original.get("kind") == "variable_current":
+            schema[vol.Optional("phase_count", default=original.get("phase_count", NOMINAL_PHASE_COUNT))] = vol.In([1, 2, 3])
+            schema[vol.Optional("voltage_v", default=original.get("voltage_v", NOMINAL_PHASE_VOLTAGE_V))] = vol.All(vol.Coerce(float), vol.Range(min=200, max=260))
         if not selected:
             schema[vol.Optional("id")] = str
         return self.async_show_form(
