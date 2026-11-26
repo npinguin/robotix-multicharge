@@ -2625,6 +2625,40 @@ async def test_direct_yaml_save_native_websocket_single_entry_roundtrip(
     assert stale["success"] is False
     assert "STALE_SETTINGS_REFRESH" in stale["error"]["message"]
 
+    # A direct native Config Entry change during the Store await must not be
+    # overwritten by the older dashboard transaction.
+    from unittest.mock import patch
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    actual_save = runtime._control_store.async_save
+    competing = json.loads(json.dumps(changed))
+    competing["controller"]["name"] = "Native concurrent edit"
+    older = json.loads(json.dumps(changed))
+    older["controller"]["name"] = "Stale dashboard edit"
+    injected = False
+
+    async def concurrent_save(payload):
+        nonlocal injected
+        await actual_save(payload)
+        if not injected:
+            injected = True
+            hass.config_entries.async_update_entry(
+                entry, options={**entry.options, "configuration": competing},
+            )
+
+    with patch.object(runtime._control_store, "async_save", side_effect=concurrent_save):
+        conflicted = await yaml_ws(json.dumps(older), proposed)
+        assert conflicted["success"] is False
+    await hass.async_block_till_done()
+    assert entry.options["configuration"] == competing
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    proposed = configuration_revision(competing)
+    with patch.object(runtime._control_store, "async_save", side_effect=OSError("Store unavailable")):
+        failed = await yaml_ws(json.dumps(older), proposed)
+        assert failed["success"] is False
+    assert entry.options["configuration"] == competing
+    changed = competing
+    text = json.dumps(changed, indent=2)
+
     # Even an admin cannot acquire a visibly energized endpoint while
     # its former owner is still using it. Explicit idle activation is valid.
     control = changed["chargers"][0]["control_entity"]
@@ -2791,6 +2825,8 @@ async def test_native_control_store_failed_restore_keeps_original_receipts(hass:
     for field, corrupted in (
         ("sessions", [*valid["sessions"], {"started_at": "corrupt"}]),
         ("power_bindings", {"retired": [{"start": "corrupt", "entity": "sensor.old"}]}),
+        ("energy_bindings", {"retired": [{"start": "corrupt", "entity": "sensor.old"}]}),
+        ("sessions", [*valid["sessions"][:-1], {**valid["sessions"][-1], "duration_minutes": -1}]),
     ):
         key = "multicharge_recovery_"+field
         store = Store(hass, 1, key)
