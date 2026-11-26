@@ -111,6 +111,7 @@ class MultiChargeRuntime:
         self.nordpool_prices = None
         self.executor = NativeSwitchExecutor(self)
         self._control_store = None
+        self._control_read_failed = False
         self._control_restore_failed = False
         self._control_write_failed = False
         self._control_retry_at = 0.0
@@ -407,8 +408,16 @@ class MultiChargeRuntime:
             available += measured.value
         return round(available, 6), "OK"
 
+    def defer_control_store_read(self, store):
+        """Keep the original Store untouched until a transient read succeeds."""
+        self._control_store = store
+        self._control_read_failed = True
+        self._control_retry_at = monotonic() + 60
+        self.executor._persistence_verified = False
+
     def attach_control_store(self, store, snapshot):
         self._control_store = store
+        self._control_read_failed = False
         self._control_restore_failed = False
         self._control_write_failed = False
         self._control_retry_at = 0.0
@@ -487,7 +496,7 @@ class MultiChargeRuntime:
                 # A STOP is still physically available after failed restore.
                 # Neither that STOP nor an unrelated settings audit may
                 # replace the only recoverable original control evidence.
-                if self._control_restore_failed:
+                if self._control_restore_failed or self._control_read_failed:
                     return False
                 await self._control_store.async_save({
                     **self.executor.export_state(),
@@ -511,7 +520,7 @@ class MultiChargeRuntime:
     async def retry_control_persistence(self):
         """Retry a transient write, never replace an unreadable original Store."""
         executor = self.executor
-        if (self._control_restore_failed or not self._control_write_failed
+        if (self._control_restore_failed or not (self._control_write_failed or self._control_read_failed)
                 or executor._persistence_verified or executor._evidence_invalid
                 or executor._draining or not self.active
                 or monotonic() < self._control_retry_at):
@@ -524,6 +533,26 @@ class MultiChargeRuntime:
             if (executor._draining or executor._sessions or executor._start_pending
                     or executor._current_pending or not self.active):
                 return False
+            if self._control_read_failed:
+                try:
+                    saved = await self._control_store.async_load()
+                except (OSError, RuntimeError):
+                    self._control_retry_at = monotonic() + 60
+                    return False
+                except ValueError:
+                    saved = {"schema_major": -1}
+                if not self.active or executor._draining:
+                    return False
+                # The deferred read was not corrupt evidence. Validation and
+                # adoption remain synchronous and transactional.
+                executor._persistence_verified = True
+                self.attach_control_store(self._control_store, saved)
+                if not executor._persistence_verified:
+                    self.refresh()
+                    return False
+                # Recovered checkpoints must be reconciled through STOP, not
+                # treated as live sessions. Do not admit until saved.
+                executor._persistence_verified = False
             if not await self.persist_control_state():
                 return False
             self._control_write_failed = False
