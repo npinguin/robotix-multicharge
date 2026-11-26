@@ -45,10 +45,15 @@ class ConceptsTest(unittest.TestCase):
                            control_kind="variable_current", rated_power_kw=2)
         self.assertIsNone(observed.min_current_a)
         self.assertIsNone(observed.max_current_a)
+        constrained = Charger(uid="c", name="Socket", controller_uid="x",
+                              control_kind="variable_current", rated_power_kw=2,
+                              min_current_a=6)
+        self.assertIsNone(constrained.max_current_a)
+        self.assertEqual(constrained.min_current_a, 6)
         with self.assertRaises(ValueError):
             Charger(uid="c", name="Socket", controller_uid="x",
                     control_kind="variable_current", rated_power_kw=2,
-                    min_current_a=6)
+                    min_current_a=6, max_current_a=5)
         with self.assertRaises(ValueError):
             Charger(uid="c", name="Socket", controller_uid="x",
                     control_kind="on_off", rated_power_kw=2, max_current_a=10)

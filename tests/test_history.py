@@ -10,7 +10,10 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 path = Path(__file__).resolve().parents[1] / "custom_components/robotix_multicharge/history.py"
-spec = importlib.util.spec_from_file_location("multicharge_history_test", path)
+package = type(sys)("multicharge_history_test")
+package.__path__ = [str(path.parent)]
+sys.modules[package.__name__] = package
+spec = importlib.util.spec_from_file_location("multicharge_history_test.history", path)
 mod = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = mod
 spec.loader.exec_module(mod)

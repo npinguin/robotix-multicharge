@@ -19,6 +19,7 @@ from .contracts import (
     PriceSlot,
 )
 from .domain import ChargeController, Charger
+from .const import NOMINAL_PHASE_COUNT, NOMINAL_PHASE_VOLTAGE_V, MIN_AC_CURRENT_A
 
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
@@ -221,9 +222,13 @@ def minimum_planning_power(charger: Charger) -> float:
     """
     if charger.control_kind == "on_off":
         return charger.rated_power_kw
-    factor = (charger.voltage_v or 230.0) * (charger.phase_count or 1) / 1000
-    minimum = charger.min_current_a or 6.0
-    target = max(minimum * factor, charger.min_charging_power_kw or 0.0)
+    factor = (charger.voltage_v or NOMINAL_PHASE_VOLTAGE_V) * (charger.phase_count or NOMINAL_PHASE_COUNT) / 1000
+    grid = charger.operating_grid()
+    if grid is not None:
+        return round(grid[0] * grid[3], 6)
+    minimum = charger.min_current_a or MIN_AC_CURRENT_A
+    target = max(MIN_AC_CURRENT_A * factor, minimum * factor,
+                 charger.min_charging_power_kw or 0.0)
     if not missing_current_conversion(charger):
         steps = max(0, ceil((target / factor - minimum) / charger.current_step_a - 1e-9))
         target = (minimum + steps * charger.current_step_a) * factor
@@ -396,6 +401,12 @@ def compile_plan(
         # fictitious fractional on/off switch. Unknown wiring remains unavailable.
         adjustable = charger.control_kind == "variable_current"
         incomplete_current = missing_current_conversion(charger)
+        grid = charger.operating_grid()
+        if adjustable and not incomplete_current and grid is None:
+            reasons[uid] = "INSUFFICIENT_CAPACITY_OR_TIME"
+            shortfall[uid] = demand.remaining_grid_kwh
+            coverage[uid] = "INCOMPLETE"
+            continue
         # Only nonbinding previews may use default AC minimum assumptions
         # without conversion, where no declared phase/circuit constraint requires A.
         minimum_kw = minimum_planning_power(charger)
@@ -495,7 +506,6 @@ def compile_plan(
             if demand.max_power_kw is not None:
                 remaining_kw = min(remaining_kw, demand.max_power_kw)
             phases = charger.phase_ids
-            voltage = charger.voltage_v
             if estimate_kw:
                 # Unknown physical capability never justifies a rated-power
                 # forecast. Use the same conservative minimum and skip slots
@@ -506,15 +516,8 @@ def compile_plan(
                                charger.max_charging_power_kw or charger.rated_power_kw) + 1e-9:
                     continue
             elif adjustable:
-                remaining_kw = min(remaining_kw, charger.rated_power_kw)
-                current_cap = min(charger.max_current_a,
-                                  remaining_kw * 1000 / (voltage * charger.phase_count))
-                if charger.max_charging_power_kw is not None:
-                    current_cap = min(
-                        current_cap,
-                        charger.max_charging_power_kw * 1000
-                        / (voltage * charger.phase_count)
-                    )
+                first, last, step, factor = grid
+                current_cap = min(last, remaining_kw / factor)
                 if controller.phase_limits_a is not None:
                     current_cap = min(current_cap, *(
                         controller.phase_limits_a[p] - used_phase_a.get(slot, {}).get(p, 0)
@@ -526,18 +529,11 @@ def compile_plan(
                         - used_circuit_a.get(slot, {}).get(charger.circuit_id, 0)
                     )
                 if conservative:
-                    current_cap = min(current_cap, minimum_kw * 1000 /
-                                      (voltage * charger.phase_count))
-                steps = floor((current_cap - charger.min_current_a + 1e-9)
-                              / charger.current_step_a)
-                current = (charger.min_current_a + max(0, steps) * charger.current_step_a)
-                if current_cap + 1e-9 < charger.min_current_a:
+                    current_cap = min(current_cap, minimum_kw / factor)
+                if current_cap + 1e-9 < first:
                     continue
-                power = round(current * voltage * charger.phase_count / 1000, 6)
-                if ((conservative and power + 1e-6 < minimum_kw)
-                        or (charger.min_charging_power_kw is not None
-                            and power + 1e-9 < charger.min_charging_power_kw)):
-                    continue
+                current = round(first + floor((current_cap - first) / step + 1e-9) * step, 6)
+                power = round(current * factor, 6)
             else:
                 power = charger.rated_power_kw
                 current = charger.fixed_current_a
@@ -772,7 +768,10 @@ def compile_plan(
         demand, method = selected
         charger = chargers[row.charger_uid]
         stamp, finish = row.start, row.end
-        factor = charger.voltage_v * charger.phase_count / 1000
+        grid = charger.operating_grid()
+        if grid is None:
+            continue
+        first, last, step, factor = grid
         cap = controller.max_group_power_kw
         if cap is None:
             cap = sum(c.rated_power_kw for c in chargers.values())
@@ -787,12 +786,10 @@ def compile_plan(
                 continue
             cap = min(cap, source.max_charging_kw)
         remaining = max(0.0, cap - used_kw[stamp]) + row.power_kw
-        limit = min(remaining, charger.rated_power_kw)
+        limit = remaining
         if demand.max_power_kw is not None:
             limit = min(limit, demand.max_power_kw)
-        if charger.max_charging_power_kw is not None:
-            limit = min(limit, charger.max_charging_power_kw)
-        amp_cap = min(charger.max_current_a, limit / factor)
+        amp_cap = min(last, limit / factor)
         if controller.phase_limits_a is not None:
             amp_cap = min(amp_cap, *(
                 controller.phase_limits_a[phase] -
@@ -803,8 +800,9 @@ def compile_plan(
             amp_cap = min(amp_cap, charger.circuit_limit_a -
                           used_circuit_a.get(stamp, {}).get(charger.circuit_id, 0)
                           + row.current_a)
-        steps = floor((amp_cap - charger.min_current_a + 1e-9) / charger.current_step_a)
-        current = round(charger.min_current_a + max(0, steps) * charger.current_step_a, 6)
+        if amp_cap + 1e-9 < first:
+            continue
+        current = round(first + floor((amp_cap - first) / step + 1e-9) * step, 6)
         if current <= row.current_a + 1e-6:
             continue
         power = round(current * factor, 6)

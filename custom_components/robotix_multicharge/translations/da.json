@@ -366,6 +366,13 @@
       "ready_day_sun": {
         "name": "Søndag Ready By"
       },
+      "maintain_soc_until_ready_by": {
+        "name": "Bevar ladeniveau indtil afgang",
+        "state": {
+          "on": "Til",
+          "off": "Fra"
+        }
+      },
       "continuous_charging": {
         "name": "Lademønster"
       },

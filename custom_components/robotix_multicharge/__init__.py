@@ -22,6 +22,7 @@ from homeassistant.core import HomeAssistant
 
 from .configuration import (
     effective_configuration, normalize_expert_json, apply_new_asset_defaults,
+    forecast_tariff_source,
     is_plan_presentation_only_change,
     is_in_place_runtime_preference_change,
 )
@@ -180,7 +181,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     price_pending = None
     price_last_attempt = None
     finance_pending = None
-    price_source = cfg["controller"].get("price_entity") or cfg["controller"].get("current_price_entity")
+    price_source = forecast_tariff_source(cfg["controller"])
 
     async def reconcile():
         nonlocal dirty, pending_quarter

@@ -11,6 +11,8 @@ from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 from math import isfinite
 
+from .configuration import forecast_tariff_source
+
 QUARTER = timedelta(minutes=15)
 MAX_OBSERVATION_AGE = timedelta(minutes=30)
 
@@ -66,7 +68,7 @@ def reconcile_tariff_bindings(previous, configuration, at):
     """Same epoch contract as physical meter sources, no price data in Store."""
     ctl = configuration["controller"]
     return reconcile_power_bindings(previous, {"chargers": [{
-        "id": "site", "price_entity": ctl.get("price_entity") or ctl.get("current_price_entity"),
+        "id": "site", "price_entity": forecast_tariff_source(ctl),
     }]}, at, field="price_entity")
 
 
@@ -1233,9 +1235,9 @@ async def read_actual_history(hass, configuration, start, end, *,
                               include_valuations=False, power_bindings=None,
                               include_observed_sessions=False, active_sessions=None,
                               tariff_entity=None, energy_bindings=None, tariff_bindings=None,
-                              financial_days=None):
+                              financial_days=None, as_of=None):
     """Query the installed native Recorder once for exact configured chargers."""
-    now = datetime.now(timezone.utc)
+    now = as_of or datetime.now(timezone.utc)
     first, last = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
     if last <= first or last-first > timedelta(hours=49):
         raise ValueError("historical view must be bounded to two civil days (<=49h)")
@@ -1264,6 +1266,7 @@ async def read_actual_history(hass, configuration, start, end, *,
     session_receipts = [
         row for row in session_receipts
         if row.get("charger_id") in selected
+        and row.get("continuity_quality") != "unknown"
         and receipt_overlaps(row, history_first, history_end)
     ]
 

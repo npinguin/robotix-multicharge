@@ -11,8 +11,11 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
+from .const import (DEFAULT_ASSET_PRIORITY, DEFAULT_CONTINUOUS_CHARGING,
+                    DEFAULT_MAINTAIN_SOC_UNTIL_READY_BY,
+                    DEFAULT_OPPORTUNISTIC_KIND, NOMINAL_PHASE_COUNT, NOMINAL_PHASE_VOLTAGE_V)
 from .contracts import ChargeDemand, PowerEnvelope, PowerLimitSlot
-from .configuration import configuration_revision, PLAN_COLORS
+from .configuration import configuration_revision, PLAN_COLORS, forecast_tariff_source, charger_is_active
 from .domain import ChargeController, Charger
 from .planner import compile_plan, minimum_planning_power, missing_current_conversion, resolve_recurring_ready_by
 from .source_evidence import (
@@ -136,8 +139,7 @@ class MultiChargeRuntime:
             session_receipts=receipts, price_slots=self.price_slots,
             power_bindings=self.power_bindings, energy_bindings=self.energy_bindings,
             tariff_bindings=self.tariff_bindings, active_sessions=active,
-            tariff_entity=(cfg["controller"].get("price_entity") or
-                           cfg["controller"].get("current_price_entity")),
+            tariff_entity=forecast_tariff_source(cfg["controller"]),
         )
         _, _, estimates, observed, metrics, daily = await read_actual_history(
             self.hass, cfg, at-timedelta(hours=48), at+timedelta(minutes=1),
@@ -298,8 +300,7 @@ class MultiChargeRuntime:
         )
         available = max(0.0, exported)
         for charger in self.configuration["chargers"]:
-            if (charger.get("control_owner") != "multicharge"
-                    or charger.get("physical_commissioned") is not True):
+            if (not charger_is_active(charger)):
                 continue
             state = self.executor._switch(
                 self.hass, charger.get("control_entity"),
@@ -321,40 +322,30 @@ class MultiChargeRuntime:
 
     def attach_control_store(self, store, snapshot):
         self._control_store = store
-        self.executor.restore_state(snapshot)
-        self._control_restore_failed = not self.executor._persistence_verified
-        previous = snapshot.get("power_bindings") if isinstance(snapshot, dict) else None
+        self._control_restore_failed = False
+        # Stage all binding histories before adopting any recovered control evidence.
+        # A malformed later section cannot leave a partially restored runtime.
+        now = datetime.now(timezone.utc)
+        saved = snapshot if isinstance(snapshot, dict) else {}
         try:
-            self.power_bindings = reconcile_power_bindings(
-                previous, self.configuration, datetime.now(timezone.utc))
+            power = reconcile_power_bindings(saved.get("power_bindings"), self.configuration, now)
+            energy = reconcile_power_bindings(saved.get("energy_bindings", {}), self.configuration,
+                                              now, field="energy_entity")
+            tariffs = reconcile_tariff_bindings(saved.get("tariff_bindings"), self.configuration, now)
         except (ValueError, TypeError, KeyError, OverflowError):
             self._control_restore_failed = True
-            _LOGGER.warning("Invalid stored power binding history; earlier intervals are unknown")
-            self.power_bindings = reconcile_power_bindings(
-                {}, self.configuration, datetime.now(timezone.utc))
-        previous_energy = snapshot.get("energy_bindings", {}) if isinstance(snapshot, dict) else {}
-        try:
-            self.energy_bindings = reconcile_power_bindings(
-                previous_energy, self.configuration, datetime.now(timezone.utc), field="energy_entity",
-            )
-        except (ValueError, TypeError, KeyError, OverflowError):
-            self._control_restore_failed = True
-            _LOGGER.warning("Invalid stored energy binding history; earlier meter intervals are unknown")
-            self.energy_bindings = reconcile_power_bindings(
-                {}, self.configuration, datetime.now(timezone.utc), field="energy_entity",
-            )
-        previous_tariffs = snapshot.get("tariff_bindings") if isinstance(snapshot, dict) else None
-        try:
-            self.tariff_bindings = reconcile_tariff_bindings(
-                previous_tariffs, self.configuration, datetime.now(timezone.utc))
-        except (ValueError, TypeError, KeyError, OverflowError):
-            self._control_restore_failed = True
-            _LOGGER.warning("Invalid stored tariff binding history; earlier valuations are unknown")
-            self.tariff_bindings = reconcile_tariff_bindings(
-                {}, self.configuration, datetime.now(timezone.utc))
+            _LOGGER.warning("Invalid stored binding history; no recovered bindings adopted")
+        if not self._control_restore_failed:
+            self.executor.restore_state(snapshot)
+            self._control_restore_failed = not self.executor._persistence_verified
         if self._control_restore_failed:
             self.executor._persistence_verified = False
+            self.power_bindings = reconcile_power_bindings({}, self.configuration, now)
+            self.energy_bindings = reconcile_power_bindings({}, self.configuration, now, field="energy_entity")
+            self.tariff_bindings = reconcile_tariff_bindings({}, self.configuration, now)
             _LOGGER.error("Original control Store retained; restore valid evidence and reload")
+        else:
+            self.power_bindings, self.energy_bindings, self.tariff_bindings = power, energy, tariffs
         if isinstance(snapshot, dict):
             pending = snapshot.get("pending_cost_archive", {})
             try:
@@ -366,7 +357,7 @@ class MultiChargeRuntime:
         if (isinstance(recorded, dict)
                 and isinstance(recorded.get("expected_revision"), str)
                 and recorded.get("scope") in ("controller", "asset", "charger")
-                and recorded.get("action") in ("save", "create", "delete")
+                and recorded.get("action") in ("save", "create", "delete", "yaml_save")
                 and isinstance(recorded.get("requested_at"), str)):
             self._settings_action = dict(recorded)
 
@@ -385,8 +376,8 @@ class MultiChargeRuntime:
 
     def record_settings_action(self, scope, target_id, action, changes,
                                expected_revision, *, status="accepted_unconfirmed",
-                               reason=None):
-        self._settings_action = {
+                               reason=None, publish=True):
+        recorded = {
             "scope": scope, "target_id": target_id, "action": action,
             "fields": sorted(str(field) for field in changes),
             "expected_revision": expected_revision,
@@ -394,9 +385,12 @@ class MultiChargeRuntime:
             "status": status,
             "reason": reason,
         }
-        self.notify()
+        if publish:
+            self._settings_action = recorded
+            self.notify()
+        return recorded
 
-    async def persist_control_state(self):
+    async def persist_control_state(self, *, settings_action=None):
         if self._control_store is None:
             return True  # isolated developer tests, never a production HA fallback
         try:
@@ -408,7 +402,8 @@ class MultiChargeRuntime:
                     return False
                 await self._control_store.async_save({
                     **self.executor.export_state(),
-                    "settings_action": self._settings_action,
+                    "settings_action": (settings_action if settings_action is not None
+                                        else self._settings_action),
                     "power_bindings": self.power_bindings,
                     "energy_bindings": self.energy_bindings,
                     "tariff_bindings": self.tariff_bindings,
@@ -462,7 +457,7 @@ class MultiChargeRuntime:
     def qualified_tariff(self, at):
         """One native price reader for proposals and fresh physical admission."""
         setting = self.configuration["controller"]
-        tariff_source = setting.get("price_entity") or setting.get("current_price_entity")
+        tariff_source = forecast_tariff_source(setting)
         tariff_coverage = {}
         tariff, tariff_quality = intervals(
             self.hass, tariff_source, "price", at, coverage_details=tariff_coverage,
@@ -571,6 +566,13 @@ class MultiChargeRuntime:
                 )
                 self.forecast_excluded[uid] = "NO_ASSIGNED_ASSET"
                 continue
+            if (asset["id"] in self.executor._inflight
+                    and uid not in self.executor._sessions
+                    and uid not in self.executor._start_pending
+                    and uid not in self.executor._grants):
+                self.excluded[uid] = "UNRESOLVED_PREVIOUS_CHARGE_INTENT"
+                self.forecast_excluded[uid] = "UNRESOLVED_PREVIOUS_CHARGE_INTENT"
+                continue
             if (asset.get("temporary")
                     and datetime.fromisoformat(asset["expires_at"]) <= at):
                 self.excluded[uid] = "TEMPORARY_ASSET_EXPIRED"
@@ -639,7 +641,7 @@ class MultiChargeRuntime:
                 if deadline is None:
                     self.excluded[uid] = reason
                     continue
-            if amount is not None or minutes is not None or budget is not None:
+            if not soc_based:
                 progress = self.executor.measured_intent_usage(asset, raw, deadline, at)
                 if amount is not None:
                     if progress["energy_kwh"] is None:
@@ -668,20 +670,17 @@ class MultiChargeRuntime:
                         # A completed finite duration is a zero-demand plan,
                         # never an exception that kills an HA refresh.
                         amount, minutes = 0.0, None
-                # A measured SoC target is a live goal, not a permanently
-                # completed finite-energy receipt. A later SoC drop must
-                # appear as new remaining demand, not as a reached target.
-                if self.executor.intent_completed(asset, raw, deadline):
-                    if soc_based and amount > 0:
-                        # A previously completed occurrence cannot silently
-                        # replay. Preserve measured current SoC as the truth.
-                        self.excluded[uid] = "SOC_TARGET_DROPPED_AFTER_COMPLETION"
-                        self.forecast_excluded[uid] = "SOC_TARGET_DROPPED_AFTER_COMPLETION"
-                        continue
-                    if budget is not None:
-                        budget = 0.0
-                    else:
-                        amount, minutes = 0.0, None
+            if self.executor.intent_completed(asset, raw, deadline):
+                if soc_based and amount > 0:
+                    # An explicitly closed scheduled occurrence must not
+                    # replay; actual SoC remains visible and is not target-met.
+                    self.excluded[uid] = "SOC_TARGET_DROPPED_AFTER_COMPLETION"
+                    self.forecast_excluded[uid] = "SOC_TARGET_DROPPED_AFTER_COMPLETION"
+                    continue
+                if budget is not None:
+                    budget = 0.0
+                else:
+                    amount, minutes = 0.0, None
             # Target SoC can itself have changed since the last meter
             # receipt. A priority guarantee must NEVER exceed the actually
             # remaining verified battery demand of this controller cycle.
@@ -717,14 +716,14 @@ class MultiChargeRuntime:
                 observed_session_draw_kw=draw["power_kw"] if draw else None,
                 observed_draw_setpoint_kw=draw["setpoint_kw"] if draw else None,
                 remaining_grid_kwh=amount, ready_by=deadline,
-                priority=asset.get("priority", 0),
-                continuous_charging=asset.get("continuous_charging", False),
+                priority=asset.get("priority", DEFAULT_ASSET_PRIORITY),
+                continuous_charging=asset.get("continuous_charging", DEFAULT_CONTINUOUS_CHARGING),
                 minimum_priority_kwh=minimum_priority,
                 low_soc_priority_kwh=low_soc_priority,
                 maximum_price_per_kwh=asset.get("maximum_price_per_kwh"),
                 low_price_trigger_per_kwh=asset.get("low_price_trigger_per_kwh"),
                 price_currency=asset.get("price_currency"),
-                opportunistic_kind=asset.get("opportunistic_kind", "off"),
+                opportunistic_kind=asset.get("opportunistic_kind", DEFAULT_OPPORTUNISTIC_KIND),
                 opportunistic_level_pct=asset.get("opportunistic_level_pct"),
                 remaining_duration_minutes=minutes,
                 remaining_budget_amount=budget,
@@ -734,7 +733,7 @@ class MultiChargeRuntime:
                 max_power_kw=asset.get("max_charge_kw"),
                 not_before=eligible_after,
             )
-            inactive = raw.get("control_owner") != "multicharge" or raw.get("physical_commissioned") is not True
+            inactive = not charger_is_active(raw)
             identity_unconfirmed = (
                 not disconnected and not inactive and not duration_without_connection
                 and self.executor.connection_confirmation(raw, at) is None
@@ -744,10 +743,10 @@ class MultiChargeRuntime:
             capability_unverified = missing_current_conversion(chargers[uid])
             capability_reason = (
                 "ELECTRICAL_WIRING_UNVERIFIED"
-                if all(raw.get(field) is not None for field in
-                       ("min_current_a", "max_current_a", "current_step_a"))
+                if raw.get("kind") == "variable_current"
                 and (raw.get("phase_count") is None or raw.get("voltage_v") is None)
-                else "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED"
+                and not raw.get("_current_capability_reason")
+                else raw.get("_current_capability_reason") or "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED"
             )
             if disconnected or inactive or identity_unconfirmed or capability_unverified:
                 if disconnected:
@@ -807,7 +806,7 @@ class MultiChargeRuntime:
                 else:
                     power = source_power
             readings["effective_power_kw"] = power
-        tariff_source = setting.get("price_entity") or setting.get("current_price_entity")
+        tariff_source = forecast_tariff_source(setting)
         tariff, tariff_quality, tariff_coverage = self.qualified_tariff(at)
         solar_kind = setting.get(
             "solar_source_kind", "intervals" if setting.get("solar_entity") else "none",
@@ -978,7 +977,9 @@ class MultiChargeRuntime:
                 # A conservative minimum-power preview is useful for orientation,
                 # but assumed electrical conversion cannot qualify the deadline.
                 status, reason = "cannot_assess", self.excluded.get(uid, "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED")
-                if reason not in ("ELECTRICAL_WIRING_UNVERIFIED", "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED"):
+                if reason not in ("ELECTRICAL_WIRING_UNVERIFIED", "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED",
+                                  "CURRENT_CONTROL_UNAVAILABLE", "NATIVE_CURRENT_UNIT_UNSUPPORTED",
+                                  "NATIVE_CURRENT_CAPABILITY_UNVERIFIED", "CURRENT_RANGE_UNVERIFIED"):
                     reason = "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED"
                 shortfall = None
             elif reason == "PROPOSED" and coverage == "COMPLETE":
@@ -1048,7 +1049,7 @@ class MultiChargeRuntime:
             connected = cable.value if cable is not None and cable.quality == "ok" else None
             measured = power.value if power is not None and power.quality == "ok" else None
             reported = session.value if session is not None and session.quality == "ok" else None
-            activation = "active" if charger.get("control_owner") == "multicharge" and charger.get("physical_commissioned") is True else "inactive"
+            activation = "active" if charger_is_active(charger) else "inactive"
             switch = self.executor._switch(self.hass, charger.get("control_entity"))
             # Preserve conflicts as unknown rather than choose a convenient source.
             if ((connected is False and (reported in ("charging", "paused") or
@@ -1078,6 +1079,29 @@ class MultiChargeRuntime:
                     goal_reason = "READY"
                 elif goal_reason is None:
                     goal_reason = "INVALID_PLANNING_INPUT"
+            # One resident status projection, independent of presentation and
+            # distinct from command eligibility and the four technical states.
+            blocking_reasons = (
+                "CURRENT_PLUG_ASSET_UNCONFIRMED", "CONTROL_STATE_UNVERIFIED",
+                "PREVIOUS_COMMAND_UNCONFIRMED", "UNRESOLVED_PREVIOUS_CHARGE_INTENT",
+                "CHARGER_CAPABILITY_UNQUALIFIED",
+                "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED", "CURRENT_RANGE_UNVERIFIED",
+                "PHASE_WIRING_UNVERIFIED", "PHYSICAL_PHASES_UNVERIFIED",
+                "ELECTRICAL_WIRING_UNVERIFIED", "NATIVE_CURRENT_CAPABILITY_MISMATCH",
+                "NATIVE_CURRENT_CAPABILITY_UNVERIFIED", "NATIVE_CURRENT_UNIT_UNSUPPORTED",
+                "CURRENT_CONTROL_UNAVAILABLE", "NATIVE_SWITCH_UNAVAILABLE",
+                "INDEPENDENT_POWER_UNAVAILABLE", "POWER_SOURCE_UNAVAILABLE",
+                "OTHER_CHARGER_POWER_WITH_SWITCH_OFF",
+                "POWER_ALREADY_PRESENT_WITHOUT_CONFIRMED_OWNER", "SOC_SOURCE_UNAVAILABLE",
+                "ASSET_SOC_UNAVAILABLE", "BATTERY_CAPACITY_NOT_CONFIGURED",
+                "CHARGE_EFFICIENCY_NOT_CONFIGURED", "INVALID_PLANNING_INPUT",
+                "ASSET_MEASURED_PROGRESS_UNAVAILABLE", "ASSET_DURATION_PROGRESS_UNAVAILABLE",
+                "BUDGET_MEASURED_PROGRESS_UNAVAILABLE",
+            )
+            reasons = {goal_reason, self.excluded.get(uid)}
+            if self.assessment is not None:
+                reasons.add(self.assessment.reasons.get(uid))
+            blocking = next((code for code in blocking_reasons if code in reasons), None)
             if reported == "fault":
                 readiness, reason = "error", "CHARGER_REPORTED_FAULT"
             elif reported == "unavailable" or (charger.get("control_entity") and switch is None and activation == "active"):
@@ -1086,25 +1110,54 @@ class MultiChargeRuntime:
                 readiness, reason = "waiting", "CHARGER_INACTIVE"
             elif activation == "active" and capability.get("paused"):
                 readiness, reason = "waiting", "USER_PAUSED"
-            elif activation == "active" and goal_reason in ("CONTROL_STATE_UNVERIFIED", "PREVIOUS_COMMAND_UNCONFIRMED"):
-                readiness, reason = "unknown", goal_reason
+            elif activation == "active" and connected is not False and blocking:
+                readiness, reason = "unknown", blocking
             elif reported == "paused":
                 readiness, reason = "waiting", session.reason if session.reason != "OK" else "PROVIDER_SUSPENDED"
             elif (switch is not None or reported in ("charging", "stopped", "idle", "completed")
                   or (measured is not None and measured > 0.05)):
-                if activation == "active" and connected is True and goal_reason in (
-                    "TARGET_ALREADY_MET", "MAX_PARALLEL_REACHED", "SITE_CAPACITY_EXCEEDED",
-                    "CHARGING_WINDOW_CLOSED", "EARLIEST_START_NOT_REACHED",
-                    "NATIVE_SOLAR_SURPLUS_INSUFFICIENT", "AUTOMATIC_MODE_NOT_ENABLED",
-                ) and goal_reason != "TARGET_ALREADY_MET":
-                    readiness, reason = "waiting", goal_reason
-                elif goal_reason not in (None, "READY", "MANUAL_START_REQUIRES_FORCE_CHARGE", "SWITCH_ALREADY_ON"):
+                if goal_reason not in (None, "READY", "MANUAL_START_REQUIRES_FORCE_CHARGE", "SWITCH_ALREADY_ON"):
                     readiness, reason = "waiting", goal_reason
                 else:
                     readiness, reason = "ready", "EQUIPMENT_OBSERVED"
             else:
                 readiness, reason = "unknown", "NOT_OBSERVED"
+            physical_draw = measured is not None and measured > 0.05
+            actual_fault = (readiness in ("error", "unavailable")
+                            or reported == "fault" or (activity == "unknown" and physical_draw))
+            asset_id = charger.get("asset")
+            identity = (self.executor.connection_confirmation(charger, datetime.now(timezone.utc))
+                        if asset_id and connected is True and activation == "active" else None)
+            problem = actual_fault or (
+                activation == "active" and connected is not False and (
+                    blocking is not None or connected is None
+                    or (connected is True and measured is None)
+                    or (connected is True and asset_id and identity is None)
+                )
+            )
+            problem_reason = blocking or reason or goal_reason or "CONNECTION_UNCONFIRMED"
+            if actual_fault:
+                problem_reason = reason if readiness in ("error", "unavailable") else "CONFLICTING_PHYSICAL_STATE"
+
+            def resident_status(draw, reached=False):
+                if actual_fault:
+                    return {"status": "problem", "reason": problem_reason}
+                if draw and activity == "charging":
+                    return {"status": "charging", "reason": None}
+                if reached and not physical_draw:
+                    return {"status": "ready", "reason": "TARGET_MET"}
+                if problem:
+                    return {"status": "problem", "reason": problem_reason}
+                return {"status": "idle", "reason": None}
+
+            goal = self.goal_assessments.get(uid, {})
+            asset_power = self.observations.get("assets", {}).get(asset_id, {}).get("effective_power_kw")
+            asset_draw = (asset_power is not None and asset_power.quality == "ok"
+                          and asset_power.value is not None and asset_power.value > 0.05)
             states[uid] = {
+                "operational_status": resident_status(physical_draw),
+                "asset_operational_status": resident_status(
+                    asset_draw, goal.get("asset_id") == asset_id and goal.get("status") == "target_met"),
                 "activation": activation,
                 "connection_state": ("asset_connected" if connected is True else
                                      "no_asset_connected" if connected is False else "unknown"),
@@ -1158,7 +1211,7 @@ class MultiChargeRuntime:
         )
         return {
             "configured_chargers": len(chargers),
-            "active_chargers": sum(c.get("control_owner") == "multicharge" and c.get("physical_commissioned") is True for c in chargers),
+            "active_chargers": sum(charger_is_active(c) for c in chargers),
             "connected_chargers": sum(int(e.value is True) for e in cables) if cable_ok else None,
             "charging_chargers": sum(int(e.value > 0.05) for e in powers) if power_ok else None,
             "actual_power_kw": round(sum(e.value for e in powers), 6) if power_ok else None,
@@ -1361,6 +1414,12 @@ class MultiChargeRuntime:
         return {
             "schema_major": 1,
             "plan_palette": dict(PLAN_COLORS),
+            "nominal_setup_defaults": {"phase_count": NOMINAL_PHASE_COUNT,
+                                       "voltage_v": NOMINAL_PHASE_VOLTAGE_V},
+            "asset_policy_defaults": {"priority": DEFAULT_ASSET_PRIORITY,
+                                      "continuous_charging": DEFAULT_CONTINUOUS_CHARGING,
+                                      "maintain_soc_until_ready_by": DEFAULT_MAINTAIN_SOC_UNTIL_READY_BY,
+                                      "opportunistic_kind": DEFAULT_OPPORTUNISTIC_KIND},
             "planned_costs": self.planned_costs,
             "view_planned_cost": view_costs(assessment),
             "view_indicative_cost": view_costs(self.forecast_assessment)

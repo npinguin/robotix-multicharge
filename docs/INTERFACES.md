@@ -97,7 +97,7 @@ These `dev` optional Asset fields stay in the **same existing Config Entry and n
 
 `ChargeDemand` carries only derived **source-qualified** minimum/low-SoC priority energy, pricing policy and continuity flags to its existing planner. A currency-budget demand additionally carries `budget_remaining_minutes` (maximum 1440 min cumulatively across physically confirmed sessions), not a second charging goal or public runtime. The 24h ceiling applies even if every approved `effective` price is 0 or negative. Physical Charger STOP remains confirmed only after independent power/current readback; a moved Asset keeps original immutable historical receipt attribution.
 
-Upstream `Keep charger on`/preconditioning has **no generic actuator claim** in this contract. Without hardware evidence distinguishing vehicle supply/preconditioning from charging, it is intentionally unavailable. A future fully qualified native capability may be added through the same Charger interface and one writer, without EVSC runtime, second planner or exposing a private site adapter.
+The owner-approved PARITY-05/11 alternative is the optional Asset `maintain_soc_until_ready_by` preference, using existing SoC monitoring, Ready By and the same planner/executor. No direct supply-only or OEM climate actuator contract is claimed.
 
 #### Beginner graph read scope (same native plan query)
 

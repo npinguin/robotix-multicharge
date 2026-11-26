@@ -42,6 +42,11 @@ const MC_REASONS={
   MANUAL_START_REQUIRES_FORCE_CHARGE:"Select Force Charge",
   CONTROL_STATE_UNVERIFIED:"Control state unverified",
   PREVIOUS_COMMAND_UNCONFIRMED:"Previous command unresolved",
+  UNRESOLVED_PREVIOUS_CHARGE_INTENT:"Previous command unresolved",
+  SOC_TARGET_DROPPED_AFTER_COMPLETION:"Charging goal closed",
+  ASSET_MEASURED_PROGRESS_UNAVAILABLE:"Previous progress unknown",
+  ASSET_DURATION_PROGRESS_UNAVAILABLE:"Previous progress unknown",
+  BUDGET_MEASURED_PROGRESS_UNAVAILABLE:"Previous progress unknown",
   PHYSICAL_PHASES_UNVERIFIED:"Wiring unknown",
   NATIVE_SWITCH_UNAVAILABLE:"Charger unavailable",
   MANUAL_ONE_OFF_NOT_AVAILABLE:"Unavailable"
@@ -200,6 +205,9 @@ for(const [locale,b] of Object.entries({
     "Set earliest start","Opportunistic charging",
     "Type 1 — cap fraction","Type 2 — tomorrow price"].entries())
     MC_TEXT[locale][key]=b[i];
+}
+for(const [locale,words] of Object.entries({"nl":["SoC behouden tot vertrektijd","Laaddoel afgesloten","Eerdere voortgang onbekend"],"fr":["Maintenir la charge jusqu'au départ","Objectif de charge clôturé","Progression précédente inconnue"],"da":["Bevar ladestand indtil afgang","Lademål afsluttet","Tidligere fremskridt ukendt"],"nb":["Behold ladenivå til avreise","Lademål avsluttet","Tidligere fremdrift ukjent"],"sv":["Behåll laddnivå till avresa","Laddmål avslutat","Tidigare förlopp okänt"],"de":["Ladestand bis Abfahrt halten","Ladeziel abgeschlossen","Bisheriger Fortschritt unbekannt"],"es":["Mantener carga hasta la salida","Objetivo de carga cerrado","Progreso anterior desconocido"]})){
+  ["Maintain SoC until Ready By","Charging goal closed","Previous progress unknown"].forEach((key,index)=>{MC_TEXT[locale][key]=words[index];});
 }
 const MC_NOVICE_UX_WORDS=["All charging · Power & price","Shaded planned · outlined accepted · solid measured · price line","Power","Price unavailable","reference price, not an invoice","Price intervals incomplete; missing periods are not zero","Still planned","charger","chargers","Charging per vehicle and charger","No qualified physical or planned power in this period","Set charging goal","I want to charge to","Battery target (%)","Extra energy (kWh)","Charging time (minutes)","Charging budget (€)","Amount","Save charging goal","Indicative energy budget, not a guaranteed electricity bill","Schedule charging","Hide charging schedule","When should the vehicle be ready?","Set one-time or daily Ready By","Add guest or vehicle","Charging pattern","Price ceiling per kWh","Next charge","Shortfall","Measured power is attributed to this charger; vehicle may be unknown","No qualified timeline"];
 for(const [locale,translations] of Object.entries({"nl":["Totaal laden · Vermogen en prijs","Transparant gepland · omlijnd bevestigd · gevuld gemeten · prijslijn","Vermogen","Prijs niet beschikbaar","referentieprijs, geen factuur","Prijsperioden onvolledig; ontbrekende waarden zijn niet nul","Nog gepland","laadpaal","laadpalen","Laden per voertuig en laadpaal","Geen bevestigd gemeten of gepland vermogen in deze periode","Laaddoel instellen","Ik wil laden tot","Batterijdoel (%)","Extra energie (kWh)","Laadduur (minuten)","Laadbudget (€)","Hoeveelheid","Laaddoel opslaan","Indicatief energiebudget, geen gegarandeerde stroomfactuur","Laadtijden instellen","Laadtijden verbergen","Wanneer moet het voertuig klaar zijn?","Eenmalig of dagelijks gereed instellen","Gast of voertuig toevoegen","Laadpatroon","Maximumprijs per kWh","Volgende laadbeurt","Tekort","Gemeten vermogen hoort bij deze laadpaal; voertuig kan onbekend zijn","Geen bevestigde tijdlijn"],"fr":["Recharge totale · Puissance et prix","Prévu en transparence · accepté en contour · mesuré en plein · courbe de prix","Puissance","Prix indisponible","prix indicatif, pas une facture","Créneaux de prix incomplets ; absence ne signifie pas zéro","Encore prévu","borne","bornes","Recharge par véhicule et borne","Aucune puissance mesurée ou planifiée vérifiée pour cette période","Définir l'objectif de charge","Je veux charger jusqu'à","Batterie cible (%)","Énergie supplémentaire (kWh)","Durée de charge (minutes)","Budget de charge (€)","Quantité","Enregistrer l'objectif","Budget énergétique indicatif, pas une facture garantie","Programmer la charge","Masquer le calendrier","Quand le véhicule doit-il être prêt ?","Définir une échéance unique ou quotidienne","Ajouter un invité ou véhicule","Mode de charge","Prix maximal par kWh","Prochaine charge","Manque","Puissance mesurée attribuée à la borne ; véhicule éventuellement inconnu","Aucune chronologie qualifiée"],"de":["Gesamtladen · Leistung und Preis","Schattiert geplant · umrandet bestätigt · voll gemessen · Preislinie","Leistung","Preis nicht verfügbar","Referenzpreis, keine Rechnung","Preisintervalle unvollständig; fehlende Werte sind nicht null","Noch geplant","Ladepunkt","Ladepunkte","Laden nach Fahrzeug und Ladepunkt","Keine bestätigte Ladeleistung oder Planung in diesem Zeitraum","Ladeziel festlegen","Ich möchte laden bis","Batterieziel (%)","Zusätzliche Energie (kWh)","Ladedauer (Minuten)","Ladebudget (€)","Menge","Ladeziel speichern","Unverbindliches Energiebudget, keine garantierte Stromrechnung","Ladezeiten planen","Ladezeiten ausblenden","Wann soll das Fahrzeug bereit sein?","Einmalige oder tägliche Zielzeit","Gast oder Fahrzeug hinzufügen","Lademuster","Höchstpreis pro kWh","Nächste Ladung","Fehlmenge","Messleistung gehört zum Ladepunkt; Fahrzeug kann unbekannt sein","Keine qualifizierte Zeitachse"],"es":["Carga total · Potencia y precio","Sombreado planificado · contorno aceptado · sólido medido · línea de precio","Potencia","Precio no disponible","precio de referencia, no una factura","Intervalos de precio incompletos; lo desconocido no es cero","Aún previsto","cargador","cargadores","Carga por vehículo y cargador","No hay potencia medida ni planificada verificada en este período","Definir objetivo de carga","Quiero cargar hasta","Objetivo batería (%)","Energía extra (kWh)","Tiempo de carga (minutos)","Presupuesto de carga (€)","Cantidad","Guardar objetivo de carga","Presupuesto energético orientativo, no una factura garantizada","Programar carga","Ocultar horarios","¿Cuándo debe estar listo el vehículo?","Definir hora única o diaria","Añadir invitado o vehículo","Patrón de carga","Precio máximo por kWh","Siguiente carga","Déficit","La potencia medida corresponde al cargador; el vehículo puede ser desconocido","No hay cronología verificada"],"da":["Samlet opladning · Effekt og pris","Skygget planlagt · omridset godkendt · udfyldt målt · prislinje","Effekt","Pris utilgængelig","referencepris, ikke en faktura","Prisintervaller ufuldstændige; ukendt er ikke nul","Stadig planlagt","lader","ladere","Opladning pr. køretøj og lader","Ingen verificeret målt eller planlagt effekt i perioden","Indstil lademål","Jeg vil lade op til","Batterimål (%)","Ekstra energi (kWh)","Ladetid (minutter)","Ladebudget (€)","Mængde","Gem lademål","Vejledende energibudget, ikke en garanteret elregning","Planlæg opladning","Skjul ladeplan","Hvornår skal bilen være klar?","Indstil engangs- eller dagligt klar-tidspunkt","Tilføj gæst eller køretøj","Lademønster","Maksimumpris pr. kWh","Næste opladning","Mangel","Målt effekt tilhører laderen; køretøjet kan være ukendt","Ingen kvalificeret tidslinje"],"nb":["Samlet lading · Effekt og pris","Skygget planlagt · omrisset godkjent · fylt målt · prislinje","Effekt","Pris utilgjengelig","referansepris, ikke en faktura","Prisintervaller ufullstendige; ukjent er ikke null","Fortsatt planlagt","lader","ladere","Lading per kjøretøy og lader","Ingen verifisert målt eller planlagt effekt i perioden","Sett lademål","Jeg vil lade til","Batterimål (%)","Ekstra energi (kWh)","Ladetid (minutter)","Ladebudsjett (€)","Mengde","Lagre lademål","Veiledende energibudsjett, ikke garantert strømregning","Planlegg lading","Skjul ladeplan","Når må bilen være klar?","Sett engangs- eller daglig klartid","Legg til gjest eller kjøretøy","Lademønster","Makspris per kWh","Neste lading","Underskudd","Målt effekt gjelder laderen; kjøretøy kan være ukjent","Ingen kvalifisert tidslinje"],"sv":["Total laddning · Effekt och pris","Skuggat planerat · kontur accepterat · fyllt uppmätt · prislinje","Effekt","Pris saknas","referenspris, inte en faktura","Prisintervall ofullständiga; saknat värde är inte noll","Återstår planerat","laddare","laddare","Laddning per fordon och laddare","Ingen verifierad uppmätt eller planerad effekt under perioden","Ange laddmål","Jag vill ladda till","Batterimål (%)","Extra energi (kWh)","Laddtid (minuter)","Laddbudget (€)","Belopp","Spara laddmål","Ungefärlig energibudget, ingen garanterad elräkning","Schemalägg laddning","Dölj laddschema","När ska fordonet vara klart?","Ställ in engångs- eller daglig klartid","Lägg till gäst eller fordon","Laddmönster","Maxpris per kWh","Nästa laddning","Underskott","Uppmätt effekt tillhör laddaren; fordonet kan vara okänt","Ingen kvalificerad tidslinje"]})){
@@ -973,7 +981,7 @@ const MC_OWNER_GROUPS = {
       "charging_windows","earliest_start_at","expected_connection_at"
     ]],
     ["Price & charging decisions",[
-      "continuous_charging","minimum_soc_pct","low_soc_trigger_pct",
+      "continuous_charging","maintain_soc_until_ready_by","minimum_soc_pct","low_soc_trigger_pct",
       "maximum_price_per_kwh","price_currency","low_price_trigger_per_kwh",
       "opportunistic_kind","opportunistic_level_pct","priority"
     ]],
@@ -1032,6 +1040,7 @@ const MC_OWNER_NAMES = {
   earliest_start_at:"Earliest charging start",
   expected_connection_at:"Expected connection time",
   continuous_charging:"Require continuous charging",
+  maintain_soc_until_ready_by:"Maintain SoC until Ready By",
   minimum_soc_pct:"Minimum battery priority",
   low_soc_trigger_pct:"Early low-battery trigger",
   maximum_price_per_kwh:"Maximum price per kWh",
@@ -1090,7 +1099,7 @@ const MC_EDIT_NUMBERS=new Set([
   "min_current_a","max_current_a","current_step_a","fixed_current_a",
   "circuit_limit_a","min_charging_power_kw","max_charging_power_kw"
 ]);
-const MC_EDIT_BOOLEAN=new Set(["temporary","continuous_charging","show_indicative_forecast"]);
+const MC_EDIT_BOOLEAN=new Set(["temporary","continuous_charging","maintain_soc_until_ready_by","show_indicative_forecast"]);
 const MC_EDIT_DATES=new Set(["ready_by","expires_at","earliest_start_at","expected_connection_at"]);
 const MC_EDIT_ENUM={
   control_owner:["external","multicharge"],
@@ -2167,7 +2176,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     const powers=chargers.map(x=>(observations[x.id]||{}).power_kw);
     const complete=powers.length>0&&powers.every(x=>x&&x.quality==="ok"&&typeof x.value==="number");
     const active=powers.filter(x=>x&&x.quality==="ok"&&x.value>0).length;
-    const activated=chargers.filter(x=>x.control_owner==="multicharge"&&x.physical_commissioned===true).length;
+    const activated=chargers.filter(x=>d.charger_states?.[x.id]?.activation==="active").length;
     const metrics=mcEl("div","grid");
     for(const [key,value,source] of [
       ["Active chargers",String(activated)],
@@ -2615,50 +2624,14 @@ class RobotixMultiChargeCard extends HTMLElement {
   // Visual mapping only: reuse native physical state and evidence, never
   // confuse managed activation, configured current or planned power with draw.
   operationalIndicator(charger,asset=null){
-    const d=this._data, state=d.charger_states?.[charger?.id]||{};
-    const obs=d.observations?.chargers?.[charger?.id]||{};
-    const power=asset?d.observations?.assets?.[asset.id]?.effective_power_kw:obs.power_kw;
-    const connected=obs.connected?.quality==="ok"?obs.connected.value:null;
-    const enabled=state.activation==="active"||
-      (charger?.control_owner==="multicharge"&&charger?.physical_commissioned===true);
-    const reasons=new Set([state.reason,state.goal_reason,d.reasons?.[charger?.id]]);
-    const blocking=["CURRENT_PLUG_ASSET_UNCONFIRMED","CONTROL_STATE_UNVERIFIED",
-      "PREVIOUS_COMMAND_UNCONFIRMED","CHARGER_CAPABILITY_UNQUALIFIED",
-      "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED","CURRENT_RANGE_UNVERIFIED",
-      "PHASE_WIRING_UNVERIFIED","PHYSICAL_PHASES_UNVERIFIED",
-      "ELECTRICAL_WIRING_UNVERIFIED","NATIVE_CURRENT_CAPABILITY_MISMATCH",
-      "NATIVE_CURRENT_CAPABILITY_UNVERIFIED","CURRENT_CONTROL_UNAVAILABLE",
-      "NATIVE_SWITCH_UNAVAILABLE","INDEPENDENT_POWER_UNAVAILABLE",
-      "POWER_SOURCE_UNAVAILABLE","OTHER_CHARGER_POWER_WITH_SWITCH_OFF",
-      "POWER_ALREADY_PRESENT_WITHOUT_CONFIRMED_OWNER","SOC_SOURCE_UNAVAILABLE",
-      "ASSET_SOC_UNAVAILABLE","BATTERY_CAPACITY_NOT_CONFIGURED",
-      "CHARGE_EFFICIENCY_NOT_CONFIGURED","INVALID_PLANNING_INPUT"];
-    const measured=power?.quality==="ok"&&Number.isFinite(power.value)&&power.value>0.05;
-    const physicalDraw=obs.power_kw?.quality==="ok"&&obs.power_kw.value>0.05;
-    const identity=d.connection_identity?.[charger?.id];
-    const problem=Boolean(charger)&&(
-      ["error","unavailable"].includes(state.charging_state)||
-      obs.session?.value==="fault"&&obs.session?.quality==="ok"||
-      (state.charging_session==="unknown"&&physicalDraw)||
-      (enabled&&connected!==false&&(
-        blocking.some(reason=>reasons.has(reason))||
-        connected===null||
-        (connected===true&&obs.power_kw?.quality!=="ok")||
-        (connected===true&&charger.asset&&!identity?.asset_id)
-      )));
-    const goal=d.goal_assessments?.[charger?.id];
-    const reached=asset&&goal?.asset_id===asset.id&&goal.status==="target_met";
-    const actualFault=["error","unavailable"].includes(state.charging_state)||
-      (obs.session?.value==="fault"&&obs.session?.quality==="ok")||
-      (state.charging_session==="unknown"&&physicalDraw);
-    const label=actualFault?"Problem":measured&&state.charging_session==="charging"?"Charging":
-      reached&&!physicalDraw?"Goal reached":problem?"Problem":"Idle";
-    const tone=label==="Problem"?"problem":label==="Charging"?"charging":label==="Goal reached"?"ready":"idle";
+    const state=this._data.charger_states?.[charger?.id];
+    const projection=asset?state?.asset_operational_status:state?.operational_status;
+    const tone=projection?.status||(charger?"unknown":"idle");
+    const label={problem:"Problem",charging:"Charging",ready:"Goal reached",idle:"Idle"}[tone]||"Unknown";
     const indicator=mcEl("span","operational-indicator "+tone,mcTr(label));
     indicator.setAttribute("data-operational-status",tone);
-    const reason=blocking.find(code=>reasons.has(code))||state.reason||state.goal_reason;
     if(tone==="problem"){
-      const explanation=reason?mcReason(reason):mcTr("Connection unknown");
+      const explanation=projection?.reason?mcReason(projection.reason):mcTr("Connection unknown");
       indicator.textContent=mcTr(label)+" · "+explanation;
       indicator.setAttribute("title",explanation);
     }else indicator.setAttribute("title",mcTr(label));
@@ -2666,10 +2639,11 @@ class RobotixMultiChargeCard extends HTMLElement {
   }
   vehicleSummary(card,asset,charger){
     const d=this._data,obs=d.observations?.assets?.[asset.id]||{};
-    const connected=d.observations?.chargers?.[charger?.id]?.connected;
-    const connection=charger?(connected?.quality==="ok"?
-      (connected.value===true?mcTr("Connected"):mcTr("Disconnected")):mcTr("Connection unknown")):mcTr("Not assigned");
-    const activation=charger?mcTr(charger.control_owner==="multicharge"&&charger.physical_commissioned===true?"Active":"Inactive"):"";
+    const chargerState=d.charger_states?.[charger?.id];
+    const connection=charger?mcTr(chargerState?.connection_state==="asset_connected"?"Connected":
+      chargerState?.connection_state==="no_asset_connected"?"Disconnected":"Connection unknown"):mcTr("Not assigned");
+    const activation=chargerState?.activation==="active"?mcTr("Active"):
+      chargerState?.activation==="inactive"?mcTr("Inactive"):"";
     const color=mcPlanOwnerColor(d,asset.id,charger?.id);
     const summary=mcEl("div","vehicle-summary");
     const row=mcEl("div","row");
@@ -3047,6 +3021,13 @@ class RobotixMultiChargeCard extends HTMLElement {
           deadline.append(mcButton(mcTr("Set charging deadline"),()=>
             this.openNative("asset",a.id,"ready_by")));
         detail.append(deadline);
+        if(this.canEditSettings()&&this.ownerEntity("asset",a.id,"maintain_soc_until_ready_by")){
+          const maintain=this.field(detail,mcTr("Maintain SoC until Ready By"),
+            (a.maintain_soc_until_ready_by??d.asset_policy_defaults?.maintain_soc_until_ready_by)?"on":"off",null,
+            [["on",mcTr("On")],["off",mcTr("Off")]]);
+          maintain.disabled=this._settingsBusy;
+          maintain.addEventListener("change",()=>void this.nativeSelect("asset",a.id,"maintain_soc_until_ready_by",maintain.value));
+        }
         // Schedule has one resident editor; native owner fields remain in Details.
         // Native upstream price/SoC policy remains Asset-owned and one
         // Config Entry preference; this view never stores price decisions.
@@ -3064,7 +3045,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         }
         if(this.canEditSettings()&&this.ownerEntity("asset",a.id,"opportunistic_kind")){
           const strategy=this.field(detail,mcTr("Opportunistic charging"),
-            a.opportunistic_kind||"off",null,[
+            a.opportunistic_kind??this._data.asset_policy_defaults?.opportunistic_kind,null,[
               ["off",mcTr("Off")],["type1",mcTr("Type 1 — cap fraction")],
               ["type2",mcTr("Type 2 — tomorrow price")],
             ]);
@@ -3077,7 +3058,7 @@ class RobotixMultiChargeCard extends HTMLElement {
           detail.append(mcEl("h4","",mcTr("Continuity and price strategy")));
           const continuity=this.field(
             detail,mcTr("Charging pattern"),
-            a.continuous_charging?"continuous":"flexible",null,[
+            (a.continuous_charging??this._data.asset_policy_defaults?.continuous_charging)?"continuous":"flexible",null,[
               ["flexible",mcTr("Flexible cheapest quarters")],
               ["continuous",mcTr("One continuous charge")],
             ]);
@@ -3219,6 +3200,14 @@ class RobotixMultiChargeCard extends HTMLElement {
       "circuit_id","circuit_limit_a"
     ])readers[field]=this.dashboardFieldControl(panel,"charger",draft,field);
     tech.append(panel);
+    // Backend-supplied nominal values are editable setup proposals only.
+    kind.addEventListener("change",()=>{
+      if(kind.value!=="variable_current")return;
+      for(const [field,value] of Object.entries(this._data?.nominal_setup_defaults||{})){
+        if(readers[field]?.setValue&&readers[field]()===null)readers[field].setValue(value);
+      }
+      tech.open=true;
+    });
     const discovery=mcEl("div","small muted");
     const discover=mcButton("Discover native sources",async()=>{
       const control=readSwitch();
@@ -3378,6 +3367,8 @@ class RobotixMultiChargeCard extends HTMLElement {
       const format=b=>b?.min_current_a!=null&&b?.max_current_a!=null?
         b.min_current_a+"–"+b.max_current_a+" A"+(b.current_step_a!=null?" · "+b.current_step_a+" A step":""):mcTr("Unknown");
       mcPair(card,"Effective current range",format(bounds));
+      if(setup.operating_power_kw)mcPair(card,"Operating power range",
+        setup.operating_power_kw.min+"–"+setup.operating_power_kw.max+" kW");
       const electrical=setup.effective_electrical||{};
       if(electrical.phase_count!=null&&electrical.voltage_v!=null)
         mcPair(card,mcTr("Electrical limits & optional sources"),
@@ -3389,7 +3380,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         mcPair(card,"Native device current range",format(setup.native_current));
         mcPair(card,"Configured current range",format(setup.configured_current));
       }
-      if(setup.native_current?.max_current_a!=null&&bounds.max_current_a>setup.native_current.max_current_a)
+      if(setup.native_current?.max_current_a!=null&&setup.configured_current?.max_current_a>setup.native_current.max_current_a)
         card.append(mcEl("p","plan-caution","Configured maximum exceeds native hardware range; correct the setting."));
     }
     const required=["control_entity","power_entity"];
@@ -3475,7 +3466,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       chip.append(dot,mcEl("span","muted small",mcTr("Plan color")+" · "+mcTr(c.plan_color||"blue")));
       card.append(chip);
       const states=(d.charger_states||{})[c.id]||{};
-      const activation=c.control_owner==="multicharge"&&c.physical_commissioned!==false?"Active":"Inactive";
+      const activation=states.activation==="active"?"Active":states.activation==="inactive"?"Inactive":"Unknown";
       const connection=states.connection_state==="asset_connected"?
         (states.connection_basis==="user_confirmed"?"Asset connected (user confirmed)":"Asset connected"):
         states.connection_state==="no_asset_connected"?"No asset connected":"Unknown";
@@ -3807,7 +3798,7 @@ class RobotixMultiChargeCard extends HTMLElement {
           this.nativeNumberEditor(detail,"controller",ctl.id,"max_power_kw",
             "Maximum group power",ctl.max_power_kw,"kW");
           this.nativeNumberEditor(detail,"controller",ctl.id,"power_adjustment_interval_minutes",
-            "Power adjustment interval",ctl.power_adjustment_interval_minutes??5,"min");
+            "Power adjustment interval",ctl.power_adjustment_interval_minutes,"min");
           this.ownerFacts(detail,"controller",ctl,[
             "solar_power_entity","home_power_entity","grid_power_entity","solar_surplus_entity",
             "current_price_entity","price_entity","export_price_entity","solar_entity",

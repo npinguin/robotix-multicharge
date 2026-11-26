@@ -7,6 +7,8 @@ from datetime import datetime
 from math import isfinite
 from typing import Literal
 
+from .const import DEFAULT_ASSET_PRIORITY, DEFAULT_CONTINUOUS_CHARGING, DEFAULT_OPPORTUNISTIC_KIND
+
 
 def _time(value: datetime) -> None:
     if value.tzinfo is None or value.utcoffset() is None:
@@ -87,20 +89,20 @@ class ChargeDemand:
     charger_uid: str | None
     remaining_grid_kwh: float | None
     ready_by: datetime | None
-    priority: int = 0
+    priority: int = DEFAULT_ASSET_PRIORITY
     remaining_duration_minutes: float | None = None
     max_power_kw: float | None = None
     not_before: datetime | None = None
     remaining_budget_amount: float | None = None
     budget_currency: str | None = None
-    continuous_charging: bool = False
+    continuous_charging: bool = DEFAULT_CONTINUOUS_CHARGING
     budget_remaining_minutes: float | None = None
     minimum_priority_kwh: float = 0.0
     low_soc_priority_kwh: float = 0.0
     maximum_price_per_kwh: float | None = None
     low_price_trigger_per_kwh: float | None = None
     price_currency: str | None = None
-    opportunistic_kind: str = "off"
+    opportunistic_kind: str = DEFAULT_OPPORTUNISTIC_KIND
     opportunistic_level_pct: float | None = None
     observed_session_draw_kw: float | None = None
     observed_draw_setpoint_kw: float | None = None

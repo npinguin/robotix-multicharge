@@ -10,7 +10,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from hashlib import sha256
 
-from .const import DOMAIN
+from .configuration import charger_is_active, charger_operating_grid
+from .const import DOMAIN, DEFAULT_POWER_ADJUSTMENT_INTERVAL_MINUTES, NOMINAL_PHASE_COUNT, NOMINAL_PHASE_VOLTAGE_V
 
 
 def _alias(value):
@@ -52,6 +53,8 @@ def build_diagnostics(runtime, entry, captured_at=None):
     planning = runtime.assessment
     forecast = runtime.forecast_assessment
     obs = runtime.observations
+    effective = {row["id"]: runtime.executor.effective_charger(row) for row in cfg["chargers"]}
+    grids = {uid: charger_operating_grid(row) for uid, row in effective.items()}
     return {
         "schema_major": 1,
         "captured_at": when.astimezone(timezone.utc).isoformat(),
@@ -66,7 +69,7 @@ def build_diagnostics(runtime, entry, captured_at=None):
             "id": _alias(cfg["controller"]["id"]),
             "mode": cfg["controller"]["mode"],
             "max_parallel": cfg["controller"]["max_parallel"],
-            "power_adjustment_interval_minutes": cfg["controller"].get("power_adjustment_interval_minutes", 5),
+            "power_adjustment_interval_minutes": cfg["controller"].get("power_adjustment_interval_minutes", DEFAULT_POWER_ADJUSTMENT_INTERVAL_MINUTES),
             "pending_cost_archive_days": len(runtime._archive_pending),
             "pending_cost_archive_unreadable": runtime._archive_unreadable is not None,
             "max_power_kw": cfg["controller"].get("max_power_kw"),
@@ -82,9 +85,13 @@ def build_diagnostics(runtime, entry, captured_at=None):
             "rated_power_kw": item["rated_power_kw"],
             "voltage_v": item.get("voltage_v"),
             "effective_electrical": {
-                key: runtime.executor.effective_charger(item).get(key)
+                key: effective[item["id"]].get(key)
                 for key in ("phase_count", "voltage_v")
             },
+            "nominal_setup_proposal": ({key: value for key, value in (
+                ("phase_count", NOMINAL_PHASE_COUNT), ("voltage_v", NOMINAL_PHASE_VOLTAGE_V),
+            ) if effective[item["id"]].get(key) is None} if item["kind"] == "variable_current" else {}),
+            "current_capability_reason": effective[item["id"]].get("_current_capability_reason"),
             "electrical_basis": {
                 key: ("configured" if item.get(key) is not None
                       else "phase_ids" if key == "phase_count" and item.get("phase_ids")
@@ -92,14 +99,19 @@ def build_diagnostics(runtime, entry, captured_at=None):
                 for key in ("phase_count", "voltage_v")
             },
             "configured_current": {key: item.get(key) for key in ("min_current_a", "max_current_a", "current_step_a")},
-            "effective_current": {key: runtime.executor.effective_charger(item).get(key) for key in ("min_current_a", "max_current_a", "current_step_a")},
+            "effective_current": {key: effective[item["id"]].get(key) for key in ("min_current_a", "max_current_a", "current_step_a")},
+            "native_current": effective[item["id"]].get("_native_current"),
+            "operating_power_kw": ({"min": round(grids[item["id"]][0] * grids[item["id"]][3], 6),
+                                    "max": round(grids[item["id"]][1] * grids[item["id"]][3], 6),
+                                    "step": round(grids[item["id"]][2] * grids[item["id"]][3], 6)}
+                                   if grids[item["id"]] else None),
             "min_charging_power_kw": item.get("min_charging_power_kw"),
             "max_charging_power_kw": item.get("max_charging_power_kw"),
             "phase_count": item.get("phase_count"),
             "phase_ids": item.get("phase_ids"),
             "circuit_limit_a": item.get("circuit_limit_a"),
             "control_owner": item.get("control_owner", "external"),
-            "physical_commissioned": item.get("physical_commissioned", False),
+            "physical_commissioned": charger_is_active(item),
             "assigned_asset": _alias(item.get("asset")),
             "dedicated_asset": _alias(item.get("dedicated_asset_id")),
             "bindings": {
@@ -175,6 +187,7 @@ def build_diagnostics(runtime, entry, captured_at=None):
             "action_health": runtime.live_state()["action_health"],
             "persistence_verified": runtime.executor._persistence_verified,
             "original_store_retained": runtime._control_restore_failed,
+            "interrupted_chargers": [_alias(uid) for uid in sorted(runtime.executor._interrupted_sessions)],
             "quarantined_chargers": sorted(
                 _alias(uid) for uid in runtime.executor._quarantine
             ),

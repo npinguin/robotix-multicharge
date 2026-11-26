@@ -14,6 +14,7 @@ from homeassistant import config_entries
 from homeassistant.helpers import selector
 
 from .configuration import (
+    charger_is_active,
     default_configuration, is_plan_presentation_only_change,
     validate_configuration, configuration_revision, effective_configuration,
     apply_new_asset_defaults, apply_new_charger_defaults, apply_new_import_defaults,
@@ -22,7 +23,7 @@ from .configuration import (
 )
 from .source_evidence import number
 from .execution import stop_power_limit
-from .const import DOMAIN, NAME
+from .const import DOMAIN, NAME, DEFAULT_POWER_ADJUSTMENT_INTERVAL_MINUTES, NOMINAL_PHASE_COUNT, NOMINAL_PHASE_VOLTAGE_V
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -105,8 +106,7 @@ def _assert_safe_expert_import(runtime, updated, *, source_changed=False):
     # to a monitoring-only site. No Charger is commissioned by editing a
     # name, price source or uncommissioned external Charger mapping.
     physical_writer = any(
-        row.get("control_owner") == "multicharge"
-        and row.get("physical_commissioned") is True
+        charger_is_active(row)
         for row in [*before.values(), *after.values()]
     )
     if not physical_writer:
@@ -121,8 +121,7 @@ def _assert_safe_expert_import(runtime, updated, *, source_changed=False):
         proposed = after.get(uid)
         checked = [
             row for row in (old, proposed)
-            if row and row.get("control_owner") == "multicharge"
-            and row.get("physical_commissioned") is True
+            if row and charger_is_active(row)
         ]
         if not checked:
             continue
@@ -198,6 +197,16 @@ def _assert_safe_yaml_ui_commit(runtime, updated):
                       "capacity_kwh", "charge_efficiency")
     for uid, old in existing.items():
         new = revised.get(uid)
+        if uid in runtime.executor._interrupted_sessions:
+            # Presentation-only edits do not alter the source or intent
+            # used for recovery and must not force a manual reconciliation.
+            def recovery_fields(row):
+                return {k: v for k, v in (row or {}).items()
+                        if k not in ("name", "plan_color")}
+            if (recovery_fields(new) != recovery_fields(old)
+                    or recovery_fields(old_assets.get(old.get("asset")))
+                    != recovery_fields(new_assets.get(old.get("asset")))):
+                raise ValueError(f"charger_busy: {old['name']} ({uid}) reconcile interrupted session first")
         if uid in runtime.executor._sessions or uid in runtime.executor._start_pending:
             old_asset = old_assets.get(old.get("asset"), {})
             new_asset = new_assets.get(old.get("asset"), {})
@@ -231,8 +240,7 @@ def _assert_safe_yaml_ui_commit(runtime, updated):
         power = number(runtime.hass, old.get("power_entity"), "power",
                        datetime.now(timezone.utc))
         switch = executor._switch(runtime.hass, old.get("control_entity"))
-        owned = (old.get("control_owner") == "multicharge"
-                 and old.get("physical_commissioned") is True)
+        owned = (charger_is_active(old))
         # An assignment affects actual energy attribution, not hardware
         # certification. Keep the existing verified-idle rebind contract.
         if ((old.get("power_entity") and power.quality != "ok")
@@ -459,8 +467,8 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         charger[field] = _native_status_labels(user_input[field])
                 if (user_input.get("configure_electrical")
                         or charger["kind"] == "variable_current"):
-                    # Min/max current is mandatory only if this capability was
-                    # actually selected; allow the user to enter it next.
+                    # Explicit electrical review: native current bounds are optional
+                    # overrides, not a second set of hardware capabilities.
                     self._pending_charger_details = trial
                     return await self.async_step_charger_electrical()
                 self._draft = validate_configuration(trial)
@@ -530,12 +538,19 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="charger_electrical", data_schema=self._charger_electrical_schema()
         )
 
-    @staticmethod
-    def _charger_electrical_schema():
+    def _charger_electrical_schema(self):
+        charger = next((c for c in getattr(self, "_pending_charger_details", self._draft)["chargers"]
+                        if c["id"] == self._advanced_charger_id), {})
+        def wiring_field(key, nominal):
+            if key in charger:
+                return vol.Optional(key, default=charger[key])
+            if charger.get("kind") == "variable_current":
+                return vol.Optional(key, default=nominal)
+            return vol.Optional(key)
         return vol.Schema({
-            vol.Optional("phase_count"): vol.In([1, 2, 3]),
+            wiring_field("phase_count", NOMINAL_PHASE_COUNT): vol.In([1, 2, 3]),
             vol.Optional("phase_ids"): str,
-            vol.Optional("voltage_v"): selector.NumberSelector(
+            wiring_field("voltage_v", NOMINAL_PHASE_VOLTAGE_V): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=200, max=260, step=1, mode=selector.NumberSelectorMode.BOX
                 )
@@ -755,8 +770,7 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "chargers", []
                 )
                 if any(
-                    row.get("control_owner") == "multicharge"
-                    and row.get("physical_commissioned") is True
+                    charger_is_active(row)
                     for row in [*old_chargers, *cfg["chargers"]]
                 ):
                     raise ValueError(
@@ -790,16 +804,6 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
     def _current(self):
         return effective_configuration(self.config_entry)
 
-    def _saved(self, config):
-        try:
-            result = validate_configuration(config)
-        except ValueError as exc:
-            self._last_config_error = str(exc)
-            return None
-        return self.async_create_entry(
-            title="", data={**self.config_entry.options, "configuration": result}
-        )
-
     async def _safe_structural_save(self, configuration):
         """Never change a commissioned physical writer without real idle proof.
 
@@ -827,24 +831,27 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             self._last_config_error = "Configuration was changed after opening the editor. Reopen the current configuration."
             return None
         runtime = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
-        if runtime is None:
-            old = self._current()
-            if any(
-                row.get("control_owner") == "multicharge"
-                and row.get("physical_commissioned") is True
-                for row in [*old["chargers"], *updated["chargers"]]
-            ):
-                self._last_config_error = "Cannot change a commissioned physical charger while its runtime is unavailable"
-                return None
-            return self._saved(updated)
+        from .command_query import commit_ui_configuration_locked
+        expected = getattr(self, "_form_baseline_revision", configuration_revision(self._current()))
+
+        async def commit():
+            await commit_ui_configuration_locked(
+                self.hass, self.config_entry, runtime, updated,
+                expected_revision=expected, scope="controller",
+                target_id=updated["controller"]["id"],
+                action="save", changes={"format": "native_options"},
+            )
+
         try:
-            async with runtime.executor._lock:
-                if (not same_version() or not runtime.active
-                        or self._current() != runtime.configuration):
-                    self._last_config_error = "Configuration changed or is still being applied. Reopen the current configuration."
-                    return None
-                _assert_safe_yaml_ui_commit(runtime, updated)
-                return self._saved(updated)
+            if runtime is None:
+                await commit()
+            else:
+                async with runtime.executor._lock:
+                    await commit()
+            # Native HA OptionsFlowManager explicitly skips updating options
+            # for CREATE_ENTRY with data=None (pinned HA 2026.11.2).
+            # A successful flow must not write a second stale candidate.
+            return self.async_create_entry(title="", data=None)
         except ValueError as exc:
             self._last_config_error = str(exc)
             return None
@@ -1038,7 +1045,7 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                     min=1, max=16, step=1, mode=selector.NumberSelectorMode.BOX,
                 )),
             vol.Required("power_adjustment_interval_minutes",
-                         default=current.get("power_adjustment_interval_minutes", 5)):
+                         default=current.get("power_adjustment_interval_minutes", DEFAULT_POWER_ADJUSTMENT_INTERVAL_MINUTES)):
                 selector.NumberSelector(selector.NumberSelectorConfig(
                     min=1, max=1440, step=1, mode=selector.NumberSelectorMode.BOX,
                     unit_of_measurement="min",
@@ -1209,10 +1216,10 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                                     "control_entity", "connected_entity",
                                     "power_entity", "energy_entity",
                                     "current_control_entity",
-                                    "current_readback_entity"):
+                                    "current_readback_entity", "phase_count", "voltage_v"):
                             if key in user_input:
                                 if user_input[key] not in (None, ""):
-                                    record[key] = user_input[key]
+                                    record[key] = int(user_input[key]) if key == "phase_count" else user_input[key]
                                 else:
                                     record.pop(key, None)
                         record.setdefault("kind", "on_off")
@@ -1262,6 +1269,10 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             field("current_readback_entity"): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")),
         }
+        # Do not commission missing wiring implicitly while editing other preferences.
+        if original.get("kind") == "variable_current":
+            schema[field("phase_count")] = vol.In([1, 2, 3])
+            schema[field("voltage_v")] = vol.All(vol.Coerce(float), vol.Range(min=200, max=260))
         if not selected:
             schema[vol.Optional("id")] = str
         return self.async_show_form(
@@ -1272,10 +1283,11 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         """Optional frontend is a display preference, never a charging control."""
         current = self.config_entry.options.get("enable_ux", True)
         if user_input is not None:
-            return self.async_create_entry(
-                title="",
-                data={**self.config_entry.options, "enable_ux": bool(user_input["enable_ux"])},
+            self.hass.config_entries.async_update_entry(
+                self.config_entry,
+                options={**self.config_entry.options, "enable_ux": bool(user_input["enable_ux"])},
             )
+            return self.async_create_entry(title="", data=None)
         return self.async_show_form(
             step_id="display",
             data_schema=vol.Schema({vol.Required("enable_ux", default=current): bool}),

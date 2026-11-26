@@ -730,6 +730,9 @@ async def test_variable_charger_native_power_controls_share_owning_device(hass: 
         data={"source": "ui", "configuration": cfg},
         unique_id=DOMAIN,
     )
+    hass.states.async_set("number.hardware_limit", "12", {
+        "min": 0, "max": 16, "step": 1, "unit_of_measurement": "A",
+    })
     entry.add_to_hass(hass)
     assert await async_setup_component(hass, DOMAIN, {})
     await hass.async_block_till_done()
@@ -745,6 +748,20 @@ async def test_variable_charger_native_power_controls_share_owning_device(hass: 
         )
         assert entity_id is not None, field
         assert registry.async_get(entity_id).device_id == device.id
+    max_entity = registry.async_get_entity_id(
+        "number", DOMAIN, f"{DOMAIN}:charger:drive:max_charging_power_kw"
+    )
+    maximum = hass.states.get(max_entity)
+    assert float(maximum.state) == 3.0
+    assert maximum.attributes["effective_min_power_kw"] == 1.84
+    assert maximum.attributes["effective_max_power_kw"] == 2.99
+    hass.states.async_set("number.hardware_limit", "11", {
+        "min": 0, "max": 11, "step": 1, "unit_of_measurement": "A",
+    })
+    await hass.async_block_till_done()
+    maximum = hass.states.get(max_entity)
+    assert float(maximum.state) == 3.0
+    assert maximum.attributes["effective_max_power_kw"] == 2.53
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 
@@ -1281,10 +1298,10 @@ async def test_native_expert_save_four_external_adjustable_chargers_without_gues
         }],
     }
 
-    # A partially invented physical envelope is rejected, with the *reason*
+    # Contradictory explicit overrides are rejected, with the *reason*
     # visibly available through Home Assistant's form placeholders.
     unsafe = json.loads(json.dumps(config))
-    unsafe["chargers"][0]["min_current_a"] = 6
+    unsafe["chargers"][0].update(min_current_a=16, max_current_a=6)
     invalid = await hass.config_entries.options.async_configure(
         editor["flow_id"], {"yaml_text": json.dumps(unsafe)},
     )
@@ -1334,6 +1351,19 @@ async def test_native_expert_save_four_external_adjustable_chargers_without_gues
     assert repeated["type"] == FlowResultType.CREATE_ENTRY, repeated.get("errors")
     await hass.async_block_till_done()
     assert entry.options["configuration"] == actual
+
+    # Independent explicit minimum is a valid preference, not a native maximum.
+    partial = json.loads(json.dumps(config))
+    partial["chargers"][0]["min_current_a"] = 6
+    menu = await hass.config_entries.options.async_init(entry.entry_id)
+    form = await hass.config_entries.options.async_configure(menu["flow_id"], {"next_step_id": "yaml"})
+    saved = await hass.config_entries.options.async_configure(form["flow_id"], {"yaml_text": json.dumps(partial)})
+    assert saved["type"] == FlowResultType.CREATE_ENTRY, saved.get("errors")
+    await hass.async_block_till_done()
+    assert entry.options["configuration"]["chargers"][0]["min_current_a"] == 6
+    assert "max_current_a" not in entry.options["configuration"]["chargers"][0]
+    assert "current_step_a" not in entry.options["configuration"]["chargers"][0]
+    assert hass.data[DOMAIN][entry.entry_id].configuration == entry.options["configuration"]
 
     # Reproduce the previous installed-site ownership mismatch on all four
     # objects, retaining the legacy writer and all existing source bindings.
@@ -1896,6 +1926,7 @@ async def test_expert_json_include_skips_wizard_and_reuses_entry(hass: HomeAssis
     assert anchor.astimezone(ZoneInfo(hass.config.time_zone)).strftime("%H:%M") == "06:00"
     expected["assets"][0].update(
         ready_by=saved_asset["ready_by"], ready_by_repeat="daily",
+        maintain_soc_until_ready_by=False,
     )
     assert entry.data["configuration"] == expected
     unchanged = await hass.config_entries.flow.async_init(
@@ -2379,7 +2410,11 @@ async def test_native_ha_service_injects_context_for_real_vehicle_quick_action(
     interval = ids.async_get_entity_id(
         "number", DOMAIN, f"{DOMAIN}:controller:site:power_adjustment_interval_minutes",
     )
-    assert all((vehicle, mode, target, interval))
+    maintain = ids.async_get_entity_id(
+        "select", DOMAIN, f"{DOMAIN}:asset:b:maintain_soc_until_ready_by",
+    )
+    assert all((vehicle, mode, target, interval, maintain))
+    assert hass.states.get(maintain).state == "on"  # legacy behavior retained
     assert float(hass.states.get(interval).state) == 5
     assert hass.states.get(vehicle).state == "Car A"
     assert hass.states.get(mode).state == "off"
@@ -2422,6 +2457,14 @@ async def test_native_ha_service_injects_context_for_real_vehicle_quick_action(
         )
         await hass.async_block_till_done()
         assert entry.options["configuration"]["assets"][1]["target_soc"] == 85
+        await hass.services.async_call(
+            "select", "select_option",
+            {"entity_id": maintain, "option": "off"},
+            blocking=True, context=Context(user_id="admin"),
+        )
+        await hass.async_block_till_done()
+        assert entry.options["configuration"]["assets"][1]["maintain_soc_until_ready_by"] is False
+        assert hass.states.get(maintain).state == "off"
         await hass.services.async_call(
             "number", "set_value", {"entity_id": interval, "value": 7},
             blocking=True, context=Context(user_id="admin"),
@@ -2583,6 +2626,40 @@ async def test_direct_yaml_save_native_websocket_single_entry_roundtrip(
     assert stale["success"] is False
     assert "STALE_SETTINGS_REFRESH" in stale["error"]["message"]
 
+    # A direct native Config Entry change during the Store await must not be
+    # overwritten by the older dashboard transaction.
+    from unittest.mock import patch
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    actual_save = runtime._control_store.async_save
+    competing = json.loads(json.dumps(changed))
+    competing["controller"]["name"] = "Native concurrent edit"
+    older = json.loads(json.dumps(changed))
+    older["controller"]["name"] = "Stale dashboard edit"
+    injected = False
+
+    async def concurrent_save(payload):
+        nonlocal injected
+        await actual_save(payload)
+        if not injected:
+            injected = True
+            hass.config_entries.async_update_entry(
+                entry, options={**entry.options, "configuration": competing},
+            )
+
+    with patch.object(runtime._control_store, "async_save", side_effect=concurrent_save):
+        conflicted = await yaml_ws(json.dumps(older), proposed)
+        assert conflicted["success"] is False
+    await hass.async_block_till_done()
+    assert entry.options["configuration"] == competing
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    proposed = configuration_revision(competing)
+    with patch.object(runtime._control_store, "async_save", side_effect=OSError("Store unavailable")):
+        failed = await yaml_ws(json.dumps(older), proposed)
+        assert failed["success"] is False
+    assert entry.options["configuration"] == competing
+    changed = competing
+    text = json.dumps(changed, indent=2)
+
     # Even an admin cannot acquire a visibly energized endpoint while
     # its former owner is still using it. Explicit idle activation is valid.
     control = changed["chargers"][0]["control_entity"]
@@ -2679,12 +2756,13 @@ async def test_native_discovery_activation_and_reload_through_websocket(
     assert proposal["connected_entity"] == plug
     assert proposal["current_control_entity"] == current
     assert proposal["energy_entity"] == meter
-    assert (proposal["min_current_a"], proposal["max_current_a"], proposal["current_step_a"]) == (6, 32, 1)
+    assert (proposal["phase_count"], proposal["voltage_v"]) == (1, 230)
+    assert not {"min_current_a", "max_current_a", "current_step_a"} & proposal.keys()
     assert initial["charger_setup_draft"]["proposed_missing"] == proposal
     assert entry.options.get("configuration") is None  # discovery never writes
     saved = await ws("update_settings", scope="charger", target_id="native",
-                     structural=True, changes={**proposal, "max_current_a": 16,
-                                                "phase_count": 1, "voltage_v": 230},
+                     structural=True, changes={**proposal, "min_current_a": 6, "max_current_a": 16,
+                                                "current_step_a": 1},
                      expected_revision=initial["configuration_revision"])
     assert saved["success"], saved
     await hass.async_block_till_done()
@@ -2748,6 +2826,8 @@ async def test_native_control_store_failed_restore_keeps_original_receipts(hass:
     for field, corrupted in (
         ("sessions", [*valid["sessions"], {"started_at": "corrupt"}]),
         ("power_bindings", {"retired": [{"start": "corrupt", "entity": "sensor.old"}]}),
+        ("energy_bindings", {"retired": [{"start": "corrupt", "entity": "sensor.old"}]}),
+        ("sessions", [*valid["sessions"][:-1], {**valid["sessions"][-1], "duration_minutes": -1}]),
     ):
         key = "multicharge_recovery_"+field
         store = Store(hass, 1, key)
@@ -2782,6 +2862,104 @@ async def test_native_control_store_failed_restore_keeps_original_receipts(hass:
         assert len(recovered.executor.completed_sessions()) == 201
         assert await recovered.persist_control_state()
         assert (await Store(hass, 1, key).async_load())["sessions"] == valid["sessions"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("goal", [
+    {"requested_kwh": 4},
+    {"requested_duration_minutes": 60},
+    {"requested_budget_amount": 10, "requested_budget_currency": "EUR"},
+])
+async def test_native_store_pending_and_confirmed_start_reconcile_without_replay(
+    hass: HomeAssistant, goal,
+):
+    """Actual HA Store, services and state recreation; not live EVSE hardware."""
+    from copy import deepcopy
+    from datetime import datetime, timedelta, timezone
+    from homeassistant.helpers.storage import Store
+    from custom_components.robotix_multicharge.runtime import MultiChargeRuntime
+
+    now = datetime.now(timezone.utc)
+    cfg = validate_configuration({
+        "controller": {"id": "site", "name": "Native recovery", "mode": "Force Charge",
+                       "max_parallel": 1, "max_power_kw": 3.6,
+                       "price_entity": "sensor.recovery_tariff"},
+        "assets": [{"id": "car", "name": "Car", "kind": "car", **goal}],
+        "chargers": [{"id": "drive", "name": "Drive", "kind": "on_off",
+                      "rated_power_kw": 2, "phase_count": 1, "asset": "car",
+                      "control_owner": "multicharge", "physical_commissioned": True,
+                      "control_entity": "switch.recovery",
+                      "connected_entity": "binary_sensor.recovery",
+                      "power_entity": "sensor.recovery_power",
+                      "energy_entity": "sensor.recovery_energy"}],
+    })
+    hass.states.async_set("sensor.recovery_tariff", "ready", {
+        "kind": "effective_price_kwh", "currency": "EUR",
+        "valid_until": (now+timedelta(hours=3)).isoformat(),
+        "intervals": [{"start": (now-timedelta(hours=1)).isoformat(),
+                       "end": (now+timedelta(hours=3)).isoformat(), "value": 0.25}],
+    })
+    hass.states.async_set("binary_sensor.recovery", "on")
+    hass.states.async_set("switch.recovery", "off")
+    hass.states.async_set("sensor.recovery_power", "0", {"unit_of_measurement": "W"})
+    hass.states.async_set("sensor.recovery_energy", "5", {"unit_of_measurement": "kWh"})
+    store = Store(hass, 1, "mc_actual_start_recovery")
+    runtime = MultiChargeRuntime(hass, cfg)
+    runtime.attach_control_store(store, None)
+    runtime.refresh()
+    commands = []
+    pending = None
+    async def start(call):
+        nonlocal pending
+        pending = deepcopy(await Store(hass, 1, "mc_actual_start_recovery").async_load())
+        commands.append(call.service)
+        hass.states.async_set("switch.recovery", "on")
+        hass.states.async_set("sensor.recovery_power", "1600", {"unit_of_measurement": "W"})
+    async def stop(call):
+        commands.append(call.service)
+        hass.states.async_set("switch.recovery", "off")
+        hass.states.async_set("sensor.recovery_power", "0", {"unit_of_measurement": "W"})
+    hass.services.async_register("switch", "turn_on", start)
+    hass.services.async_register("switch", "turn_off", stop)
+    outcome = await runtime.executor.execute("drive", "start")
+    assert outcome["status"] == "confirmed", outcome
+    assert pending["interrupted_sessions"]["drive"]["pending"] is True
+    confirmed = deepcopy(await Store(hass, 1, "mc_actual_start_recovery").async_load())
+    assert not confirmed["interrupted_sessions"]["drive"].get("pending")
+    for label, snapshot in (("pending", pending), ("confirmed", confirmed)):
+        # A real native provider recreation gives new timestamps. Old
+        # physical continuity cannot be assumed from these state values.
+        for entity, value, attrs in (
+                ("switch.recovery", "on", {}),
+                ("binary_sensor.recovery", "on", {}),
+                ("sensor.recovery_power", "1600", {"unit_of_measurement": "W"}),
+                ("sensor.recovery_energy", "5.4", {"unit_of_measurement": "kWh"})):
+            hass.states.async_remove(entity)
+            hass.states.async_set(entity, value, attrs)
+        reopened = Store(hass, 1, "mc_recreated_"+label)
+        await reopened.async_save(snapshot)
+        restored = MultiChargeRuntime(hass, cfg)
+        restored.attach_control_store(reopened, await reopened.async_load())
+        assert restored.executor._persistence_verified
+        assert not restored.executor.session_snapshot()
+        restored.refresh()
+        rejected = await restored.executor.execute("drive", "start")
+        assert rejected["status"] == "rejected"
+        assert rejected["reason"] in ("UNRESOLVED_PREVIOUS_CHARGE_INTENT", "SWITCH_ALREADY_ON")
+        await restored.executor.supervise()
+        assert hass.states.get("switch.recovery").state == "off"
+        assert not restored.executor._inflight
+        assert not restored.executor._interrupted_sessions
+        receipt = restored.executor.completed_sessions()[-1]
+        assert receipt["continuity_quality"] == "unknown"
+        assert receipt["actual_energy_kwh"] is None and receipt["duration_minutes"] is None
+        again = MultiChargeRuntime(hass, cfg)
+        again.attach_control_store(reopened, await Store(hass, 1, "mc_recreated_"+label).async_load())
+        again.refresh()
+        assert again.executor._persistence_verified
+        assert not again.executor.capabilities()["drive"]["start_allowed"]
+        assert not again.executor._inflight
+    assert commands == ["turn_on", "turn_off", "turn_off"]
 
 
 @pytest.mark.asyncio

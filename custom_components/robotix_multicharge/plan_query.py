@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -9,8 +10,8 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN
-from .configuration import WEEKDAYS
+from .const import DOMAIN, NOMINAL_PHASE_COUNT, NOMINAL_PHASE_VOLTAGE_V
+from .configuration import WEEKDAYS, forecast_tariff_source, charger_operating_grid, effective_configuration
 from .history import read_actual_history
 
 
@@ -56,21 +57,31 @@ def charger_setup_projection(hass, registry, runtime, charger):
         and ids[0] not in already_bound
     }
     effective = runtime.executor.effective_charger(charger)
-    preview = runtime.executor.effective_charger({**charger, **proposals})
     bounds = ("min_current_a", "max_current_a", "current_step_a")
-    native = runtime.executor.effective_charger({
-        key: value for key, value in charger.items() if key not in bounds
-    })
-    for field in bounds:
-        if charger.get(field) is None and preview.get(field) is not None:
-            proposals[field] = preview[field]
+    native = effective.get("_native_current")
+    if proposals.get("current_control_entity"):
+        native = runtime.executor.effective_charger({
+            **charger, "current_control_entity": proposals["current_control_entity"],
+        }).get("_native_current")
+    grid = charger_operating_grid(effective)
+    # Native Amp metadata is a live observation, not an implicit user override.
+    # Topology defaults are editable proposals only; explicit Save declares wiring.
+    if charger["kind"] == "variable_current":
+        if effective.get("phase_count") is None:
+            proposals["phase_count"] = NOMINAL_PHASE_COUNT
+        if effective.get("voltage_v") is None:
+            proposals["voltage_v"] = NOMINAL_PHASE_VOLTAGE_V
     return {
         "device_matched": device_id is not None,
         "candidates": {field: sorted(ids) for field, ids in candidates.items()},
         "proposed_missing": proposals,
         "configured_current": {field: charger.get(field) for field in bounds},
         "effective_current": {field: effective.get(field) for field in bounds},
-        "native_current": {field: native.get(field) for field in bounds},
+        "native_current": {field: (native or {}).get(field) for field in bounds},
+        "operating_power_kw": ({"min": round(grid[0] * grid[3], 6),
+                                "max": round(grid[1] * grid[3], 6),
+                                "step": round(grid[2] * grid[3], 6)} if grid else None),
+        "current_capability_reason": effective.get("_current_capability_reason"),
         "effective_electrical": {field: effective.get(field)
                                  for field in ("phase_count", "voltage_v")},
         "missing_electrical": [
@@ -127,52 +138,18 @@ async def websocket_get_plan(
         else:
             raise ValueError("day or start/end required")
         entry_id, runtime = selected
-        result = runtime.read_plan(
+        result = deepcopy(runtime.read_plan(
             start, end,
             charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
-        )
+        ))
+        from homeassistant.helpers import entity_registry as er
+        registry = er.async_get(hass)
+        cfg = result["configuration"]
+        setup_snapshot = {row["id"]: charger_setup_projection(hass, registry, runtime, row)
+                          for row in cfg["chargers"]}
         recent = runtime.executor.completed_sessions(
             limit=200, charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
         )
-        if msg.get("include_history", True):
-            now = datetime.now(timezone.utc)
-            history_end = min(end.astimezone(timezone.utc), now)
-            history_start = min(start.astimezone(timezone.utc), history_end-timedelta(hours=48))
-            receipts = runtime.executor.completed_sessions(
-                start=history_start, end=history_end, charger_id=msg.get("charger_id"),
-            )
-            actual, quality, estimates, observed_sessions, session_metrics = await read_actual_history(
-                hass, result["configuration"], start, end,
-                charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
-                session_receipts=receipts,
-                price_slots=runtime.price_slots, include_valuations=True,
-                power_bindings=runtime.power_bindings, energy_bindings=runtime.energy_bindings,
-                tariff_bindings=runtime.tariff_bindings,
-                include_observed_sessions=True, active_sessions=result["active_sessions"],
-                tariff_entity=(result["configuration"]["controller"].get("price_entity") or
-                               result["configuration"]["controller"].get("current_price_entity")),
-            )
-        else:
-            actual, quality, estimates, observed_sessions, session_metrics = [], "NOT_REQUESTED", {}, [], {}
-        # A Recorder-based *indicative* variable component belongs in the
-        # read-only view only. Never mutate persisted session receipts or
-        # convert a power integration into an authoritative billed cost.
-        for receipt in result["completed_sessions"]:
-            if receipt.get("cost") is None:
-                receipt.update(estimates.get((
-                    receipt["charger_id"], receipt["started_at"],
-                    receipt["ended_at"],
-                ), {}))
-        for receipt in result["completed_sessions"]:
-            receipt.update(session_metrics.get((receipt["charger_id"], receipt["started_at"], receipt["ended_at"]), {}))
-        for uid, receipt in result["active_sessions"].items():
-            receipt.update(session_metrics.get((uid, receipt["started_at"], None), {}))
-        result["observed_sessions"] = observed_sessions
-        result["recent_completed_sessions"] = [
-            {**receipt, **session_metrics.get((receipt["charger_id"], receipt["started_at"], receipt["ended_at"]), {}),
-             **estimates.get((receipt["charger_id"], receipt["started_at"], receipt["ended_at"]), {})}
-            for receipt in recent
-        ]
         entry = hass.config_entries.async_get_entry(entry_id)
         result["configuration_managed_by_yaml"] = bool(
             entry is not None and entry.data.get("source") in ("yaml", "json")
@@ -180,11 +157,7 @@ async def websocket_get_plan(
         result["configuration_managed_by_json"] = bool(
             entry is not None and entry.data.get("source") == "json"
         )
-        result["actual_slots"] = actual
-        result["actual_history_quality"] = quality
         # Exact native Registry entity IDs: no guessed entity_id in the card.
-        from homeassistant.helpers import entity_registry as er
-        registry = er.async_get(hass)
         def native_entity(platform, kind, uid, field):
             return registry.async_get_entity_id(
                 platform, DOMAIN, f"{DOMAIN}:{kind}:{uid}:{field}"
@@ -197,7 +170,7 @@ async def websocket_get_plan(
         admin = getattr(getattr(connection, "user", None), "is_admin", False)
         result["charger_setup"] = {}
         for row in cfg["chargers"]:
-            projection = charger_setup_projection(hass, registry, runtime, row)
+            projection = setup_snapshot[row["id"]]
             if not admin:
                 projection.pop("candidates", None)
                 projection.pop("proposed_missing", None)
@@ -247,7 +220,7 @@ async def websocket_get_plan(
                     },
                     **{
                         field: native_select("asset", row["id"], field)
-                        for field in ("plan_color", "ready_by_repeat", "continuous_charging",
+                        for field in ("plan_color", "ready_by_repeat", "continuous_charging", "maintain_soc_until_ready_by",
                                       "opportunistic_kind", "kind",
                                       *(f"ready_day_{day}" for day in WEEKDAYS))
                     },
@@ -289,6 +262,55 @@ async def websocket_get_plan(
                 for row in cfg["chargers"]
             },
         }
+
+        snapshot_at = datetime.now(timezone.utc)
+        result["snapshot_at"] = snapshot_at.isoformat()
+        if msg.get("include_history", True):
+            history_end = min(end.astimezone(timezone.utc), snapshot_at)
+            history_start = min(start.astimezone(timezone.utc), history_end-timedelta(hours=48))
+            receipts = runtime.executor.completed_sessions(
+                start=history_start, end=history_end, charger_id=msg.get("charger_id"),
+            )
+            actual, quality, estimates, observed_sessions, session_metrics = await read_actual_history(
+                hass, result["configuration"], start, end,
+                charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
+                session_receipts=receipts,
+                price_slots=deepcopy(runtime.price_slots), include_valuations=True,
+                power_bindings=deepcopy(runtime.power_bindings), energy_bindings=deepcopy(runtime.energy_bindings),
+                tariff_bindings=deepcopy(runtime.tariff_bindings),
+                include_observed_sessions=True, active_sessions=result["active_sessions"],
+                tariff_entity=forecast_tariff_source(result["configuration"]["controller"]),
+                as_of=snapshot_at,
+            )
+        else:
+            actual, quality, estimates, observed_sessions, session_metrics = [], "NOT_REQUESTED", {}, [], {}
+        if (runtime.configuration != cfg or not runtime.active
+                or hass.data.get(DOMAIN, {}).get(entry_id) is not runtime
+                or entry is None or effective_configuration(entry) != cfg):
+            connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT,
+                                  "Configuration changed while reading plan; refresh")
+            return
+        # A Recorder-based *indicative* variable component belongs in the
+        # read-only view only. Never mutate persisted session receipts or
+        # convert a power integration into an authoritative billed cost.
+        for receipt in result["completed_sessions"]:
+            if receipt.get("cost") is None:
+                receipt.update(estimates.get((
+                    receipt["charger_id"], receipt["started_at"],
+                    receipt["ended_at"],
+                ), {}))
+        for receipt in result["completed_sessions"]:
+            receipt.update(session_metrics.get((receipt["charger_id"], receipt["started_at"], receipt["ended_at"]), {}))
+        for uid, receipt in result["active_sessions"].items():
+            receipt.update(session_metrics.get((uid, receipt["started_at"], None), {}))
+        result["observed_sessions"] = observed_sessions
+        result["recent_completed_sessions"] = [
+            {**receipt, **session_metrics.get((receipt["charger_id"], receipt["started_at"], receipt["ended_at"]), {}),
+             **estimates.get((receipt["charger_id"], receipt["started_at"], receipt["ended_at"]), {})}
+            for receipt in recent
+        ]
+        result["actual_slots"] = actual
+        result["actual_history_quality"] = quality
 
     except (ValueError, TypeError, OverflowError, KeyError):
         connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT,

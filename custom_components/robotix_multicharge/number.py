@@ -9,7 +9,9 @@ from homeassistant.const import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .command_query import apply_native_preference, require_native_admin
-from .const import DOMAIN
+from .const import DOMAIN, DEFAULT_ASSET_PRIORITY
+from .configuration import charger_is_active, charger_operating_grid
+from math import floor, isfinite
 
 FIELDS = {
     "target_soc": (0, 100, 1, "%"),
@@ -83,7 +85,7 @@ class _AssetNumber(NumberEntity):
             asset.get(self.field) if asset is not None else None
         )
         if self.field == "priority" and asset is not None:
-            self._attr_native_value = asset.get("priority", 0)
+            self._attr_native_value = asset.get("priority", DEFAULT_ASSET_PRIORITY)
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
@@ -227,47 +229,41 @@ class _ChargerPowerNumber(NumberEntity):
             self._attr_native_value = None
             return
         charger = self.runtime.executor.effective_charger(charger)
-        required = ("voltage_v", "phase_count", "min_current_a",
-                    "max_current_a", "current_step_a")
-        if (charger.get("kind") != "variable_current"
-                or any(not charger.get(key) for key in required)):
-            self._attr_available = self.field != "set_charging_power_kw"
-            self._attr_native_value = charger.get(self.field) if self._attr_available else None
-            self._attr_native_min_value = 0.01
-            self._attr_native_max_value = max(0.01, charger["rated_power_kw"])
-            self._attr_extra_state_attributes = {
-                "reason": ("USER_LIMIT_ONLY_CONVERSION_NOT_CONFIGURED" if self._attr_available
-                           else "CHARGER_CURRENT_CAPABILITY_NOT_VERIFIED")
-            }
-            return
-        self._attr_extra_state_attributes = {}
-        factor = charger["voltage_v"] * charger["phase_count"] / 1000
-        physical_min = charger["min_current_a"] * factor
-        physical_max = min(charger["rated_power_kw"],
-                           charger["max_current_a"] * factor)
-        self._attr_native_min_value = round(physical_min, 4)
-        self._attr_native_max_value = round(physical_max, 4)
-        if self.field in ("min_charging_power_kw", "max_charging_power_kw"):
-            default = physical_min if self.field == "min_charging_power_kw" else physical_max
-            self._attr_native_value = charger.get(self.field, default)
+        grid = charger_operating_grid(charger)
+        physical = charger_operating_grid(charger, preferences=False)
+        self._attr_extra_state_attributes = {
+            "effective_min_power_kw": round(grid[0] * grid[3], 6) if grid else None,
+            "effective_max_power_kw": round(grid[1] * grid[3], 6) if grid else None,
+        }
+        # A configured kW limit is a preference/ceiling, not a setpoint.
+        # Keep it editable even when the live native grid changes; never
+        # replace the saved value with a transient hardware observation.
+        self._attr_native_step = 0.01
+        if self.field != "set_charging_power_kw":
             self._attr_available = True
-        else:
-            session = self.runtime.executor.session_snapshot().get(self.uid)
-            current = session.get("target_current_a") if session else None
-            self._attr_native_min_value = round(
-                charger.get("min_charging_power_kw", physical_min), 4
-            )
-            self._attr_native_max_value = round(
-                charger.get("max_charging_power_kw", physical_max), 4
-            )
-            self._attr_native_value = (
-                round(current * factor, 4) if current is not None else None
-            )
-            self._attr_available = bool(
-                charger.get("control_owner") == "multicharge"
-                and charger.get("physical_commissioned") is True
-                and current is not None
-            )
+            self._attr_native_min_value = 0.01
+            self._attr_native_max_value = charger["rated_power_kw"]
+            index = 0 if self.field == "min_charging_power_kw" else 1
+            default = round(physical[index] * physical[3], 6) if physical else None
+            self._attr_native_value = charger.get(self.field, default)
+            if grid is None:
+                self._attr_extra_state_attributes["reason"] = "USER_LIMIT_ONLY_CONVERSION_NOT_CONFIGURED"
+            return
+        if grid is None:
+            self._attr_available = False
+            self._attr_native_value = None
+            self._attr_native_min_value = 0.01
+            self._attr_native_max_value = charger["rated_power_kw"]
+            self._attr_extra_state_attributes["reason"] = "CHARGER_CURRENT_CAPABILITY_NOT_VERIFIED"
+            return
+        minimum, maximum, step, factor = grid
+        self._attr_native_min_value = round(minimum * factor, 6)
+        self._attr_native_max_value = round(maximum * factor, 6)
+        self._attr_native_step = round(step * factor, 6)
+        session = self.runtime.executor.session_snapshot().get(self.uid)
+        current = session.get("target_current_a") if session else None
+        self._attr_native_value = round(current * factor, 6) if current is not None else None
+        self._attr_available = bool(charger_is_active(charger) and current is not None)
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
@@ -286,10 +282,6 @@ class _ChargerPowerNumber(NumberEntity):
 
     async def async_set_native_value(self, value: float):
         await require_native_admin(self.hass, self._context)
-        actor = getattr(self._context, "user_id", None)
-        user = await self.hass.auth.async_get_user(actor) if actor else None
-        if user is None or not user.is_admin:
-            raise RuntimeError("Charging power control requires an HA administrator")
         if not self.available:
             raise ValueError("CHARGER_CURRENT_CAPABILITY_NOT_AVAILABLE")
         if self.field != "set_charging_power_kw":
@@ -303,34 +295,16 @@ class _ChargerPowerNumber(NumberEntity):
         if charger is None or charger.get("kind") != "variable_current":
             raise ValueError("CHARGER_NOT_ADJUSTABLE")
         charger = self.runtime.executor.effective_charger(charger)
-        factor = charger["voltage_v"] * charger["phase_count"] / 1000
-        minimum = charger["min_current_a"]
-        step = charger.get("current_step_a")
-        if factor <= 0 or not step:
+        grid = charger_operating_grid(charger)
+        if grid is None:
             raise ValueError("CURRENT_CAPABILITY_UNVERIFIED")
-        from math import isfinite
-        floor_kw = charger.get("min_charging_power_kw", minimum * factor)
-        ceiling_kw = charger.get(
-            "max_charging_power_kw",
-            min(charger["rated_power_kw"], charger["max_current_a"] * factor),
-        )
-        if (not isfinite(value) or value < floor_kw - 1e-6
-                or value > ceiling_kw + 1e-6):
+        minimum, maximum, step, factor = grid
+        if (not isfinite(value) or value < minimum * factor - 1e-6
+                or value > maximum * factor + 1e-6):
             raise ValueError("REQUESTED_POWER_OUTSIDE_VERIFIED_OPERATING_RANGE")
-        # A kW target may fall between native Amp steps. Choose the closest
-        # *legal* verified step in the owner's min/max envelope, then report
-        # its actual accepted setpoint. Never silently clip an out-of-range
-        # request or issue a raw manufacturer service call from the entity.
-        from math import ceil, floor
-        low = max(0, ceil((floor_kw / factor - minimum) / step - 1e-9))
-        high = min(
-            floor((charger["max_current_a"] - minimum) / step + 1e-9),
-            floor((ceiling_kw / factor - minimum) / step + 1e-9),
-        )
-        if low > high:
-            raise ValueError("NO_SUPPORTED_CURRENT_STEP")
+        # Select the closest legal native step inside the SAME operating grid.
         nearest = floor((float(value) / factor - minimum) / step + 0.5)
-        current = round(minimum + max(low, min(high, nearest)) * step, 6)
+        current = round(min(maximum, minimum + max(0, nearest) * step), 6)
         outcome = await self.runtime.executor.execute(
             self.uid, "set_current", current_a=current, context=self._context
         )

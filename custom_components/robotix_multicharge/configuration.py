@@ -13,7 +13,8 @@ from zoneinfo import ZoneInfo
 from math import ceil, floor, isfinite
 from re import fullmatch
 
-from .domain import ChargeableAsset, Charger, ChargeController
+from .domain import ChargeableAsset, Charger, ChargeController, operating_current_grid
+from .const import DEFAULT_POWER_ADJUSTMENT_INTERVAL_MINUTES
 
 # One shared, accessible identity palette. Keys are stable HA select options.
 PLAN_COLORS = {
@@ -123,6 +124,8 @@ def apply_new_asset_defaults(row, *, site_time_zone=None, now=None):
             "requested_kwh", "requested_duration_minutes", "requested_budget_amount",
         ))
     )
+    if site_time_zone is not None:
+        row.setdefault("maintain_soc_until_ready_by", False)
     if car_soc_goal and row.get("target_soc") is None:
         row["target_soc"] = 80
     if (car_soc_goal and not row.get("temporary") and site_time_zone
@@ -169,7 +172,7 @@ def validate_configuration(value):
     parallel = ctl.get("max_parallel", 1)
     if isinstance(parallel, bool) or not isinstance(parallel, int) or parallel < 1:
         raise ValueError(f"controller.max_parallel: expected positive integer, received {parallel!r}")
-    interval = ctl.get("power_adjustment_interval_minutes", 5)
+    interval = ctl.get("power_adjustment_interval_minutes", DEFAULT_POWER_ADJUSTMENT_INTERVAL_MINUTES)
     if type(interval) is not int or not 1 <= interval <= 1440:
         raise ValueError("controller.power_adjustment_interval_minutes: expected whole minutes (1..1440)")
     mode = ctl.get("mode", "Off")
@@ -248,7 +251,7 @@ def validate_configuration(value):
                               "requested_kwh", "requested_duration_minutes",
                               "requested_budget_amount", "requested_budget_currency", "ready_by",
                               "ready_by_repeat", "ready_by_weekdays", "charging_windows",
-                "continuous_charging",
+                "continuous_charging", "maintain_soc_until_ready_by",
                 "minimum_soc_pct", "maximum_price_per_kwh", "price_currency",
                 "low_price_trigger_per_kwh", "low_soc_trigger_pct",
                 "opportunistic_kind", "opportunistic_level_pct",
@@ -374,10 +377,11 @@ def validate_configuration(value):
             if source.get("charging_windows") is not None:
                 asset["charging_windows"] = _charging_windows(
                     source["charging_windows"])
-            if source.get("continuous_charging") is not None:
-                if type(source["continuous_charging"]) is not bool:
-                    raise ValueError("asset.continuous_charging: expected boolean")
-                asset["continuous_charging"] = source["continuous_charging"]
+            for field in ("continuous_charging", "maintain_soc_until_ready_by"):
+                if source.get(field) is not None:
+                    if type(source[field]) is not bool:
+                        raise ValueError("asset." + field + ": expected boolean")
+                    asset[field] = source[field]
             for field in ("minimum_soc_pct", "low_soc_trigger_pct",
                           "opportunistic_level_pct"):
                 if source.get(field) is None:
@@ -711,6 +715,42 @@ def effective_configuration(entry):
     ))
 
 
+def charger_activation_reason(charger):
+    """Only control_owner authorizes activation; reject inconsistent legacy input.
+
+    Validated configuration derives physical_commissioned solely from owner.
+    This invariant guard is not a second commissioning workflow.
+    """
+    if charger.get("control_owner") != "multicharge":
+        return "EXTERNAL_WRITER_OWNS_CHARGER"
+    if charger.get("physical_commissioned", True) is not True:
+        return "PHYSICAL_COMMISSIONING_REQUIRED"
+    return None
+
+
+def charger_is_active(charger):
+    return charger_activation_reason(charger) is None
+
+
+def charger_operating_grid(charger, *, preferences=True):
+    """Adapt validated/effective configuration to the domain's one legal grid."""
+    if charger.get("kind") != "variable_current":
+        return None
+    return operating_current_grid(
+        charger.get("min_current_a"), charger.get("max_current_a"),
+        charger.get("current_step_a"), charger.get("phase_count"),
+        charger.get("voltage_v"), charger.get("rated_power_kw"),
+        charger.get("min_charging_power_kw") if preferences else None,
+        charger.get("max_charging_power_kw") if preferences else None,
+        charger.get("circuit_limit_a"),
+    )
+
+
+def forecast_tariff_source(controller):
+    """Forecast selection, distinct from an explicitly selected live tariff."""
+    return controller.get("price_entity") or controller.get("current_price_entity")
+
+
 def configuration_json(config):
     """Lossless human-editable JSON projection of the one validated Config Entry.
 
@@ -750,7 +790,7 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
             "max_charge_kw", "requested_kwh", "requested_duration_minutes",
                           "requested_budget_amount", "requested_budget_currency",
             "ready_by", "ready_by_repeat", "ready_by_weekdays", "charging_windows",
-            "continuous_charging",
+            "continuous_charging", "maintain_soc_until_ready_by",
             "minimum_soc_pct", "maximum_price_per_kwh", "price_currency",
             "low_price_trigger_per_kwh", "low_soc_trigger_pct",
             "opportunistic_kind", "opportunistic_level_pct",
@@ -972,7 +1012,7 @@ def is_in_place_runtime_preference_change(before, after):
                           "requested_duration_minutes", "requested_budget_amount",
                            "requested_budget_currency", "ready_by",
                           "ready_by_repeat", "ready_by_weekdays", "charging_windows",
-            "continuous_charging",
+            "continuous_charging", "maintain_soc_until_ready_by",
             "minimum_soc_pct", "maximum_price_per_kwh", "price_currency",
             "low_price_trigger_per_kwh", "low_soc_trigger_pct",
             "opportunistic_kind", "opportunistic_level_pct",
@@ -1103,6 +1143,8 @@ def apply_new_import_defaults(before, candidate, *, site_time_zone="UTC", raw_as
             "requested_budget_amount",
         )) and prior.get("target_soc") is not None:
             asset["target_soc"] = prior["target_soc"]
+        if "maintain_soc_until_ready_by" not in asset and "maintain_soc_until_ready_by" in prior:
+            asset["maintain_soc_until_ready_by"] = prior["maintain_soc_until_ready_by"]
         if not any(key in asset for key in schedule_fields):
             for key in schedule_fields:
                 if key in prior:
@@ -1188,7 +1230,7 @@ def normalize_expert_json(value):
             "Requested-kWh", "Requested-duration-minutes", "Ready-by",
             "Requested-budget-amount", "Requested-budget-currency",
             "Ready-by-repeat", "Ready-by-weekdays", "Charging-windows",
-            "Continuous-charging",
+            "Continuous-charging", "Maintain-SoC-until-ready-by",
             "Minimum-SoC-pct", "Maximum-price-per-kWh", "Price-currency",
             "Low-price-trigger-per-kWh", "Low-SoC-trigger-pct",
             "Opportunistic-kind", "Opportunistic-level-pct", "Earliest-start-at",
@@ -1225,6 +1267,7 @@ def normalize_expert_json(value):
             ("Ready-by-weekdays", "ready_by_weekdays"),
             ("Charging-windows", "charging_windows"),
             ("Continuous-charging", "continuous_charging"),
+            ("Maintain-SoC-until-ready-by", "maintain_soc_until_ready_by"),
             ("Minimum-SoC-pct", "minimum_soc_pct"),
             ("Maximum-price-per-kWh", "maximum_price_per_kwh"),
             ("Price-currency", "price_currency"),
