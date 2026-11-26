@@ -379,6 +379,13 @@ function mcSVG(tag, attrs, text) {
 }
 
 
+function mcNewOwnerId(name,records,prefix){
+  const root=String(name||"").normalize("NFKD").replace(/\p{Mark}/gu,"").toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"")||prefix;
+  const used=new Set(records.map(row=>row.id));
+  let id=root,ordinal=2;
+  while(used.has(id))id=root+"_"+ordinal++;
+  return id;
+}
 function mcPlanName(slot,configuration,labels){
   const charger=(configuration.chargers||[]).find(c=>c.id===slot.charger_id);
   const asset=(configuration.assets||[]).find(a=>a.id===slot.asset_id);
@@ -2663,7 +2670,8 @@ class RobotixMultiChargeCard extends HTMLElement {
           mcOwnerReadValue(record[field],field,this._data?.timezone)));
       line.append(info);
       const key=scope+":"+record.id+":"+field;
-      if(this.canEditSettings()&&!["id","physical_commissioned","dedicated_asset_id"].includes(field)&&
+      const nativePrimary=(scope==="controller"&&["max_parallel","mode","power_adjustment_interval_minutes","solar_source_kind","grid_power_direction"].includes(field)||scope==="charger"&&field==="asset")&&this.ownerEntity(scope,record.id,field);
+      if(this.canEditSettings()&&!nativePrimary&&!["id","physical_commissioned","dedicated_asset_id"].includes(field)&&
           !(scope==="charger"&&primaryFields.includes(field))){
         const edit=mcButton(mcTr("Edit"),()=>{
           if(primaryFields.includes(field)){
@@ -2675,7 +2683,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         line.append(edit);
       }
       parent.append(line);
-      if(this.canEditSettings()&&this._editingField===key&&!primaryFields.includes(field))
+      if(this.canEditSettings()&&!nativePrimary&&this._editingField===key&&!primaryFields.includes(field))
         this.dashboardEditField(parent,scope,record,field);
     };
     const fold=(title,fields,key)=>{
@@ -3238,12 +3246,14 @@ class RobotixMultiChargeCard extends HTMLElement {
                     ...free.map(ch=>[ch.id,ch.name])]);
       const temporary=this.field(form,"Temporary guest","no",null,
         [["yes","Yes — temporary guest"],["no","No — permanent asset"]]);
-      const expiry=this.field(form,mcTr("Guest for"),"24",null,[
+      const guestDetails=mcEl("div");guestDetails.style.display="none";form.append(guestDetails);
+      const expiry=this.field(guestDetails,mcTr("Guest for"),"24",null,[
         ["4",mcTr("4 hours")],["24",mcTr("24 hours")],
         ["48",mcTr("48 hours")],["168",mcTr("7 days")]
       ]);
+      temporary.addEventListener("change",()=>{guestDetails.style.display=temporary.value==="yes"?"":"none";});
       form.append(mcButton("Create asset",()=>{
-        const id=name.value.trim().toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"");
+        const id=mcNewOwnerId(name.value,d.configuration.assets||[],"asset");
         const changes={name:name.value.trim(),kind:kind.value};
         if(assigned.value!=="none")
           changes.assign_charger_id=assigned.value;
@@ -3341,8 +3351,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     box.append(discover,discovery,tech);
     const actions=mcEl("div","dashboard-edit-actions");
     const save=mcButton(mcTr("Add charger"),async()=>{
-      const uid=id.value.trim()||name.value.trim().toLowerCase()
-        .replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"");
+      const uid=id.value.trim()||mcNewOwnerId(name.value,this._data.configuration.chargers||[],"charger");
       const rated=Number(power.value);
       if(!uid||!name.value.trim()||!Number.isFinite(rated)||rated<=0){
         this._settingsFeedback={status:"rejected",
@@ -3468,7 +3477,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         (rows.length-1)+" · up to 48h");
     }
   }
-  chargerSetup(card,charger){
+  chargerSetup(card,charger,showEntry=true){
     const setup=this._data.charger_setup?.[charger.id];
     if(!setup)return;
     const key="charger:"+charger.id+":setup";
@@ -3504,7 +3513,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     if(this._editingField===key&&charger.kind==="variable_current"&&!charger.current_readback_entity)
       card.append(mcEl("p","muted small","Independent current sensor optional when qualified power readback suffices."));
     if(this._editingField!==key){
-      card.append(mcButton(mcTr("Review charger setup")+(fields.length?" ("+fields.length+" "+mcTr("suggestions")+")":""),()=>{
+      if(showEntry)card.append(mcButton(mcTr("Review charger setup")+(fields.length?" ("+fields.length+" "+mcTr("suggestions")+")":""),()=>{
         this._editingField=key;this._settingsFeedback=null;this.render();
       }));
       return;
@@ -3615,9 +3624,10 @@ class RobotixMultiChargeCard extends HTMLElement {
         }else stateDetails.append(mcButton(mcTr("Change activation"),()=>{
           this._settingsFeedback=null;this._editingField=activationKey;this.render();
         }));
-        this.chargerSetup(stateDetails,c);
-        const problem=states.operational_status?.status==="problem";
-        if(problem&&d.charger_setup?.[c.id]&&this._editingField!=="charger:"+c.id+":setup"){
+        const setup=d.charger_setup?.[c.id];
+        const setupNeeded=Boolean(setup&&(states.operational_status?.status==="problem"||Object.keys(setup.proposed_missing||{}).length||setup.missing_electrical?.length||!c.control_entity||!c.power_entity));
+        this.chargerSetup(stateDetails,c,!setupNeeded);
+        if(setupNeeded&&this._editingField!=="charger:"+c.id+":setup"){
           card.append(mcButton("Review charger setup",()=>{
             this._folds[stateKey]=true;this._editingField="charger:"+c.id+":setup";this._settingsFeedback=null;this.render();
           }));
