@@ -1887,6 +1887,17 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(services.calls), before)
         self.assertFalse(new.executor.accepted_slots() == {})
 
+    async def test_unresolved_owner_hold_remains_visible_during_peer_session(self):
+        rt, _, services = rig()
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"], "confirmed")
+        self.assertEqual(rt.executor.unresolved_intent_keys(), set())
+        self.assertEqual(rt.live_state()["action_health"], "confirmed")
+        rt.executor._inflight["other_asset"] = "unresolved-fingerprint"
+        self.assertEqual(rt.executor.unresolved_intent_keys(), {"other_asset"})
+        self.assertEqual(rt.live_state()["action_health"], "hold")
+        self.assertEqual(rt.executor.session_snapshot()["evse"]["asset_id"], "car")
+        self.assertEqual([row[1] for row in services.calls], ["turn_on"])
+
     async def test_orphaned_soc_intent_reconciles_only_with_verified_stop(self):
         for physical in ("idle", "on", "off_with_draw"):
             with self.subTest(physical=physical):
