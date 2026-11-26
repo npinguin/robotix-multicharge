@@ -1,15 +1,15 @@
 {
   "status": "AUTHORIZED_FOR_TEST",
   "distribution": "open_source_community",
-  "expected_tag": "v0.1.24",
+  "expected_tag": "v0.1.25",
   "precompile": false,
-  "qualification_scope": "Owner authorized 26 November 2026, PR #29 / issue #1: complete agreed HACS TEST batch, preserving v0.1.23 functionality, one native current envelope and configuration writer, durable pending/confirmed START reconciliation, coherent source/readback, corrected goal journey, and optional simple SoC maintenance until Ready By as the approved alternative for PARITY05/11. No additional mode, timer, climate engine or separate supply path.",
-  "limitations": "TEST only; no STABLE or Wessels physical acceptance claim. SoC maintenance reuses normal charging constraints and eligible quarters, not an assurance of direct climate power or upstream Keep Charger On equivalence. Nominal single-phase/230 V forecasts are not physical wiring proof. Before upgrading retain native HA backup including database and matching v0.1.23 code; after confirmed STOP, retain upgraded-state backup and restore the previous checkpoint with matching code for rollback. No direct code-only downgrade or live-state merge. Actual site/iPad/EVSE field acceptance remains open.",
+  "qualification_scope": "Owner direction 26 November 2026, PR #30 / issue #1: complete agreed MultiCharge simplification, reliability, autonomous recovery and NFR batch, retaining all v0.1.24 functionality and single native authority. Ordinary external client changes, vehicle waiting and source/persistence recovery; no persistent competing-controller arbitration. Publication only after agreed exact-candidate qualification.",
+  "limitations": "HACS TEST only after qualification; no STABLE or physical Wessels acceptance claim. Actual site/iPad/EVSE acceptance and unattended endurance remain evidence gates. Before upgrading retain native HA backup including database and matching v0.1.24 code; after confirmed STOP, retain upgraded-state backup and restore previous checkpoint with matching code for rollback. No direct code-only downgrade or live-state merge.",
   "rollback_evidence": {
-    "tag": "v0.1.23",
-    "source_sha": "fbdb69a900d0790824c6ed3218cb6be84e800b05",
-    "artifact": "robotix_multicharge-0.1.23.zip",
-    "sha256": "ae5337774ae7d10dd06c84ee8f32aaa35bbe55e9ba1c7aad61e960b960ec0775",
+    "tag": "v0.1.24",
+    "source_sha": "63e810b4612fb8a6719b4b88847fd16567142bb5",
+    "artifact": "robotix_multicharge-0.1.24.zip",
+    "sha256": "09ba5fbcd0e0c582e663901196547df86a9f273d2cfb9e5a2a86cc3307d56eef",
     "scope": "Exact predecessor/candidate native HA Core archive/startup restore, configuration and Store checkpoint readback and receipt preservation; no code-only downgrade or live-state merging."
   }
 }
