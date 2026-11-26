@@ -895,10 +895,9 @@ class ConfigurationTests(unittest.TestCase):
         self.assertNotIn("max_current_a", saved)
         self.assertEqual(saved["control_owner"], "external")
         self.assertIs(saved["physical_commissioned"], False)
-        # Partial and reversed current envelopes are *never* acceptable.
+        # Independent user overrides never copy missing native observations.
         cfg["chargers"][0]["min_current_a"] = 6
-        with self.assertRaisesRegex(ValueError, "provided together"):
-            validate_configuration(cfg)
+        self.assertNotIn("max_current_a", validate_configuration(cfg)["chargers"][0])
         cfg["chargers"][0]["max_current_a"] = 5
         with self.assertRaisesRegex(ValueError, "min_current_a"):
             validate_configuration(cfg)
