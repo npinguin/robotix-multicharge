@@ -1887,6 +1887,88 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(services.calls), before)
         self.assertFalse(new.executor.accepted_slots() == {})
 
+    async def test_orphaned_soc_intent_reconciles_only_with_verified_stop(self):
+        for physical_on in (False, True):
+            with self.subTest(physical_on=physical_on):
+                rt, sources, services = rig(mode="Automatic")
+                asset = rt.configuration["assets"][0]
+                asset.pop("requested_kwh")
+                asset.update({"soc_entity": "sensor.battery", "target_soc": 75,
+                              "capacity_kwh": 20, "charge_efficiency": 0.9})
+                sources["sensor.battery"] = state(50, "%")
+                charger = rt.configuration["chargers"][0]
+                fingerprint = rt.executor._intent_key(asset, charger, None)
+                snapshot = rt.executor.export_state()
+                snapshot["inflight"] = {"car": fingerprint}
+                saved = []
+
+                class MemoryStore:
+                    async def async_save(self, data):
+                        saved.append(data)
+
+                rt.attach_control_store(MemoryStore(), snapshot)
+                if physical_on:
+                    sources["switch.evse_control"] = state("on")
+                    sources["sensor.actual_power"] = state(1600, "W")
+                rt.refresh()
+                self.assertEqual(rt.excluded["evse"], "UNRESOLVED_PREVIOUS_CHARGE_INTENT")
+                await rt.executor.supervise()
+                self.assertEqual(rt.executor._inflight, {})
+                self.assertEqual(rt.executor.completed_sessions(), [])
+                self.assertEqual(rt.executor.session_snapshot(), {})
+                self.assertEqual(saved[-1]["inflight"], {})
+                self.assertEqual([c[1] for c in services.calls],
+                                 ["turn_off"] if physical_on else [])
+                self.assertNotEqual(rt.excluded.get("evse"),
+                                    "UNRESOLVED_PREVIOUS_CHARGE_INTENT")
+                restored = MultiChargeRuntime(rt.hass, rt.configuration)
+                restored.attach_control_store(MemoryStore(), saved[-1])
+                self.assertEqual(restored.executor._inflight, {})
+
+    async def test_orphaned_intent_does_not_replay_unknown_progress(self):
+        for case in ("finite", "mismatch", "unknown_soc", "unknown_power"):
+            with self.subTest(case=case):
+                rt, sources, services = rig(mode="Automatic")
+                asset, charger = rt.configuration["assets"][0], rt.configuration["chargers"][0]
+                if case != "finite":
+                    asset.pop("requested_kwh")
+                    asset.update({"soc_entity": "sensor.battery", "target_soc": 75,
+                                  "capacity_kwh": 20, "charge_efficiency": 0.9})
+                    sources["sensor.battery"] = state(
+                        "unavailable" if case == "unknown_soc" else 50, "%")
+                if case == "unknown_power":
+                    sources["sensor.actual_power"] = state("unavailable", "W")
+                fingerprint = ("old-unknown-fingerprint" if case == "mismatch"
+                               else rt.executor._intent_key(asset, charger, None))
+                snapshot = rt.executor.export_state()
+                snapshot["inflight"] = {"car": fingerprint}
+                rt.executor.restore_state(snapshot)
+                await rt.executor.supervise()
+                self.assertEqual(rt.executor._inflight, {"car": fingerprint})
+                self.assertEqual(services.calls, [])
+                self.assertEqual(rt.executor.completed_sessions(), [])
+
+    async def test_orphaned_soc_recovery_persistence_failure_blocks_start(self):
+        rt, sources, services = rig()
+        asset, charger = rt.configuration["assets"][0], rt.configuration["chargers"][0]
+        asset.pop("requested_kwh")
+        asset.update({"soc_entity": "sensor.battery", "target_soc": 75,
+                      "capacity_kwh": 20, "charge_efficiency": 0.9})
+        sources["sensor.battery"] = state(50, "%")
+        snapshot = rt.executor.export_state()
+        snapshot["inflight"] = {"car": rt.executor._intent_key(asset, charger, None)}
+
+        class FailingStore:
+            async def async_save(self, data):
+                raise OSError("store unavailable")
+
+        rt.attach_control_store(FailingStore(), snapshot)
+        await rt.executor.supervise()
+        self.assertFalse(rt.executor._persistence_verified)
+        self.assertEqual((await rt.executor.execute("evse", "start"))["reason"],
+                         "CONTROL_STATE_UNVERIFIED")
+        self.assertEqual(services.calls, [])
+
     async def test_corrupt_persisted_control_state_fails_closed(self):
         rt, _, services = rig()
         rt.executor.restore_state({"schema_major": 100, "inflight": {}})
