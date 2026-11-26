@@ -3375,6 +3375,10 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         rt.executor.cancel_shutdown()  # failed native platform unload
         self.assertTrue(rt.executor.capabilities()["evse"]["start_allowed"])
         self.assertEqual((await rt.executor.execute("evse", "start"))["status"], "confirmed")
+        # Qualify the final cumulative meter sample independently. An old
+        # pre-START sample must not prove remaining finite-energy demand.
+        sources["sensor.meter"].state = "5.1"
+        sources["sensor.meter"].last_updated = datetime.now(timezone.utc)
         self.assertTrue(await rt.executor.shutdown())
         self.assertEqual([row[1] for row in services.calls], ["turn_on", "turn_off"])
         self.assertEqual((await rt.executor.execute("evse", "start"))["reason"],
