@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -131,10 +132,10 @@ async def websocket_get_plan(
         else:
             raise ValueError("day or start/end required")
         entry_id, runtime = selected
-        result = runtime.read_plan(
+        result = deepcopy(runtime.read_plan(
             start, end,
             charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
-        )
+        ))
         from homeassistant.helpers import entity_registry as er
         registry = er.async_get(hass)
         cfg = result["configuration"]
@@ -155,8 +156,8 @@ async def websocket_get_plan(
                 charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
                 session_receipts=receipts,
                 price_slots=runtime.price_slots, include_valuations=True,
-                power_bindings=runtime.power_bindings, energy_bindings=runtime.energy_bindings,
-                tariff_bindings=runtime.tariff_bindings,
+                power_bindings=deepcopy(runtime.power_bindings), energy_bindings=deepcopy(runtime.energy_bindings),
+                tariff_bindings=deepcopy(runtime.tariff_bindings),
                 include_observed_sessions=True, active_sessions=result["active_sessions"],
                 tariff_entity=forecast_tariff_source(result["configuration"]["controller"]),
             )
