@@ -1898,6 +1898,44 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rt.executor.session_snapshot()["evse"]["asset_id"], "car")
         self.assertEqual([row[1] for row in services.calls], ["turn_on"])
 
+    async def test_external_off_with_draw_is_reconciled_without_owned_session(self):
+        rt, sources, services = rig(mode="Automatic")
+        sources["sensor.actual_power"] = state(1600, "W")
+        self.assertEqual(rt.executor.session_snapshot(), {})
+        await rt.executor.supervise()
+        self.assertEqual([row[1] for row in services.calls], ["turn_off"])
+        self.assertEqual(sources["sensor.actual_power"].state, "0")
+        self.assertEqual(rt.executor.completed_sessions(), [])
+        await rt.executor.supervise()
+        self.assertEqual(len(services.calls), 1)
+
+    async def test_external_owner_off_with_draw_is_never_commanded(self):
+        rt, sources, services = rig(owner="external", commissioned=False)
+        sources["sensor.actual_power"] = state(1600, "W")
+        await rt.executor.supervise()
+        self.assertEqual(services.calls, [])
+
+    async def test_idle_quarantine_recovers_automatically_with_new_observation(self):
+        rt, sources, services = rig()
+        rt.executor._quarantine.add("evse")
+        request_at = datetime.now(timezone.utc)
+        rt.executor._outcomes["evse"] = {
+            "status": "execution_unknown", "requested_at": request_at.isoformat(),
+        }
+        # The idle reading predates the uncertain action; verify a real STOP.
+        await rt.executor.supervise()
+        self.assertEqual([row[1] for row in services.calls], ["turn_off"])
+        self.assertNotIn("evse", rt.executor._quarantine)
+        self.assertEqual(rt.executor.completed_sessions(), [])
+        rt.executor._quarantine.add("evse")
+        rt.executor._outcomes["evse"] = {
+            "status": "execution_unknown", "requested_at": request_at.isoformat(),
+        }
+        sources["sensor.actual_power"].last_updated = datetime.now(timezone.utc)
+        await rt.executor.supervise()
+        self.assertNotIn("evse", rt.executor._quarantine)
+        self.assertEqual(len(services.calls), 1)
+
     async def test_orphaned_soc_intent_reconciles_only_with_verified_stop(self):
         for physical in ("idle", "on", "off_with_draw"):
             with self.subTest(physical=physical):
@@ -1924,6 +1962,11 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
                     sources["sensor.actual_power"] = state(1600, "W")
                 rt.refresh()
                 self.assertEqual(rt.excluded["evse"], "UNRESOLVED_PREVIOUS_CHARGE_INTENT")
+                goal = rt.goal_assessments["evse"]
+                self.assertAlmostEqual(goal["required_grid_kwh"], 25 * 20 / 100 / 0.9)
+                self.assertIsNone(goal["planned_grid_kwh"])
+                self.assertIsNone(goal["shortfall_grid_kwh"])
+                self.assertEqual(goal["status"], "cannot_assess")
                 await rt.executor.supervise()
                 self.assertEqual(rt.executor._inflight, {})
                 self.assertEqual(rt.executor.completed_sessions(), [])
