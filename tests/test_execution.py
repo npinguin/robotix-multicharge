@@ -2975,8 +2975,14 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(rt.executor.capabilities()["evse"]["start_allowed"])
         self.assertEqual(
             rt.executor.capabilities()["evse"]["reason"],
-            "UNRESOLVED_PREVIOUS_CHARGE_INTENT",
+            "ASSET_MEASURED_PROGRESS_UNAVAILABLE",
         )
+        self.assertFalse(rt.executor._inflight)
+        self.assertFalse(rt.executor._interrupted_sessions)
+        self.assertEqual(rt.executor.completed_sessions()[-1]["continuity_quality"], "unknown")
+        rt.configuration["assets"][0]["requested_kwh"] = 2
+        services.reconcile_observations = True
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"], "confirmed")
 
     async def test_measured_idle_inactive_charger_does_not_reserve_parallel_slot(self):
         rt, sources, services = rig()
@@ -3151,6 +3157,88 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         rt.executor._sessions["evse"]["started_at"] -= timedelta(minutes=2)
         await rt.executor.supervise()
         self.assertEqual([c[1] for c in services.calls], ["turn_on", "turn_off"])
+
+    async def test_scheduled_soc_maintenance_uses_existing_plan_and_completion_receipt(self):
+        for maintain in (True, False):
+            with self.subTest(maintain=maintain):
+                rt, sources, services = rig(mode="Automatic")
+                asset = rt.configuration["assets"][0]
+                asset.pop("requested_kwh")
+                now = datetime.now(timezone.utc)
+                quarter = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
+                due = quarter + timedelta(hours=2)
+                asset.update(soc_entity="sensor.battery", target_soc=80,
+                             capacity_kwh=20, charge_efficiency=0.9,
+                             ready_by=due.isoformat(), maintain_soc_until_ready_by=maintain)
+                sources["sensor.battery"] = state(78, "%")
+                for source in sources.values():
+                    source.last_updated = quarter + timedelta(seconds=1)
+                rt.refresh(quarter)
+                self.assertTrue(rt.assessment.plan.slots)
+                await rt.executor.advance_plan(quarter)
+                self.assertEqual([x[1] for x in services.calls], ["turn_on"])
+                sources["sensor.battery"] = state(80, "%")
+                await rt.executor.supervise()
+                self.assertEqual([x[1] for x in services.calls], ["turn_on", "turn_off"])
+                snapshot = rt.executor.export_state()
+                self.assertEqual("car" in snapshot["completed"], not maintain)
+                sources["sensor.battery"] = state(77, "%")
+                restored = MultiChargeRuntime(rt.hass, rt.configuration)
+                restored.executor.restore_state(snapshot)
+                restored.refresh()
+                self.assertTrue(restored.executor._persistence_verified)
+                self.assertEqual(bool(restored.assessment.plan.slots), maintain)
+                if not maintain:
+                    self.assertEqual(restored.excluded["evse"], "SOC_TARGET_DROPPED_AFTER_COMPLETION")
+                self.assertEqual([x[1] for x in services.calls], ["turn_on", "turn_off"])
+                # No new demand after a one-off deadline, no new actuator.
+                restored.refresh(due + timedelta(seconds=1))
+                self.assertFalse(restored.assessment.plan.slots)
+
+    async def test_pending_start_checkpoint_unknown_progress_reconciles_after_restart(self):
+        from copy import deepcopy
+        for mode in ("Force Charge", "Automatic"):
+            with self.subTest(mode=mode):
+                rt, sources, services = rig(mode=mode)
+                snapshots = []
+                class MemoryStore:
+                    async def async_save(self, payload):
+                        snapshots.append(deepcopy(payload))
+                rt.attach_control_store(MemoryStore(), None)
+                if mode == "Automatic":
+                    at = datetime.now(timezone.utc)
+                    quarter = at.replace(minute=(at.minute // 15) * 15, second=0, microsecond=0)
+                    for source in sources.values():
+                        source.last_updated = quarter + timedelta(seconds=1)
+                    rt.refresh(quarter)
+                    await rt.executor.advance_plan(quarter)
+                else:
+                    self.assertEqual((await rt.executor.execute("evse", "start"))["status"], "confirmed")
+                self.assertEqual([x[1] for x in services.calls], ["turn_on"])
+                before_readback = next(row for row in snapshots
+                                      if row["interrupted_sessions"].get("evse", {}).get("pending"))
+                # Recreate the real provider's timestamps, no asserted continuity.
+                for source in sources.values():
+                    source.last_changed = source.last_updated = datetime.now(timezone.utc)
+                restored = MultiChargeRuntime(rt.hass, rt.configuration)
+                restored.attach_control_store(MemoryStore(), before_readback)
+                self.assertTrue(restored.executor._persistence_verified)
+                await restored.executor.supervise()
+                self.assertEqual([x[1] for x in services.calls], ["turn_on", "turn_off"])
+                self.assertFalse(restored.executor._inflight)
+                receipt = restored.executor.completed_sessions()[-1]
+                self.assertEqual(receipt["continuity_quality"], "unknown")
+                self.assertIsNone(receipt["actual_energy_kwh"])
+                self.assertIsNone(receipt["duration_minutes"])
+                # The exact same unknown finite intent cannot restart, even
+                # across a second restart of the reconciled persisted receipt.
+                second = MultiChargeRuntime(rt.hass, rt.configuration)
+                second.executor.restore_state(restored.executor.export_state())
+                second.refresh()
+                self.assertTrue(second.executor._persistence_verified)
+                self.assertIsNone(second.executor.measured_intent_usage(
+                    second.configuration["assets"][0], second.configuration["chargers"][0], None)["energy_kwh"])
+                self.assertFalse(second.assessment.plan.slots)
 
     async def test_manual_soc_target_stops_from_qualified_soc_source(self):
         rt, sources, services = rig()
