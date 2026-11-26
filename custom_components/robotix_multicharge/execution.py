@@ -82,6 +82,7 @@ class NativeSwitchExecutor:
         self._session_history = []
         self.session_history_revision = 0
         self._persistence_verified = True
+        self._evidence_invalid = False
         # Current physical plug identity is volatile. Only an explicit
         # dedicated assignment may qualify a new fresh physical connection.
         self._plug_confirmations = {}
@@ -560,6 +561,7 @@ class NativeSwitchExecutor:
             self.session_history_revision += 1
         except (ValueError, KeyError, TypeError, OverflowError):
             self._persistence_verified = False
+            self._evidence_invalid = True
             _LOGGER.error("Invalid charging control state: physical START held")
 
     def export_state(self):
@@ -2143,6 +2145,7 @@ class NativeSwitchExecutor:
         if datetime.fromisoformat(changes[-1]["at"] if changes else
                                  receipt.get("confirmed_from", receipt["start"].isoformat())) >= at:
             # Do not fabricate chronology after a clock correction.
+            self._evidence_invalid = True
             self._persistence_verified = False
             return False
         accepted.update(current_a=current, power_kw=power)
@@ -2488,7 +2491,7 @@ class NativeSwitchExecutor:
         if mode == "Force Charge" and accepted is not None:
             wrong_mode = True
         unsafe = (
-            uid in self._paused or wrong_mode
+            not self._persistence_verified or uid in self._paused or wrong_mode
             or ((not duration_without_connection or not self.duration_connection_allowed(cable))
                 and (cable.quality != "ok" or cable.value is not True))
             or ((not switch_only and not duration_without_connection) and power.quality != "ok")
@@ -2685,6 +2688,10 @@ class NativeSwitchExecutor:
                         session_reason = "SESSION_CHECKPOINT_NOT_PERSISTED"
                 if unsafe:
                     await self._stop_active(charger, at, session_reason)
+            # Transient Store failures are retried without restoring stale
+            # commands or changing resident preferences. Existing minute/source
+            # supervision provides the retry opportunity, not a new task.
+            await self.runtime.retry_control_persistence()
         finally:
             self._supervising = False
 
@@ -2967,6 +2974,7 @@ class NativeSwitchExecutor:
                         current_problem, kw = self._requested_current(self.effective_charger(charger), current_a, now)
                         issue = ("STOP_REQUESTED_DURING_CURRENT_CHANGE"
                                  if charger_id in self._stop_requested else
+                                 "CONTROL_STATE_UNVERIFIED" if not self._persistence_verified else
                                  self._session_stop_reason(charger, now) or current_problem
                                  or self._physical_budget(charger, now, kw, current_a,
                                                           plan_slot=effective_slot,
