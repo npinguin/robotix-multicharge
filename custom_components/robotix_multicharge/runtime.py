@@ -366,7 +366,7 @@ class MultiChargeRuntime:
         if (isinstance(recorded, dict)
                 and isinstance(recorded.get("expected_revision"), str)
                 and recorded.get("scope") in ("controller", "asset", "charger")
-                and recorded.get("action") in ("save", "create", "delete")
+                and recorded.get("action") in ("save", "create", "delete", "yaml_save")
                 and isinstance(recorded.get("requested_at"), str)):
             self._settings_action = dict(recorded)
 
@@ -744,10 +744,10 @@ class MultiChargeRuntime:
             capability_unverified = missing_current_conversion(chargers[uid])
             capability_reason = (
                 "ELECTRICAL_WIRING_UNVERIFIED"
-                if all(raw.get(field) is not None for field in
-                       ("min_current_a", "max_current_a", "current_step_a"))
+                if raw.get("kind") == "variable_current"
                 and (raw.get("phase_count") is None or raw.get("voltage_v") is None)
-                else "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED"
+                and not raw.get("_current_capability_reason")
+                else raw.get("_current_capability_reason") or "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED"
             )
             if disconnected or inactive or identity_unconfirmed or capability_unverified:
                 if disconnected:
