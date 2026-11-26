@@ -1863,6 +1863,89 @@ async def test_dashboard_native_energy_source_mapping_no_shadow_settings(
     assert "energy" in menu["menu_options"]
     assert await hass.config_entries.async_unload(entry.entry_id)
 
+@pytest.mark.parametrize("count", [0, 1, 4, 10])
+@pytest.mark.asyncio
+async def test_installed_scale_source_publication_and_reload(hass: HomeAssistant, count):
+    """Measured HA owner/aggregate publication and lifecycle; not EVSE or soak proof."""
+    from time import perf_counter, process_time
+    from homeassistant.helpers import entity_registry as er
+
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    cfg = validate_configuration({
+        "controller": {"id": "site", "name": "Scale", "mode": "Automatic",
+                       "max_parallel": max(1, count), "max_power_kw": 3.6*max(1, count),
+                       "home_power_entity": "sensor.scale_home"},
+        "assets": [{"id": f"car_{i}", "name": f"Car {i}", "kind": "car",
+                    "soc_entity": f"sensor.scale_soc_{i}", "target_soc": 80,
+                    "capacity_kwh": 30, "charge_efficiency": 0.9}
+                   for i in range(count)],
+        "chargers": [{"id": f"drive_{i}", "name": f"Drive {i}", "kind": "on_off",
+                      "asset": f"car_{i}", "rated_power_kw": 3.6,
+                      "control_owner": "external", "control_entity": f"switch.scale_{i}",
+                      "connected_entity": f"binary_sensor.scale_{i}",
+                      "power_entity": f"sensor.scale_power_{i}"}
+                     for i in range(count)],
+    })
+    hass.states.async_set("sensor.scale_home", "1000", {"unit_of_measurement": "W"})
+    for i in range(count):
+        hass.states.async_set(f"switch.scale_{i}", "off")
+        hass.states.async_set(f"binary_sensor.scale_{i}", "on")
+        hass.states.async_set(f"sensor.scale_power_{i}", "0", {"unit_of_measurement": "W"})
+        hass.states.async_set(f"sensor.scale_soc_{i}", "50", {"unit_of_measurement": "%"})
+    entry = MockConfigEntry(domain=DOMAIN, title="Scale qualification",
+                            data={"source": "ui", "configuration": cfg}, unique_id=DOMAIN)
+    entry.add_to_hass(hass)
+    started, cpu_start = perf_counter(), process_time()
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    setup_ms = (perf_counter()-started)*1000
+    registry = er.async_get(hass)
+    aggregate = registry.async_get_entity_id("sensor", DOMAIN, f"{DOMAIN}:controller:site:power")
+    assert aggregate
+    owner_ids = [registry.async_get_entity_id("sensor", DOMAIN,
+                 f"{DOMAIN}:charger:drive_{i}:power") for i in range(count)]
+    assert all(owner_ids)
+    samples = []
+    for cycle in range(6):
+        watts = 1000 if cycle % 2 == 0 else 0
+        started = perf_counter()
+        for i in range(count):
+            hass.states.async_set(f"sensor.scale_power_{i}", str(watts),
+                                  {"unit_of_measurement": "W"})
+        hass.states.async_set("sensor.scale_home", str(1001+cycle),
+                              {"unit_of_measurement": "W"})
+        await hass.async_block_till_done()
+        samples.append((perf_counter()-started)*1000)
+        assert float(hass.states.get(aggregate).state) == pytest.approx(count*watts/1000)
+        assert all(float(hass.states.get(entity).state) == pytest.approx(watts/1000)
+                   for entity in owner_ids)
+        assert runtime.executor.snapshot() == {}
+    assert max(samples) <= 2000, (count, samples)
+    metrics = runtime.performance_snapshot()
+    # The test does not depend on a page or a minute timer to publish.
+    print("MC_NATIVE_SCALE", count, "setup_ms", round(setup_ms, 2),
+          "publication_batch_max_ms", round(max(samples), 2),
+          "cpu_ms", round((process_time()-cpu_start)*1000, 2),
+          "runtime", json.dumps(metrics, sort_keys=True))
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    replacement = hass.data[DOMAIN][entry.entry_id]
+    assert replacement is not runtime and not runtime.active
+    assert replacement.configuration == cfg
+    assert not runtime._listeners and not runtime._unsubscribers
+    assert not runtime._recorder_inflight and not runtime.executor._source_stop_tasks
+    assert [registry.async_get_entity_id("sensor", DOMAIN,
+            f"{DOMAIN}:charger:drive_{i}:power") for i in range(count)] == owner_ids
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert not replacement.active and not replacement._listeners
+    assert entry.entry_id not in hass.data.get(DOMAIN, {})
+
+
 @pytest.mark.asyncio
 async def test_native_empty_configuration_still_installs(hass: HomeAssistant):
     source = (Path(__file__).resolve().parents[2] / "custom_components" /
