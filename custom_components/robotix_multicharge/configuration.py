@@ -14,6 +14,7 @@ from math import ceil, floor, isfinite
 from re import fullmatch
 
 from .domain import ChargeableAsset, Charger, ChargeController
+from .const import DEFAULT_POWER_ADJUSTMENT_INTERVAL_MINUTES
 
 # One shared, accessible identity palette. Keys are stable HA select options.
 PLAN_COLORS = {
@@ -169,7 +170,7 @@ def validate_configuration(value):
     parallel = ctl.get("max_parallel", 1)
     if isinstance(parallel, bool) or not isinstance(parallel, int) or parallel < 1:
         raise ValueError(f"controller.max_parallel: expected positive integer, received {parallel!r}")
-    interval = ctl.get("power_adjustment_interval_minutes", 5)
+    interval = ctl.get("power_adjustment_interval_minutes", DEFAULT_POWER_ADJUSTMENT_INTERVAL_MINUTES)
     if type(interval) is not int or not 1 <= interval <= 1440:
         raise ValueError("controller.power_adjustment_interval_minutes: expected whole minutes (1..1440)")
     mode = ctl.get("mode", "Off")
