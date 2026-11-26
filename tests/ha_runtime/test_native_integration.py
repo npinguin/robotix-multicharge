@@ -1868,7 +1868,7 @@ async def test_installed_automatic_soc_recovers_external_stop_and_source_return(
     hass: HomeAssistant, freezer,
 ):
     """End-to-end native HA time/events, one writer, no repeated resident actions."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timezone
     from pytest_homeassistant.common import async_fire_time_changed
 
     initial = datetime(2026, 11, 26, 8, 1, tzinfo=timezone.utc)
