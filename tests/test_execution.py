@@ -379,6 +379,44 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(blocked["reason"], "UNRESOLVED_PREVIOUS_CHARGE_INTENT")
         self.assertEqual(len(services.calls), before)
 
+    async def test_interrupted_session_checkpoint_recovers_only_same_source_epoch(self):
+        from copy import deepcopy
+        rt, states, services = rig()
+        started = await rt.executor.execute("evse", "start")
+        self.assertEqual(started["status"], "confirmed")
+        snapshot = deepcopy(rt.executor.export_state())
+        self.assertIn("evse", snapshot["interrupted_sessions"])
+        states["sensor.meter"].state = "5.4"
+        states["sensor.meter"].last_updated = datetime.now(timezone.utc)
+        restored = MultiChargeRuntime(rt.hass, rt.configuration)
+        restored.executor.restore_state(snapshot)
+        self.assertFalse(restored.executor._sessions)
+        self.assertIn("car", restored.executor._inflight)
+        restored.refresh()
+        self.assertEqual(restored.excluded["evse"], "UNRESOLVED_PREVIOUS_CHARGE_INTENT")
+        await restored.executor.supervise()
+        self.assertEqual([call[1] for call in services.calls], ["turn_on", "turn_off"])
+        receipts = restored.executor.completed_sessions()
+        self.assertEqual(len(receipts), 1)
+        self.assertAlmostEqual(receipts[0]["actual_energy_kwh"], 0.4)
+        self.assertNotIn("car", restored.executor._inflight)
+        self.assertNotIn("evse", restored.executor._interrupted_sessions)
+
+        # A new plug epoch cannot prove that a previous vehicle consumed
+        # the meter delta. Preserve the original hold and no invented receipt.
+        rt2, states2, services2 = rig()
+        self.assertEqual((await rt2.executor.execute("evse", "start"))["status"], "confirmed")
+        snapshot2 = deepcopy(rt2.executor.export_state())
+        states2["binary_sensor.cable"].last_changed = datetime.now(timezone.utc)
+        restarted = MultiChargeRuntime(rt2.hass, rt2.configuration)
+        restarted.executor.restore_state(snapshot2)
+        restarted.refresh()
+        await restarted.executor.supervise()
+        self.assertEqual([call[1] for call in services2.calls], ["turn_on", "turn_off"])
+        self.assertFalse(restarted.executor.completed_sessions())
+        self.assertIn("car", restarted.executor._inflight)
+        self.assertIn("evse", restarted.executor._interrupted_sessions)
+
     async def test_manual_force_start_fails_closed_when_intent_persistence_fails(self):
         rt, sources, services = rig()
         class RejectingStore:
