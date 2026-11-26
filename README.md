@@ -8,7 +8,7 @@
 
 Robotix MultiCharge is an open-source Home Assistant integration being built to coordinate charging for electric cars, e-bikes and other compatible rechargeable assets. The goal: make smart use of electricity prices, solar energy, available power and charging deadlines—without locking you to a vehicle, charger or energy provider.
 
-> **HACS TEST v0.1.24 is the published baseline. v0.1.25 is the development candidate, not STABLE.**
+> **HACS TEST v0.1.25 is the published baseline. v0.1.26 is the development candidate, not STABLE.**
 >
 > The current development batch strengthens autonomous reconciliation of physical switch/current/power, vehicle waiting, source and Store recovery, and preserves native control and measured history. It removes redundant planning/history work and bounds diagnostic samples, reuses the existing five views, and retains a single planner/executor/Config Entry. Persistent competing autonomous controllers are unsupported. See [PR #30](https://github.com/npinguin/robotix-multicharge/pull/30) and [Issue #1](https://github.com/npinguin/robotix-multicharge/issues/1) for qualification evidence and blockers. Install only immutable published [HACS releases](https://github.com/npinguin/robotix-multicharge/releases).
 
