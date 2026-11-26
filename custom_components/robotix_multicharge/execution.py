@@ -64,6 +64,7 @@ class NativeSwitchExecutor:
         self._interrupted_sessions = {}
         self._start_pending = set()
         self._current_pending = set()
+        self._stop_pending = set()
         self._stop_requested = set()
         self._urgent_stop_requests = set()
         self._source_stop_tasks = {}
@@ -2616,7 +2617,7 @@ class NativeSwitchExecutor:
         A peer safety violation cannot wait for a different EVSE's readback.
         Normal supervision still owns modulations and confirmation.
         """
-        pending = self._start_pending | self._current_pending
+        pending = self._start_pending | self._current_pending | self._stop_pending
         if not pending or self._stopped or not self._lock.locked():
             return
         at = datetime.now(timezone.utc)
@@ -2861,10 +2862,10 @@ class NativeSwitchExecutor:
             if (charger is not None and charger_is_active(charger)
                     and charger.get("kind") in ("on_off", "variable_current")):
                 self._grants.pop(charger_id, None)
-                pending = self._start_pending | self._current_pending
-                if charger_id in pending:
+                pending = self._start_pending | self._current_pending | self._stop_pending
+                if charger_id in (self._start_pending | self._current_pending):
                     self._stop_requested.add(charger_id)
-                elif pending and self._lock.locked() and request_id not in self._urgent_stop_requests:
+                elif charger_id not in pending and pending and self._lock.locked() and request_id not in self._urgent_stop_requests:
                     switch = self._switch(self.runtime.hass, charger.get("control_entity"))
                     power = number(self.runtime.hass, charger.get("power_entity"),
                                    "power", datetime.now(timezone.utc))
@@ -3188,6 +3189,8 @@ class NativeSwitchExecutor:
                     or (action in ("stop", "pause")
                         and self._interrupted_sessions.get(charger_id, {}).get("sources", {}).get("control_entity") == entity
                         and self._interrupted_sessions.get(charger_id, {}).get("session", {}).get("duration_without_connection")))
+                if action in ("stop", "pause"):
+                    self._stop_pending.add(charger_id)
                 self._publish(charger_id, request_id, action, "requested",
                               "REQUESTED", at)
                 try:
@@ -3325,3 +3328,5 @@ class NativeSwitchExecutor:
                 if action == "start":
                     self._start_pending.discard(charger_id)
                     self._stop_requested.discard(charger_id)
+                elif action in ("stop", "pause"):
+                    self._stop_pending.discard(charger_id)
