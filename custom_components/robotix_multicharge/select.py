@@ -13,7 +13,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .command_query import apply_native_preference, require_native_admin
 from .configuration import PLAN_COLORS, WEEKDAYS, charger_is_active
-from .const import DOMAIN
+from .const import DOMAIN, DEFAULT_CONTINUOUS_CHARGING, DEFAULT_OPPORTUNISTIC_KIND
 
 MODES = {
     "automatic": "Automatic", "solar": "Solar", "economy": "Economy",
@@ -184,10 +184,10 @@ class _OwnedSelect(SelectEntity):
                 "on" if current.get(self.field, True) else "off"
             )
         elif self.field == "continuous_charging":
-            self._attr_current_option = ("continuous" if current.get(self.field, False)
+            self._attr_current_option = ("continuous" if current.get(self.field, DEFAULT_CONTINUOUS_CHARGING)
                                          else "flexible")
         elif self.field == "opportunistic_kind":
-            self._attr_current_option = current.get(self.field, "off")
+            self._attr_current_option = current.get(self.field, DEFAULT_OPPORTUNISTIC_KIND)
         elif self.field == "ready_by_repeat":
             # Keep legacy Weekly on disk until an explicit edit; never show it
             # as a new resident option or silently rewrite HA identities.
