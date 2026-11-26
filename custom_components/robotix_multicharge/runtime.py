@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import deque
-from time import perf_counter
+from time import perf_counter, monotonic
 from datetime import datetime, timedelta, timezone
 
 from .const import (DEFAULT_ASSET_PRIORITY, DEFAULT_CONTINUOUS_CHARGING,
@@ -112,6 +112,8 @@ class MultiChargeRuntime:
         self.executor = NativeSwitchExecutor(self)
         self._control_store = None
         self._control_restore_failed = False
+        self._control_write_failed = False
+        self._control_retry_at = 0.0
         self.power_bindings = reconcile_power_bindings(None, configuration, datetime.now(timezone.utc))
         self.energy_bindings = reconcile_power_bindings({}, configuration, datetime.now(timezone.utc), field="energy_entity")
         self.tariff_bindings = reconcile_tariff_bindings(None, configuration, datetime.now(timezone.utc))
@@ -408,6 +410,8 @@ class MultiChargeRuntime:
     def attach_control_store(self, store, snapshot):
         self._control_store = store
         self._control_restore_failed = False
+        self._control_write_failed = False
+        self._control_retry_at = 0.0
         # Stage all binding histories before adopting any recovered control evidence.
         # A malformed later section cannot leave a partially restored runtime.
         now = datetime.now(timezone.utc)
@@ -499,8 +503,34 @@ class MultiChargeRuntime:
                 })
             return True
         except (OSError, ValueError, RuntimeError):
+            self._control_write_failed = True
+            self._control_retry_at = monotonic() + 60
             _LOGGER.exception("Failed to persist charging control evidence")
             return False
+
+    async def retry_control_persistence(self):
+        """Retry a transient write, never replace an unreadable original Store."""
+        executor = self.executor
+        if (self._control_restore_failed or not self._control_write_failed
+                or executor._persistence_verified or executor._evidence_invalid
+                or executor._draining or not self.active
+                or monotonic() < self._control_retry_at):
+            return False
+        # Same physical-writer lock: no pending START/current or configuration
+        # command may change evidence while this checkpoint is acknowledged.
+        if executor._lock.locked():
+            return False
+        async with executor._lock:
+            if (executor._draining or executor._sessions or executor._start_pending
+                    or executor._current_pending or not self.active):
+                return False
+            if not await self.persist_control_state():
+                return False
+            self._control_write_failed = False
+            executor._persistence_verified = True
+            self.refresh()
+            _LOGGER.info("Charging control Store recovered; normal admission restored")
+            return True
 
     def set_unsubscribe(self, unsubscribe):
         self._unsubscribers.append(unsubscribe)
