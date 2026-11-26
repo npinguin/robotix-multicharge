@@ -366,6 +366,13 @@
       "ready_day_sun": {
         "name": "Söndag Ready By"
       },
+      "maintain_soc_until_ready_by": {
+        "name": "Behåll laddnivå till avfärd",
+        "state": {
+          "on": "Visa",
+          "off": "Dölj"
+        }
+      },
       "continuous_charging": {
         "name": "Laddmönster"
       },
