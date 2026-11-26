@@ -321,8 +321,7 @@ class MultiChargeRuntime:
 
     def attach_control_store(self, store, snapshot):
         self._control_store = store
-        self.executor.restore_state(snapshot)
-        self._control_restore_failed = not self.executor._persistence_verified
+        self._control_restore_failed = False
         previous = snapshot.get("power_bindings") if isinstance(snapshot, dict) else None
         try:
             self.power_bindings = reconcile_power_bindings(
@@ -352,6 +351,9 @@ class MultiChargeRuntime:
             _LOGGER.warning("Invalid stored tariff binding history; earlier valuations are unknown")
             self.tariff_bindings = reconcile_tariff_bindings(
                 {}, self.configuration, datetime.now(timezone.utc))
+        if not self._control_restore_failed:
+            self.executor.restore_state(snapshot)
+            self._control_restore_failed = not self.executor._persistence_verified
         if self._control_restore_failed:
             self.executor._persistence_verified = False
             _LOGGER.error("Original control Store retained; restore valid evidence and reload")
@@ -978,7 +980,9 @@ class MultiChargeRuntime:
                 # A conservative minimum-power preview is useful for orientation,
                 # but assumed electrical conversion cannot qualify the deadline.
                 status, reason = "cannot_assess", self.excluded.get(uid, "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED")
-                if reason not in ("ELECTRICAL_WIRING_UNVERIFIED", "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED"):
+                if reason not in ("ELECTRICAL_WIRING_UNVERIFIED", "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED",
+                                  "CURRENT_CONTROL_UNAVAILABLE", "NATIVE_CURRENT_UNIT_UNSUPPORTED",
+                                  "NATIVE_CURRENT_CAPABILITY_UNVERIFIED", "CURRENT_RANGE_UNVERIFIED"):
                     reason = "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED"
                 shortfall = None
             elif reason == "PROPOSED" and coverage == "COMPLETE":
