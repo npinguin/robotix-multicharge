@@ -47,6 +47,20 @@ def _evidence(value):
             "observed_at": value.observed_at.isoformat() if value.observed_at else None}
 
 
+def _soc_grid_requirement(asset, reading):
+    """Independent remaining battery demand; command ownership is not a meter."""
+    if (any(asset.get(k) is not None for k in (
+            "requested_kwh", "requested_duration_minutes", "requested_budget_amount"))
+            or reading.quality != "ok" or asset.get("target_soc") is None):
+        return None
+    if reading.value >= asset["target_soc"]:
+        return 0.0
+    if asset.get("capacity_kwh") is None or asset.get("charge_efficiency") is None:
+        return None
+    return max(0.0, (asset["target_soc"] - reading.value)
+               * asset["capacity_kwh"] / 100 / asset["charge_efficiency"])
+
+
 def _display_power(hass, entity, at, *, signed=False):
     """Retain a clearly labeled last report for UI only, not control."""
     reading = live_power(hass, entity, at, signed=signed)
@@ -675,8 +689,8 @@ class MultiChargeRuntime:
             minimum_priority = 0.0
             low_soc_priority = 0.0
             budget_minutes = 24 * 60 if budget is not None else None
-            if soc_based and reading.quality == "ok" and asset.get("target_soc") is not None and reading.value >= asset["target_soc"]:
-                amount = 0.0
+            if soc_based:
+                amount = _soc_grid_requirement(asset, reading)
             if soc_based and amount != 0 and (
                     asset.get("minimum_soc_pct") is not None
                     or asset.get("low_soc_trigger_pct") is not None):
@@ -692,11 +706,6 @@ class MultiChargeRuntime:
                     and "capacity_kwh" in asset
                     and "charge_efficiency" in asset
                 ):
-                    amount = max(
-                        0.0,
-                        (asset["target_soc"] - reading.value)
-                        * asset["capacity_kwh"] / 100 / asset["charge_efficiency"],
-                    )
                     if asset.get("minimum_soc_pct") is not None:
                         minimum_priority = min(
                             amount,
@@ -1100,7 +1109,9 @@ class MultiChargeRuntime:
                 "conditional": conditional, "deadline": (
                     due.isoformat() if due else self.observations["assets"][asset["id"]]["next_ready_by"]
                 ),
-                "required_grid_kwh": 0.0 if measured_target_met else request.remaining_grid_kwh if request else None,
+                "required_grid_kwh": (0.0 if measured_target_met else
+                    request.remaining_grid_kwh if request else
+                    _soc_grid_requirement(asset, soc)),
                 "planned_grid_kwh": proposed, "shortfall_grid_kwh": shortfall,
                 "coverage": coverage,
                 "assumption": self.forecast_assumptions.get(uid, {}).get("assumption"),
