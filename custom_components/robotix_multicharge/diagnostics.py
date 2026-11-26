@@ -208,6 +208,7 @@ def build_diagnostics(runtime, entry, captured_at=None):
             ],
             "pending_starts": [_alias(uid) for uid in sorted(executor._start_pending)],
             "pending_current_changes": [_alias(uid) for uid in sorted(executor._current_pending)],
+            "pending_stops": [_alias(uid) for uid in sorted(executor._stop_pending)],
             "granted_chargers": [_alias(uid) for uid in sorted(executor._grants)],
             "persistence_verified": runtime.executor._persistence_verified,
             "original_store_retained": runtime._control_restore_failed or runtime._control_read_failed,
