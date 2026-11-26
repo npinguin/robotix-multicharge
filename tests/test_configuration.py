@@ -685,6 +685,26 @@ class ConfigurationTests(unittest.TestCase):
         self.assertFalse(is_plan_presentation_only_change(visual, physical))
         self.assertFalse(is_plan_presentation_only_change(original, physical))
 
+    def test_grant_authority_comparison_is_read_only_and_cadence_specific(self):
+        from copy import deepcopy
+        from multicharge_configuration_tests.configuration import plan_authority_unchanged
+        cfg = default_configuration()
+        cfg["assets"] = [{"id": "car", "name": "Car", "kind": "car", "target_soc": 80}]
+        cfg["chargers"] = [{"id": "drive", "name": "Drive", "kind": "on_off",
+                            "rated_power_kw": 2, "asset": "car"}]
+        original = validate_configuration(cfg)
+        edited = deepcopy(original)
+        edited["controller"]["power_adjustment_interval_minutes"] = 10
+        edited["assets"][0]["name"] = "Renamed"
+        edited["assets"][0]["kind"] = "other"
+        before, after = deepcopy(original), deepcopy(edited)
+        self.assertFalse(plan_authority_unchanged(original, edited))
+        self.assertTrue(plan_authority_unchanged(original, edited, allow_adjustment_cadence=True))
+        self.assertEqual(original, before)
+        self.assertEqual(edited, after)
+        edited["assets"][0]["target_soc"] = 90
+        self.assertFalse(plan_authority_unchanged(original, edited, allow_adjustment_cadence=True))
+
     def test_type_only_asset_edit_preserves_physical_runtime(self):
         from multicharge_configuration_tests.configuration import (
             is_plan_presentation_only_change, apply_settings_change,
