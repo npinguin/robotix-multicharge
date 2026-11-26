@@ -712,6 +712,11 @@ def effective_configuration(entry):
     ))
 
 
+def forecast_tariff_source(controller):
+    """Forecast selection, distinct from an explicitly selected live tariff."""
+    return controller.get("price_entity") or controller.get("current_price_entity")
+
+
 def configuration_json(config):
     """Lossless human-editable JSON projection of the one validated Config Entry.
 
