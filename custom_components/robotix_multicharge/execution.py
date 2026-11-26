@@ -689,7 +689,9 @@ class NativeSwitchExecutor:
         charger = next((c for c in self.runtime.configuration["chargers"]
                         if c["id"] == uid), None)
         if (row is None or charger is None or observed_at is None
-                or row["sources"]["control_entity"] != charger.get("control_entity")):
+                or row["sources"]["control_entity"] != charger.get("control_entity")
+                or (reason != "NATIVE_SWITCH_STATE"
+                    and row["sources"]["power_entity"] != charger.get("power_entity"))):
             return False
         session = row["session"]
         begun = datetime.fromisoformat(session["started_at"])
@@ -815,7 +817,7 @@ class NativeSwitchExecutor:
 
     def _publish(self, uid, request_id, action, status, reason, requested_at,
                  *, observed_at=None, measured_kw=None, service_sent=False,
-                 recovered_session=None):
+                 recovered_session=None, completion=None):
         result = {
             "charger_id": uid,
             "request_id": request_id,
@@ -849,6 +851,21 @@ class NativeSwitchExecutor:
                     # measured_intent_usage, not a permanent charger lock.
                     self._inflight.pop(hold_key, None)
                     self._interrupted_sessions.pop(uid, None)
+                    if completion is not None:
+                        asset_id, intent, goal_reason = completion
+                        # Completion and its qualifying STOP receipt are
+                        # persisted together. Unknown progress never becomes
+                        # a completed finite goal.
+                        evidence = (
+                            goal_reason == "SOC_TARGET_REACHED"
+                            or (goal_reason == "REQUESTED_ENERGY_COMPLETE"
+                                and receipt.get("actual_energy_kwh") is not None)
+                            or (goal_reason == "REQUESTED_DURATION_COMPLETE"
+                                and receipt.get("duration_minutes") is not None)
+                            or (goal_reason == "REQUESTED_BUDGET_COMPLETE"
+                                and receipt.get("budget_accrued_cost") is not None))
+                        if asset_id == session.get("asset_id") and evidence:
+                            self._completed[asset_id] = intent
             elif uid in self._interrupted_sessions:
                 self._close_unknown_interruption(uid, observed_at, reason)
             if reason == "NATIVE_SWITCH_STATE" and uid not in self._interrupted_sessions:
@@ -1540,6 +1557,10 @@ class NativeSwitchExecutor:
         """One measured-increment calculation for live and final receipts."""
         # Physical metering is the source of progress. Price intervals
         # must cover each actually observed meter increment completely.
+        if session.get("budget_quality") == "unknown":
+            # An earlier broken interval/meter epoch cannot be made qualified
+            # by an unrelated later sample. Preserve its unknown progress.
+            return "BUDGET_MEASURED_PROGRESS_UNAVAILABLE"
         currency = session["requested_budget_currency"]
         sample = number(
             self.runtime.hass, charger.get("energy_entity"), "energy", now
@@ -2468,13 +2489,9 @@ class NativeSwitchExecutor:
                     completed_intent = self._intent_key(
                         asset, charger, occurrence
                     )
-        outcome = await self.execute(uid, "stop")
-        if outcome["status"] == "confirmed" and completed_asset is not None:
-            if completed_intent is not None:
-                self._completed[completed_asset] = completed_intent
-            self._inflight.pop(completed_asset, None)
-            if not await self.runtime.persist_control_state():
-                self._persistence_verified = False
+        completion = ((completed_asset, completed_intent, session_reason)
+                      if completed_asset is not None and completed_intent is not None else None)
+        outcome = await self.execute(uid, "stop", completion=completion)
         if outcome["status"] != "confirmed":
             _LOGGER.error("Protective charger STOP not physically confirmed: %s %s",
                           uid, outcome["reason"])
@@ -2642,7 +2659,7 @@ class NativeSwitchExecutor:
     async def execute(self, charger_id, action, *, context=None,
                       request_id=None, readback_seconds=READBACK_SECONDS,
                       current_a=None, plan_slot=None, manual_request=None,
-                      active_regulation=False):
+                      active_regulation=False, completion=None):
         """Perform a real HA switch call; success requires fresh independent power."""
         if action not in ("start", "stop", "set_current", "pause", "resume"):
             raise ValueError("unsupported physical action")
@@ -2688,7 +2705,8 @@ class NativeSwitchExecutor:
             recovered_session = None
             def result(status, reason, **extras):
                 recorded = self._publish(charger_id, request_id, action, status,
-                                         reason, at, recovered_session=recovered_session, **extras)
+                                         reason, at, recovered_session=recovered_session,
+                                         completion=completion, **extras)
                 self._requests[request_id] = {
                     **recorded, "manual_request": manual_request,
                 }
@@ -2936,14 +2954,19 @@ class NativeSwitchExecutor:
                 elif state.state == "off":
                     power = number(self.runtime.hass, charger.get("power_entity"),
                                    "power", at)
-                    if not charger.get("power_entity") and charger["kind"] == "on_off":
+                    checkpoint = self._interrupted_sessions.get(charger_id)
+                    since = (datetime.fromisoformat(checkpoint["session"]["started_at"])
+                             if checkpoint else None)
+                    switch_at = getattr(state, "last_updated", None)
+                    if (not charger.get("power_entity") and charger["kind"] == "on_off"
+                            and (since is None or switch_at is not None and switch_at >= since)):
                         outcome = result("confirmed", "NATIVE_SWITCH_STATE",
-                                         observed_at=getattr(state, "last_updated", None))
+                                         observed_at=switch_at)
                         if not await self.runtime.persist_control_state():
                             self._persistence_verified = False
                         return outcome
-                    if (power.quality == "ok"
-                            and power.value <= stop_power_limit(charger)):
+                    if (power.quality == "ok" and power.value <= stop_power_limit(charger)
+                            and (since is None or power.observed_at is not None and power.observed_at >= since)):
                         outcome = result("confirmed", "ALREADY_PHYSICALLY_STOPPED",
                                          observed_at=power.observed_at,
                                          measured_kw=power.value)
