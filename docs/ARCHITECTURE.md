@@ -118,6 +118,8 @@ The source contains a deterministic 15-minute proposal planner, an admin-only bo
 
 ## Planning, physical execution and safety
 
+**Runtime quality:** The existing coalesced source lifecycle distinguishes independently bound PV/home display meters from all control-relevant sources. A source selected in any other role, a timer, or a tariff completion retains full planning/safety processing; ordered connection transitions and pending-command protection remain unchanged. Each bounded planner invocation indexes uniquely covered full quarters once per shared source; holes, overlaps, expiry and actual UTC/DST instants retain their existing meaning. Recorder remains the single history authority: session valuation and observed-run projections use the existing executor off the HA event loop. The native diagnostics expose only bounded recent timing samples and aliased unmatched intent holds, not raw telemetry or a new store. UI source watch lists are snapshot-scoped; detach invalidates late responses and releases chart/timer resources. Physical START/STOP latency, query frequency, endurance and field acceptance still require measured qualification.
+
 ```text
 Native HA sources (charger, asset, price, solar, available site power)
     -> validated binding and source freshness
