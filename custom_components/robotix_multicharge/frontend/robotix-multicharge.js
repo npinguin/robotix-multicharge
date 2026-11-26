@@ -41,6 +41,7 @@ const MC_REASONS={
   NATIVE_SWITCH_REQUIRED:"Charger control missing",
   MANUAL_START_REQUIRES_FORCE_CHARGE:"Select Force Charge",
   CONTROL_STATE_UNVERIFIED:"Control state unverified",
+  INTEGRATION_UNLOADING:"Integration restarting",
   PREVIOUS_COMMAND_UNCONFIRMED:"Previous command unresolved",
   UNRESOLVED_PREVIOUS_CHARGE_INTENT:"Previous command unresolved",
   SOC_TARGET_DROPPED_AFTER_COMPLETION:"Charging goal closed",
@@ -62,6 +63,7 @@ function mcReason(value){
   }
   return mcTr("Unavailable");
 }
+for(const [locale,label] of Object.entries({nl:"Integratie herstart",fr:"Redémarrage de l’intégration",da:"Integrationen genstarter",nb:"Integrasjonen starter på nytt",sv:"Integrationen startas om",de:"Integration wird neu gestartet",es:"Reinicio de la integración"}))MC_TEXT[locale]["Integration restarting"]=label;
 const MC_TABS = ["Overview", "Charging Plan", "Chargeable Assets", "Chargers", "Settings"];
 const MC_SETTINGS = ["Charging site", "Sources & bindings", "Charging strategy", "Safety & limits", "Integrations"];
 // Pause is a persistent Charger admission hold, not a second strategy.
