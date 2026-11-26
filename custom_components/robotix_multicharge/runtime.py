@@ -1081,32 +1081,6 @@ class MultiChargeRuntime:
                     goal_reason = "READY"
                 elif goal_reason is None:
                     goal_reason = "INVALID_PLANNING_INPUT"
-            if reported == "fault":
-                readiness, reason = "error", "CHARGER_REPORTED_FAULT"
-            elif reported == "unavailable" or (charger.get("control_entity") and switch is None and activation == "active"):
-                readiness, reason = "unavailable", "CHARGER_SOURCE_UNAVAILABLE"
-            elif activation == "inactive":
-                readiness, reason = "waiting", "CHARGER_INACTIVE"
-            elif activation == "active" and capability.get("paused"):
-                readiness, reason = "waiting", "USER_PAUSED"
-            elif activation == "active" and goal_reason in ("CONTROL_STATE_UNVERIFIED", "PREVIOUS_COMMAND_UNCONFIRMED"):
-                readiness, reason = "unknown", goal_reason
-            elif reported == "paused":
-                readiness, reason = "waiting", session.reason if session.reason != "OK" else "PROVIDER_SUSPENDED"
-            elif (switch is not None or reported in ("charging", "stopped", "idle", "completed")
-                  or (measured is not None and measured > 0.05)):
-                if activation == "active" and connected is True and goal_reason in (
-                    "TARGET_ALREADY_MET", "MAX_PARALLEL_REACHED", "SITE_CAPACITY_EXCEEDED",
-                    "CHARGING_WINDOW_CLOSED", "EARLIEST_START_NOT_REACHED",
-                    "NATIVE_SOLAR_SURPLUS_INSUFFICIENT", "AUTOMATIC_MODE_NOT_ENABLED",
-                ) and goal_reason != "TARGET_ALREADY_MET":
-                    readiness, reason = "waiting", goal_reason
-                elif goal_reason not in (None, "READY", "MANUAL_START_REQUIRES_FORCE_CHARGE", "SWITCH_ALREADY_ON"):
-                    readiness, reason = "waiting", goal_reason
-                else:
-                    readiness, reason = "ready", "EQUIPMENT_OBSERVED"
-            else:
-                readiness, reason = "unknown", "NOT_OBSERVED"
             # One resident status projection, independent of presentation and
             # distinct from command eligibility and the four technical states.
             blocking_reasons = (
@@ -1123,11 +1097,33 @@ class MultiChargeRuntime:
                 "POWER_ALREADY_PRESENT_WITHOUT_CONFIRMED_OWNER", "SOC_SOURCE_UNAVAILABLE",
                 "ASSET_SOC_UNAVAILABLE", "BATTERY_CAPACITY_NOT_CONFIGURED",
                 "CHARGE_EFFICIENCY_NOT_CONFIGURED", "INVALID_PLANNING_INPUT",
+                "ASSET_MEASURED_PROGRESS_UNAVAILABLE", "ASSET_DURATION_PROGRESS_UNAVAILABLE",
+                "BUDGET_MEASURED_PROGRESS_UNAVAILABLE",
             )
-            reasons = {reason, goal_reason, self.excluded.get(uid)}
+            reasons = {goal_reason, self.excluded.get(uid)}
             if self.assessment is not None:
                 reasons.add(self.assessment.reasons.get(uid))
             blocking = next((code for code in blocking_reasons if code in reasons), None)
+            if reported == "fault":
+                readiness, reason = "error", "CHARGER_REPORTED_FAULT"
+            elif reported == "unavailable" or (charger.get("control_entity") and switch is None and activation == "active"):
+                readiness, reason = "unavailable", "CHARGER_SOURCE_UNAVAILABLE"
+            elif activation == "inactive":
+                readiness, reason = "waiting", "CHARGER_INACTIVE"
+            elif activation == "active" and capability.get("paused"):
+                readiness, reason = "waiting", "USER_PAUSED"
+            elif activation == "active" and connected is not False and blocking:
+                readiness, reason = "unknown", blocking
+            elif reported == "paused":
+                readiness, reason = "waiting", session.reason if session.reason != "OK" else "PROVIDER_SUSPENDED"
+            elif (switch is not None or reported in ("charging", "stopped", "idle", "completed")
+                  or (measured is not None and measured > 0.05)):
+                if goal_reason not in (None, "READY", "MANUAL_START_REQUIRES_FORCE_CHARGE", "SWITCH_ALREADY_ON"):
+                    readiness, reason = "waiting", goal_reason
+                else:
+                    readiness, reason = "ready", "EQUIPMENT_OBSERVED"
+            else:
+                readiness, reason = "unknown", "NOT_OBSERVED"
             physical_draw = measured is not None and measured > 0.05
             actual_fault = (readiness in ("error", "unavailable")
                             or reported == "fault" or (activity == "unknown" and physical_draw))
