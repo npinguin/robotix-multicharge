@@ -27,7 +27,7 @@ from .configuration import (
     is_in_place_runtime_preference_change,
 )
 from .const import DOMAIN
-from .runtime import MultiChargeRuntime
+from .runtime import MultiChargeRuntime, display_only_power_sources
 from .source_evidence import async_native_nordpool_prices
 from .plan_query import register_plan_query
 from .command_query import register_command_query, register_settings_query
@@ -177,6 +177,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     pending = None
     dirty = False
+    planning_dirty = False
+    display_only = display_only_power_sources(cfg)
     pending_quarter = None
     price_pending = None
     price_last_attempt = None
@@ -184,9 +186,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     price_source = forecast_tariff_source(cfg["controller"])
 
     async def reconcile():
-        nonlocal dirty, pending_quarter
+        nonlocal dirty, planning_dirty, pending_quarter
         while dirty and runtime.active:
             dirty = False
+            full_refresh, planning_dirty = planning_dirty, False
             quarter, pending_quarter = pending_quarter, None
             at = utc_datetime.now(timezone.utc)
             current_quarter = at.replace(minute=(at.minute // 15) * 15,
@@ -196,10 +199,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # source refreshes are serialized in the same existing task.
                 runtime.refresh(quarter)
                 await runtime.executor.advance_plan(quarter)
-            else:
+            elif full_refresh or quarter is not None:
                 runtime.refresh(at)
+            else:
+                runtime.refresh_display_power(at)
+                continue
             await runtime.executor.supervise()
-            await runtime.executor.regulate_active_plan()
+            if runtime.active:
+                await runtime.executor.regulate_active_plan()
 
     async def fetch_price():
         result = await async_native_nordpool_prices(hass, price_source, utc_datetime.now(timezone.utc))
@@ -210,7 +217,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     @callback
     def on_source_change(event=None):
-        nonlocal pending, dirty, price_pending, price_last_attempt
+        nonlocal pending, dirty, planning_dirty, price_pending, price_last_attempt
         if not runtime.active:
             return
         if event is not None:
@@ -234,6 +241,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             price_last_attempt = now
             price_pending = hass.async_create_task(fetch_price())
         dirty = True
+        # Timers, price completion and every control-relevant source still
+        # traverse the full existing safety/planning path. Only unaliased
+        # display-only meters can bypass it.
+        planning_dirty |= event is None or event.data.get("entity_id") not in display_only
         if pending is None or pending.done():
             pending = hass.async_create_task(reconcile())
 
