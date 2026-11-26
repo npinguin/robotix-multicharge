@@ -2167,7 +2167,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     const powers=chargers.map(x=>(observations[x.id]||{}).power_kw);
     const complete=powers.length>0&&powers.every(x=>x&&x.quality==="ok"&&typeof x.value==="number");
     const active=powers.filter(x=>x&&x.quality==="ok"&&x.value>0).length;
-    const activated=chargers.filter(x=>x.control_owner==="multicharge"&&x.physical_commissioned===true).length;
+    const activated=chargers.filter(x=>d.charger_states?.[x.id]?.activation==="active").length;
     const metrics=mcEl("div","grid");
     for(const [key,value,source] of [
       ["Active chargers",String(activated)],
@@ -2615,50 +2615,14 @@ class RobotixMultiChargeCard extends HTMLElement {
   // Visual mapping only: reuse native physical state and evidence, never
   // confuse managed activation, configured current or planned power with draw.
   operationalIndicator(charger,asset=null){
-    const d=this._data, state=d.charger_states?.[charger?.id]||{};
-    const obs=d.observations?.chargers?.[charger?.id]||{};
-    const power=asset?d.observations?.assets?.[asset.id]?.effective_power_kw:obs.power_kw;
-    const connected=obs.connected?.quality==="ok"?obs.connected.value:null;
-    const enabled=state.activation==="active"||
-      (charger?.control_owner==="multicharge"&&charger?.physical_commissioned===true);
-    const reasons=new Set([state.reason,state.goal_reason,d.reasons?.[charger?.id]]);
-    const blocking=["CURRENT_PLUG_ASSET_UNCONFIRMED","CONTROL_STATE_UNVERIFIED",
-      "PREVIOUS_COMMAND_UNCONFIRMED","CHARGER_CAPABILITY_UNQUALIFIED",
-      "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED","CURRENT_RANGE_UNVERIFIED",
-      "PHASE_WIRING_UNVERIFIED","PHYSICAL_PHASES_UNVERIFIED",
-      "ELECTRICAL_WIRING_UNVERIFIED","NATIVE_CURRENT_CAPABILITY_MISMATCH",
-      "NATIVE_CURRENT_CAPABILITY_UNVERIFIED","CURRENT_CONTROL_UNAVAILABLE",
-      "NATIVE_SWITCH_UNAVAILABLE","INDEPENDENT_POWER_UNAVAILABLE",
-      "POWER_SOURCE_UNAVAILABLE","OTHER_CHARGER_POWER_WITH_SWITCH_OFF",
-      "POWER_ALREADY_PRESENT_WITHOUT_CONFIRMED_OWNER","SOC_SOURCE_UNAVAILABLE",
-      "ASSET_SOC_UNAVAILABLE","BATTERY_CAPACITY_NOT_CONFIGURED",
-      "CHARGE_EFFICIENCY_NOT_CONFIGURED","INVALID_PLANNING_INPUT"];
-    const measured=power?.quality==="ok"&&Number.isFinite(power.value)&&power.value>0.05;
-    const physicalDraw=obs.power_kw?.quality==="ok"&&obs.power_kw.value>0.05;
-    const identity=d.connection_identity?.[charger?.id];
-    const problem=Boolean(charger)&&(
-      ["error","unavailable"].includes(state.charging_state)||
-      obs.session?.value==="fault"&&obs.session?.quality==="ok"||
-      (state.charging_session==="unknown"&&physicalDraw)||
-      (enabled&&connected!==false&&(
-        blocking.some(reason=>reasons.has(reason))||
-        connected===null||
-        (connected===true&&obs.power_kw?.quality!=="ok")||
-        (connected===true&&charger.asset&&!identity?.asset_id)
-      )));
-    const goal=d.goal_assessments?.[charger?.id];
-    const reached=asset&&goal?.asset_id===asset.id&&goal.status==="target_met";
-    const actualFault=["error","unavailable"].includes(state.charging_state)||
-      (obs.session?.value==="fault"&&obs.session?.quality==="ok")||
-      (state.charging_session==="unknown"&&physicalDraw);
-    const label=actualFault?"Problem":measured&&state.charging_session==="charging"?"Charging":
-      reached&&!physicalDraw?"Goal reached":problem?"Problem":"Idle";
-    const tone=label==="Problem"?"problem":label==="Charging"?"charging":label==="Goal reached"?"ready":"idle";
+    const state=this._data.charger_states?.[charger?.id];
+    const projection=asset?state?.asset_operational_status:state?.operational_status;
+    const tone=projection?.status||(charger?"unknown":"idle");
+    const label={problem:"Problem",charging:"Charging",ready:"Goal reached",idle:"Idle"}[tone]||"Unknown";
     const indicator=mcEl("span","operational-indicator "+tone,mcTr(label));
     indicator.setAttribute("data-operational-status",tone);
-    const reason=blocking.find(code=>reasons.has(code))||state.reason||state.goal_reason;
     if(tone==="problem"){
-      const explanation=reason?mcReason(reason):mcTr("Connection unknown");
+      const explanation=projection?.reason?mcReason(projection.reason):mcTr("Connection unknown");
       indicator.textContent=mcTr(label)+" · "+explanation;
       indicator.setAttribute("title",explanation);
     }else indicator.setAttribute("title",mcTr(label));
@@ -2669,7 +2633,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     const connected=d.observations?.chargers?.[charger?.id]?.connected;
     const connection=charger?(connected?.quality==="ok"?
       (connected.value===true?mcTr("Connected"):mcTr("Disconnected")):mcTr("Connection unknown")):mcTr("Not assigned");
-    const activation=charger?mcTr(charger.control_owner==="multicharge"&&charger.physical_commissioned===true?"Active":"Inactive"):"";
+    const activation=charger?mcTr(d.charger_states?.[charger.id]?.activation==="active"?"Active":"Inactive"):"";
     const color=mcPlanOwnerColor(d,asset.id,charger?.id);
     const summary=mcEl("div","vehicle-summary");
     const row=mcEl("div","row");
@@ -3475,7 +3439,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       chip.append(dot,mcEl("span","muted small",mcTr("Plan color")+" · "+mcTr(c.plan_color||"blue")));
       card.append(chip);
       const states=(d.charger_states||{})[c.id]||{};
-      const activation=c.control_owner==="multicharge"?"Active":"Inactive";
+      const activation=states.activation==="active"?"Active":states.activation==="inactive"?"Inactive":"Unknown";
       const connection=states.connection_state==="asset_connected"?
         (states.connection_basis==="user_confirmed"?"Asset connected (user confirmed)":"Asset connected"):
         states.connection_state==="no_asset_connected"?"No asset connected":"Unknown";
