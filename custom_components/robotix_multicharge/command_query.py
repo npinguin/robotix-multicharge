@@ -82,6 +82,38 @@ async def require_native_admin(hass, context):
         raise RuntimeError("MultiCharge settings require a Home Assistant administrator")
 
 
+async def commit_ui_configuration_locked(hass, entry, runtime, updated, *,
+                                         expected_revision, scope, target_id,
+                                         action, changes):
+    """One guarded revision, durable receipt and Config Entry write.
+
+    Caller holds the existing executor lock. Native Options Flow, native
+    entities, typed UI and expert text use this same commit boundary.
+    """
+    if (entry is None or entry.source == "import"
+            or entry.data.get("source") in ("yaml", "json")):
+        raise ValueError("readonly_import_configuration")
+    committed = effective_configuration(entry)
+    if (not runtime.active or committed != runtime.configuration
+            or configuration_revision(committed) != expected_revision):
+        raise ValueError("stale_settings")
+    updated = validate_configuration(updated)
+    from .config_flow import _assert_safe_yaml_ui_commit
+    _assert_safe_yaml_ui_commit(runtime, updated)
+    expected = configuration_revision(updated)
+    runtime.record_settings_action(scope, target_id, action, changes, expected)
+    if not await runtime.persist_control_state():
+        raise ValueError("settings_not_saved")
+    # Do not overwrite a concurrent external/file-owner revision.
+    if (not runtime.active or effective_configuration(entry) != committed
+            or runtime.configuration != committed):
+        raise ValueError("stale_settings")
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, "configuration": updated},
+    )
+    return expected
+
+
 async def apply_native_preference(hass, entry, runtime, scope, target_id, changes,
                                   *, expected_revision=None, action="save",
                                   structural=False):
@@ -124,18 +156,11 @@ async def apply_native_preference(hass, entry, runtime, scope, target_id, change
                 site_time_zone=hass.config.time_zone,
             )
         )
-        from .config_flow import _assert_safe_yaml_ui_commit
-        _assert_safe_yaml_ui_commit(runtime, updated)
-        expected = configuration_revision(updated)
-        runtime.record_settings_action(
-            scope, target_id, action, changes, expected,
+        return await commit_ui_configuration_locked(
+            hass, entry, runtime, updated,
+            expected_revision=configuration_revision(committed),
+            scope=scope, target_id=target_id, action=action, changes=changes,
         )
-        if not await runtime.persist_control_state():
-            raise ValueError("settings_not_saved")
-        hass.config_entries.async_update_entry(
-            entry, options={**entry.options, "configuration": updated},
-        )
-        return expected
 
 
 @websocket_api.require_admin
@@ -248,9 +273,7 @@ async def websocket_yaml_configuration(
                               "FILE_OWNED_CONFIG_READONLY")
         return
 
-    from .config_flow import (
-        _parse_editor_yaml, _assert_safe_yaml_ui_commit,
-    )
+    from .config_flow import _parse_editor_yaml
 
     try:
         # Parsing and schema validation are side-effect free, and bounded.
@@ -270,18 +293,11 @@ async def websocket_yaml_configuration(
             if (not runtime.active or committed != runtime.configuration
                     or configuration_revision(committed) != msg["expected_revision"]):
                 raise ValueError("STALE_SETTINGS_REFRESH")
-            _assert_safe_yaml_ui_commit(runtime, proposed)
-            desired_revision = configuration_revision(proposed)
-            runtime.record_settings_action(
-                "controller", proposed["controller"]["id"],
-                "yaml_save",
-                {"format": "yaml"},
-                desired_revision,
-            )
-            if not await runtime.persist_control_state():
-                raise ValueError("SETTINGS_AUDIT_PERSISTENCE_UNAVAILABLE")
-            hass.config_entries.async_update_entry(
-                entry, options={**entry.options, "configuration": proposed},
+            desired_revision = await commit_ui_configuration_locked(
+                hass, entry, runtime, proposed,
+                expected_revision=msg["expected_revision"],
+                scope="controller", target_id=proposed["controller"]["id"],
+                action="yaml_save", changes={"format": "yaml"},
             )
         connection.send_result(msg["id"], {
             "status": "accepted_unconfirmed",
