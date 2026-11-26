@@ -2679,12 +2679,13 @@ async def test_native_discovery_activation_and_reload_through_websocket(
     assert proposal["connected_entity"] == plug
     assert proposal["current_control_entity"] == current
     assert proposal["energy_entity"] == meter
-    assert (proposal["min_current_a"], proposal["max_current_a"], proposal["current_step_a"]) == (6, 32, 1)
+    assert (proposal["phase_count"], proposal["voltage_v"]) == (1, 230)
+    assert not {"min_current_a", "max_current_a", "current_step_a"} & proposal.keys()
     assert initial["charger_setup_draft"]["proposed_missing"] == proposal
     assert entry.options.get("configuration") is None  # discovery never writes
     saved = await ws("update_settings", scope="charger", target_id="native",
-                     structural=True, changes={**proposal, "max_current_a": 16,
-                                                "phase_count": 1, "voltage_v": 230},
+                     structural=True, changes={**proposal, "min_current_a": 6, "max_current_a": 16,
+                                                "current_step_a": 1},
                      expected_revision=initial["configuration_revision"])
     assert saved["success"], saved
     await hass.async_block_till_done()
