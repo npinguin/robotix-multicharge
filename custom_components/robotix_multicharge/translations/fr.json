@@ -369,8 +369,8 @@
       "maintain_soc_until_ready_by": {
         "name": "Maintenir la charge jusqu'au départ",
         "state": {
-          "on": "Afficher",
-          "off": "Masquer"
+          "on": "Activé",
+          "off": "Désactivé"
         }
       },
       "continuous_charging": {
