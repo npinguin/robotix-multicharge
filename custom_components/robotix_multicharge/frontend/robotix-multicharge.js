@@ -490,12 +490,18 @@ function mcMountApex(plot,options){
   plot.setAttribute("data-range-end",String(options.xaxis.max));
   plot._mcSignature=JSON.stringify(options, (key,value)=>typeof value==="function"?String(value):value);
   const key=mcEl("div","legend");
+  const legendGroups=new Map();
   for(const [i,series] of (options.series||[]).entries()){
     if(!series.data?.length)continue;
+    const owner=options._mcResidentLegend?series.name.replace(/^(Actual|Planned) · /,""):series.name;
+    if(!legendGroups.has(owner))legendGroups.set(owner,{names:[],color:options.colors[i]});
+    legendGroups.get(owner).names.push(series.name);
+  }
+  for(const [owner,group] of legendGroups){
     const label=mcEl("button","legend-toggle");label.setAttribute("aria-pressed","true");
-    label.addEventListener("click",()=>{if(!plot._mcApex)return;plot._mcApex.toggleSeries(series.name);const visible=label.getAttribute("aria-pressed")!=="true";label.setAttribute("aria-pressed",String(visible));});
-    const dot=mcEl("span","dot");dot.style.background=options.colors[i];
-    label.append(dot,mcEl("span","",series.name));key.append(label);
+    label.addEventListener("click",()=>{if(!plot._mcApex)return;for(const name of group.names)plot._mcApex.toggleSeries(name);const visible=label.getAttribute("aria-pressed")!=="true";label.setAttribute("aria-pressed",String(visible));});
+    const dot=mcEl("span","dot");dot.style.background=group.color;
+    label.append(dot,mcEl("span","",owner));key.append(label);
   }
   plot._mcLegend=key;
   // Node-only DOM checks cannot assert that a browser rendered a graph:
@@ -731,11 +737,15 @@ function mcCombinedChargingChart(data, visibleChargers, slots, actuals, forecast
     color:"#626c7d",type:"line",currency:currency[0],
     data:buckets.flatMap(q=>[{x:q.at,y:q.price},{x:Math.min(q.at+900000,until)-1,y:q.price}])}:null;
   const plot=mcEl("div","chart");
-  if(series.length||price)mcMountApex(plot,mcPlanChartOptions(data,series,310,
-    "MultiCharge combined power and price",price));
+  if(series.length||price){
+    const options=mcPlanChartOptions(data,series,310,"MultiCharge combined power and price",price);
+    options._mcResidentLegend=!technical;
+    mcMountApex(plot,options);
+  }
   else plot.append(mcEl("p","muted small",
     mcTr("No qualified physical or planned power in this period")));
   wrapper.append(plot);if(plot._mcLegend)wrapper.append(plot._mcLegend);
+  if(!technical)wrapper.append(mcEl("p","muted small",mcTr("Solid: actual charging · Shaded: planned charging")));
   if(validPrice)wrapper.append(mcEl("p","muted small",
     basis[0]+" · "+currency[0]+"/kWh · "+mcTr("reference price, not an invoice")));
   if(!validPrice)wrapper.append(mcEl("p","muted small",
@@ -3368,14 +3378,14 @@ class RobotixMultiChargeCard extends HTMLElement {
     }
     if(planned&&planned.quality!=="no_planned_energy")this.planCostLine(details,planned,"Planned charging cost");
     // One headline, all period/session detail available in one disclosure.
-    const choice=[["Active session cost",sessions.active],["Charging cost today",periods.today],
-      ["Last session cost",sessions.last],["Planned charging cost",planned]]
-      .find(([,row])=>row&&(row.cost!=null||row.covered_cost!=null));
-    const hint=choice?mcTr(choice[0])+" · "+money(choice[1].cost??choice[1].covered_cost,choice[1].currency)+
-      (choice[1].cost==null?" · "+mcTr("Partial coverage"):""):mcTr("Unknown");
-    const headline=mcEl("div","row financial-headline");
-    headline.append(mcEl("strong","",mcTr("Charging costs")),mcEl("strong","",hint));
-    container.append(headline);
+    const headline=mcEl("div","financial-headline");
+    for(const [label,row] of [[kind==="controller"?"Charging cost today":"Active session cost",kind==="controller"?periods.today:sessions.active??periods.today],["Planned charging cost",planned]]){
+      if(!row||row.quality==="no_planned_energy")continue;
+      const partial=row.cost==null&&row.covered_cost!=null;
+      const caption=kind!=="controller"&&row===periods.today?"Charging cost today":label;
+      mcPair(headline,mcTr(caption),money(partial?row.covered_cost:row.cost,row.currency)+(partial?" · "+mcTr("Partial coverage"):"")+(row.basis?" · "+row.basis:""));
+    }
+    if(headline.children.length)container.append(headline);
     this.disclosure(container,kind+":"+id+":finance","Cost details",details);
   }
   planCostLine(container,row,label){
