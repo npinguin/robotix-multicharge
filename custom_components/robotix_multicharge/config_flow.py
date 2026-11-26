@@ -467,8 +467,8 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         charger[field] = _native_status_labels(user_input[field])
                 if (user_input.get("configure_electrical")
                         or charger["kind"] == "variable_current"):
-                    # Min/max current is mandatory only if this capability was
-                    # actually selected; allow the user to enter it next.
+                    # Explicit electrical review: native current bounds are optional
+                    # overrides, not a second set of hardware capabilities.
                     self._pending_charger_details = trial
                     return await self.async_step_charger_electrical()
                 self._draft = validate_configuration(trial)
@@ -538,12 +538,19 @@ class RobotixMultiChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="charger_electrical", data_schema=self._charger_electrical_schema()
         )
 
-    @staticmethod
-    def _charger_electrical_schema():
+    def _charger_electrical_schema(self):
+        charger = next((c for c in getattr(self, "_pending_charger_details", self._draft)["chargers"]
+                        if c["id"] == self._advanced_charger_id), {})
+        def wiring_field(key, nominal):
+            if key in charger:
+                return vol.Optional(key, default=charger[key])
+            if charger.get("kind") == "variable_current":
+                return vol.Optional(key, default=nominal)
+            return vol.Optional(key)
         return vol.Schema({
-            vol.Optional("phase_count"): vol.In([1, 2, 3]),
+            wiring_field("phase_count", NOMINAL_PHASE_COUNT): vol.In([1, 2, 3]),
             vol.Optional("phase_ids"): str,
-            vol.Optional("voltage_v"): selector.NumberSelector(
+            wiring_field("voltage_v", NOMINAL_PHASE_VOLTAGE_V): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=200, max=260, step=1, mode=selector.NumberSelectorMode.BOX
                 )
@@ -1262,10 +1269,10 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             field("current_readback_entity"): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")),
         }
-        # Existing variable-current setup shows the same nominal proposals as the dashboard.
+        # Do not commission missing wiring implicitly while editing other preferences.
         if original.get("kind") == "variable_current":
-            schema[vol.Optional("phase_count", default=original.get("phase_count", NOMINAL_PHASE_COUNT))] = vol.In([1, 2, 3])
-            schema[vol.Optional("voltage_v", default=original.get("voltage_v", NOMINAL_PHASE_VOLTAGE_V))] = vol.All(vol.Coerce(float), vol.Range(min=200, max=260))
+            schema[field("phase_count")] = vol.In([1, 2, 3])
+            schema[field("voltage_v")] = vol.All(vol.Coerce(float), vol.Range(min=200, max=260))
         if not selected:
             schema[vol.Optional("id")] = str
         return self.async_show_form(
