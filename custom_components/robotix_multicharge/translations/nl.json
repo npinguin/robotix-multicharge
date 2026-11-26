@@ -369,8 +369,8 @@
       "maintain_soc_until_ready_by": {
         "name": "Laadniveau behouden tot vertrektijd",
         "state": {
-          "on": "Tonen",
-          "off": "Verbergen"
+          "on": "Aan",
+          "off": "Uit"
         }
       },
       "continuous_charging": {
