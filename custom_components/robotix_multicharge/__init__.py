@@ -162,10 +162,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     store_started = perf_counter()
     try:
         saved = await store.async_load()
-    except (OSError, ValueError, RuntimeError):
-        _LOGGER.exception("Cannot read stored MultiCharge control state; START disabled")
+    except (OSError, RuntimeError):
+        _LOGGER.exception("Temporarily cannot read MultiCharge control state; retrying in supervision")
+        saved = None
+        runtime.defer_control_store_read(store)
+    except ValueError:
+        _LOGGER.exception("Invalid stored MultiCharge control state; START disabled")
         saved = {"schema_major": -1}
-    runtime.attach_control_store(store, saved)
+        runtime.attach_control_store(store, saved)
+    else:
+        runtime.attach_control_store(store, saved)
     runtime._record_performance("setup_store_restore", store_started)
     # Only persist new/changed mapping metadata, never raw Recorder values.
     # Do not replace an invalid physical intent snapshot with an empty one.
