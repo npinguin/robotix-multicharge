@@ -973,7 +973,7 @@ const MC_OWNER_GROUPS = {
       "charging_windows","earliest_start_at","expected_connection_at"
     ]],
     ["Price & charging decisions",[
-      "continuous_charging","minimum_soc_pct","low_soc_trigger_pct",
+      "continuous_charging","maintain_soc_until_ready_by","minimum_soc_pct","low_soc_trigger_pct",
       "maximum_price_per_kwh","price_currency","low_price_trigger_per_kwh",
       "opportunistic_kind","opportunistic_level_pct","priority"
     ]],
@@ -1032,6 +1032,7 @@ const MC_OWNER_NAMES = {
   earliest_start_at:"Earliest charging start",
   expected_connection_at:"Expected connection time",
   continuous_charging:"Require continuous charging",
+  maintain_soc_until_ready_by:"Maintain SoC until Ready By",
   minimum_soc_pct:"Minimum battery priority",
   low_soc_trigger_pct:"Early low-battery trigger",
   maximum_price_per_kwh:"Maximum price per kWh",
@@ -1090,7 +1091,7 @@ const MC_EDIT_NUMBERS=new Set([
   "min_current_a","max_current_a","current_step_a","fixed_current_a",
   "circuit_limit_a","min_charging_power_kw","max_charging_power_kw"
 ]);
-const MC_EDIT_BOOLEAN=new Set(["temporary","continuous_charging","show_indicative_forecast"]);
+const MC_EDIT_BOOLEAN=new Set(["temporary","continuous_charging","maintain_soc_until_ready_by","show_indicative_forecast"]);
 const MC_EDIT_DATES=new Set(["ready_by","expires_at","earliest_start_at","expected_connection_at"]);
 const MC_EDIT_ENUM={
   control_owner:["external","multicharge"],
@@ -3012,6 +3013,13 @@ class RobotixMultiChargeCard extends HTMLElement {
           deadline.append(mcButton(mcTr("Set charging deadline"),()=>
             this.openNative("asset",a.id,"ready_by")));
         detail.append(deadline);
+        if(this.canEditSettings()&&this.ownerEntity("asset",a.id,"maintain_soc_until_ready_by")){
+          const maintain=this.field(detail,mcTr("Maintain SoC until Ready By"),
+            (a.maintain_soc_until_ready_by??d.asset_policy_defaults?.maintain_soc_until_ready_by)?"on":"off",null,
+            [["on",mcTr("On")],["off",mcTr("Off")]]);
+          maintain.disabled=this._settingsBusy;
+          maintain.addEventListener("change",()=>void this.nativeSelect("asset",a.id,"maintain_soc_until_ready_by",maintain.value));
+        }
         // Schedule has one resident editor; native owner fields remain in Details.
         // Native upstream price/SoC policy remains Asset-owned and one
         // Config Entry preference; this view never stores price decisions.
