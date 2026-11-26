@@ -368,8 +368,8 @@
       "maintain_soc_until_ready_by": {
         "name": "Maintain SoC until Ready By",
         "state": {
-          "on": "Show",
-          "off": "Hide"
+          "on": "On",
+          "off": "Off"
         }
       },
       "continuous_charging": {
