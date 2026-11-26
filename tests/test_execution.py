@@ -2336,6 +2336,13 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
     async def test_same_charger_stop_revokes_pending_start_readback(self):
         rt, states, services = rig()
         services.reconcile_observations = False
+        original = services.async_call
+        async def native_readback(domain, service, data, **kwargs):
+            # START never confirms; the independent provider does report
+            # fresh idle power when a protective STOP reaches it.
+            services.reconcile_observations = service == "turn_off"
+            await original(domain, service, data, **kwargs)
+        services.async_call = native_readback
         start = asyncio.create_task(rt.executor.execute("evse", "start", readback_seconds=2))
         for _ in range(80):
             if rt.executor._start_pending:
@@ -2343,11 +2350,15 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.005)
         self.assertIn("evse", rt.executor._start_pending)
         stop = asyncio.create_task(rt.executor.execute("evse", "stop"))
-        result, _ = await asyncio.wait_for(asyncio.gather(start, stop), timeout=1.5)
+        result, stopped = await asyncio.wait_for(asyncio.gather(start, stop), timeout=1.5)
+        self.assertEqual(stopped["status"], "confirmed")
         self.assertNotEqual(result["status"], "confirmed")
         self.assertIn("STOP_REQUESTED_DURING_START", result["reason"])
         self.assertFalse(rt.executor._sessions)
         self.assertFalse(rt.executor._start_pending)
+        self.assertEqual([c[1] for c in services.calls].count("turn_on"), 1)
+        self.assertFalse(rt.executor._inflight)
+        self.assertEqual(rt.executor.completed_sessions()[-1]["continuity_quality"], "unknown")
 
     async def test_qualified_eur_budget_physically_stops_with_measured_kwh(self):
         rt, states, service = rig()
