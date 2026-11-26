@@ -42,6 +42,7 @@ const MC_REASONS={
   MANUAL_START_REQUIRES_FORCE_CHARGE:"Select Force Charge",
   CONTROL_STATE_UNVERIFIED:"Control state unverified",
   INTEGRATION_UNLOADING:"Integration restarting",
+  ENABLED_WAITING_FOR_VEHICLE:"Waiting for vehicle",
   PREVIOUS_COMMAND_UNCONFIRMED:"Previous command unresolved",
   UNRESOLVED_PREVIOUS_CHARGE_INTENT:"Previous command unresolved",
   SOC_TARGET_DROPPED_AFTER_COMPLETION:"Charging goal closed",
@@ -64,6 +65,7 @@ function mcReason(value){
   return mcTr("Unavailable");
 }
 for(const [locale,label] of Object.entries({nl:"Integratie herstart",fr:"Redémarrage de l’intégration",da:"Integrationen genstarter",nb:"Integrasjonen starter på nytt",sv:"Integrationen startas om",de:"Integration wird neu gestartet",es:"Reinicio de la integración"}))MC_TEXT[locale]["Integration restarting"]=label;
+for(const [locale,label] of Object.entries({nl:"Wacht op voertuig",fr:"En attente du véhicule",da:"Venter på køretøj",nb:"Venter på kjøretøy",sv:"Väntar på fordon",de:"Wartet auf Fahrzeug",es:"Esperando al vehículo"}))MC_TEXT[locale]["Waiting for vehicle"]=label;
 const MC_TABS = ["Overview", "Charging Plan", "Chargeable Assets", "Chargers", "Settings"];
 const MC_SETTINGS = ["Charging site", "Sources & bindings", "Charging strategy", "Safety & limits", "Integrations"];
 // Pause is a persistent Charger admission hold, not a second strategy.
@@ -2664,7 +2666,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     const state=this._data.charger_states?.[charger?.id];
     const projection=asset?state?.asset_operational_status:state?.operational_status;
     const tone=projection?.status||(charger?"unknown":"idle");
-    const label={problem:"Problem",charging:"Charging",ready:"Goal reached",idle:"Idle"}[tone]||"Unknown";
+    const label=projection?.reason==="ENABLED_WAITING_FOR_VEHICLE"&&tone==="idle"?"Waiting for vehicle":
+      ({problem:"Problem",charging:"Charging",ready:"Goal reached",idle:"Idle"}[tone]||"Unknown");
     const indicator=mcEl("span","operational-indicator "+tone,mcTr(label));
     indicator.setAttribute("data-operational-status",tone);
     if(tone==="problem"){
@@ -3700,6 +3703,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         const bad=outcome.status==="rejected"||outcome.status==="execution_unknown";
         const label=bad?mcReason(outcome.reason):outcome.status==="confirmed"?
           (outcome.reason==="NATIVE_SWITCH_STATE"?(outcome.action==="start"?mcTr("Switch on · charging not measured"):mcTr("Switch off · charging not measured")):
+           outcome.reason==="ENABLED_WAITING_FOR_VEHICLE"?mcTr("Waiting for vehicle"):
            outcome.action==="stop"?"Stopped":
            outcome.action==="pause"?mcTr("Paused"):
            outcome.action==="resume"?mcTr("Ready for next plan"):"Command confirmed"):"Pending";
