@@ -9,7 +9,7 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN
+from .const import DOMAIN, NOMINAL_PHASE_COUNT, NOMINAL_PHASE_VOLTAGE_V
 from .configuration import WEEKDAYS
 from .history import read_actual_history
 
@@ -56,14 +56,17 @@ def charger_setup_projection(hass, registry, runtime, charger):
         and ids[0] not in already_bound
     }
     effective = runtime.executor.effective_charger(charger)
-    preview = runtime.executor.effective_charger({**charger, **proposals})
     bounds = ("min_current_a", "max_current_a", "current_step_a")
     native = runtime.executor.effective_charger({
         key: value for key, value in charger.items() if key not in bounds
     })
-    for field in bounds:
-        if charger.get(field) is None and preview.get(field) is not None:
-            proposals[field] = preview[field]
+    # Native Amp metadata is a live observation, not an implicit user override.
+    # Topology defaults are editable proposals only; explicit Save declares wiring.
+    if charger["kind"] == "variable_current":
+        if effective.get("phase_count") is None:
+            proposals["phase_count"] = NOMINAL_PHASE_COUNT
+        if effective.get("voltage_v") is None:
+            proposals["voltage_v"] = NOMINAL_PHASE_VOLTAGE_V
     return {
         "device_matched": device_id is not None,
         "candidates": {field: sorted(ids) for field, ids in candidates.items()},
@@ -71,6 +74,7 @@ def charger_setup_projection(hass, registry, runtime, charger):
         "configured_current": {field: charger.get(field) for field in bounds},
         "effective_current": {field: effective.get(field) for field in bounds},
         "native_current": {field: native.get(field) for field in bounds},
+        "current_capability_reason": effective.get("_current_capability_reason"),
         "effective_electrical": {field: effective.get(field)
                                  for field in ("phase_count", "voltage_v")},
         "missing_electrical": [
