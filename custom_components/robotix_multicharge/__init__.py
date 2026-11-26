@@ -256,7 +256,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # display-only meters can bypass it.
         planning_dirty |= event is None or event.data.get("entity_id") not in display_only
         if pending is None or pending.done():
-            pending = hass.async_create_task(reconcile())
+            # HA may start tasks eagerly inside a state_changed callback.
+            # Defer the ordinary reconcile to the next loop turn so a native
+            # OFF and its simultaneous power update form one observation.
+            # The synchronous connection-event and urgent peer protection
+            # above remain immediate; genuinely contradictory draw still STOPs.
+            pending = hass.async_create_task(reconcile(), eager_start=False)
 
     @callback
     def on_minute(_now):
