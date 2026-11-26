@@ -1898,6 +1898,35 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rt.executor.session_snapshot()["evse"]["asset_id"], "car")
         self.assertEqual([row[1] for row in services.calls], ["turn_on"])
 
+    async def test_external_setpoint_change_is_not_confused_with_vehicle_taper(self):
+        rt, sources, services = rig(group_kw=8)
+        rt.configuration["chargers"][0].update(
+            kind="variable_current", rated_power_kw=3.68, voltage_v=230,
+            min_current_a=6, max_current_a=16, current_step_a=1,
+            current_control_entity="number.charge_limit",
+            current_readback_entity="sensor.actual_current",
+        )
+        native = state(6, "A")
+        native.attributes.update(min=6, max=16, step=1)
+        sources["number.charge_limit"] = native
+        sources["sensor.actual_current"] = state(0, "A")
+        self.assertEqual((await rt.executor.execute("evse", "start", current_a=6))["status"],
+                         "confirmed")
+        # The car can taper or suspend acceptance without changing its grant.
+        sources["sensor.actual_current"] = state(0, "A")
+        sources["sensor.actual_power"] = state(0, "W")
+        await rt.executor.supervise()
+        self.assertIn("evse", rt.executor.session_snapshot())
+        self.assertEqual(sources["switch.evse_control"].state, "on")
+        # A second app changes the EVSE ceiling while actual draw is still zero.
+        native.state = "16"
+        native.last_updated = datetime.now(timezone.utc)
+        await rt.executor.supervise()
+        self.assertEqual(sources["switch.evse_control"].state, "off")
+        self.assertNotIn("evse", rt.executor.session_snapshot())
+        self.assertEqual([row[1] for row in services.calls],
+                         ["set_value", "turn_on", "turn_off"])
+
     async def test_external_off_with_draw_is_reconciled_without_owned_session(self):
         rt, sources, services = rig(mode="Automatic")
         sources["sensor.actual_power"] = state(1600, "W")
