@@ -135,6 +135,11 @@ async def websocket_get_plan(
             start, end,
             charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
         )
+        from homeassistant.helpers import entity_registry as er
+        registry = er.async_get(hass)
+        cfg = result["configuration"]
+        setup_snapshot = {row["id"]: charger_setup_projection(hass, registry, runtime, row)
+                          for row in cfg["chargers"]}
         recent = runtime.executor.completed_sessions(
             limit=200, charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
         )
@@ -158,6 +163,10 @@ async def websocket_get_plan(
             )
         else:
             actual, quality, estimates, observed_sessions, session_metrics = [], "NOT_REQUESTED", {}, [], {}
+        if runtime.configuration != cfg or not runtime.active:
+            connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT,
+                                  "Configuration changed while reading plan; refresh")
+            return
         # A Recorder-based *indicative* variable component belongs in the
         # read-only view only. Never mutate persisted session receipts or
         # convert a power integration into an authoritative billed cost.
@@ -187,8 +196,6 @@ async def websocket_get_plan(
         result["actual_slots"] = actual
         result["actual_history_quality"] = quality
         # Exact native Registry entity IDs: no guessed entity_id in the card.
-        from homeassistant.helpers import entity_registry as er
-        registry = er.async_get(hass)
         def native_entity(platform, kind, uid, field):
             return registry.async_get_entity_id(
                 platform, DOMAIN, f"{DOMAIN}:{kind}:{uid}:{field}"
@@ -201,7 +208,7 @@ async def websocket_get_plan(
         admin = getattr(getattr(connection, "user", None), "is_admin", False)
         result["charger_setup"] = {}
         for row in cfg["chargers"]:
-            projection = charger_setup_projection(hass, registry, runtime, row)
+            projection = setup_snapshot[row["id"]]
             if not admin:
                 projection.pop("candidates", None)
                 projection.pop("proposed_missing", None)
