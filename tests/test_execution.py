@@ -3365,6 +3365,52 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([x[1] for x in services.calls], ["turn_on", "turn_off"])
         self.assertEqual(rt.executor.snapshot()["evse"]["status"], "confirmed")
 
+    async def test_unload_revokes_admission_until_refused_or_cancelled(self):
+        rt, sources, services = rig()
+        self.assertTrue(await rt.executor.shutdown())
+        self.assertFalse(rt.executor.capabilities()["evse"]["start_allowed"])
+        self.assertEqual((await rt.executor.execute("evse", "start"))["reason"],
+                         "INTEGRATION_UNLOADING")
+        self.assertEqual(services.calls, [])
+        rt.executor.cancel_shutdown()  # failed native platform unload
+        self.assertTrue(rt.executor.capabilities()["evse"]["start_allowed"])
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"], "confirmed")
+        self.assertTrue(await rt.executor.shutdown())
+        self.assertEqual([row[1] for row in services.calls], ["turn_on", "turn_off"])
+        self.assertEqual((await rt.executor.execute("evse", "start"))["reason"],
+                         "INTEGRATION_UNLOADING")
+        self.assertIn("command_lock_wait", rt.performance_snapshot())
+        self.assertIn("native_turn_off", rt.performance_snapshot())
+        self.assertIn("command_stop_outcome", rt.performance_snapshot())
+        rt.executor.cancel_shutdown()
+        sources["switch.evse_control"].state = "unavailable"
+        self.assertFalse(await rt.executor.shutdown())
+        sources["switch.evse_control"].state = "off"
+        self.assertTrue(rt.executor.capabilities()["evse"]["start_allowed"])
+
+    async def test_unload_blocks_start_during_write_ahead_persistence(self):
+        rt, sources, services = rig()
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        class DelayedStore:
+            async def async_save(self, data):
+                if data["inflight"] and not entered.is_set():
+                    entered.set()
+                    await release.wait()
+
+        rt.attach_control_store(DelayedStore(), None)
+        start = asyncio.create_task(rt.executor.execute("evse", "start"))
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        shutdown = asyncio.create_task(rt.executor.shutdown())
+        await asyncio.sleep(0)
+        self.assertTrue(rt.executor._draining)
+        release.set()
+        outcome, unloaded = await asyncio.wait_for(asyncio.gather(start, shutdown), timeout=2)
+        self.assertNotEqual(outcome["status"], "confirmed")
+        self.assertTrue(unloaded)
+        self.assertFalse(any(row[1] == "turn_on" for row in services.calls))
+        self.assertEqual(sources["switch.evse_control"].state, "off")
+
     async def test_unload_refuses_unknown_physical_switch_state(self):
         rt, states, services = rig()
         states["switch.evse_control"].state = "unavailable"
