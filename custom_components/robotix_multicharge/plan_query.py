@@ -58,9 +58,10 @@ def charger_setup_projection(hass, registry, runtime, charger):
     }
     effective = runtime.executor.effective_charger(charger)
     bounds = ("min_current_a", "max_current_a", "current_step_a")
-    native = runtime.executor.effective_charger({
-        key: value for key, value in charger.items() if key not in bounds
-    })
+    native_source = {key: value for key, value in charger.items() if key not in bounds}
+    if proposals.get("current_control_entity"):
+        native_source["current_control_entity"] = proposals["current_control_entity"]
+    native = runtime.executor.effective_charger(native_source)
     # Native Amp metadata is a live observation, not an implicit user override.
     # Topology defaults are editable proposals only; explicit Save declares wiring.
     if charger["kind"] == "variable_current":
