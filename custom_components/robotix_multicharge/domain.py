@@ -70,16 +70,12 @@ class Charger:
         ):
             raise ValueError("on_off cannot claim variable-current capability")
         if self.control_kind == "variable_current" and (
-            (self.min_current_a is None) != (self.max_current_a is None)
-            or (self.min_current_a is not None
-                and self.min_current_a > self.max_current_a)
+            self.min_current_a is not None and self.max_current_a is not None
+            and self.min_current_a > self.max_current_a
         ):
-            raise ValueError("variable current: min_current_a and max_current_a must be provided together, with min <= max")
-        # Missing *both* is legitimate for an external, uncommissioned EVSE:
-        # its provider may expose an adjustable current control without any
-        # verified physical min/max yet. The canonical configuration validator
-        # independently enforces the complete electrical/current evidence
-        # before MultiCharge becomes the physical control owner.
+            raise ValueError("variable current: min_current_a must be <= max_current_a")
+        # Individual configured overrides are optional. The effective native
+        # capability projection must complete the envelope before execution.
         if self.phase_ids and (
             len(self.phase_ids) != len(set(self.phase_ids))
             or any(x not in ("L1", "L2", "L3") for x in self.phase_ids)
