@@ -1281,10 +1281,10 @@ async def test_native_expert_save_four_external_adjustable_chargers_without_gues
         }],
     }
 
-    # A partially invented physical envelope is rejected, with the *reason*
+    # Contradictory explicit overrides are rejected, with the *reason*
     # visibly available through Home Assistant's form placeholders.
     unsafe = json.loads(json.dumps(config))
-    unsafe["chargers"][0]["min_current_a"] = 6
+    unsafe["chargers"][0].update(min_current_a=16, max_current_a=6)
     invalid = await hass.config_entries.options.async_configure(
         editor["flow_id"], {"yaml_text": json.dumps(unsafe)},
     )
@@ -1334,6 +1334,19 @@ async def test_native_expert_save_four_external_adjustable_chargers_without_gues
     assert repeated["type"] == FlowResultType.CREATE_ENTRY, repeated.get("errors")
     await hass.async_block_till_done()
     assert entry.options["configuration"] == actual
+
+    # Independent explicit minimum is a valid preference, not a native maximum.
+    partial = json.loads(json.dumps(config))
+    partial["chargers"][0]["min_current_a"] = 6
+    menu = await hass.config_entries.options.async_init(entry.entry_id)
+    form = await hass.config_entries.options.async_configure(menu["flow_id"], {"next_step_id": "yaml"})
+    saved = await hass.config_entries.options.async_configure(form["flow_id"], {"yaml_text": json.dumps(partial)})
+    assert saved["type"] == FlowResultType.CREATE_ENTRY, saved.get("errors")
+    await hass.async_block_till_done()
+    assert entry.options["configuration"]["chargers"][0]["min_current_a"] == 6
+    assert "max_current_a" not in entry.options["configuration"]["chargers"][0]
+    assert "current_step_a" not in entry.options["configuration"]["chargers"][0]
+    assert hass.data[DOMAIN][entry.entry_id].configuration == entry.options["configuration"]
 
     # Reproduce the previous installed-site ownership mismatch on all four
     # objects, retaining the legacy writer and all existing source bindings.
