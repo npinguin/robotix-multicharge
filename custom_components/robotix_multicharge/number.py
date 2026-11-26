@@ -9,7 +9,7 @@ from homeassistant.const import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .command_query import apply_native_preference, require_native_admin
-from .const import DOMAIN
+from .const import DOMAIN, DEFAULT_ASSET_PRIORITY
 from .configuration import charger_is_active
 
 FIELDS = {
@@ -84,7 +84,7 @@ class _AssetNumber(NumberEntity):
             asset.get(self.field) if asset is not None else None
         )
         if self.field == "priority" and asset is not None:
-            self._attr_native_value = asset.get("priority", 0)
+            self._attr_native_value = asset.get("priority", DEFAULT_ASSET_PRIORITY)
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
