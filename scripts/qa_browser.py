@@ -135,7 +135,7 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
         if row["goalEditable"] != (role == "admin"):
             raise AssertionError(f"{label}: novice goal or resident auth drift: {row}")
     if view == "overview":
-        if (not row["siteFirst"] or not row["overviewGrid"] or row["quickSelectors"] != 0
+        if (not row["siteFirst"] or not row["siteDetailsLocal"] or not row["overviewGrid"] or row["quickSelectors"] != 0
                 or row["assetAssignmentActions"] != (count if role == "admin" else 0)
                 or not row["navigationReset"] or not row["financeCompact"]):
             raise AssertionError(f"{label}: site-first asset assignment hierarchy lost: {row}")
@@ -147,6 +147,9 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
     if view == "plan" and count:
         # Two Chargers have source-qualified plan data; the remaining
         # lanes must not manufacture charts or measurements.
+        if not row["chartLifecycle"] or (count >= 2 and row["defaultChartHosts"] >= row["foldedChartHosts"]):
+            raise AssertionError(f"{label}: compact chart lifecycle/host reduction failed: {row}")
+        print(f"BROWSER CHART HOSTS {label}: default={row['defaultChartHosts']}, expanded={row['foldedChartHosts']}, cleanup={row['chartLifecycle']}")
         if row["apexHosts"] < 1 or row["apexLive"] != row["apexHosts"]:
             raise AssertionError(f"{label}: all source-qualified local ApexCharts must render: {row}")
         if row.get("apexErrors"):
