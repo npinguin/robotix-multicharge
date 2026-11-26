@@ -10,7 +10,7 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN, NOMINAL_PHASE_COUNT, NOMINAL_PHASE_VOLTAGE_V
-from .configuration import WEEKDAYS
+from .configuration import WEEKDAYS, forecast_tariff_source
 from .history import read_actual_history
 
 
@@ -158,8 +158,7 @@ async def websocket_get_plan(
                 power_bindings=runtime.power_bindings, energy_bindings=runtime.energy_bindings,
                 tariff_bindings=runtime.tariff_bindings,
                 include_observed_sessions=True, active_sessions=result["active_sessions"],
-                tariff_entity=(result["configuration"]["controller"].get("price_entity") or
-                               result["configuration"]["controller"].get("current_price_entity")),
+                tariff_entity=forecast_tariff_source(result["configuration"]["controller"]),
             )
         else:
             actual, quality, estimates, observed_sessions, session_metrics = [], "NOT_REQUESTED", {}, [], {}
