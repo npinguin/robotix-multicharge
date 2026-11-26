@@ -71,6 +71,23 @@ class PlannerTests(unittest.TestCase):
                            and r.end >= stamp + quarter]
                 self.assertEqual(indexed.get(stamp), matches[0] if len(matches) == 1 else None)
 
+    def test_shared_tariff_coverage_is_indexed_once_at_ten_charger_scale(self):
+        from unittest.mock import patch
+        module = sys.modules["multicharge_plan_test.planner"]
+        quarter = timedelta(minutes=15)
+        prices = tuple(PriceSlot(NOW + i * quarter, NOW + (i + 1) * quarter,
+                                 0.1 + i / 1000, "EUR") for i in range(192))
+        for n in (1, 4, 10):
+            with self.subTest(chargers=n):
+                ctl, chargers = build(n=n, limit=n * 4)
+                with patch.object(module, "_quarter_coverage", wraps=_quarter_coverage) as index:
+                    result = compile_plan(ctl, chargers, [demand(i) for i in range(n)],
+                                          NOW, mode="Economy",
+                                          tariffs={uid: prices for uid in chargers})
+                self.assertEqual(index.call_count, 2)  # empty solar and one shared tariff
+                self.assertEqual(len(result.plan.slots), n)
+                self.assertTrue(all(value == "COMPLETE" for value in result.coverage.values()))
+
     def test_sustained_session_draw_limits_expected_energy_not_electrical_reservation(self):
         ctl, chargers = build(power=3.6, limit=3.6)
         chargers["c0"] = Charger(uid="c0", name="Drive", controller_uid="home",
