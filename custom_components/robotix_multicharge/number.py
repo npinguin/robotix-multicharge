@@ -303,6 +303,9 @@ class _ChargerPowerNumber(NumberEntity):
         if charger is None or charger.get("kind") != "variable_current":
             raise ValueError("CHARGER_NOT_ADJUSTABLE")
         charger = self.runtime.executor.effective_charger(charger)
+        if any(charger.get(key) is None for key in ("voltage_v", "phase_count",
+                "min_current_a", "max_current_a", "current_step_a")):
+            raise ValueError("CURRENT_CAPABILITY_UNVERIFIED")
         factor = charger["voltage_v"] * charger["phase_count"] / 1000
         minimum = charger["min_current_a"]
         step = charger.get("current_step_a")
