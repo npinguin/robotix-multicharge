@@ -2586,6 +2586,49 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(result_b["status"], "confirmed")
         # A second request cannot bypass physical confirmation of B's STOP.
 
+    async def test_peer_stop_does_not_wait_for_another_stop_readback(self):
+        rt, sources, services = rig(group_kw=8)
+        rt.configuration["controller"]["max_parallel"] = 2
+        rt.configuration["chargers"].append({
+            "id": "other", "name": "Other", "kind": "on_off",
+            "rated_power_kw": 2, "phase_count": 1, "control_owner": "multicharge",
+            "physical_commissioned": True, "control_entity": "switch.other",
+            "power_entity": "sensor.other_power", "connected_entity": "binary_sensor.other_cable",
+        })
+        for entity in ("switch.evse_control", "switch.other"):
+            sources[entity] = state("on")
+        sources["sensor.actual_power"] = state(1600, "W")
+        sources["sensor.other_power"] = state(1600, "W")
+        sources["binary_sensor.other_cable"] = state("off")
+        original = services.async_call
+
+        async def readback(domain, service, data, **kwargs):
+            if data["entity_id"] == "switch.other":
+                services.calls.append((domain, service, dict(data), True, None))
+                sources["switch.other"].state = "off"
+                sources["switch.other"].last_updated = datetime.now(timezone.utc)
+                sources["sensor.other_power"].state = "0"
+                sources["sensor.other_power"].last_updated = datetime.now(timezone.utc)
+            else:
+                await original(domain, service, data, **kwargs)
+
+        services.reconcile_observations = False
+        services.async_call = readback
+        first = asyncio.create_task(rt.executor.execute("evse", "stop", readback_seconds=0.6))
+        for _ in range(80):
+            if "evse" in rt.executor._stop_pending:
+                break
+            await asyncio.sleep(0.005)
+        self.assertIn("evse", rt.executor._stop_pending)
+        rt.executor.schedule_pending_protection(asyncio.create_task, "binary_sensor.other_cable")
+        await asyncio.sleep(0.03)
+        self.assertEqual(sources["switch.other"].state, "off")
+        self.assertFalse(first.done())
+        self.assertEqual((await first)["status"], "execution_unknown")
+        await asyncio.gather(*rt.executor._source_stop_tasks.values())
+        self.assertEqual(rt.executor.snapshot()["other"]["status"], "confirmed")
+        self.assertEqual(rt.executor._stop_pending, set())
+
     async def test_other_charger_stop_preempts_pending_current_readback(self):
         rt, states, services = rig(group_kw=8)
         rt.configuration["controller"]["max_parallel"] = 2
