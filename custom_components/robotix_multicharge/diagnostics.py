@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from hashlib import sha256
 
-from .configuration import charger_is_active
+from .configuration import charger_is_active, charger_operating_grid
 from .const import DOMAIN, DEFAULT_POWER_ADJUSTMENT_INTERVAL_MINUTES, NOMINAL_PHASE_COUNT, NOMINAL_PHASE_VOLTAGE_V
 
 
@@ -54,6 +54,7 @@ def build_diagnostics(runtime, entry, captured_at=None):
     forecast = runtime.forecast_assessment
     obs = runtime.observations
     effective = {row["id"]: runtime.executor.effective_charger(row) for row in cfg["chargers"]}
+    grids = {uid: charger_operating_grid(row) for uid, row in effective.items()}
     return {
         "schema_major": 1,
         "captured_at": when.astimezone(timezone.utc).isoformat(),
@@ -99,6 +100,11 @@ def build_diagnostics(runtime, entry, captured_at=None):
             },
             "configured_current": {key: item.get(key) for key in ("min_current_a", "max_current_a", "current_step_a")},
             "effective_current": {key: effective[item["id"]].get(key) for key in ("min_current_a", "max_current_a", "current_step_a")},
+            "native_current": effective[item["id"]].get("_native_current"),
+            "operating_power_kw": ({"min": round(grids[item["id"]][0] * grids[item["id"]][3], 6),
+                                    "max": round(grids[item["id"]][1] * grids[item["id"]][3], 6),
+                                    "step": round(grids[item["id"]][2] * grids[item["id"]][3], 6)}
+                                   if grids[item["id"]] else None),
             "min_charging_power_kw": item.get("min_charging_power_kw"),
             "max_charging_power_kw": item.get("max_charging_power_kw"),
             "phase_count": item.get("phase_count"),
