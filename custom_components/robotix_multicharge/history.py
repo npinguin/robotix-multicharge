@@ -952,6 +952,9 @@ def reconciled_quarter_history(historical, bindings, energy_bindings, selected,
     remaps, shared owners, resets and cross-quarter meter deltas stay gaps.
     """
     empty = _quarter_actuals([], first, last, now)
+    receipts_by_charger = {}
+    for receipt in receipts:
+        receipts_by_charger.setdefault(receipt.get("charger_id"), []).append(receipt)
     power_claims = _source_claims(bindings, first, last)
     meter_claims = _source_claims(energy_bindings, first, last)
     power_cache, meter_cache, by_source = {}, {}, {}
@@ -996,7 +999,7 @@ def reconciled_quarter_history(historical, bindings, energy_bindings, selected,
                     row.update(actual_energy_kwh=round(energy, 6),
                                actual_power_kw=round(energy*4, 6),
                                quality="measured_energy_delta")
-            attributed = (_session_asset_at_time(receipts, uid, since, until)
+            attributed = (_session_asset_at_time(receipts_by_charger.get(uid, ()), uid, since, until)
                           if (source or meter) and not overlaps and not remap else None)
             row.update(charger_id=uid, asset_id=attributed,
                        asset_provenance=("confirmed_closed_session" if attributed is not None
@@ -1235,8 +1238,8 @@ async def read_actual_history(hass, configuration, start, end, *,
                               include_valuations=False, power_bindings=None,
                               include_observed_sessions=False, active_sessions=None,
                               tariff_entity=None, energy_bindings=None, tariff_bindings=None,
-                              financial_days=None, as_of=None):
-    """Query the installed native Recorder once for exact configured chargers."""
+                              financial_days=None, as_of=None, include_quarters=True):
+    """Query native Recorder once; background finance need not build graph rows."""
     now = as_of or datetime.now(timezone.utc)
     first, last = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
     if last <= first or last-first > timedelta(hours=49):
@@ -1399,6 +1402,9 @@ async def read_actual_history(hass, configuration, start, end, *,
         return await reply([], "FINANCIAL_DAY", historical)
     if first >= now:
         return await reply([], "FUTURE_ONLY", historical)
+    if not include_quarters:
+        # Finance consumes the same native samples, not the chart projection.
+        return await reply([], "QUARTERS_NOT_REQUESTED", historical)
     # The same bounded Recorder evidence feeds both measured and exact
     # energy-reconciled quarters, off the HA event loop.
     result = await hass.async_add_executor_job(
