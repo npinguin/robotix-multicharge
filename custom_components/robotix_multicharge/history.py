@@ -1273,7 +1273,6 @@ async def read_actual_history(hass, configuration, start, end, *,
     async def reply(rows, quality, historical=None):
         if not include_valuations and not include_observed_sessions and financial_days is None:
             return rows, quality
-        valued = {}
         quotes = price_slots
         if historical is not None and tariff_bindings is not None:
             quotes = _quotes_at_binding(
@@ -1301,44 +1300,53 @@ async def read_actual_history(hass, configuration, start, end, *,
             day_projection = await hass.async_add_executor_job(project_days)
             if not include_valuations and not include_observed_sessions:
                 return rows, quality, day_projection
-        if historical is not None and quotes:
-            for receipt in session_receipts:
-                charger = receipt.get("charger_id")
-                if (charger not in selected
-                        or charger_id is not None and charger_id != charger
-                        or asset_id is not None and asset_id != receipt.get("asset_id")):
-                    continue
-                try:
-                    started = datetime.fromisoformat(receipt["started_at"])
-                    ended = datetime.fromisoformat(receipt["ended_at"])
-                    if (started.utcoffset() is None or ended.utcoffset() is None
-                            or started < first or ended > min(last, now)):
+        def project_sessions():
+            # Pure Recorder projections can be CPU-heavy with frequent power
+            # samples; never occupy the HA event loop or its physical guards.
+            valued = {}
+            if historical is not None and quotes:
+                for receipt in session_receipts:
+                    charger = receipt.get("charger_id")
+                    if (charger not in selected
+                            or charger_id is not None and charger_id != charger
+                            or asset_id is not None and asset_id != receipt.get("asset_id")):
                         continue
-                except (KeyError, ValueError, TypeError, OverflowError):
-                    continue
-                source = _binding_for_interval(bindings.get(charger, ()), started, ended)
-                if not source:
-                    continue
-                evidence = _estimated_session_variable_cost(
-                    historical.get(source, []), receipt, tuple(
-                        row for row in quotes if row.start < ended and row.end > started
-                    ), now,
-                )
-                if evidence is not None:
-                    valued[(charger, receipt["started_at"],
-                            receipt["ended_at"])] = evidence
-        if include_observed_sessions:
+                    try:
+                        started = datetime.fromisoformat(receipt["started_at"])
+                        ended = datetime.fromisoformat(receipt["ended_at"])
+                        if (started.utcoffset() is None or ended.utcoffset() is None
+                                or started < first or ended > min(last, now)):
+                            continue
+                    except (KeyError, ValueError, TypeError, OverflowError):
+                        continue
+                    source = _binding_for_interval(bindings.get(charger, ()), started, ended)
+                    if not source:
+                        continue
+                    evidence = _estimated_session_variable_cost(
+                        historical.get(source, []), receipt, tuple(
+                            row for row in quotes if row.start < ended and row.end > started
+                        ), now,
+                    )
+                    if evidence is not None:
+                        valued[(charger, receipt["started_at"],
+                                receipt["ended_at"])] = evidence
+            if not include_observed_sessions:
+                return (rows, quality, valued)
             observed = (_observed_session_rows(
                 historical, bindings, selected, history_first, history_end, now,
                 session_receipts, active_sessions, quotes, energy_bindings,
-            ) if historical is not None and asset_id is None else [])
-            metrics = (await hass.async_add_executor_job(
-                _receipt_view_metrics, historical, bindings, selected, history_first, history_end, now,
+            ) if asset_id is None else [])
+            metrics = _receipt_view_metrics(
+                historical, bindings, selected, history_first, history_end, now,
                 session_receipts, active_sessions, quotes, asset_id, energy_bindings,
-            ) if historical is not None else {})
-            result = (rows, quality, valued, observed, metrics)
+            )
+            return (rows, quality, valued, observed, metrics)
+
+        if historical is None:
+            result = ((rows, quality, {}, [], {}) if include_observed_sessions
+                      else (rows, quality, {}))
         else:
-            result = (rows, quality, valued)
+            result = await hass.async_add_executor_job(project_sessions)
         return (*result, day_projection) if financial_days is not None else result
     if not selected:
         return await reply([], "NO_MATCHING_CHARGER")
