@@ -12,7 +12,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .command_query import apply_native_preference, require_native_admin
-from .configuration import PLAN_COLORS, WEEKDAYS
+from .configuration import PLAN_COLORS, WEEKDAYS, charger_is_active
 from .const import DOMAIN
 
 MODES = {
@@ -152,7 +152,7 @@ class _OwnedSelect(SelectEntity):
         if current is None:
             self._attr_current_option = None
         elif self.field == "control_owner":
-            self._attr_current_option = ("active" if current.get("control_owner") == "multicharge" and current.get("physical_commissioned") is True else "inactive")
+            self._attr_current_option = ("active" if charger_is_active(current) else "inactive")
         elif self.field == "asset":
             assets = self.runtime.configuration["assets"]
             selected = next((
