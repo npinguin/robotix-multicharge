@@ -571,6 +571,13 @@ class MultiChargeRuntime:
                 )
                 self.forecast_excluded[uid] = "NO_ASSIGNED_ASSET"
                 continue
+            if (asset["id"] in self.executor._inflight
+                    and uid not in self.executor._sessions
+                    and uid not in self.executor._start_pending
+                    and uid not in self.executor._grants):
+                self.excluded[uid] = "UNRESOLVED_PREVIOUS_CHARGE_INTENT"
+                self.forecast_excluded[uid] = "UNRESOLVED_PREVIOUS_CHARGE_INTENT"
+                continue
             if (asset.get("temporary")
                     and datetime.fromisoformat(asset["expires_at"]) <= at):
                 self.excluded[uid] = "TEMPORARY_ASSET_EXPIRED"
@@ -1110,7 +1117,8 @@ class MultiChargeRuntime:
             # distinct from command eligibility and the four technical states.
             blocking_reasons = (
                 "CURRENT_PLUG_ASSET_UNCONFIRMED", "CONTROL_STATE_UNVERIFIED",
-                "PREVIOUS_COMMAND_UNCONFIRMED", "CHARGER_CAPABILITY_UNQUALIFIED",
+                "PREVIOUS_COMMAND_UNCONFIRMED", "UNRESOLVED_PREVIOUS_CHARGE_INTENT",
+                "CHARGER_CAPABILITY_UNQUALIFIED",
                 "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED", "CURRENT_RANGE_UNVERIFIED",
                 "PHASE_WIRING_UNVERIFIED", "PHYSICAL_PHASES_UNVERIFIED",
                 "ELECTRICAL_WIRING_UNVERIFIED", "NATIVE_CURRENT_CAPABILITY_MISMATCH",
