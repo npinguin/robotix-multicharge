@@ -1106,7 +1106,62 @@ class MultiChargeRuntime:
                     readiness, reason = "ready", "EQUIPMENT_OBSERVED"
             else:
                 readiness, reason = "unknown", "NOT_OBSERVED"
+            # One resident status projection, independent of presentation and
+            # distinct from command eligibility and the four technical states.
+            blocking_reasons = (
+                "CURRENT_PLUG_ASSET_UNCONFIRMED", "CONTROL_STATE_UNVERIFIED",
+                "PREVIOUS_COMMAND_UNCONFIRMED", "CHARGER_CAPABILITY_UNQUALIFIED",
+                "VARIABLE_CURRENT_CAPABILITY_UNVERIFIED", "CURRENT_RANGE_UNVERIFIED",
+                "PHASE_WIRING_UNVERIFIED", "PHYSICAL_PHASES_UNVERIFIED",
+                "ELECTRICAL_WIRING_UNVERIFIED", "NATIVE_CURRENT_CAPABILITY_MISMATCH",
+                "NATIVE_CURRENT_CAPABILITY_UNVERIFIED", "NATIVE_CURRENT_UNIT_UNSUPPORTED",
+                "CURRENT_CONTROL_UNAVAILABLE", "NATIVE_SWITCH_UNAVAILABLE",
+                "INDEPENDENT_POWER_UNAVAILABLE", "POWER_SOURCE_UNAVAILABLE",
+                "OTHER_CHARGER_POWER_WITH_SWITCH_OFF",
+                "POWER_ALREADY_PRESENT_WITHOUT_CONFIRMED_OWNER", "SOC_SOURCE_UNAVAILABLE",
+                "ASSET_SOC_UNAVAILABLE", "BATTERY_CAPACITY_NOT_CONFIGURED",
+                "CHARGE_EFFICIENCY_NOT_CONFIGURED", "INVALID_PLANNING_INPUT",
+            )
+            reasons = {reason, goal_reason, self.excluded.get(uid)}
+            if self.assessment is not None:
+                reasons.add(self.assessment.reasons.get(uid))
+            blocking = next((code for code in blocking_reasons if code in reasons), None)
+            physical_draw = measured is not None and measured > 0.05
+            actual_fault = (readiness in ("error", "unavailable")
+                            or reported == "fault" or (activity == "unknown" and physical_draw))
+            asset_id = charger.get("asset")
+            identity = (self.executor.connection_confirmation(charger, datetime.now(timezone.utc))
+                        if asset_id and connected is True and activation == "active" else None)
+            problem = actual_fault or (
+                activation == "active" and connected is not False and (
+                    blocking is not None or connected is None
+                    or (connected is True and measured is None)
+                    or (connected is True and asset_id and identity is None)
+                )
+            )
+            problem_reason = blocking or reason or goal_reason or "CONNECTION_UNCONFIRMED"
+            if actual_fault:
+                problem_reason = reason if readiness in ("error", "unavailable") else "CONFLICTING_PHYSICAL_STATE"
+
+            def resident_status(draw, reached=False):
+                if actual_fault:
+                    return {"status": "problem", "reason": problem_reason}
+                if draw and activity == "charging":
+                    return {"status": "charging", "reason": None}
+                if reached and not physical_draw:
+                    return {"status": "ready", "reason": "TARGET_MET"}
+                if problem:
+                    return {"status": "problem", "reason": problem_reason}
+                return {"status": "idle", "reason": None}
+
+            goal = self.goal_assessments.get(uid, {})
+            asset_power = self.observations.get("assets", {}).get(asset_id, {}).get("effective_power_kw")
+            asset_draw = (asset_power is not None and asset_power.quality == "ok"
+                          and asset_power.value is not None and asset_power.value > 0.05)
             states[uid] = {
+                "operational_status": resident_status(physical_draw),
+                "asset_operational_status": resident_status(
+                    asset_draw, goal.get("asset_id") == asset_id and goal.get("status") == "target_met"),
                 "activation": activation,
                 "connection_state": ("asset_connected" if connected is True else
                                      "no_asset_connected" if connected is False else "unknown"),
