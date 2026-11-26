@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from hashlib import sha256
 
-from .const import DOMAIN
+from .const import DOMAIN, DEFAULT_POWER_ADJUSTMENT_INTERVAL_MINUTES, NOMINAL_PHASE_COUNT, NOMINAL_PHASE_VOLTAGE_V
 
 
 def _alias(value):
@@ -52,6 +52,7 @@ def build_diagnostics(runtime, entry, captured_at=None):
     planning = runtime.assessment
     forecast = runtime.forecast_assessment
     obs = runtime.observations
+    effective = {row["id"]: runtime.executor.effective_charger(row) for row in cfg["chargers"]}
     return {
         "schema_major": 1,
         "captured_at": when.astimezone(timezone.utc).isoformat(),
@@ -66,7 +67,7 @@ def build_diagnostics(runtime, entry, captured_at=None):
             "id": _alias(cfg["controller"]["id"]),
             "mode": cfg["controller"]["mode"],
             "max_parallel": cfg["controller"]["max_parallel"],
-            "power_adjustment_interval_minutes": cfg["controller"].get("power_adjustment_interval_minutes", 5),
+            "power_adjustment_interval_minutes": cfg["controller"].get("power_adjustment_interval_minutes", DEFAULT_POWER_ADJUSTMENT_INTERVAL_MINUTES),
             "pending_cost_archive_days": len(runtime._archive_pending),
             "pending_cost_archive_unreadable": runtime._archive_unreadable is not None,
             "max_power_kw": cfg["controller"].get("max_power_kw"),
@@ -82,9 +83,13 @@ def build_diagnostics(runtime, entry, captured_at=None):
             "rated_power_kw": item["rated_power_kw"],
             "voltage_v": item.get("voltage_v"),
             "effective_electrical": {
-                key: runtime.executor.effective_charger(item).get(key)
+                key: effective[item["id"]].get(key)
                 for key in ("phase_count", "voltage_v")
             },
+            "nominal_setup_proposal": ({key: value for key, value in (
+                ("phase_count", NOMINAL_PHASE_COUNT), ("voltage_v", NOMINAL_PHASE_VOLTAGE_V),
+            ) if effective[item["id"]].get(key) is None} if item["kind"] == "variable_current" else {}),
+            "current_capability_reason": effective[item["id"]].get("_current_capability_reason"),
             "electrical_basis": {
                 key: ("configured" if item.get(key) is not None
                       else "phase_ids" if key == "phase_count" and item.get("phase_ids")
@@ -92,7 +97,7 @@ def build_diagnostics(runtime, entry, captured_at=None):
                 for key in ("phase_count", "voltage_v")
             },
             "configured_current": {key: item.get(key) for key in ("min_current_a", "max_current_a", "current_step_a")},
-            "effective_current": {key: runtime.executor.effective_charger(item).get(key) for key in ("min_current_a", "max_current_a", "current_step_a")},
+            "effective_current": {key: effective[item["id"]].get(key) for key in ("min_current_a", "max_current_a", "current_step_a")},
             "min_charging_power_kw": item.get("min_charging_power_kw"),
             "max_charging_power_kw": item.get("max_charging_power_kw"),
             "phase_count": item.get("phase_count"),
