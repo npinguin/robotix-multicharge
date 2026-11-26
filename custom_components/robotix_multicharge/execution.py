@@ -2741,18 +2741,49 @@ class NativeSwitchExecutor:
                       request_id=None, readback_seconds=READBACK_SECONDS,
                       current_a=None, plan_slot=None, manual_request=None,
                       active_regulation=False, completion=None):
-        """Perform a real HA switch call; success requires fresh independent power."""
+        """Deduplicate caller-supplied identities before any physical side effect."""
         if action not in ("start", "stop", "set_current", "pause", "resume"):
             raise ValueError("unsupported physical action")
-        at = datetime.now(timezone.utc)
-        started = perf_counter()
-        request_id = request_id or uuid4().hex
-        if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
+        if request_id is not None and (
+                not isinstance(request_id, str) or not 1 <= len(request_id) <= 128):
             raise ValueError("request ID must be 1..128 characters")
+        # Internal quarter/safety/native entity commands have no retry identity.
+        # Their outcome and durable physical receipts remain available.
+        kwargs = dict(context=context, readback_seconds=readback_seconds,
+                      current_a=current_a, plan_slot=plan_slot,
+                      manual_request=deepcopy(manual_request),
+                      active_regulation=active_regulation, completion=completion)
+        if request_id is None:
+            return await self._execute_once(charger_id, action, uuid4().hex, **kwargs)
+        identity = (charger_id, action, current_a, kwargs["manual_request"])
+        previous = self._requests.get(request_id)
+        if previous is not None:
+            original, finished = previous
+            if original != identity:
+                raise ValueError("request ID used for a different command")
+            outcome = await asyncio.shield(finished)
+            if outcome is None:
+                raise ValueError("previous request interrupted; reconcile physical state")
+            return dict(outcome)
+        finished = asyncio.get_running_loop().create_future()
+        self._requests[request_id] = (identity, finished)
+        try:
+            outcome = await self._execute_once(charger_id, action, request_id, **kwargs)
+            finished.set_result(dict(outcome))
+            return outcome
+        finally:
+            # Cancellation or an unexpected error must never replay the writer.
+            if not finished.done():
+                finished.set_result(None)
+
+    async def _execute_once(self, charger_id, action, request_id, *, context,
+                            readback_seconds, current_a, plan_slot, manual_request,
+                            active_regulation, completion):
+        """Perform one native action; success requires fresh independent readback."""
+        started = perf_counter()
         # STOP and Pause share one preemption path. Revoke the quarter before
         # waiting; a same-charger pending writer must finish/cancel first.
-        if (action in ("stop", "pause") and request_id not in self._requests
-                and not self._stopped):
+        if action in ("stop", "pause") and not self._stopped:
             charger = next((c for c in self.runtime.configuration["chargers"]
                             if c["id"] == charger_id), None)
             if (charger is not None and charger_is_active(charger)
@@ -2772,15 +2803,6 @@ class NativeSwitchExecutor:
         async with self._lock:
             self.runtime._record_performance("command_lock_wait", lock_started)
             self._urgent_stop_requests.discard(request_id)
-            previous = self._requests.get(request_id)
-            if previous is not None:
-                if (previous["charger_id"] != charger_id
-                        or previous["action"] != action
-                        or previous.get("requested_current_a") != current_a
-                        or previous.get("manual_request") != manual_request):
-                    raise ValueError("request ID used for a different command")
-                return {key: value for key, value in previous.items()
-                        if key != "manual_request"}
             # Time captured before awaiting the lock can be an expired
             # quarter by admission time. All evidence checks use actual now.
             at = datetime.now(timezone.utc)
@@ -2791,9 +2813,6 @@ class NativeSwitchExecutor:
                 recorded = self._publish(charger_id, request_id, action, status,
                                          reason, at, recovered_session=recovered_session,
                                          completion=completion, **extras)
-                self._requests[request_id] = {
-                    **recorded, "manual_request": manual_request,
-                }
                 self.runtime._record_performance("command_" + action + "_outcome", started)
                 return recorded
             if active_regulation and (action != "set_current" or not self._regulating
@@ -2958,7 +2977,6 @@ class NativeSwitchExecutor:
                                 measured_kw=number(self.runtime.hass,
                                     charger.get("power_entity"), "power",
                                     datetime.now(timezone.utc)).value, service_sent=True)
-                            self._requests[request_id]["requested_current_a"] = current_a
                             return out
                         if asyncio.get_running_loop().time() >= deadline:
                             await self._protective_stop(charger, context)
