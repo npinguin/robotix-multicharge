@@ -981,6 +981,8 @@ for(const [locale,label] of Object.entries({"da":"Interval for effektregulering"
   if(MC_TEXT[locale])MC_TEXT[locale]["Power adjustment interval"]=label;
 }
 
+for(const [locale,entries] of Object.entries({"nl":{"Site energy & technical details":"Energie en technische details","Chart options":"Grafiekopties","Planning details":"Planningsdetails","Cost details":"Kostendetails","Technical details":"Technische details","Actual and planned charging · reference price":"Werkelijk en gepland laden · referentieprijs","Solid: actual charging · Shaded: planned charging":"Vol: werkelijk laden · Licht: gepland laden","Actual and planned charging":"Werkelijk en gepland laden","Proposed / accepted / measured":"Voorgesteld / bevestigd / gemeten","Actual":"Werkelijk","Planned":"Gepland"},"fr":{"Site energy & technical details":"Énergie et détails techniques","Chart options":"Options du graphique","Planning details":"Détails du plan","Cost details":"Détails des coûts","Technical details":"Détails techniques","Actual and planned charging · reference price":"Recharge réelle et prévue · prix de référence","Solid: actual charging · Shaded: planned charging":"Plein : réel · Clair : prévu","Actual and planned charging":"Recharge réelle et prévue","Proposed / accepted / measured":"Proposé / accepté / mesuré","Actual":"Réel","Planned":"Prévu"},"de":{"Site energy & technical details":"Energie und technische Details","Chart options":"Diagrammoptionen","Planning details":"Planungsdetails","Cost details":"Kostendetails","Technical details":"Technische Details","Actual and planned charging · reference price":"Tatsächliches und geplantes Laden · Referenzpreis","Solid: actual charging · Shaded: planned charging":"Voll: tatsächlich · Hell: geplant","Actual and planned charging":"Tatsächliches und geplantes Laden","Proposed / accepted / measured":"Vorgeschlagen / akzeptiert / gemessen","Actual":"Tatsächlich","Planned":"Geplant"},"es":{"Site energy & technical details":"Energía y detalles técnicos","Chart options":"Opciones del gráfico","Planning details":"Detalles del plan","Cost details":"Detalles de costes","Technical details":"Detalles técnicos","Actual and planned charging · reference price":"Carga real y prevista · precio de referencia","Solid: actual charging · Shaded: planned charging":"Sólido: real · Claro: previsto","Actual and planned charging":"Carga real y prevista","Proposed / accepted / measured":"Propuesto / aceptado / medido","Actual":"Real","Planned":"Previsto"},"da":{"Site energy & technical details":"Energi og tekniske detaljer","Chart options":"Diagramindstillinger","Planning details":"Plandetaljer","Cost details":"Omkostningsdetaljer","Technical details":"Tekniske detaljer","Actual and planned charging · reference price":"Faktisk og planlagt opladning · referencepris","Solid: actual charging · Shaded: planned charging":"Fyldt: faktisk · Lys: planlagt","Actual and planned charging":"Faktisk og planlagt opladning","Proposed / accepted / measured":"Foreslået / accepteret / målt","Actual":"Faktisk","Planned":"Planlagt"},"nb":{"Site energy & technical details":"Energi og tekniske detaljer","Chart options":"Diagramvalg","Planning details":"Plandetaljer","Cost details":"Kostnadsdetaljer","Technical details":"Tekniske detaljer","Actual and planned charging · reference price":"Faktisk og planlagt lading · referansepris","Solid: actual charging · Shaded: planned charging":"Fylt: faktisk · Lys: planlagt","Actual and planned charging":"Faktisk og planlagt lading","Proposed / accepted / measured":"Foreslått / godkjent / målt","Actual":"Faktisk","Planned":"Planlagt"},"sv":{"Site energy & technical details":"Energi och tekniska detaljer","Chart options":"Diagramalternativ","Planning details":"Plandetaljer","Cost details":"Kostnadsdetaljer","Technical details":"Tekniska detaljer","Actual and planned charging · reference price":"Faktisk och planerad laddning · referenspris","Solid: actual charging · Shaded: planned charging":"Fylld: faktisk · Ljus: planerad","Actual and planned charging":"Faktisk och planerad laddning","Proposed / accepted / measured":"Föreslagen / accepterad / uppmätt","Actual":"Faktisk","Planned":"Planerad"}})) Object.assign(MC_TEXT[locale],entries);
+
 // A schema-aligned read-only projection of the ONE persisted Config Entry.
 // Native entity controls and Options Flow below stay the only real writers.
 const MC_OWNER_GROUPS = {
@@ -2259,8 +2261,13 @@ class RobotixMultiChargeCard extends HTMLElement {
     const site=mcEl("section","card charging-site-overview");
     const primary=mcEl("div","grid"),technical=mcEl("div","grid");
     Array.from(metrics.children).forEach((cell,index)=>([1,2].includes(index)?primary:technical).append(cell));
-    site.append(mcEl("h3","",mcTr("Charging site")),primary,chips);
+    site.append(mcEl("h3","",mcTr("Charging site")),primary);
+    this.disclosure(site,"site:mode","Charging mode",chips,mcTr(mode));
     this.financialSummary(site,"controller","site");
+    const ctl=c.controller||{};
+    mcPair(technical,"Maximum group power",ctl.max_power_kw==null?mcTr("Unknown"):ctl.max_power_kw+" kW");
+    mcPair(technical,"Parallel chargers",ctl.max_parallel??mcTr("Unknown"));
+    mcPair(technical,"Power adjustment interval",ctl.power_adjustment_interval_minutes==null?mcTr("Unknown"):ctl.power_adjustment_interval_minutes+" min");
     this.disclosure(site,"site:energy","Site energy & technical details",technical);
     container.append(site);
     this.feedback(container);
@@ -2328,7 +2335,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       }
       if(this.compactOwner(charger,a)){
         const compact=mcEl("section","card");
-        this.disclosure(compact,"overview:compact:"+a.id,a.name,card,mcAssetGoalText(a));
+        this.disclosure(compact,"overview:compact:"+a.id,a.name,card,this.operationalIndicator(charger,a).textContent+" · "+mcAssetGoalText(a));
         assetCards.append(compact);
       }else assetCards.append(card);
     }
@@ -2701,7 +2708,6 @@ class RobotixMultiChargeCard extends HTMLElement {
     const state=this._data.charger_states?.[charger?.id];
     const projection=asset?state?.asset_operational_status:state?.operational_status;
     const power=this._data.observations?.chargers?.[charger?.id]?.power_kw;
-    const capability=this._data.command_capabilities?.[charger?.id];
     const outcome=this._data.command_outcomes?.[charger?.id];
     if(projection?.status==="problem"||projection?.status==="charging"||state?.switch_state==="on"||this._data.active_sessions?.[charger?.id]||(power?.quality==="ok"&&power.value>0.05)||["rejected","execution_unknown","accepted_unconfirmed"].includes(outcome?.status))return false;
     if(asset&&(this._focusAsset===asset.id||this._goalEditor===asset.id||this._scheduleEditor===asset.id||this._assignmentEditor===asset.id||this._batteryEditor===asset.id))return false;
@@ -3192,7 +3198,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       }
       if(this.compactOwner(charger,a)){
         const compact=mcEl("section","card");
-        this.disclosure(compact,"assets:compact:"+a.id,a.name,card,mcAssetGoalText(a));
+        this.disclosure(compact,"assets:compact:"+a.id,a.name,card,this.operationalIndicator(charger,a).textContent+" · "+mcAssetGoalText(a));
         assetCards.append(compact);
       }else assetCards.append(card);
     }
