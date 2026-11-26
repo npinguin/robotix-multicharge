@@ -1286,12 +1286,8 @@ class MultiChargeRuntime:
             r.get("status") in ("requested", "accepted_unconfirmed")
             for r in actions
         )
-        unresolved_restart = (
-            not self.executor._persistence_verified or bool(
-                self.executor._inflight and not self.executor.session_snapshot()
-                and not pending
-            )
-        )
+        unresolved_restart = (not self.executor._persistence_verified
+                              or bool(self.executor.unresolved_intent_keys()))
         command_status = (
             "hold" if unresolved_restart
             else "unconfirmed" if any(r.get("status") == "execution_unknown" for r in actions)
