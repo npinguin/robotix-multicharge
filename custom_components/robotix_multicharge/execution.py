@@ -582,8 +582,12 @@ class NativeSwitchExecutor:
         }
 
     def detach(self):
-        """Do not replay commands on unload or a restarted runtime."""
+        """Retire volatile peer protection after the verified unload path."""
         self._stopped = True
+        for task in self._source_stop_tasks.values():
+            if not task.done():
+                task.cancel()
+        self._source_stop_tasks.clear()
 
     def unresolved_intent_keys(self):
         """A healthy peer session cannot hide another unresolved durable hold."""
