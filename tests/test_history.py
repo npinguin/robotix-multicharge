@@ -27,6 +27,22 @@ def recorded(at, value, units="W"):
 
 
 class NativeMeasuredHistoryTests(unittest.TestCase):
+    def test_tariff_boundary_sweep_preserves_conflicting_and_missing_evidence(self):
+        step = timedelta(minutes=15)
+        start, end = NOW, NOW + 192 * step
+        prices = [self._price(start+i*step, start+(i+1)*step, i/1000)
+                  for i in range(-1, 193) if i != 20]
+        prices += [self._price(start+2*step, start+4*step, -0.1),
+                   prices[8], self._price(start-step, start+step/2, 0.4)]
+        for rows in (prices, list(reversed(prices)), []):
+            edges = sorted({start, end} | {stamp for row in rows
+                           for stamp in (row.start, row.end) if start < stamp < end})
+            expected = []
+            for left, right in zip(edges, edges[1:]):
+                matches = [row for row in rows if row.start <= left and row.end >= right]
+                expected.append((left, right, matches[0] if len(matches) == 1 else None))
+            self.assertEqual(mod._price_spans(rows, start, end), expected)
+
     def test_planned_cost_shared_owners_and_negative_prices(self):
         start = NOW
         mid = start + timedelta(minutes=15)
