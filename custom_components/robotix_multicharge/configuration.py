@@ -124,7 +124,8 @@ def apply_new_asset_defaults(row, *, site_time_zone=None, now=None):
             "requested_kwh", "requested_duration_minutes", "requested_budget_amount",
         ))
     )
-    row.setdefault("maintain_soc_until_ready_by", False)
+    if site_time_zone is not None:
+        row.setdefault("maintain_soc_until_ready_by", False)
     if car_soc_goal and row.get("target_soc") is None:
         row["target_soc"] = 80
     if (car_soc_goal and not row.get("temporary") and site_time_zone
