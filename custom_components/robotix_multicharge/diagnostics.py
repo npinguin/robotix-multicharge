@@ -55,6 +55,17 @@ def build_diagnostics(runtime, entry, captured_at=None):
     obs = runtime.observations
     effective = {row["id"]: runtime.executor.effective_charger(row) for row in cfg["chargers"]}
     grids = {uid: charger_operating_grid(row) for uid, row in effective.items()}
+    executor = runtime.executor
+    live = runtime.live_state()
+    settings_action = runtime.settings_action_snapshot()
+    sessions = executor.session_snapshot()
+    checkpoint_holds = {
+        session.get("asset_id") or f"charger:{uid}"
+        for uid, session in sessions.items()
+    } | {
+        row["session"].get("asset_id") or f"charger:{uid}"
+        for uid, row in executor._interrupted_sessions.items()
+    }
     return {
         "schema_major": 1,
         "captured_at": when.astimezone(timezone.utc).isoformat(),
@@ -63,7 +74,7 @@ def build_diagnostics(runtime, entry, captured_at=None):
             "entry_source": getattr(entry, "source", None),
             "config_entry_schema_version": getattr(entry, "version", None),
             "active": runtime.active,
-            "configuration_revision": runtime.live_state()["configuration_revision"],
+            "configuration_revision": live["configuration_revision"],
         },
         "controller": {
             "id": _alias(cfg["controller"]["id"]),
@@ -184,7 +195,14 @@ def build_diagnostics(runtime, entry, captured_at=None):
             for receipt in [runtime.executor.connection_confirmation(c, when)]
         },
         "execution": {
-            "action_health": runtime.live_state()["action_health"],
+            "action_health": live["action_health"],
+            "inflight_intent_count": len(executor._inflight),
+            "intent_holds_without_checkpoint": [
+                _alias(uid) for uid in sorted(executor._inflight.keys() - checkpoint_holds)
+            ],
+            "pending_starts": [_alias(uid) for uid in sorted(executor._start_pending)],
+            "pending_current_changes": [_alias(uid) for uid in sorted(executor._current_pending)],
+            "granted_chargers": [_alias(uid) for uid in sorted(executor._grants)],
             "persistence_verified": runtime.executor._persistence_verified,
             "original_store_retained": runtime._control_restore_failed,
             "interrupted_chargers": [_alias(uid) for uid in sorted(runtime.executor._interrupted_sessions)],
@@ -198,7 +216,7 @@ def build_diagnostics(runtime, entry, captured_at=None):
             },
             "active_sessions": {
                 _alias(uid): _action(result)
-                for uid, result in runtime.executor.session_snapshot().items()
+                for uid, result in sessions.items()
             },
             "completed_sessions": [
                 _action(row) for row in runtime.executor.completed_sessions(limit=200)
@@ -209,10 +227,8 @@ def build_diagnostics(runtime, entry, captured_at=None):
             "projected_days": len(runtime._daily_costs),
             "pending_slices": sum(len(rows) for rows in runtime._archive_pending.values()),
         },
-        "settings_action": (
-            _action(runtime.settings_action_snapshot())
-            if runtime.settings_action_snapshot() else None
-        ),
+        "performance": runtime.performance_snapshot(),
+        "settings_action": _action(settings_action) if settings_action else None,
     }
 
 
