@@ -16,7 +16,7 @@ from uuid import uuid4
 from time import monotonic, perf_counter
 
 from .source_evidence import Evidence, binding, connection, intervals, number, soc_with_health
-from .configuration import (is_plan_presentation_only_change, charger_activation_reason,
+from .configuration import (plan_authority_unchanged, charger_activation_reason,
                             charger_is_active, charger_operating_grid)
 from .const import (DEFAULT_POWER_ADJUSTMENT_INTERVAL_MINUTES, MIN_AC_CURRENT_A,
                     DEFAULT_MAINTAIN_SOC_UNTIL_READY_BY,
@@ -1932,7 +1932,7 @@ class NativeSwitchExecutor:
         current = self.runtime.configuration
         if plan_slot is not None and not self._grant_is_current(plan_slot, at):
             return "PLAN_SLOT_NOT_AUTHORIZED"
-        if current != configuration and not is_plan_presentation_only_change(configuration, current):
+        if not plan_authority_unchanged(configuration, current):
             return "CONFIGURATION_CHANGED_DURING_START"
         # Re-read the native range and every applicable site/phase/circuit
         # constraint, not the old effective charger snapshot.
@@ -2169,8 +2169,7 @@ class NativeSwitchExecutor:
         current = self.runtime.configuration
         assessment = self.runtime.assessment
         if not (assessment and assessment.plan.revision == self._grant_plan_revision
-                and (current == self._grant_configuration
-                     or is_plan_presentation_only_change(self._grant_configuration, current))):
+                and plan_authority_unchanged(self._grant_configuration, current)):
             return False
         return self._slot_tariff_is_current(slot, at, self._grant_prices)
 
@@ -2234,10 +2233,8 @@ class NativeSwitchExecutor:
         if original is None:
             return False
         # A cadence edit is a runtime preference, not a new power grant.
-        before, after = deepcopy(original), deepcopy(self.runtime.configuration)
-        for cfg in (before, after):
-            cfg["controller"].pop("power_adjustment_interval_minutes", None)
-        if before != after and not is_plan_presentation_only_change(before, after):
+        if not plan_authority_unchanged(original, self.runtime.configuration,
+                                        allow_adjustment_cadence=True):
             return False
         return self._slot_tariff_is_current(slot, at, accepted.get("_prices", ()))
 
