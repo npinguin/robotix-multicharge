@@ -3565,7 +3565,6 @@ class RobotixMultiChargeCard extends HTMLElement {
       const chip=mcEl("div","plan-key"),dot=mcEl("span","plan-swatch");
       dot.style.background=mcOwnerColor("charger",c.id,d.configuration,d.plan_palette);
       chip.append(dot,mcEl("span","muted small",mcTr("Plan color")+" · "+mcTr(c.plan_color||"blue")));
-      card.append(chip);
       const states=(d.charger_states||{})[c.id]||{};
       const activation=states.activation==="active"?"Active":states.activation==="inactive"?"Inactive":"Unknown";
       const connection=states.connection_state==="asset_connected"?
@@ -3580,11 +3579,12 @@ class RobotixMultiChargeCard extends HTMLElement {
         cell.append(mcEl("span","muted small",mcTr(label)),mcEl("strong","",mcTr(value)));
         stateGrid.append(cell);
       }
-      card.append(stateGrid);
+      const stateDetails=mcEl("div");stateDetails.append(chip,stateGrid);
+      this.disclosure(card,"charger:"+c.id+":states","Technical details",stateDetails);
       if(this._settingsFeedback?.status==="confirmed"&&this._settingsFeedback.scope==="charger"&&
           this._settingsFeedback.targetId===c.id)this.feedback(card);
       if(states.reason&&states.charging_state!=="ready")
-        card.append(mcEl("p","muted small",mcReason(states.reason)));
+        (states.charging_state==="error"||states.charging_state==="unavailable"?card:stateDetails).append(mcEl("p","muted small",mcReason(states.reason)));
       if(states.switch_state==="on"&&activity==="Unknown")
         card.append(mcEl("p","muted small",mcTr("Switch on · charging not measured")));
       const powerLine=mcEl("div","row charger-power");
@@ -3598,10 +3598,10 @@ class RobotixMultiChargeCard extends HTMLElement {
           if(states.switch_state==="on"||(obs.power_kw?.quality==="ok"&&obs.power_kw.value>0.05))
             card.append(mcEl("p","plan-caution",mcTr("Stop charging with the current owner before changing activation")));
           this.dashboardEditField(card,"charger",c,"control_owner");
-        }else card.append(mcButton(mcTr("Change activation"),()=>{
+        }else stateDetails.append(mcButton(mcTr("Change activation"),()=>{
           this._settingsFeedback=null;this._editingField=activationKey;this.render();
         }));
-        this.chargerSetup(card,c);
+        this.chargerSetup(stateDetails,c);
       }
       const session=(d.active_sessions||{})[c.id];
       if(session){
