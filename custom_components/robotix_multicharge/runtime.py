@@ -187,7 +187,7 @@ class MultiChargeRuntime:
         )
         _, _, estimates, observed, metrics, daily = await self.read_history(
             cfg, at-timedelta(hours=48), at+timedelta(minutes=1),
-            include_valuations=True, include_observed_sessions=True,
+            include_valuations=True, include_observed_sessions=True, include_quarters=False,
             financial_days={today: days[today]}, **common,
         )
         if not self.active or identity != self._current_session_cost_identity():
