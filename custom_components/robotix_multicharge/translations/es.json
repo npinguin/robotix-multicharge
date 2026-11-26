@@ -365,6 +365,13 @@
       "ready_day_sun": {
         "name": "Domingo Ready By"
       },
+      "maintain_soc_until_ready_by": {
+        "name": "Mantener la carga hasta la salida",
+        "state": {
+          "on": "Mostrar",
+          "off": "Ocultar"
+        }
+      },
       "continuous_charging": {
         "name": "Patrón de carga"
       },
