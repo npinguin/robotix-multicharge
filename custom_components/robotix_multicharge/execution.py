@@ -2616,8 +2616,10 @@ class NativeSwitchExecutor:
                         continue
                     power = number(self.runtime.hass, c.get("power_entity"), "power", at)
                     session = row["session"] if row else self._sessions.get(c["id"], {})
-                    if not session and (power.quality != "ok"
-                                        or power.value > stop_power_limit(c)):
+                    # An orphan needs independent power evidence. Positive
+                    # draw with an OFF switch is contradictory, not idle:
+                    # use the same protective STOP/readback path before release.
+                    if not session and power.quality != "ok":
                         continue
                     if (power.quality == "ok" or (c["kind"] == "on_off"
                             and (not c.get("power_entity")
