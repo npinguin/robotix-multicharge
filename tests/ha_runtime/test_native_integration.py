@@ -567,6 +567,7 @@ async def test_native_setup_registry_diagnostics_and_unload(hass: HomeAssistant)
         "controller": {
             "id": "site", "name": "Integration check",
             "mode": "Off", "max_parallel": 1, "max_power_kw": 3.6,
+            "home_power_entity": "sensor.native_house",
         },
         "assets": [{
             "id": "asset", "name": "Local name", "kind": "car",
@@ -679,9 +680,15 @@ async def test_native_setup_registry_diagnostics_and_unload(hass: HomeAssistant)
     assert diagnostic["schema_major"] == 1
     assert len(diagnostic["chargers"]) == 1
     assert diagnostic["integration"]["active"] is True
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    original_plan = runtime.assessment
+    hass.states.async_set("sensor.native_house", "1200", {"unit_of_measurement": "W"})
+    await hass.async_block_till_done()
+    assert runtime.assessment is original_plan
+    assert runtime.observations["sources"]["home_power"]["value"] == 1.2
     hass.states.async_set("sensor.native_session", "charging")
     await hass.async_block_till_done()
-    runtime = hass.data[DOMAIN][entry.entry_id]
+    assert runtime.assessment is not original_plan
     # A real native state event must trigger the existing HA subscription;
     # the test must not manually refresh to manufacture its readback.
     session = runtime.observations["chargers"]["charger"]["session"]
