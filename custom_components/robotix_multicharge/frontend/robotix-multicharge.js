@@ -3475,7 +3475,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       chip.append(dot,mcEl("span","muted small",mcTr("Plan color")+" · "+mcTr(c.plan_color||"blue")));
       card.append(chip);
       const states=(d.charger_states||{})[c.id]||{};
-      const activation=c.control_owner==="multicharge"&&c.physical_commissioned!==false?"Active":"Inactive";
+      const activation=c.control_owner==="multicharge"?"Active":"Inactive";
       const connection=states.connection_state==="asset_connected"?
         (states.connection_basis==="user_confirmed"?"Asset connected (user confirmed)":"Asset connected"):
         states.connection_state==="no_asset_connected"?"No asset connected":"Unknown";
@@ -3807,7 +3807,7 @@ class RobotixMultiChargeCard extends HTMLElement {
           this.nativeNumberEditor(detail,"controller",ctl.id,"max_power_kw",
             "Maximum group power",ctl.max_power_kw,"kW");
           this.nativeNumberEditor(detail,"controller",ctl.id,"power_adjustment_interval_minutes",
-            "Power adjustment interval",ctl.power_adjustment_interval_minutes??5,"min");
+            "Power adjustment interval",ctl.power_adjustment_interval_minutes,"min");
           this.ownerFacts(detail,"controller",ctl,[
             "solar_power_entity","home_power_entity","grid_power_entity","solar_surplus_entity",
             "current_price_entity","price_entity","export_price_entity","solar_entity",
