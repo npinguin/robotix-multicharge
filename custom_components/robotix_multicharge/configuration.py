@@ -124,6 +124,7 @@ def apply_new_asset_defaults(row, *, site_time_zone=None, now=None):
             "requested_kwh", "requested_duration_minutes", "requested_budget_amount",
         ))
     )
+    row.setdefault("maintain_soc_until_ready_by", False)
     if car_soc_goal and row.get("target_soc") is None:
         row["target_soc"] = 80
     if (car_soc_goal and not row.get("temporary") and site_time_zone
@@ -249,7 +250,7 @@ def validate_configuration(value):
                               "requested_kwh", "requested_duration_minutes",
                               "requested_budget_amount", "requested_budget_currency", "ready_by",
                               "ready_by_repeat", "ready_by_weekdays", "charging_windows",
-                "continuous_charging",
+                "continuous_charging", "maintain_soc_until_ready_by",
                 "minimum_soc_pct", "maximum_price_per_kwh", "price_currency",
                 "low_price_trigger_per_kwh", "low_soc_trigger_pct",
                 "opportunistic_kind", "opportunistic_level_pct",
@@ -375,10 +376,11 @@ def validate_configuration(value):
             if source.get("charging_windows") is not None:
                 asset["charging_windows"] = _charging_windows(
                     source["charging_windows"])
-            if source.get("continuous_charging") is not None:
-                if type(source["continuous_charging"]) is not bool:
-                    raise ValueError("asset.continuous_charging: expected boolean")
-                asset["continuous_charging"] = source["continuous_charging"]
+            for field in ("continuous_charging", "maintain_soc_until_ready_by"):
+                if source.get(field) is not None:
+                    if type(source[field]) is not bool:
+                        raise ValueError("asset." + field + ": expected boolean")
+                    asset[field] = source[field]
             for field in ("minimum_soc_pct", "low_soc_trigger_pct",
                           "opportunistic_level_pct"):
                 if source.get(field) is None:
@@ -787,7 +789,7 @@ def apply_settings_change(configuration, scope, target_id, changes, action="save
             "max_charge_kw", "requested_kwh", "requested_duration_minutes",
                           "requested_budget_amount", "requested_budget_currency",
             "ready_by", "ready_by_repeat", "ready_by_weekdays", "charging_windows",
-            "continuous_charging",
+            "continuous_charging", "maintain_soc_until_ready_by",
             "minimum_soc_pct", "maximum_price_per_kwh", "price_currency",
             "low_price_trigger_per_kwh", "low_soc_trigger_pct",
             "opportunistic_kind", "opportunistic_level_pct",
@@ -1009,7 +1011,7 @@ def is_in_place_runtime_preference_change(before, after):
                           "requested_duration_minutes", "requested_budget_amount",
                            "requested_budget_currency", "ready_by",
                           "ready_by_repeat", "ready_by_weekdays", "charging_windows",
-            "continuous_charging",
+            "continuous_charging", "maintain_soc_until_ready_by",
             "minimum_soc_pct", "maximum_price_per_kwh", "price_currency",
             "low_price_trigger_per_kwh", "low_soc_trigger_pct",
             "opportunistic_kind", "opportunistic_level_pct",
@@ -1225,7 +1227,7 @@ def normalize_expert_json(value):
             "Requested-kWh", "Requested-duration-minutes", "Ready-by",
             "Requested-budget-amount", "Requested-budget-currency",
             "Ready-by-repeat", "Ready-by-weekdays", "Charging-windows",
-            "Continuous-charging",
+            "Continuous-charging", "Maintain-SoC-until-ready-by",
             "Minimum-SoC-pct", "Maximum-price-per-kWh", "Price-currency",
             "Low-price-trigger-per-kWh", "Low-SoC-trigger-pct",
             "Opportunistic-kind", "Opportunistic-level-pct", "Earliest-start-at",
