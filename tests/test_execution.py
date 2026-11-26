@@ -402,8 +402,8 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("car", restored.executor._inflight)
         self.assertNotIn("evse", restored.executor._interrupted_sessions)
 
-        # A new plug epoch cannot prove that a previous vehicle consumed
-        # the meter delta. Preserve the original hold and no invented receipt.
+        # A new plug epoch cannot prove the previous vehicle consumed the
+        # meter delta. Retain an explicitly unqualified intent receipt.
         rt2, states2, services2 = rig()
         self.assertEqual((await rt2.executor.execute("evse", "start"))["status"], "confirmed")
         snapshot2 = deepcopy(rt2.executor.export_state())
@@ -413,9 +413,43 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         restarted.refresh()
         await restarted.executor.supervise()
         self.assertEqual([call[1] for call in services2.calls], ["turn_on", "turn_off"])
-        self.assertFalse(restarted.executor.completed_sessions())
-        self.assertIn("car", restarted.executor._inflight)
-        self.assertIn("evse", restarted.executor._interrupted_sessions)
+        receipts = restarted.executor.completed_sessions()
+        self.assertEqual(len(receipts), 1)
+        self.assertEqual(receipts[0]["continuity_quality"], "unknown")
+        self.assertIsNone(receipts[0]["actual_energy_kwh"])
+        self.assertIsNone(receipts[0]["duration_minutes"])
+        self.assertFalse(receipts[0]["physical_stop_confirmed"])
+        self.assertNotIn("car", restarted.executor._inflight)
+        self.assertNotIn("evse", restarted.executor._interrupted_sessions)
+        self.assertEqual((await restarted.executor.execute("evse", "start"))["reason"],
+                         "ASSET_MEASURED_PROGRESS_UNAVAILABLE")
+        restarted.configuration["assets"][0]["requested_kwh"] = 2
+        restarted.refresh()
+        self.assertEqual((await restarted.executor.execute("evse", "start"))["status"], "confirmed")
+
+    async def test_recreated_native_epochs_soc_replans_after_verified_idle(self):
+        rt, states, services = rig()
+        asset = rt.configuration["assets"][0]
+        asset.pop("requested_kwh")
+        asset.update(target_soc=80, capacity_kwh=40, charge_efficiency=0.9,
+                     soc_entity="sensor.car_soc")
+        states["sensor.car_soc"] = state(40, "%")
+        rt.refresh()
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"], "confirmed")
+        snapshot = rt.executor.export_state()
+        # Native integration recreated its state on restart; old physical
+        # interval continuity is NOT known. STOP is already independently idle.
+        states["switch.evse_control"] = state("off")
+        states["sensor.actual_power"] = state(0, "W")
+        states["binary_sensor.cable"] = state("on")
+        states["sensor.car_soc"] = state(50, "%")
+        new = MultiChargeRuntime(rt.hass, rt.configuration)
+        new.executor.restore_state(snapshot)
+        new.refresh()
+        await new.executor.supervise()
+        self.assertNotIn("car", new.executor._inflight)
+        self.assertEqual(new.executor.completed_sessions()[0]["continuity_quality"], "unknown")
+        self.assertEqual((await new.executor.execute("evse", "start"))["status"], "confirmed")
 
     async def test_manual_force_start_fails_closed_when_intent_persistence_fails(self):
         rt, sources, services = rig()
