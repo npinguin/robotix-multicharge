@@ -13,3 +13,6 @@ MIN_AC_CURRENT_A = 6.0
 DEFAULT_ASSET_PRIORITY = 0
 DEFAULT_CONTINUOUS_CHARGING = False
 DEFAULT_OPPORTUNISTIC_KIND = "off"
+
+# Absent legacy preferences preserve the live SoC goal; new assets opt in.
+DEFAULT_MAINTAIN_SOC_UNTIL_READY_BY = True
