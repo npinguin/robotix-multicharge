@@ -11,6 +11,8 @@ from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 from math import isfinite
 
+from .configuration import forecast_tariff_source
+
 QUARTER = timedelta(minutes=15)
 MAX_OBSERVATION_AGE = timedelta(minutes=30)
 
@@ -66,7 +68,7 @@ def reconcile_tariff_bindings(previous, configuration, at):
     """Same epoch contract as physical meter sources, no price data in Store."""
     ctl = configuration["controller"]
     return reconcile_power_bindings(previous, {"chargers": [{
-        "id": "site", "price_entity": ctl.get("price_entity") or ctl.get("current_price_entity"),
+        "id": "site", "price_entity": forecast_tariff_source(ctl),
     }]}, at, field="price_entity")
 
 
