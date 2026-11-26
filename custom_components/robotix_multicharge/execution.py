@@ -816,6 +816,41 @@ class NativeSwitchExecutor:
             }
         return result
 
+    def _orphaned_soc_asset(self, charger, at):
+        """Identify a recoverable legacy hold, never a finite-progress intent."""
+        uid, asset_id = charger["id"], charger.get("asset")
+        if (not self._persistence_verified or asset_id not in self._inflight
+                or uid in self._sessions or uid in self._interrupted_sessions
+                or uid in self._start_pending or uid in self._current_pending
+                or uid in self._grants):
+            return None
+        if any(row.get("asset_id") == asset_id for row in self._sessions.values()) or any(
+                row["session"].get("asset_id") == asset_id
+                for row in self._interrupted_sessions.values()):
+            return None
+        cfg = self.runtime.configuration
+        if sum(c.get("asset") == asset_id for c in cfg["chargers"]) != 1:
+            return None
+        asset = next((a for a in cfg["assets"] if a["id"] == asset_id), None)
+        if (asset is None or asset.get("target_soc") is None
+                or any(asset.get(k) is not None for k in (
+                    "requested_kwh", "requested_duration_minutes", "requested_budget_amount"))):
+            return None
+        soc = soc_with_health(self.runtime.hass, asset.get("soc_entity"),
+                              asset.get("soc_stale_entity"), at)
+        if soc.quality != "ok":
+            return None
+        due = datetime.fromisoformat(asset["ready_by"]) if asset.get("ready_by") else None
+        if asset.get("ready_by_repeat", "none") != "none" and (
+                due is not None or asset.get("ready_by_repeat") == "specific_days"):
+            due, _ = resolve_recurring_ready_by(
+                due, at, asset["ready_by_repeat"], self.runtime.hass.config.time_zone,
+                asset.get("ready_by_weekdays"),
+            )
+            if due is None:
+                return None
+        return asset_id if self._inflight[asset_id] == self._intent_key(asset, charger, due) else None
+
     def _publish(self, uid, request_id, action, status, reason, requested_at,
                  *, observed_at=None, measured_kw=None, service_sent=False,
                  recovered_session=None, completion=None):
@@ -869,6 +904,19 @@ class NativeSwitchExecutor:
                             self._completed[asset_id] = intent
             elif uid in self._interrupted_sessions:
                 self._close_unknown_interruption(uid, observed_at, reason)
+            elif (reason in ("ALREADY_PHYSICALLY_STOPPED", "INDEPENDENT_POWER_READBACK")
+                    and observed_at is not None and measured_kw is not None):
+                charger = next((c for c in self.runtime.configuration["chargers"]
+                                if c["id"] == uid), None)
+                if charger is not None and measured_kw <= stop_power_limit(charger):
+                    switch = self._switch(self.runtime.hass, charger.get("control_entity"))
+                    if switch is not None and switch.state == "off":
+                        asset_id = self._orphaned_soc_asset(charger, datetime.now(timezone.utc))
+                        if asset_id is not None:
+                            # Live SoC is the remaining-demand authority. No
+                            # historical session or finite progress is invented.
+                            self._inflight.pop(asset_id)
+                            _LOGGER.info("Reconciled orphaned SoC hold after verified STOP: %s", uid)
             if reason == "NATIVE_SWITCH_STATE" and uid not in self._interrupted_sessions:
                 self._inflight.pop(f"charger:{uid}", None)
             self._quarantine.discard(uid)
@@ -2561,12 +2609,16 @@ class NativeSwitchExecutor:
                 if state.state == "on":
                     active.append(c)
                 elif (c["id"] not in self._start_pending
-                      and (c["id"] in self._interrupted_sessions or c["id"] in self._sessions)):
+                      and (c["id"] in self._interrupted_sessions or c["id"] in self._sessions
+                           or self._orphaned_soc_asset(c, at) is not None)):
                     row = self._interrupted_sessions.get(c["id"])
                     if row and row["sources"]["control_entity"] != c.get("control_entity"):
                         continue
                     power = number(self.runtime.hass, c.get("power_entity"), "power", at)
-                    session = row["session"] if row else self._sessions[c["id"]]
+                    session = row["session"] if row else self._sessions.get(c["id"], {})
+                    if not session and (power.quality != "ok"
+                                        or power.value > stop_power_limit(c)):
+                        continue
                     if (power.quality == "ok" or (c["kind"] == "on_off"
                             and (not c.get("power_entity")
                                  or session.get("duration_without_connection")))):
