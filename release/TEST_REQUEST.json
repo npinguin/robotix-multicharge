@@ -1,15 +1,15 @@
 {
   "status": "AUTHORIZED_FOR_TEST",
   "distribution": "open_source_community",
-  "expected_tag": "v0.1.23",
+  "expected_tag": "v0.1.24",
   "precompile": false,
-  "qualification_scope": "Owner authorized 26 November 2026, PR #28 / issue #1: corrective HACS TEST, preserving v0.1.22 scope. Ordinary assigned vehicle charging needs no per-plug confirmation or separate fixed assignment. Native AC positive operating floor 6 A, zero-origin native ranges supported, explicit higher limits respected. Actionable missing electrical installation evidence; reached target is a normal successful state. Separate bounded supply/preconditioning PARITY05/11 remains OPEN as previously approved.",
-  "limitations": "TEST only; no STABLE or Wessels physical acceptance claim. Nominal single-phase/230 V forecast assumptions are not proof of actual wiring. Missing actual phase count/voltage must be supplied once through existing charger setup when not available from configured evidence. Before upgrading retain full native HA backup including database and matching v0.1.22 code; rollback after confirmed STOP with separately retained upgraded-state backup, restore previous checkpoint and matching code. No direct code-only downgrade or live-state merge. Separate preconditioning and site/iPad/EVSE field acceptance remain open.",
+  "qualification_scope": "Owner authorized 26 November 2026, PR #29 / issue #1: complete agreed HACS TEST batch, preserving v0.1.23 functionality, one native current envelope and configuration writer, durable pending/confirmed START reconciliation, coherent source/readback, corrected goal journey, and optional simple SoC maintenance until Ready By as the approved alternative for PARITY05/11. No additional mode, timer, climate engine or separate supply path.",
+  "limitations": "TEST only; no STABLE or Wessels physical acceptance claim. SoC maintenance reuses normal charging constraints and eligible quarters, not an assurance of direct climate power or upstream Keep Charger On equivalence. Nominal single-phase/230 V forecasts are not physical wiring proof. Before upgrading retain native HA backup including database and matching v0.1.23 code; after confirmed STOP, retain upgraded-state backup and restore the previous checkpoint with matching code for rollback. No direct code-only downgrade or live-state merge. Actual site/iPad/EVSE field acceptance remains open.",
   "rollback_evidence": {
-    "tag": "v0.1.22",
-    "source_sha": "fe43ff65c6e3e828a2f887e5b786b85a129fb597",
-    "artifact": "robotix_multicharge-0.1.22.zip",
-    "sha256": "b96412a371961814c65b7ca13d25e8b3909f2aab4426ed36e7a9227aeeceea4a",
+    "tag": "v0.1.23",
+    "source_sha": "fbdb69a900d0790824c6ed3218cb6be84e800b05",
+    "artifact": "robotix_multicharge-0.1.23.zip",
+    "sha256": "ae5337774ae7d10dd06c84ee8f32aaa35bbe55e9ba1c7aad61e960b960ec0775",
     "scope": "Exact predecessor/candidate native HA Core archive/startup restore, configuration and Store checkpoint readback and receipt preservation; no code-only downgrade or live-state merging."
   }
 }
