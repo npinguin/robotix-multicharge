@@ -443,6 +443,8 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         states["sensor.actual_power"] = state(0, "W")
         states["binary_sensor.cable"] = state("on")
         states["sensor.car_soc"] = state(50, "%")
+        for row in states.values():
+            row.last_updated = row.last_changed = datetime.now(timezone.utc)
         new = MultiChargeRuntime(rt.hass, rt.configuration)
         new.executor.restore_state(snapshot)
         new.refresh()
@@ -585,7 +587,7 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
             any(action == "turn_off" for _, action, *_ in services.calls)
         )
 
-    async def test_confirmed_stop_reconciles_inflight_only_when_energy_measured(self):
+    async def test_confirmed_stop_releases_physical_lock_but_unknown_energy_blocks_original_goal(self):
         rt, sources, services = rig()
         charger = rt.configuration["chargers"][0]
         asset = rt.configuration["assets"][0]
@@ -605,8 +607,11 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         sources["sensor.meter"].last_updated = datetime.now(timezone.utc)
         self.assertEqual((await rt.executor.execute("evse", "stop"))["status"],
                          "confirmed")
-        self.assertIn(asset["id"], rt.executor._inflight,
-                      "Unmeasured energy must not permit automatic replay")
+        self.assertNotIn(asset["id"], rt.executor._inflight)
+        self.assertIsNone(rt.executor.completed_sessions()[-1]["actual_energy_kwh"])
+        self.assertIsNone(rt.executor.measured_intent_usage(asset, charger, None)["energy_kwh"])
+        self.assertEqual((await rt.executor.execute("evse", "start"))["reason"],
+                         "ASSET_MEASURED_PROGRESS_UNAVAILABLE")
 
     async def test_receipts_beyond_ui_limit_preserve_original_intent_and_identity(self):
         rt, sources, _ = rig()
