@@ -420,9 +420,17 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
       b=>b.textContent==="Details");
     if(details)details.click();
   }
+  let defaultChartHosts=0,foldedChartHosts=0,chartLifecycle=true;
   if(view==="plan"){
     const compact=[...card.shadowRoot.querySelectorAll('details[data-disclosure^="plan:compact:"]')];
     if(compact.some(f=>f.open||f.querySelector(".mc-apex")))throw Error("Compact lanes eagerly render charts");
+    defaultChartHosts=card.shadowRoot.querySelectorAll(".mc-apex").length;
+    for(const f of compact)f.querySelector("summary").click();
+    await new Promise(resolve=>setTimeout(resolve,120));
+    foldedChartHosts=card.shadowRoot.querySelectorAll(".mc-apex").length;
+    for(const f of compact)f.querySelector("summary").click();
+    await new Promise(resolve=>setTimeout(resolve,80));
+    chartLifecycle=compact.every(f=>!f.open&&!f.querySelector(".mc-apex"))&&card.shadowRoot.querySelectorAll(".mc-apex").length===defaultChartHosts;
     for(const f of compact)f.querySelector("summary").click();
   }
   // The chart must be real Apex-generated SVG, not our previous static SVG
@@ -476,7 +484,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     documentWidth:document.documentElement.scrollWidth,
     tabs:[...root.querySelectorAll(".tabs button")].map(b=>b.textContent),
     cards:cards.length,folds:folds.length,
-    apexHosts:apexHosts.length,apexLive,sameRange,colorAndQuarter,pixelAligned,geometry:geometry.map(r=>r?[r.left,r.right]:null),
+    apexHosts:apexHosts.length,apexLive,defaultChartHosts,foldedChartHosts,chartLifecycle,sameRange,colorAndQuarter,pixelAligned,geometry:geometry.map(r=>r?[r.left,r.right]:null),
     legendContained:!!chartLegend&&chartLegend.getBoundingClientRect().top>=chartHost.getBoundingClientRect().bottom-1,
     legendToggle:toggle?.getAttribute("aria-pressed")==="false",
     priceAndForecast:!!chartLegend&&chartLegend.textContent.includes("Reference price")&&chartLegend.textContent.includes("Indicative"),
@@ -487,6 +495,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
       const a=cards[0]?.getBoundingClientRect(),b=cards[1]?.getBoundingClientRect();
       return !!a&&!!b&&Math.abs(a.top-b.top)<2&&b.left>a.left;
     })(),
+    siteDetailsLocal:view!=="overview"||!!root.querySelector('.charging-site-overview > details[data-disclosure="site:energy"]'),
     siteFirst:view!=="overview"||!!root.querySelector(".charging-site-overview")&&
       (!count||root.querySelector(".charging-site-overview").getBoundingClientRect().top<
         root.querySelector(".vehicle-summary").getBoundingClientRect().top),
