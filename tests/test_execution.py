@@ -465,6 +465,60 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(services.calls, [])
         self.assertFalse(rt.executor._persistence_verified)
 
+    async def test_transient_store_failure_recovers_without_user_or_replaying_command(self):
+        from unittest.mock import patch
+        rt, sources, services = rig(mode="Automatic")
+
+        class RecoveringStore:
+            def __init__(self):
+                self.calls = 0
+                self.available = False
+                self.data = None
+
+            async def async_save(self, payload):
+                self.calls += 1
+                if not self.available:
+                    raise OSError("temporary storage outage")
+                self.data = payload
+
+        store = RecoveringStore()
+        rt.attach_control_store(store, None)
+        # Same initial mapping-write failure as native setup.
+        with patch("multicharge_physical_execution_test.runtime.monotonic", return_value=100):
+            self.assertFalse(await rt.persist_control_state())
+            rt.executor._persistence_verified = False
+            await rt.executor.supervise()
+            self.assertEqual(store.calls, 1)
+            self.assertFalse(rt.executor._persistence_verified)
+        store.available = True
+        with patch("multicharge_physical_execution_test.runtime.monotonic", return_value=160):
+            await rt.executor.supervise()
+        self.assertTrue(rt.executor._persistence_verified)
+        self.assertFalse(rt._control_write_failed)
+        self.assertEqual(store.data["inflight"], {})
+        self.assertEqual(services.calls, [])
+        # No user confirmation or replay: normal eligible quarter owns START.
+        at = datetime.now(timezone.utc)
+        quarter = at.replace(minute=(at.minute // 15) * 15, second=0, microsecond=0)
+        for source in sources.values():
+            source.last_updated = quarter + timedelta(seconds=1)
+        rt.refresh(quarter)
+        await rt.executor.advance_plan(quarter)
+        self.assertEqual([row[1] for row in services.calls], ["turn_on"])
+        self.assertIn("car", store.data["inflight"])
+
+    async def test_store_retry_never_overwrites_invalid_original_evidence(self):
+        from unittest.mock import AsyncMock
+        rt, _, services = rig()
+        store = SimpleNamespace(async_save=AsyncMock())
+        rt.attach_control_store(store, {"schema_major": 100})
+        # Even if a transient-write signal exists, corrupt restore is authoritative.
+        rt._control_write_failed = True
+        await rt.executor.supervise()
+        store.async_save.assert_not_called()
+        self.assertFalse(rt.executor._persistence_verified)
+        self.assertEqual(services.calls, [])
+
     async def test_charger_only_manual_intent_is_durable_until_measured_stop(self):
         rt, sources, services = rig()
         rt.configuration["chargers"][0].pop("asset")
