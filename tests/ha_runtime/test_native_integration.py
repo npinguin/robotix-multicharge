@@ -401,6 +401,64 @@ async def test_native_recorder_history_pricing_reuses_one_ha_query_without_billi
 
 
 @pytest.mark.asyncio
+async def test_native_concurrent_exact_recorder_reads_share_only_running_query(
+    hass: HomeAssistant, monkeypatch,
+):
+    """Native Recorder evidence stays exact; no stale or wider-range cache."""
+    import asyncio
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+    from homeassistant.components import recorder
+    from custom_components.robotix_multicharge.runtime import MultiChargeRuntime
+
+    end = datetime.now(timezone.utc) - timedelta(minutes=1)
+    start = end - timedelta(minutes=30)
+    entered, release = asyncio.Event(), asyncio.Event()
+    calls = []
+
+    class NativeRecorder:
+        async def async_add_executor_job(self, fn, *args):
+            calls.append(args)
+            entered.set()
+            await release.wait()
+            return {"sensor.native_power": [
+                SimpleNamespace(state="2000", last_updated=start,
+                                attributes={"unit_of_measurement": "W"}),
+            ]}
+
+    monkeypatch.setattr(recorder, "get_instance", lambda _hass: NativeRecorder())
+    hass.config.components.add("recorder")
+    cfg = validate_configuration({
+        "controller": {"id": "site", "name": "Site", "mode": "Off"},
+        "assets": [], "chargers": [{"id": "drive", "name": "Drive",
+            "kind": "on_off", "rated_power_kw": 2,
+            "power_entity": "sensor.native_power", "control_owner": "external"}],
+    })
+    runtime = MultiChargeRuntime(hass, cfg)
+    a = asyncio.create_task(runtime.read_history(cfg, start, end, as_of=end))
+    await asyncio.wait_for(entered.wait(), timeout=2)
+    b = asyncio.create_task(runtime.read_history(cfg, start, end, as_of=end))
+    cancelled = asyncio.create_task(runtime.read_history(cfg, start, end, as_of=end))
+    await asyncio.sleep(0)
+    cancelled.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await cancelled
+    release.set()
+    first, second = await asyncio.wait_for(asyncio.gather(a, b), timeout=2)
+    assert first == second
+    assert len(calls) == 1
+    assert runtime.performance_snapshot()["recorder_query"]["count"] == 1
+    assert runtime._recorder_inflight == {}
+    # A later identical request must see new Recorder evidence; different
+    # exact boundaries must also cause a separate query.
+    assert await runtime.read_history(cfg, start, end, as_of=end) == first
+    await runtime.read_history(cfg, start, end + timedelta(seconds=1),
+                               as_of=end + timedelta(seconds=1))
+    assert len(calls) == 3
+    runtime.stop()
+
+
+@pytest.mark.asyncio
 async def test_native_financial_day_reuses_single_recorder_query(hass: HomeAssistant, monkeypatch):
     """Exercise the real HA background projection seam with deterministic input."""
     from datetime import datetime, timedelta, timezone
