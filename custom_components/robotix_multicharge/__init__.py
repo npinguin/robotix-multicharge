@@ -6,6 +6,7 @@ Native source/planning lifecycle and a physically guarded single charging writer
 from __future__ import annotations
 
 import logging
+from time import perf_counter
 from datetime import datetime as utc_datetime, timedelta, timezone
 
 from homeassistant.core import callback
@@ -145,6 +146,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Expose only truthful configuration-status entities in this bootstrap."""
+    setup_started = perf_counter()
     if (entry.data.get("source") in ("yaml", "json")
             and not hass.data.get(f"{DOMAIN}_source_present", False)):
         _LOGGER.error("MultiCharge expert source missing; previous settings are NOT resumed")
@@ -157,12 +159,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     runtime = MultiChargeRuntime(hass, cfg)
     runtime.statistics_namespace = entry.entry_id
     store = Store(hass, 1, f"{DOMAIN}_{entry.entry_id}_control")
+    store_started = perf_counter()
     try:
         saved = await store.async_load()
     except (OSError, ValueError, RuntimeError):
         _LOGGER.exception("Cannot read stored MultiCharge control state; START disabled")
         saved = {"schema_major": -1}
     runtime.attach_control_store(store, saved)
+    runtime._record_performance("setup_store_restore", store_started)
     # Only persist new/changed mapping metadata, never raw Recorder values.
     # Do not replace an invalid physical intent snapshot with an empty one.
     previous_bindings = saved.get("power_bindings") if isinstance(saved, dict) else None
@@ -291,19 +295,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             async_track_state_change_event(hass, list(monitored), on_source_change)
         )
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = runtime
+    platform_started = perf_counter()
     try:
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     except Exception:
         runtime.stop()
         hass.data[DOMAIN].pop(entry.entry_id, None)
         raise
+    runtime._record_performance("setup_platforms", platform_started)
+    frontend_started = perf_counter()
     reconcile_frontend(hass, entry)
     await register_sidebar_panel(hass, entry)
+    runtime._record_performance("setup_frontend", frontend_started)
+    supervisor_started = perf_counter()
     await runtime.executor.supervise()
+    runtime._record_performance("setup_supervision", supervisor_started)
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     if price_source:
         on_source_change()
     refresh_finance()
+    runtime._record_performance("setup_total", setup_started)
     return True
 
 
@@ -312,7 +323,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if runtime is not None and not await runtime.executor.shutdown():
         _LOGGER.error("MultiCharge unload blocked by unconfirmed physical STOP")
         return False
-    ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    ok = False
+    try:
+        ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    finally:
+        if not ok and runtime is not None:
+            runtime.executor.cancel_shutdown()
+            runtime.notify()
     if ok:
         unregister_sidebar_panel(hass)
         reconcile_frontend(hass)
