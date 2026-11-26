@@ -2082,6 +2082,36 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
                 restored.attach_control_store(MemoryStore(), saved[-1])
                 self.assertEqual(restored.executor._inflight, {})
 
+    async def test_orphaned_daily_soc_intent_recovers_after_deadline_rollover(self):
+        from multicharge_physical_execution_test.planner import resolve_recurring_ready_by
+        rt, sources, services = rig(mode="Automatic")
+        at = datetime.now(timezone.utc)
+        asset, charger = rt.configuration["assets"][0], rt.configuration["chargers"][0]
+        asset.pop("requested_kwh")
+        anchor = at - timedelta(days=3, minutes=30)
+        asset.update({"soc_entity": "sensor.battery", "target_soc": 75,
+                      "capacity_kwh": 20, "charge_efficiency": 0.9,
+                      "ready_by": anchor.isoformat(), "ready_by_repeat": "daily"})
+        sources["sensor.battery"] = state(50, "%")
+        previous, _ = resolve_recurring_ready_by(
+            anchor, at-timedelta(days=1), "daily", rt.hass.config.time_zone,
+        )
+        current, _ = resolve_recurring_ready_by(
+            anchor, at, "daily", rt.hass.config.time_zone,
+        )
+        self.assertLess(previous, at)
+        self.assertGreater(current, at)
+        snapshot = rt.executor.export_state()
+        snapshot["inflight"] = {"car": rt.executor._intent_key(asset, charger, previous)}
+        rt.executor.restore_state(snapshot)
+        rt.refresh()
+        self.assertEqual(rt.excluded["evse"], "UNRESOLVED_PREVIOUS_CHARGE_INTENT")
+        await rt.executor.supervise()
+        self.assertEqual(rt.executor._inflight, {})
+        self.assertEqual(rt.executor.completed_sessions(), [])
+        self.assertEqual(services.calls, [])
+        self.assertNotEqual(rt.excluded.get("evse"), "UNRESOLVED_PREVIOUS_CHARGE_INTENT")
+
     async def test_orphaned_intent_does_not_replay_unknown_progress(self):
         for case in ("finite", "mismatch", "unknown_soc", "unknown_power"):
             with self.subTest(case=case):
