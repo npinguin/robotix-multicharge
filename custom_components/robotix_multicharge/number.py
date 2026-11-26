@@ -10,6 +10,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .command_query import apply_native_preference, require_native_admin
 from .const import DOMAIN
+from .configuration import charger_is_active
 
 FIELDS = {
     "target_soc": (0, 100, 1, "%"),
@@ -264,8 +265,7 @@ class _ChargerPowerNumber(NumberEntity):
                 round(current * factor, 4) if current is not None else None
             )
             self._attr_available = bool(
-                charger.get("control_owner") == "multicharge"
-                and charger.get("physical_commissioned") is True
+                charger_is_active(charger)
                 and current is not None
             )
 
