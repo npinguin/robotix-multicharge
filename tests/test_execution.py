@@ -1626,6 +1626,36 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(rt.forecast_assessment.plan.slots)
         self.assertEqual(services.calls, [])
 
+    async def test_native_capability_loss_invalidates_firm_plan_and_recovers(self):
+        rt, states, services = rig(group_kw=7.5, mode="Automatic")
+        charger = rt.configuration["chargers"][0]
+        charger.update(kind="variable_current", rated_power_kw=7.36,
+                       voltage_v=230, phase_count=1, min_current_a=6, max_current_a=32,
+                       current_step_a=1, current_control_entity="number.charge_limit")
+        native = state(6, "A")
+        native.attributes.update(min=0, max=16, step=1)
+        states["number.charge_limit"] = native
+        rt.refresh()
+        self.assertTrue(rt.assessment.plan.slots)
+        for reason, invalid in (
+            ("CURRENT_CONTROL_UNAVAILABLE", state("unavailable", "A")),
+            ("NATIVE_CURRENT_UNIT_UNSUPPORTED", state(6, "kW")),
+            ("NATIVE_CURRENT_CAPABILITY_UNVERIFIED", state(6, "A")),
+        ):
+            if reason == "NATIVE_CURRENT_UNIT_UNSUPPORTED":
+                invalid.attributes.update(min=0, max=16, step=1)
+            states["number.charge_limit"] = invalid
+            rt.refresh()
+            self.assertEqual(rt.excluded["evse"], reason)
+            self.assertFalse(rt.assessment.plan.slots)
+            self.assertIsNone(rt.executor.effective_charger(charger)["max_current_a"])
+            self.assertEqual(charger["max_current_a"], 32)
+        states["number.charge_limit"] = native
+        rt.refresh()
+        self.assertTrue(rt.assessment.plan.slots)
+        self.assertEqual(rt.executor.effective_charger(charger)["max_current_a"], 16)
+        self.assertEqual(services.calls, [])
+
     async def test_wrong_native_current_unit_rejected_before_service(self):
         rt, states, services = rig(group_kw=3.6)
         charger = rt.configuration["chargers"][0]
