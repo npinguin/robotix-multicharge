@@ -445,6 +445,26 @@ async def test_native_financial_day_reuses_single_recorder_query(hass: HomeAssis
     assert result["asset"]["car"]["today"]["cost"] == pytest.approx(0.42)
     assert result["charger"]["charger"]["today"]["average_price_per_kwh"] == pytest.approx(0.28)
     assert estimates[("charger", receipt["started_at"], receipt["ended_at"])]["estimated_variable_cost"] == pytest.approx(0.42)
+    # The background finance caller needs no quarter graph. It must retain
+    # exactly the same cost and observed-session evidence from one query.
+    from custom_components.robotix_multicharge import history as mc_history
+    original = mc_history.reconciled_quarter_history
+
+    def unused_chart(*args, **kwargs):
+        raise AssertionError("Background finance must not project unused graph rows")
+
+    monkeypatch.setattr(mc_history, "reconciled_quarter_history", unused_chart)
+    chart, quality, fast_estimates, _, _, fast_raw = await read_actual_history(
+        hass, cfg, start, end, financial_days=days, as_of=end,
+        include_observed_sessions=True, include_valuations=True, include_quarters=False,
+        session_receipts=[receipt], price_slots=[
+            PriceSlot(start, middle, 0.2, "EUR"),
+            PriceSlot(middle, end, 0.32, "EUR")],
+    )
+    assert chart == [] and quality == "QUARTERS_NOT_REQUESTED"
+    assert fast_raw == raw and fast_estimates == estimates
+    assert len(calls) == 2
+    monkeypatch.setattr(mc_history, "reconciled_quarter_history", original)
 
 
 @pytest.mark.asyncio
