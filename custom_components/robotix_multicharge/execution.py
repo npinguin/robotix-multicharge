@@ -373,6 +373,20 @@ class NativeSwitchExecutor:
             hold = asset or f"charger:{uid}"
             if hold not in inflight or (asset is not None and session["intent_key"] != inflight[hold]):
                 raise ValueError("interrupted session has no matching durable intent")
+            pending = row.get("pending", False)
+            if type(pending) is not bool:
+                raise ValueError("invalid interrupted command phase")
+            if pending:
+                stamp = datetime.fromisoformat(session["started_at"])
+                if (stamp.utcoffset() is None or row.get("switch_on_since") is not None
+                        or session.get("confirmed_at") is not None
+                        or type(session.get("duration_without_connection")) is not bool):
+                    raise ValueError("invalid pending START evidence")
+                if session.get("requested_budget_currency") is not None and not isinstance(
+                        session["requested_budget_currency"], str):
+                    raise ValueError("invalid pending budget currency")
+                checked[uid] = deepcopy(row)
+                continue
             for field in ("started_at", "confirmed_at", "hard_stop_at"):
                 stamp = datetime.fromisoformat(session[field])
                 if stamp.utcoffset() is None:
@@ -409,7 +423,7 @@ class NativeSwitchExecutor:
         retains the durable intent and checkpoint, never restarts a full goal.
         """
         row = self._interrupted_sessions.get(charger["id"])
-        if row is None or switch.state != "on":
+        if row is None or row.get("pending") or switch.state != "on":
             return None
         if row["sources"] != {key: charger.get(key) for key in self._RECOVERY_SOURCES}:
             return None
@@ -494,6 +508,21 @@ class NativeSwitchExecutor:
                     raise ValueError("invalid session identity")
                 if row.get("intent_key") is not None and not isinstance(row["intent_key"], str):
                     raise ValueError("invalid receipt intent")
+                duration = row.get("duration_minutes")
+                unknown = row.get("continuity_quality") == "unknown"
+                if unknown:
+                    if (duration is not None or row.get("actual_energy_kwh") is not None
+                            or row.get("cost") is not None or row.get("budget_accrued_cost") is not None
+                            or row.get("physical_stop_confirmed") is not False
+                            or row.get("switch_stop_confirmed") is not False
+                            or row.get("recovery_stop_confirmed") is not True):
+                        raise ValueError("invalid unknown-continuity receipt")
+                elif (type(duration) not in (int, float) or not isfinite(duration) or duration < 0
+                      or duration > (ended - begun).total_seconds() / 60 + 0.002):
+                    raise ValueError("invalid session duration")
+                for field in ("physical_stop_confirmed", "switch_stop_confirmed"):
+                    if field in row and type(row[field]) is not bool:
+                        raise ValueError("invalid STOP evidence")
                 amount = row.get("actual_energy_kwh")
                 if amount is not None and (
                     type(amount) not in (int, float)
@@ -947,7 +976,9 @@ class NativeSwitchExecutor:
         ctl = cfg["controller"]
         if not self._persistence_verified:
             return "CONTROL_STATE_UNVERIFIED"
-        if charger["id"] in self._interrupted_sessions:
+        interrupted = self._interrupted_sessions.get(charger["id"])
+        if interrupted is not None and not (
+                own_intent and charger["id"] in self._start_pending and interrupted.get("pending")):
             return "UNRESOLVED_PREVIOUS_CHARGE_INTENT"
         if charger["id"] in self._paused:
             return "USER_PAUSED"
@@ -1115,6 +1146,8 @@ class NativeSwitchExecutor:
                         return reason
                 if due is None or due.tzinfo is None or due.utcoffset() is None or at >= due:
                     return "READY_BY_EXPIRED"
+                if self._closes_soc_occurrence(asset, due) and self.intent_completed(asset, charger, due):
+                    return "SOC_TARGET_DROPPED_AFTER_COMPLETION"
             except ValueError:
                 return "READY_BY_INVALID"
         if (manual_request is None and not bounded_switch
@@ -2270,18 +2303,12 @@ class NativeSwitchExecutor:
                     )
                     if deadline is None:
                         continue
-                intent = self._intent_key(asset, charger, deadline)
                 if self.intent_completed(asset, charger, deadline):
                     continue
                 # A crash, unknown physical outcome or earlier unsafe STOP
                 # leaves an unresolved intent. Never replay the requested kWh
                 # or duration without explicit reconciliation.
                 if asset["id"] in self._inflight:
-                    continue
-                self._inflight[asset["id"]] = intent
-                if not await self.runtime.persist_control_state():
-                    self._persistence_verified = False
-                    self._inflight.pop(asset["id"], None)
                     continue
                 result = await self.execute(
                     uid, "start", current_a=slot.current_a, plan_slot=slot,
@@ -2292,8 +2319,6 @@ class NativeSwitchExecutor:
                         continue
                     if self._last_power_adjustment_tick is None:
                         self._last_power_adjustment_tick = monotonic()
-                elif result["status"] == "rejected":
-                    self._inflight.pop(asset["id"], None)
                 if not await self.runtime.persist_control_state():
                     self._persistence_verified = False
                     if result["status"] == "confirmed":
@@ -2517,14 +2542,16 @@ class NativeSwitchExecutor:
                     continue
                 if state.state == "on":
                     active.append(c)
-                elif c["id"] in self._interrupted_sessions:
-                    row = self._interrupted_sessions[c["id"]]
-                    if row["sources"]["control_entity"] != c.get("control_entity"):
+                elif (c["id"] not in self._start_pending
+                      and (c["id"] in self._interrupted_sessions or c["id"] in self._sessions)):
+                    row = self._interrupted_sessions.get(c["id"])
+                    if row and row["sources"]["control_entity"] != c.get("control_entity"):
                         continue
                     power = number(self.runtime.hass, c.get("power_entity"), "power", at)
+                    session = row["session"] if row else self._sessions[c["id"]]
                     if (power.quality == "ok" or (c["kind"] == "on_off"
                             and (not c.get("power_entity")
-                                 or row["session"].get("duration_without_connection")))):
+                                 or session.get("duration_without_connection")))):
                         await self.execute(c["id"], "stop")
             for configured in active:
                 charger = self.effective_charger(configured)
@@ -2863,38 +2890,49 @@ class NativeSwitchExecutor:
                         return result("rejected", reason)
                     self._stop_requested.discard(charger_id)
                     self._start_pending.add(charger_id)
-                    if plan_slot is None:
-                        # Automatic START already stores its own intent before
-                        # entering execute(). Manual/one-off START must obey the
-                        # *same* durable admission boundary before any HA service.
-                        asset = next((
-                            row for row in cfg["assets"]
-                            if row["id"] == charger.get("asset")
-                        ), None)
-                        if asset is not None:
-                            due = datetime.fromisoformat(asset["ready_by"]) if (
-                                asset.get("ready_by")
-                            ) else None
-                            if asset.get("ready_by_repeat", "none") != "none" and (due is not None or asset.get("ready_by_repeat") == "specific_days"):
-                                due, issue = resolve_recurring_ready_by(
-                                    due, at, asset["ready_by_repeat"],
-                                    self.runtime.hass.config.time_zone,
-                                    asset.get("ready_by_weekdays"),
-                                )
-                                if due is None:
-                                    return result("rejected", issue)
-                            hold_key = asset["id"]
-                            hold_intent = self._intent_key(asset, charger, due)
-                        else:
-                            hold_key = f"charger:{charger_id}"
-                            hold_intent = sha256(dumps({
-                                "charger": charger_id, "one_off": manual_request,
-                            }, sort_keys=True).encode()).hexdigest()
-                        self._inflight[hold_key] = hold_intent
-                        if not await self.runtime.persist_control_state():
-                            self._inflight.pop(hold_key, None)
-                            self._persistence_verified = False
-                            return result("rejected", "MANUAL_INTENT_NOT_PERSISTED")
+                    # Both planned and manual START use the SAME durable
+                    # checkpoint before touching the native provider. A crash
+                    # before readback cannot be mistaken for an unused intent.
+                    asset = next((row for row in cfg["assets"]
+                                  if row["id"] == charger.get("asset")), None)
+                    if asset is not None:
+                        due = datetime.fromisoformat(asset["ready_by"]) if asset.get("ready_by") else None
+                        if asset.get("ready_by_repeat", "none") != "none" and (
+                                due is not None or asset.get("ready_by_repeat") == "specific_days"):
+                            due, issue = resolve_recurring_ready_by(
+                                due, at, asset["ready_by_repeat"], self.runtime.hass.config.time_zone,
+                                asset.get("ready_by_weekdays"))
+                            if due is None:
+                                return result("rejected", issue)
+                        hold_key = asset["id"]
+                        hold_intent = self._intent_key(asset, charger, due)
+                    else:
+                        hold_key = f"charger:{charger_id}"
+                        hold_intent = sha256(dumps({
+                            "charger": charger_id, "one_off": manual_request,
+                        }, sort_keys=True).encode()).hexdigest()
+                    if hold_key in self._inflight:
+                        return result("rejected", "UNRESOLVED_PREVIOUS_CHARGE_INTENT")
+                    duration = (manual_request or {}).get("duration_minutes") if asset is None else asset.get("requested_duration_minutes")
+                    self._inflight[hold_key] = hold_intent
+                    self._interrupted_sessions[charger_id] = {
+                        "pending": True,
+                        "sources": {key: charger.get(key) for key in self._RECOVERY_SOURCES},
+                        "switch_on_since": None,
+                        "session": {
+                            "asset_id": asset["id"] if asset else None,
+                            "intent_key": hold_intent if asset else None,
+                            "started_at": at.isoformat(),
+                            "duration_without_connection": charger["kind"] == "on_off" and duration is not None,
+                            "requested_budget_currency": (asset or {}).get("requested_budget_currency"),
+                        },
+                    }
+                    if not await self.runtime.persist_control_state():
+                        self._inflight.pop(hold_key, None)
+                        self._interrupted_sessions.pop(charger_id, None)
+                        self._persistence_verified = False
+                        return result("rejected", "MANUAL_INTENT_NOT_PERSISTED" if plan_slot is None
+                                      else "PLANNED_INTENT_NOT_PERSISTED")
                 elif state.state == "off":
                     power = number(self.runtime.hass, charger.get("power_entity"),
                                    "power", at)
@@ -2934,10 +2972,10 @@ class NativeSwitchExecutor:
                                      start_configuration,
                                  ))
                         if issue:
-                            if plan_slot is None:
-                                self._inflight.pop(hold_key, None)
-                                if not await self.runtime.persist_control_state():
-                                    self._persistence_verified = False
+                            self._inflight.pop(hold_key, None)
+                            self._interrupted_sessions.pop(charger_id, None)
+                            if not await self.runtime.persist_control_state():
+                                self._persistence_verified = False
                             return result("rejected", issue)
                         baseline = number(self.runtime.hass, charger.get("energy_entity"),
                                           "energy", command_at)
@@ -3007,6 +3045,7 @@ class NativeSwitchExecutor:
                                 changed = getattr(native_switch, "last_changed", None)
                                 self._sessions[charger_id]["switch_on_since"] = (
                                     changed.isoformat() if changed is not None else None)
+                                self._interrupted_sessions.pop(charger_id, None)
                                 if not await self.runtime.persist_control_state():
                                     self._persistence_verified = False
                                     reason = "SESSION_CHECKPOINT_NOT_PERSISTED"
