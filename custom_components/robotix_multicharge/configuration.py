@@ -967,25 +967,36 @@ def apply_dashboard_structure(configuration, scope, target_id, changes, action="
     return validate_configuration(cfg)
 
 
-def is_plan_presentation_only_change(before, after):
-    """Allow card display settings without unloading any active physical writer."""
+def plan_authority_unchanged(before, after, *, allow_adjustment_cadence=False):
+    """Compare the existing grant authority without copying nested configuration.
+
+    No mutation, no new authority: taxonomy and display preferences are
+    ignored. Only an already accepted active grant may ignore cadence.
+    """
     if before == after:
-        return False
+        return True
+    controller_fields = {"name", "plan_label_mode", "plan_color_by", "show_indicative_forecast"}
+    if allow_adjustment_cadence:
+        controller_fields.add("power_adjustment_interval_minutes")
+    asset_fields = {"plan_color", "name", "kind"}
+    charger_fields = {"plan_color", "name"}
 
     def without_visual(cfg):
-        rest = deepcopy(cfg)
-        for row in (*rest["assets"], *rest["chargers"]):
-            row.pop("plan_color", None)
-            row.pop("name", None)
-        # Type is currently taxonomy only: no planner or electrical capability
-        # changes. Keep native asset type edits safe for active EVSE sessions.
-        for asset in rest["assets"]:
-            asset.pop("kind", None)
-        for key in ("name", "plan_label_mode", "plan_color_by",
-                    "show_indicative_forecast"):
-            rest["controller"].pop(key, None)
-        return rest
+        return {
+            **cfg,
+            "controller": {k: v for k, v in cfg["controller"].items()
+                           if k not in controller_fields},
+            "assets": [{k: v for k, v in row.items() if k not in asset_fields}
+                       for row in cfg["assets"]],
+            "chargers": [{k: v for k, v in row.items() if k not in charger_fields}
+                         for row in cfg["chargers"]],
+        }
     return without_visual(before) == without_visual(after)
+
+
+def is_plan_presentation_only_change(before, after):
+    """Allow card display settings without unloading any active physical writer."""
+    return before != after and plan_authority_unchanged(before, after)
 
 
 def is_in_place_runtime_preference_change(before, after):
