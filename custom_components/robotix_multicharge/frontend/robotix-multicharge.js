@@ -425,14 +425,19 @@ function mcPlotBounds(plot){
   if(horizontal)return {left:horizontal.left,right:horizontal.right};
   return null;
 }
+function mcDisposeChart(plot){
+  const chart=plot._mcApex;plot._mcApex=null;
+  try{chart?.destroy();}catch(_){}
+}
 function mcSchedulePlanAlignment(root){
-  if(!root?.querySelectorAll||typeof window==="undefined")return;
+  if(!root?.querySelectorAll||root.host?.isConnected===false||typeof window==="undefined")return;
   if(root._mcAlignBusy){root._mcAlignPending=true;return;}
   if(root._mcAlignTimer!=null)return;
   root._mcAlignTimer=setTimeout(async()=>{
     root._mcAlignTimer=null;root._mcAlignBusy=true;
     try{
       for(let pass=0;pass<4;pass++){
+        if(root.host?.isConnected===false)return;
         const plots=[...root.querySelectorAll(".mc-apex")];
         if(!plots.length||plots.some(p=>!p._mcApex||!mcPlotBounds(p)))return;
         const bounds=plots.map(p=>({p,...mcPlotBounds(p)}));
@@ -500,8 +505,13 @@ function mcMountApex(plot,options){
       updated:()=>mcSchedulePlanAlignment(plot.getRootNode())};
     const chart=new Chart(plot,options);
     plot._mcApex=chart;
-    return chart.render().then(()=>mcSchedulePlanAlignment(plot.getRootNode())).catch(error=>{
-      chart.destroy();plot._mcApex=null;
+    return chart.render().then(()=>{
+      if(plot._mcApex===chart&&plot.isConnected!==false)
+        mcSchedulePlanAlignment(plot.getRootNode());
+    }).catch(error=>{
+      if(plot._mcApex!==chart)return;
+      mcDisposeChart(plot);
+      if(plot.isConnected===false)return;
       plot.append(mcEl("p","plan-caution","ApexCharts render failed: "+String(error?.stack||error?.message||error).slice(0,650)));
     });
   }).catch(error=>{
@@ -1202,6 +1212,10 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._fieldSequence=0;
     this._refreshTimer=null;
     this._refreshPending=false;
+    this._detached=false;
+    this._viewEpoch=0;
+    this._watchedData=null;
+    this._watchedIds=[];
     this._historyFetchedAt=0;
     this._historyKey="";
     this._queryScope="";
@@ -1245,7 +1259,9 @@ class RobotixMultiChargeCard extends HTMLElement {
     if(this._loading)this._refreshPending=true;else void this.load();
   }
   watchedEntities(){
-    const data=this._data||{},cfg=data.configuration||{},refs=data.preference_entities||{};
+    const data=this._data||{};
+    if(data===this._watchedData)return this._watchedIds;
+    const cfg=data.configuration||{},refs=data.preference_entities||{};
     const ids=new Set();
     for(const row of [cfg.controller,...(cfg.assets||[]),...(cfg.chargers||[])]){
       for(const [key,value] of Object.entries(row||{}))
@@ -1255,7 +1271,9 @@ class RobotixMultiChargeCard extends HTMLElement {
                       ...Object.values(refs.chargers||{})])
       for(const value of Object.values(row||{}))
         if(typeof value==="string"&&value.includes("."))ids.add(value);
-    return ids;
+    this._watchedData=data;
+    this._watchedIds=[...ids];
+    return this._watchedIds;
   }
   editingInProgress(){
     // Covers first-click keyboard focus (before an input event), entered
@@ -1280,7 +1298,7 @@ class RobotixMultiChargeCard extends HTMLElement {
   passiveRender(){
     // Never rebuild shadowRoot on external HA state changes or late plan
     // responses while a human is editing. _data remains fresh in memory.
-    if(this.editingInProgress())return;
+    if(this._detached||this.editingInProgress())return;
     this.render();
   }
   showEditError(container=null){
@@ -1301,7 +1319,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     if(!existing)target.append(message);
   }
   scheduleSourceRefresh(){
-    if(this._refreshTimer!==null)return;
+    if(this._detached||this._refreshTimer!==null)return;
     this._refreshTimer=setTimeout(()=>{
       this._refreshTimer=null;
       if(this._loading){this._refreshPending=true;return;}
@@ -1310,9 +1328,22 @@ class RobotixMultiChargeCard extends HTMLElement {
     // Does nothing in browsers; lets the source-only Node fixture exit.
     this._refreshTimer?.unref?.();
   }
+  connectedCallback(){
+    if(!this._detached)return;
+    this._detached=false;
+    this._last=0;
+    if(this._loading)this._refreshPending=true;
+    else if(this._hass)void this.load();
+  }
   disconnectedCallback(){
+    if(this._detached)return;
+    this._detached=true;this._viewEpoch++;
     if(this._refreshTimer!==null)clearTimeout(this._refreshTimer);
-    this._refreshTimer=null;
+    this._refreshTimer=null;this._refreshPending=false;
+    const root=this.shadowRoot;
+    if(root?._mcAlignTimer!=null)clearTimeout(root._mcAlignTimer);
+    if(root){root._mcAlignTimer=null;root._mcAlignPending=false;}
+    for(const plot of root?.querySelectorAll?.(".mc-apex")||[])mcDisposeChart(plot);
   }
   setConfig(config){this._cardConfig=config||{};this.passiveRender();}
   getCardSize(){return 10;}
@@ -1320,12 +1351,13 @@ class RobotixMultiChargeCard extends HTMLElement {
     const before=this._hass;
     this._hass=value;
     this.restoreViewPreferences(value);
+    if(this._detached)return;
     if(this._pendingNative&&value?.states?.[this._pendingNative.entity]?.state===
         this._pendingNative.expected){
       this._pendingNative=null;
       this._settingsFeedback={status:"confirmed",message:"Saved"};
     }
-    const changed=before&&this._data&&[...this.watchedEntities()].some(
+    const changed=before&&this._data&&this.watchedEntities().some(
       id=>before.states?.[id]!==value.states?.[id]
     );
     if(changed)this.scheduleSourceRefresh();
@@ -1333,8 +1365,9 @@ class RobotixMultiChargeCard extends HTMLElement {
     else if(this._data && before?.locale?.language!==value?.locale?.language)this.passiveRender();
   }
   async load(){
-    if(!this._hass||this._loading)return;
+    if(!this._hass||this._loading||this._detached)return;
     this._loading=true;if(!this._data)this.passiveRender();
+    const epoch=this._viewEpoch;
     const requestedDay=this._day,requestedFilter=this._filter,requestedTab=this._tab;
     // A personal plan filter must not hide other vehicles' status/history.
     const queryFilter=requestedTab==="Charging Plan"?requestedFilter:"";
@@ -1349,6 +1382,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(queryFilter.startsWith("charger:"))cmd.charger_id=queryFilter.slice(8);
       if(queryFilter.startsWith("asset:"))cmd.asset_id=queryFilter.slice(6);
       const nextData=await this._hass.callWS(cmd);
+      if(epoch!==this._viewEpoch)return;
       if(requestedDay!==this._day||
           queryFilter!==(this._tab==="Charging Plan"?this._filter:"")){
         this._refreshPending=true;return;
@@ -1442,6 +1476,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       }
       this._last=Date.now();
     }catch(error){
+      if(epoch!==this._viewEpoch)return;
       this._error=error && (error.message||error.code) ? String(error.message||error.code) : "Read access unavailable";
       this._noEntry=this._error.includes("NO_CONFIG_ENTRY");
       if(this._noEntry)this._data=null;
@@ -1454,7 +1489,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(!this._noEntry)this._refreshPending=true;
     }finally{
       this._loading=false;this.passiveRender();
-      if(this._refreshPending){
+      if(!this._detached&&this._refreshPending){
         this._refreshPending=false;this.scheduleSourceRefresh();
       }
     }
@@ -2140,7 +2175,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         }
       }
     }
-    for(const old of previousCharts){try{old._mcApex?.destroy();}catch(_){}old._mcApex=null;}
+    for(const old of previousCharts)mcDisposeChart(old);
     if(this._tab==="Charging Plan")mcSchedulePlanAlignment(root);
     if(anchor&&typeof root.querySelectorAll==="function"){
       const replacement=[...root.querySelectorAll("[data-mc-object]")].find(
