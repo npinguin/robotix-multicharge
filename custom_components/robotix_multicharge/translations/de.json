@@ -365,6 +365,13 @@
       "ready_day_sun": {
         "name": "Sonntag Ready By"
       },
+      "maintain_soc_until_ready_by": {
+        "name": "Ladezustand bis Abfahrt halten",
+        "state": {
+          "on": "Anzeigen",
+          "off": "Ausblenden"
+        }
+      },
       "continuous_charging": {
         "name": "Lademuster"
       },
