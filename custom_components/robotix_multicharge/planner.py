@@ -19,6 +19,7 @@ from .contracts import (
     PriceSlot,
 )
 from .domain import ChargeController, Charger
+from .const import NOMINAL_PHASE_COUNT, NOMINAL_PHASE_VOLTAGE_V, MIN_AC_CURRENT_A
 
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
@@ -221,8 +222,8 @@ def minimum_planning_power(charger: Charger) -> float:
     """
     if charger.control_kind == "on_off":
         return charger.rated_power_kw
-    factor = (charger.voltage_v or 230.0) * (charger.phase_count or 1) / 1000
-    minimum = charger.min_current_a or 6.0
+    factor = (charger.voltage_v or NOMINAL_PHASE_VOLTAGE_V) * (charger.phase_count or NOMINAL_PHASE_COUNT) / 1000
+    minimum = charger.min_current_a or MIN_AC_CURRENT_A
     target = max(minimum * factor, charger.min_charging_power_kw or 0.0)
     if not missing_current_conversion(charger):
         steps = max(0, ceil((target / factor - minimum) / charger.current_step_a - 1e-9))
