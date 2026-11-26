@@ -712,6 +712,23 @@ def effective_configuration(entry):
     ))
 
 
+def charger_activation_reason(charger):
+    """Only control_owner authorizes activation; reject inconsistent legacy input.
+
+    Validated configuration derives physical_commissioned solely from owner.
+    This invariant guard is not a second commissioning workflow.
+    """
+    if charger.get("control_owner") != "multicharge":
+        return "EXTERNAL_WRITER_OWNS_CHARGER"
+    if charger.get("physical_commissioned", True) is not True:
+        return "PHYSICAL_COMMISSIONING_REQUIRED"
+    return None
+
+
+def charger_is_active(charger):
+    return charger_activation_reason(charger) is None
+
+
 def forecast_tariff_source(controller):
     """Forecast selection, distinct from an explicitly selected live tariff."""
     return controller.get("price_entity") or controller.get("current_price_entity")
