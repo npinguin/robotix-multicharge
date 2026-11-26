@@ -73,6 +73,10 @@ class RuntimeTests(unittest.TestCase):
         rt.refresh_display_power(NOW)
         self.assertIs(rt.assessment, original)
         self.assertEqual(rt.observations["sources"]["solar_power"]["value"], 0.9)
+        measured = rt.performance_snapshot()
+        self.assertEqual(measured["full_refresh"]["count"], 1)
+        self.assertEqual(measured["display_refresh"]["count"], 1)
+        self.assertGreaterEqual(measured["full_refresh"]["p95_ms"], 0)
         cfg["controller"]["grid_power_entity"] = "sensor.pv"
         self.assertEqual(display_only_power_sources(cfg), {"sensor.house"})
         cfg["chargers"][0]["power_entity"] = "sensor.house"
@@ -415,6 +419,23 @@ class RuntimeTests(unittest.TestCase):
             self.assertNotIn(sensitive, rendered)
         self.assertIsNone(rt.live_state()["actual_power_kw"])
         self.assertEqual(result["execution"]["action_health"], "idle")
+        self.assertEqual(result["performance"]["full_refresh"]["count"], 1)
+        rt.executor._inflight["car"] = "private-intent-fingerprint"
+        held = build_diagnostics(rt, SimpleNamespace(source="user", version=1), captured_at=NOW)
+        self.assertEqual(held["execution"]["inflight_intent_count"], 1)
+        self.assertEqual(held["execution"]["intent_holds_without_checkpoint"],
+                         [held["assets"][0]["id"]])
+        self.assertNotIn("private-intent-fingerprint", json.dumps(held))
+
+    def test_performance_samples_remain_bounded(self):
+        from time import perf_counter
+        rt = MultiChargeRuntime(SimpleNamespace(states=SimpleNamespace(get=lambda _: None)), sample())
+        for _ in range(300):
+            rt._record_performance("full_refresh", perf_counter())
+        measured = rt.performance_snapshot()["full_refresh"]
+        self.assertEqual(measured["count"], 300)
+        self.assertEqual(measured["sample_count"], 256)
+        self.assertGreaterEqual(measured["max_sample_ms"], measured["p95_ms"])
 
     def test_controller_live_projection_is_source_qualified_not_guessed(self):
         cfg = sample()
