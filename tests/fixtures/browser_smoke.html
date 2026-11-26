@@ -119,6 +119,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     financeCompact=finance.length===count+1&&finance.every(el=>!el.open&&
       el.querySelector("summary")?.textContent.includes("Cost details")&&
       el.parentElement.querySelector(".financial-headline")?.textContent.includes("Charging cost today")&&
+      el.parentElement.querySelector(".financial-headline")?.getBoundingClientRect().height>0&&
       el.querySelector(".financial-details")?.getBoundingClientRect().height===0);
     const first=finance[0];
     first.querySelector("summary").click();
@@ -480,7 +481,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     legendToggle:toggle?.getAttribute("aria-pressed")==="false",
     priceAndForecast:!!chartLegend&&chartLegend.textContent.includes("Reference price")&&chartLegend.textContent.includes("Indicative"),
     apexErrors:apexHosts.filter(x=>!x.querySelector(".apexcharts-svg")).map(x=>x.textContent.slice(0,220)),
-    quickSelectors:quick.length,
+    quickSelectors:quick.filter(x=>x.getBoundingClientRect().height>0).length,
     overviewGrid:view!=="overview"||count<2||innerWidth<900||(()=>{
       const cards=[...root.querySelectorAll(".object-grid > .card")];
       const a=cards[0]?.getBoundingClientRect(),b=cards[1]?.getBoundingClientRect();
@@ -489,11 +490,11 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     siteFirst:view!=="overview"||!!root.querySelector(".charging-site-overview")&&
       (!count||root.querySelector(".charging-site-overview").getBoundingClientRect().top<
         root.querySelector(".vehicle-summary").getBoundingClientRect().top),
-    assetAssignmentActions:buttons.filter(x=>x==="Change charger"||x==="Assign charger").length,
+    assetAssignmentActions:[...root.querySelectorAll("button")].filter(x=>["Change charger","Assign charger"].includes(x.textContent)&&x.getBoundingClientRect().height>0).length,
     quickEditable:quick.filter(x=>!x.disabled).length,
     firstFoldClosed:folds.length?folds[0].open===false:null,
     keyboardSummary:folds.every(x=>x.firstElementChild?.tagName==="SUMMARY"),
-    goalEditable:buttons.includes("Set charging goal"),
+    goalEditable:[...root.querySelectorAll("button")].some(x=>x.textContent==="Set charging goal"&&x.getBoundingClientRect().height>0),
     technicalReadable:root.textContent.includes("Complete object settings & sources"),
     commandButtons:buttons.filter(x=>x==="Start charging"||x==="Stop charging").length,
     errors:root.querySelectorAll("[role=alert]").length
