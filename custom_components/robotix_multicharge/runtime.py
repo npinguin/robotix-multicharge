@@ -12,6 +12,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from .const import (DEFAULT_ASSET_PRIORITY, DEFAULT_CONTINUOUS_CHARGING,
+                    DEFAULT_MAINTAIN_SOC_UNTIL_READY_BY,
                     DEFAULT_OPPORTUNISTIC_KIND, NOMINAL_PHASE_COUNT, NOMINAL_PHASE_VOLTAGE_V)
 from .contracts import ChargeDemand, PowerEnvelope, PowerLimitSlot
 from .configuration import configuration_revision, PLAN_COLORS, forecast_tariff_source, charger_is_active
@@ -669,20 +670,17 @@ class MultiChargeRuntime:
                         # A completed finite duration is a zero-demand plan,
                         # never an exception that kills an HA refresh.
                         amount, minutes = 0.0, None
-                # A measured SoC target is a live goal, not a permanently
-                # completed finite-energy receipt. A later SoC drop must
-                # appear as new remaining demand, not as a reached target.
-                if self.executor.intent_completed(asset, raw, deadline):
-                    if soc_based and amount > 0:
-                        # A previously completed occurrence cannot silently
-                        # replay. Preserve measured current SoC as the truth.
-                        self.excluded[uid] = "SOC_TARGET_DROPPED_AFTER_COMPLETION"
-                        self.forecast_excluded[uid] = "SOC_TARGET_DROPPED_AFTER_COMPLETION"
-                        continue
-                    if budget is not None:
-                        budget = 0.0
-                    else:
-                        amount, minutes = 0.0, None
+            if self.executor.intent_completed(asset, raw, deadline):
+                if soc_based and amount > 0:
+                    # An explicitly closed scheduled occurrence must not
+                    # replay; actual SoC remains visible and is not target-met.
+                    self.excluded[uid] = "SOC_TARGET_DROPPED_AFTER_COMPLETION"
+                    self.forecast_excluded[uid] = "SOC_TARGET_DROPPED_AFTER_COMPLETION"
+                    continue
+                if budget is not None:
+                    budget = 0.0
+                else:
+                    amount, minutes = 0.0, None
             # Target SoC can itself have changed since the last meter
             # receipt. A priority guarantee must NEVER exceed the actually
             # remaining verified battery demand of this controller cycle.
@@ -1420,6 +1418,7 @@ class MultiChargeRuntime:
                                        "voltage_v": NOMINAL_PHASE_VOLTAGE_V},
             "asset_policy_defaults": {"priority": DEFAULT_ASSET_PRIORITY,
                                       "continuous_charging": DEFAULT_CONTINUOUS_CHARGING,
+                                      "maintain_soc_until_ready_by": DEFAULT_MAINTAIN_SOC_UNTIL_READY_BY,
                                       "opportunistic_kind": DEFAULT_OPPORTUNISTIC_KIND},
             "planned_costs": self.planned_costs,
             "view_planned_cost": view_costs(assessment),
