@@ -43,6 +43,23 @@ class NativeMeasuredHistoryTests(unittest.TestCase):
                 expected.append((left, right, matches[0] if len(matches) == 1 else None))
             self.assertEqual(mod._price_spans(rows, start, end), expected)
 
+    def test_planned_cost_uses_one_partition_without_propagating_owner_gaps(self):
+        from unittest.mock import patch
+        mid = NOW+timedelta(minutes=15)
+        end = mid+timedelta(minutes=15)
+        slots = [
+            SimpleNamespace(charger_uid="a", asset_uid="car_a", start=NOW, end=mid, power_kw=4),
+            SimpleNamespace(charger_uid="b", asset_uid="car_b", start=mid, end=end, power_kw=4),
+        ]
+        prices = [self._price(NOW, mid, -0.2, basis="spot")]
+        with patch.object(mod, "_price_spans", wraps=mod._price_spans) as partition:
+            result = mod.planned_costs(slots, prices, NOW)
+        self.assertEqual(partition.call_count, 1)
+        self.assertIsNone(result["controller"]["site"]["cost"])
+        self.assertIsNone(result["asset"]["car_b"]["cost"])
+        self.assertAlmostEqual(result["asset"]["car_a"]["cost"], -0.2)
+        self.assertAlmostEqual(result["charger"]["a"]["cost"], -0.2)
+
     def test_planned_cost_shared_owners_and_negative_prices(self):
         start = NOW
         mid = start + timedelta(minutes=15)
