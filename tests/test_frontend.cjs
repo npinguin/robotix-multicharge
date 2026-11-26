@@ -1459,6 +1459,19 @@ async function main(){
     "Actual measured kW remains independent and is not relabeled as a plan");
   assert.ok(!residentOptions.series.some(x=>/^(Proposed|Accepted) ·/.test(x.name)),
     "Default view has a single planned projection rather than duplicate technical series");
+  const savedSlots=multiPlan.slots;
+  multiPlan.slots=[{charger_id:"drive",asset_id:"car",start:"2026-11-22T13:00:00+01:00",end:"2026-11-22T13:15:00+01:00",proposed_power_kw:3.6,accepted_power_kw:null},
+    {charger_id:"drive",asset_id:"car",start:"2026-11-22T13:05:00+01:00",end:"2026-11-22T13:10:00+01:00",accepted_power_kw:1.4},
+    {charger_id:"drive",asset_id:"car",start:"2026-11-22T13:10:00+01:00",end:"2026-11-22T13:15:00+01:00",accepted_power_kw:0}];
+  many.render();
+  let mergedPlot;visit(many.shadowRoot,node=>{if(node._mcSignature&&node.attributes["aria-label"]==="MultiCharge combined power and price")mergedPlot=node;});
+  const mergedSeries=JSON.parse(mergedPlot._mcSignature).series.filter(x=>x.name.startsWith("Planned ·"));
+  assert.equal(mergedSeries.length,1,"Overlapping accepted/proposed intervals must have one resident projection");
+  for(const [minute,power] of [[0,3.6],[5,1.4],[10,0]]){
+    const stamp=Date.parse("2026-11-22T13:"+String(minute).padStart(2,"0")+":00+01:00");
+    assert.deepEqual(mergedSeries[0].data.filter(x=>x.x===stamp).map(x=>x.y),[power],"Accepted zero and mid-quarter boundaries retain authority");
+  }
+  multiPlan.slots=savedSlots;
   many._folds["plan:technical"]=true;many.render();
   let expertPlot;
   visit(many.shadowRoot,node=>{if(node._mcSignature&&node.attributes["aria-label"]==="MultiCharge combined power and price")expertPlot=node;});
@@ -1833,6 +1846,13 @@ async function main(){
   assert.ok(!find(card.shadowRoot,"button","Start charging"),
             "uncommissioned hardware cannot gain optimistic action");
   fixture.command_capabilities={drive:{start_allowed:true,stop_allowed:true,reason:"READY"}};
+  const beforeStopPower=fixture.observations.chargers.drive.power_kw;
+  for(const power of [{quality:"ok",value:0},{quality:"unavailable",value:null}]){
+    fixture.observations.chargers.drive.power_kw=power;
+    card._tab="Overview";card.render();
+    assert.ok(find(card.shadowRoot,"button","Stop charging"),"Backend STOP authority must be visible even without positive measured power");
+  }
+  fixture.observations.chargers.drive.power_kw=beforeStopPower;
   card._hass.callWS=async request=>{
     commands.push(request);
     if(request.type==="robotix_multicharge/command"){
