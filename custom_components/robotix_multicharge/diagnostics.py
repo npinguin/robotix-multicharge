@@ -211,6 +211,8 @@ def build_diagnostics(runtime, entry, captured_at=None):
             "granted_chargers": [_alias(uid) for uid in sorted(executor._grants)],
             "persistence_verified": runtime.executor._persistence_verified,
             "original_store_retained": runtime._control_restore_failed,
+            "transient_store_write_failed": runtime._control_write_failed,
+            "control_evidence_invalid": executor._evidence_invalid,
             "interrupted_chargers": [_alias(uid) for uid in sorted(runtime.executor._interrupted_sessions)],
             "quarantined_chargers": sorted(
                 _alias(uid) for uid in runtime.executor._quarantine
