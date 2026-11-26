@@ -1264,6 +1264,7 @@ def normalize_expert_json(value):
             ("Ready-by-weekdays", "ready_by_weekdays"),
             ("Charging-windows", "charging_windows"),
             ("Continuous-charging", "continuous_charging"),
+            ("Maintain-SoC-until-ready-by", "maintain_soc_until_ready_by"),
             ("Minimum-SoC-pct", "minimum_soc_pct"),
             ("Maximum-price-per-kWh", "maximum_price_per_kwh"),
             ("Price-currency", "price_currency"),
