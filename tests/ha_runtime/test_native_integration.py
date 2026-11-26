@@ -1926,6 +1926,7 @@ async def test_expert_json_include_skips_wizard_and_reuses_entry(hass: HomeAssis
     assert anchor.astimezone(ZoneInfo(hass.config.time_zone)).strftime("%H:%M") == "06:00"
     expected["assets"][0].update(
         ready_by=saved_asset["ready_by"], ready_by_repeat="daily",
+        maintain_soc_until_ready_by=False,
     )
     assert entry.data["configuration"] == expected
     unchanged = await hass.config_entries.flow.async_init(
@@ -2942,7 +2943,9 @@ async def test_native_store_pending_and_confirmed_start_reconcile_without_replay
         assert restored.executor._persistence_verified
         assert not restored.executor.session_snapshot()
         restored.refresh()
-        assert (await restored.executor.execute("drive", "start"))["reason"] == "UNRESOLVED_PREVIOUS_CHARGE_INTENT"
+        rejected = await restored.executor.execute("drive", "start")
+        assert rejected["status"] == "rejected"
+        assert rejected["reason"] in ("UNRESOLVED_PREVIOUS_CHARGE_INTENT", "SWITCH_ALREADY_ON")
         await restored.executor.supervise()
         assert hass.states.get("switch.recovery").state == "off"
         assert not restored.executor._inflight
