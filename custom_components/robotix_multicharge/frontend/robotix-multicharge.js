@@ -3358,6 +3358,16 @@ class RobotixMultiChargeCard extends HTMLElement {
     }));
     box.append(actions);container.append(box);
   }
+  formatCost(row){
+    const partial=row?.cost==null&&row?.covered_cost!=null;
+    const value=partial?row.covered_cost:row?.cost;
+    let formatted=mcTr("Unknown");
+    if(Number.isFinite(value)&&/^[A-Z]{3}$/.test(row?.currency||""))
+      formatted=new Intl.NumberFormat(undefined,{style:"currency",currency:row.currency}).format(value);
+    const basis={effective:"Effective price",spot:"Spot price",variable_reference:"Variable reference price"}[row?.basis];
+    return formatted+(partial?" · "+mcTr("Partial coverage"):"")+(basis?" · "+mcTr(basis):"")+
+      (row?.basis&&row.basis!=="effective"?" · "+mcTr("reference price, not an invoice"):"");
+  }
   financialSummary(container,kind,id){
     const periods=this._data.period_costs?.[kind]?.[id]||{};
     const sessions=this._data.session_costs?.[kind]?.[id]||{};
@@ -3365,14 +3375,11 @@ class RobotixMultiChargeCard extends HTMLElement {
     if(!Object.keys(periods).length&&!Object.keys(sessions).length&&
         (!planned||planned.quality==="no_planned_energy"))return;
     const details=mcEl("div","financial-details");
-    const money=(value,currency)=>typeof value==="number"&&currency?
-      new Intl.NumberFormat(undefined,{style:"currency",currency}).format(value):mcTr("Unknown");
     for(const [period,label] of [["today","Charging cost today"],["month","Charging cost this month"],["year","Charging cost this year"]]){
       const row=periods[period];
       if(!row)continue;
       const partial=row.cost==null&&row.covered_cost!=null;
-      const amount=money(partial?row.covered_cost:row.cost,row.currency);
-      mcPair(details,mcTr(label),amount+(partial?" · "+mcTr("Partial coverage"):""));
+      mcPair(details,mcTr(label),this.formatCost(row));
       if(row.average_price_per_kwh!=null&&row.currency)
         details.append(mcEl("p","muted small",mcTr("Average charging price")+" · "+
           row.average_price_per_kwh.toFixed(4)+" "+row.currency+"/kWh · "+
@@ -3384,30 +3391,21 @@ class RobotixMultiChargeCard extends HTMLElement {
     for(const [phase,label] of [["active","Active session cost"],["last","Last session cost"]]){
       const session=sessions[phase];
       if(!session)continue;
-      const partial=session.cost==null&&session.covered_cost!=null;
-      const amount=money(partial?session.covered_cost:session.cost,session.currency);
-      mcPair(details,mcTr(label),amount+(partial?" · "+mcTr("Partial coverage"):"")+
-        (session.basis?" · "+session.basis:""));
+      mcPair(details,mcTr(label),this.formatCost(session));
       if(session.quality==="partial_observation")details.append(mcEl("p","muted small",mcTr("Incomplete start/end or source coverage · observed portion only")));
     }
     if(planned&&planned.quality!=="no_planned_energy")this.planCostLine(details,planned,"Planned charging cost");
     // One headline, all period/session detail available in one disclosure.
     const headline=mcEl("div","financial-headline");
-    for(const [label,row] of [[kind==="controller"?"Charging cost today":"Active session cost",kind==="controller"?periods.today:sessions.active??periods.today],["Planned charging cost",planned]]){
+    for(const [label,row] of [["Charging cost today",periods.today],["Active session cost",kind==="controller"?null:sessions.active],["Planned charging cost",planned]]){
       if(!row||row.quality==="no_planned_energy")continue;
-      const partial=row.cost==null&&row.covered_cost!=null;
-      const caption=kind!=="controller"&&row===periods.today?"Charging cost today":label;
-      mcPair(headline,mcTr(caption),money(partial?row.covered_cost:row.cost,row.currency)+(partial?" · "+mcTr("Partial coverage"):"")+(row.basis?" · "+row.basis:""));
+      mcPair(headline,mcTr(label),this.formatCost(row));
     }
     if(headline.children.length)container.append(headline);
     this.disclosure(container,kind+":"+id+":finance","Cost details",details);
   }
   planCostLine(container,row,label){
-    const value=typeof row.cost==="number"&&row.currency?
-      new Intl.NumberFormat(undefined,{style:"currency",currency:row.currency}).format(row.cost):
-      mcTr("Unknown");
-    mcPair(container,mcTr(label),value);
-    if(row.basis)container.append(mcEl("p","muted small",row.basis+" · "+mcTr("reference price, not an invoice")));
+    mcPair(container,mcTr(label),this.formatCost(row));
   }
   sessionMetrics(container,row,observed){
     const num=(v,unit,dec=2)=>typeof v==="number"&&Number.isFinite(v)?v.toFixed(dec)+" "+unit:mcTr("Unknown");
@@ -3859,8 +3857,8 @@ class RobotixMultiChargeCard extends HTMLElement {
         this.render();
       }else this.openYamlEditor();
     }));
-    container.append(toolbar);
-    if(this._yamlEditorOpen)this.yamlEditor(container);
+    const expert=mcEl("div");expert.append(toolbar);
+    if(this._yamlEditorOpen){this._folds["controller:expert"]=true;this.yamlEditor(expert);}
     if(d.configuration_managed_by_yaml)mcPair(
       container,"Configuration",
       "Legacy file-owned configuration is read-only; migrate once to GUI ownership"
@@ -4020,12 +4018,8 @@ class RobotixMultiChargeCard extends HTMLElement {
           }
         }else if(title==="Integrations"){
           const tariff=d.observations?.sources||{};
-          mcPair(detail,"Tariff",mcReason(tariff.tariff_quality));
-          if(tariff.tariff_tomorrow_quality)mcPair(detail,"Tomorrow",tariff.tariff_tomorrow_quality==="OK"?mcTr("Ready"):mcReason(tariff.tariff_tomorrow_quality));
-          mcPair(detail,"Forecast source",tariff.tariff_source||mcTr("Not set"));
-          mcPair(detail,"Forecast intervals",tariff.tariff_slot_count??0);
           mcPair(detail,"Forecast price basis",tariff.tariff_basis||mcTr("Unknown"));
-          mcPair(detail,"Prices available until",tariff.tariff_coverage_until?mcTime(tariff.tariff_coverage_until,d.timezone):mcTr("Unknown"));
+          if(this.canEditSettings())detail.append(mcButton("Sources & bindings",()=>{this._settingsOpen="Sources & bindings";this.render();}));
           mcPair(detail,"Solar",mcReason((d.observations||{}).sources?.solar_quality));
           mcPair(detail,"Capacity",mcReason((d.observations||{}).sources?.binding_quality));
           for(const [field,label,unit] of [
@@ -4039,14 +4033,14 @@ class RobotixMultiChargeCard extends HTMLElement {
             mcPair(detail,label,reading?.quality==="ok"||reading?.quality==="OK"?
               String(reading.value)+(unit?" "+unit:"") : mcTr("Unknown"));
           }
-          mcPair(detail,"Solar source",ctl.solar_source_kind||"none");
-          mcPair(detail,"Grid direction",ctl.grid_power_direction||"import_positive");
+
         }
         group.append(detail);
       }
       settingsGrid.append(group);
     }
     container.append(settingsGrid);
+    this.disclosure(container,"controller:expert","Complete object settings & sources",expert);
   }
 }
 if(!customElements.get("robotix-multicharge-card"))customElements.define("robotix-multicharge-card",RobotixMultiChargeCard);
