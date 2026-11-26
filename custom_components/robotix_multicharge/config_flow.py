@@ -843,8 +843,16 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
                         or self._current() != runtime.configuration):
                     self._last_config_error = "Configuration changed or is still being applied. Reopen the current configuration."
                     return None
-                _assert_safe_yaml_ui_commit(runtime, updated)
-                return self._saved(updated)
+                from .command_query import commit_ui_configuration_locked
+                await commit_ui_configuration_locked(
+                    self.hass, self.config_entry, runtime, updated,
+                    expected_revision=configuration_revision(self._current()),
+                    scope="controller", target_id=updated["controller"]["id"],
+                    action="save", changes={"format": "native_options"},
+                )
+                # HA acknowledges the already committed options, rather than
+                # building a second candidate or independent revision.
+                return self.async_create_entry(title="", data=dict(self.config_entry.options))
         except ValueError as exc:
             self._last_config_error = str(exc)
             return None
