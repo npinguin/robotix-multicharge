@@ -31,7 +31,7 @@ from .cost_archive import (
 )
 from .history import (
     civil_cost_days, civil_period_costs, daily_costs, planned_costs, read_actual_history,
-    reconcile_power_bindings, reconcile_tariff_bindings, session_costs,
+    reconcile_power_bindings, reconcile_tariff_bindings, session_costs, read_recorder_samples,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -107,6 +107,7 @@ class MultiChargeRuntime:
         self._unsubscribers = []
         # Bounded, nonpersistent timings; diagnostic export only.
         self._performance = {}
+        self._recorder_inflight = {}
         self.active = True
 
     def _record_performance(self, operation, started):
@@ -129,11 +130,37 @@ class MultiChargeRuntime:
             }
         return result
 
+    async def _read_recorder_samples(self, first, end, entities):
+        """Share only identical running Recorder calls; never cache past data."""
+        key = (first, end, tuple(sorted(set(entities))))
+        task = self._recorder_inflight.get(key)
+        if task is None or task.done():
+            async def query():
+                started = perf_counter()
+                try:
+                    return await read_recorder_samples(self.hass, *key)
+                finally:
+                    self._record_performance("recorder_query", started)
+
+            task = self.hass.async_create_task(query())
+            self._recorder_inflight[key] = task
+
+            def remove(finished):
+                if self._recorder_inflight.get(key) is finished:
+                    self._recorder_inflight.pop(key, None)
+                if not finished.cancelled():
+                    finished.exception()  # consume if all waiting readers cancelled
+
+            task.add_done_callback(remove)
+        # A browser leaving the page cannot cancel a shared finance read.
+        return await asyncio.shield(task)
+
     async def read_history(self, configuration, start, end, **kwargs):
         """One instrumented native history projection; never a new ledger."""
         started = perf_counter()
         try:
-            return await read_actual_history(self.hass, configuration, start, end, **kwargs)
+            return await read_actual_history(self.hass, configuration, start, end,
+                                             read_samples=self._read_recorder_samples, **kwargs)
         finally:
             self._record_performance("history_projection", started)
 
@@ -492,6 +519,9 @@ class MultiChargeRuntime:
 
     def stop(self):
         self.active = False
+        for task in self._recorder_inflight.values():
+            task.cancel()
+        self._recorder_inflight.clear()
         self.executor.detach()
         for unsubscribe in self._unsubscribers:
             unsubscribe()
