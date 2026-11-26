@@ -2969,6 +2969,58 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "different command"):
             await rt.executor.execute("evse", "stop", request_id="fixed-key")
 
+    async def test_pending_request_identity_is_reserved_before_any_side_effect(self):
+        rt, _, services = rig()
+        entered, release = asyncio.Event(), asyncio.Event()
+        original = services.async_call
+
+        async def delayed(*args, **kwargs):
+            entered.set()
+            await release.wait()
+            await original(*args, **kwargs)
+
+        services.async_call = delayed
+        first = asyncio.create_task(rt.executor.execute("evse", "start", request_id="same"))
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        retry = asyncio.create_task(rt.executor.execute("evse", "start", request_id="same"))
+        await asyncio.sleep(0)
+        with self.assertRaisesRegex(ValueError, "different command"):
+            await rt.executor.execute("evse", "stop", request_id="same")
+        self.assertNotIn("evse", rt.executor._stop_requested)
+        # Cancelling a duplicate waiter cannot cancel the real native writer.
+        cancelled = asyncio.create_task(rt.executor.execute("evse", "start", request_id="same"))
+        await asyncio.sleep(0)
+        cancelled.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await cancelled
+        release.set()
+        result, repeated = await asyncio.wait_for(asyncio.gather(first, retry), timeout=2)
+        self.assertEqual(result["status"], "confirmed")
+        self.assertEqual(result, repeated)
+        self.assertEqual([row[1] for row in services.calls], ["turn_on"])
+
+    async def test_internal_commands_do_not_grow_external_retry_registry(self):
+        rt, _, services = rig()
+        for _ in range(300):
+            outcome = await rt.executor.execute("evse", "stop")
+            self.assertEqual(outcome["status"], "confirmed")
+        self.assertEqual(rt.executor._requests, {})
+        self.assertEqual(services.calls, [])
+        first = await rt.executor.execute("evse", "stop", request_id="public")
+        self.assertEqual(await rt.executor.execute("evse", "stop", request_id="public"), first)
+        self.assertEqual(len(rt.executor._requests), 1)
+        self.assertEqual(rt.executor.snapshot()["evse"]["request_id"], first["request_id"])
+
+    async def test_rejected_setpoint_retry_keeps_original_requested_identity(self):
+        rt, _, services = rig()
+        first = await rt.executor.execute("evse", "set_current", current_a=10, request_id="amps")
+        self.assertEqual(first["reason"], "ON_OFF_CANNOT_MODULATE")
+        self.assertEqual(await rt.executor.execute(
+            "evse", "set_current", current_a=10, request_id="amps"), first)
+        with self.assertRaisesRegex(ValueError, "different command"):
+            await rt.executor.execute("evse", "set_current", current_a=11, request_id="amps")
+        self.assertEqual(services.calls, [])
+
     async def test_external_writer_default_blocks_start_and_stop(self):
         rt, _, services = rig(owner="external", commissioned=False)
         for action in ("start", "stop"):
