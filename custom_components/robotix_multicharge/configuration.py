@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 from math import ceil, floor, isfinite
 from re import fullmatch
 
-from .domain import ChargeableAsset, Charger, ChargeController
+from .domain import ChargeableAsset, Charger, ChargeController, operating_current_grid
 from .const import DEFAULT_POWER_ADJUSTMENT_INTERVAL_MINUTES
 
 # One shared, accessible identity palette. Keys are stable HA select options.
@@ -727,6 +727,20 @@ def charger_activation_reason(charger):
 
 def charger_is_active(charger):
     return charger_activation_reason(charger) is None
+
+
+def charger_operating_grid(charger, *, preferences=True):
+    """Adapt validated/effective configuration to the domain's one legal grid."""
+    if charger.get("kind") != "variable_current":
+        return None
+    return operating_current_grid(
+        charger.get("min_current_a"), charger.get("max_current_a"),
+        charger.get("current_step_a"), charger.get("phase_count"),
+        charger.get("voltage_v"), charger.get("rated_power_kw"),
+        charger.get("min_charging_power_kw") if preferences else None,
+        charger.get("max_charging_power_kw") if preferences else None,
+        charger.get("circuit_limit_a"),
+    )
 
 
 def forecast_tariff_source(controller):
