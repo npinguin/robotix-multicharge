@@ -16,7 +16,7 @@ from uuid import uuid4
 from time import monotonic
 
 from .source_evidence import Evidence, binding, connection, intervals, number, soc_with_health
-from .configuration import is_plan_presentation_only_change
+from .configuration import is_plan_presentation_only_change, charger_activation_reason, charger_is_active
 from .const import DEFAULT_POWER_ADJUSTMENT_INTERVAL_MINUTES, MIN_AC_CURRENT_A
 from .history import receipt_overlaps
 from .planner import (resolve_recurring_ready_by, charging_window_allows,
@@ -558,10 +558,8 @@ class NativeSwitchExecutor:
                 reason = "CHARGER_CONTROL_UNSUPPORTED"
             elif not str(charger.get("control_entity", "")).startswith("switch."):
                 reason = "NATIVE_SWITCH_REQUIRED"
-            elif charger.get("control_owner", "external") != "multicharge":
-                reason = "EXTERNAL_WRITER_OWNS_CHARGER"
-            elif charger.get("physical_commissioned") is not True:
-                reason = "PHYSICAL_COMMISSIONING_REQUIRED"
+            elif charger_activation_reason(charger):
+                reason = charger_activation_reason(charger)
             elif self._switch(self.runtime.hass, charger["control_entity"]) is None:
                 reason = "NATIVE_SWITCH_UNAVAILABLE"
             elif uid in self._paused:
@@ -576,8 +574,7 @@ class NativeSwitchExecutor:
             stop_allowed = (
                 not self._stopped
                 and charger.get("kind") in ("on_off", "variable_current")
-                and charger.get("control_owner") == "multicharge"
-                and charger.get("physical_commissioned") is True
+                and charger_is_active(charger)
                 and self._switch(self.runtime.hass, charger.get("control_entity")) is not None
             )
             # Keep a real, actionable readiness reason even on an
@@ -589,10 +586,8 @@ class NativeSwitchExecutor:
                 manual_reason = "INTEGRATION_UNLOADED"
             elif not self._persistence_verified:
                 manual_reason = "CONTROL_STATE_UNVERIFIED"
-            elif charger.get("control_owner") != "multicharge":
-                manual_reason = "EXTERNAL_WRITER_OWNS_CHARGER"
-            elif charger.get("physical_commissioned") is not True:
-                manual_reason = "PHYSICAL_COMMISSIONING_REQUIRED"
+            elif charger_activation_reason(charger):
+                manual_reason = charger_activation_reason(charger)
             elif not str(charger.get("control_entity", "")).startswith("switch."):
                 manual_reason = "NATIVE_SWITCH_REQUIRED"
             elif self._switch(self.runtime.hass, charger["control_entity"]) is None:
@@ -2062,8 +2057,7 @@ class NativeSwitchExecutor:
             for configured in self._quarter_order(self.runtime.configuration["chargers"], slots):
                 charger = self.effective_charger(configured)
                 uid = charger["id"]
-                if (charger.get("control_owner", "external") != "multicharge"
-                        or charger.get("physical_commissioned") is not True
+                if (not charger_is_active(charger)
                         or uid in self._paused):
                     continue
                 slot = slots.get(uid)
@@ -2315,8 +2309,7 @@ class NativeSwitchExecutor:
         cfg = self.runtime.configuration
         for configured in cfg["chargers"]:
             uid = configured["id"]
-            if (uid in pending or configured.get("control_owner") != "multicharge"
-                    or configured.get("physical_commissioned") is not True
+            if (uid in pending or not charger_is_active(configured)
                     or configured.get("kind") not in ("on_off", "variable_current")):
                 continue
             # Ordinary readback from a different pending command is not a
@@ -2357,8 +2350,7 @@ class NativeSwitchExecutor:
             active = []
             for c in cfg["chargers"]:
                 if (c.get("kind") not in ("on_off", "variable_current")
-                        or c.get("control_owner") != "multicharge"
-                        or c.get("physical_commissioned") is not True):
+                        or not charger_is_active(c)):
                     continue
                 state = self._switch(self.runtime.hass, c.get("control_entity"))
                 if state is None:
@@ -2387,8 +2379,7 @@ class NativeSwitchExecutor:
         """Stop each owned charger before unload, with actual power readback."""
         for charger in self.runtime.configuration["chargers"]:
             if (charger.get("kind") not in ("on_off", "variable_current")
-                    or charger.get("control_owner", "external") != "multicharge"
-                    or charger.get("physical_commissioned") is not True):
+                    or not charger_is_active(charger)):
                 continue
             state = self._switch(self.runtime.hass, charger.get("control_entity"))
             if state is None:
@@ -2457,8 +2448,7 @@ class NativeSwitchExecutor:
                 and not self._stopped):
             charger = next((c for c in self.runtime.configuration["chargers"]
                             if c["id"] == charger_id), None)
-            if (charger is not None and charger.get("control_owner") == "multicharge"
-                    and charger.get("physical_commissioned") is True
+            if (charger is not None and charger_is_active(charger)
                     and charger.get("kind") in ("on_off", "variable_current")):
                 self._grants.pop(charger_id, None)
                 pending = self._start_pending | self._current_pending
@@ -2509,10 +2499,8 @@ class NativeSwitchExecutor:
             entity = charger.get("control_entity")
             if not entity or not entity.startswith("switch."):
                 return result("rejected", "NATIVE_SWITCH_REQUIRED")
-            if charger.get("control_owner", "external") != "multicharge":
-                return result("rejected", "EXTERNAL_WRITER_OWNS_CHARGER")
-            if charger.get("physical_commissioned") is not True:
-                return result("rejected", "PHYSICAL_COMMISSIONING_REQUIRED")
+            if charger_activation_reason(charger):
+                return result("rejected", charger_activation_reason(charger))
             state = self._switch(self.runtime.hass, entity)
             if state is None:
                 return result("rejected", "NATIVE_SWITCH_UNAVAILABLE")
