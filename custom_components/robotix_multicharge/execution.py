@@ -273,9 +273,10 @@ class NativeSwitchExecutor:
             if (receipt.get("intent_key") != key
                     or receipt.get("asset_id") != asset["id"]):
                 continue
-            if receipt.get("physical_stop_confirmed") is not True and not (
-                    asset.get("requested_duration_minutes") is not None
-                    and receipt.get("switch_stop_confirmed") is True):
+            if receipt.get("continuity_quality") == "unknown" or receipt.get("duration_minutes") is None or (
+                    receipt.get("physical_stop_confirmed") is not True and not (
+                        asset.get("requested_duration_minutes") is not None
+                        and receipt.get("switch_stop_confirmed") is True)):
                 return {"energy_kwh": None, "duration_minutes": None,
                         "budget_amount": None}
             if money_requested:
@@ -637,6 +638,40 @@ class NativeSwitchExecutor:
         })
         self.session_history_revision += 1
 
+    def _close_unknown_interruption(self, uid, observed_at, reason):
+        """Retain the original intent with UNKNOWN progress after verified STOP.
+
+        This receipt is not an attributable physical session interval. Its
+        timestamps bound the incident, not measured charging duration.
+        """
+        row = self._interrupted_sessions.get(uid)
+        charger = next((c for c in self.runtime.configuration["chargers"]
+                        if c["id"] == uid), None)
+        if (row is None or charger is None or observed_at is None
+                or row["sources"]["control_entity"] != charger.get("control_entity")):
+            return False
+        session = row["session"]
+        begun = datetime.fromisoformat(session["started_at"])
+        if observed_at < begun:
+            return False
+        self._session_history.append({
+            "charger_id": uid, "asset_id": session["asset_id"],
+            "intent_key": session.get("intent_key"),
+            "started_at": session["started_at"], "ended_at": observed_at.isoformat(),
+            "duration_minutes": None, "actual_energy_kwh": None,
+            "energy_quality": "unknown", "meter_entity": row["sources"]["energy_entity"],
+            "meter_observed_at": None, "cost": None, "currency": None,
+            "cost_quality": "unknown", "stop_reason": reason,
+            "physical_stop_confirmed": False, "switch_stop_confirmed": True,
+            "continuity_quality": "unknown",
+            "budget_accrued_cost": None, "budget_cost_quality": "unknown",
+            "budget_currency": session.get("requested_budget_currency"),
+        })
+        self.session_history_revision += 1
+        self._inflight.pop(session["asset_id"] or f"charger:{uid}", None)
+        self._interrupted_sessions.pop(uid, None)
+        return True
+
     def accepted_slots(self):
         """Actual admitted slots only, never future proposals masquerading as execution."""
         threshold = datetime.now(timezone.utc) - timedelta(hours=48)
@@ -776,18 +811,16 @@ class NativeSwitchExecutor:
                         and receipt.get("intent_key") == expected
                         and (receipt.get("physical_stop_confirmed") is True
                              or (session.get("duration_without_connection") and receipt.get("switch_stop_confirmed")))
-                        and (session.get("requested_kwh") is None
-                             or receipt.get("actual_energy_kwh") is not None)
-                        and (session.get("requested_budget_amount") is None
-                             or receipt.get("budget_accrued_cost") is not None)):
+                        ):
+                    # Unknown energy/cost now lives in the attributable
+                    # receipt and blocks the SAME finite intent through
+                    # measured_intent_usage, not a permanent charger lock.
                     self._inflight.pop(hold_key, None)
                     self._interrupted_sessions.pop(uid, None)
-            if reason == "NATIVE_SWITCH_STATE" and (
-                    uid not in self._interrupted_sessions or
-                    self._interrupted_sessions[uid]["session"].get("duration_without_connection")):
+            elif uid in self._interrupted_sessions:
+                self._close_unknown_interruption(uid, observed_at, reason)
+            if reason == "NATIVE_SWITCH_STATE" and uid not in self._interrupted_sessions:
                 self._inflight.pop(f"charger:{uid}", None)
-                if self._interrupted_sessions.get(uid, {}).get("session", {}).get("asset_id") is None:
-                    self._interrupted_sessions.pop(uid, None)
             self._quarantine.discard(uid)
             self._sessions.pop(uid, None)
             self._draw_samples.pop(uid, None)
@@ -2479,6 +2512,15 @@ class NativeSwitchExecutor:
                     continue
                 if state.state == "on":
                     active.append(c)
+                elif c["id"] in self._interrupted_sessions:
+                    row = self._interrupted_sessions[c["id"]]
+                    if row["sources"]["control_entity"] != c.get("control_entity"):
+                        continue
+                    power = number(self.runtime.hass, c.get("power_entity"), "power", at)
+                    if (power.quality == "ok" or (c["kind"] == "on_off"
+                            and (not c.get("power_entity")
+                                 or row["session"].get("duration_without_connection")))):
+                        await self.execute(c["id"], "stop")
             for configured in active:
                 charger = self.effective_charger(configured)
                 uid = charger["id"]
@@ -2869,7 +2911,10 @@ class NativeSwitchExecutor:
                     (manual_request is not None and manual_request.get("duration_minutes") is not None)
                     or (action == "start" and any(a["id"] == charger.get("asset")
                         and a.get("requested_duration_minutes") is not None for a in cfg["assets"]))
-                    or self._sessions.get(charger_id, {}).get("duration_without_connection", False))
+                    or self._sessions.get(charger_id, {}).get("duration_without_connection", False)
+                    or (action in ("stop", "pause")
+                        and self._interrupted_sessions.get(charger_id, {}).get("sources", {}).get("control_entity") == entity
+                        and self._interrupted_sessions.get(charger_id, {}).get("session", {}).get("duration_without_connection")))
                 self._publish(charger_id, request_id, action, "requested",
                               "REQUESTED", at)
                 try:
