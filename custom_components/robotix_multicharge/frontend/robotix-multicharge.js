@@ -586,7 +586,7 @@ function mcPlanTickText(value,data){
 }
 function mcPlanSeries(data,visibleChargers,rows,actuals,forecast,includeTotals=false,technical=true){
   if(!technical){
-    rows=rows.map(row=>({...row,proposed_power_kw:Number.isFinite(row.accepted_power_kw)?row.accepted_power_kw:row.proposed_power_kw,accepted_power_kw:null}));
+    rows=rows.map(row=>({...row,proposed_power_kw:Number.isFinite(row.accepted_power_kw)&&row.accepted_power_kw>0?row.accepted_power_kw:row.proposed_power_kw,accepted_power_kw:null}));
   }
   const from=Date.parse(data.start),until=Date.parse(data.end);
   const visible=new Set(visibleChargers.map(c=>c.id));
@@ -2505,7 +2505,9 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(!hasData){
         card.append(mcEl("p","muted small","No qualified slots for this day."));
       }else{
-        card.append(mcApexLane(d,charger,activeRows,actualRows,previewRows));
+        const laneKey="plan:compact:"+charger.id;
+        if(!this.compactOwner(charger,selected||null)||this._filter||this._folds[laneKey])
+          card.append(mcApexLane(d,charger,activeRows,actualRows,previewRows));
       }
       if(assumptions[charger.id]&&forecastVisible&&(!hasGoal||!d.goal_assessments[charger.id].conditional)){
         if(previewNext)card.append(mcEl("p","small",mcTr("Indicative")+" · "+mcTime(previewNext.start,d.timezone)+" · "+previewNext.indicative_power_kw+" kW"));
@@ -2521,7 +2523,13 @@ class RobotixMultiChargeCard extends HTMLElement {
       }
       if(this.compactOwner(charger,selected||null)&&!this._filter){
         const compact=mcEl("section","card");
-        this.disclosure(compact,"plan:compact:"+charger.id,fullName,card,plugged);
+        const fold=this.disclosure(compact,"plan:compact:"+charger.id,fullName,card,plugged);
+        fold.addEventListener("toggle",()=>{
+          if(fold.open&&hasData&&!card.querySelector?.(".mc-apex")){
+            card.append(mcApexLane(d,charger,activeRows,actualRows,previewRows));
+            mcSchedulePlanAlignment(this.shadowRoot);
+          }
+        });
         scene.append(compact);
       }else scene.append(card);
     }
@@ -2800,7 +2808,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     technical.append(metrics);
     if((goal.timeline_windows||[]).length&&
         (!goal.conditional||this._data.configuration?.controller?.show_indicative_forecast!==false))
-      this.goalTimeline(technical,goal,mcPlanOwnerColor(this._data,asset.id,charger.id));
+      this.goalTimeline(this._tab==="Charging Plan"?result:technical,goal,mcPlanOwnerColor(this._data,asset.id,charger.id));
     const timing=[];
     if(goal.next_charge_at)timing.push(mcTr("Next charge")+" · "+mcTime(goal.next_charge_at,this._data.timezone));
     if(goal.planned_finish_at)timing.push(mcTr("Planned finish")+" · "+mcTime(goal.planned_finish_at,this._data.timezone));
