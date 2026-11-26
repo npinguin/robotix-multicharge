@@ -58,6 +58,26 @@ def sample():
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_only_unaliased_display_meter_updates_can_skip_planning(self):
+        from multicharge_runtime_test.runtime import display_only_power_sources
+        cfg = sample()
+        cfg["controller"].update(home_power_entity="sensor.house", solar_power_entity="sensor.pv")
+        states = {"sensor.soc": state("65", "%"), "sensor.power": state("0", "W"),
+                  "binary_sensor.cable": state("on"), "sensor.house": state("100", "W"),
+                  "sensor.pv": state("500", "W")}
+        rt = MultiChargeRuntime(SimpleNamespace(states=SimpleNamespace(get=states.get)), cfg)
+        rt.refresh(NOW)
+        original = rt.assessment
+        self.assertEqual(display_only_power_sources(cfg), {"sensor.house", "sensor.pv"})
+        states["sensor.pv"].state = "900"
+        rt.refresh_display_power(NOW)
+        self.assertIs(rt.assessment, original)
+        self.assertEqual(rt.observations["sources"]["solar_power"]["value"], 0.9)
+        cfg["controller"]["grid_power_entity"] = "sensor.pv"
+        self.assertEqual(display_only_power_sources(cfg), {"sensor.house"})
+        cfg["chargers"][0]["power_entity"] = "sensor.house"
+        self.assertFalse(display_only_power_sources(cfg))
+
     def test_assigned_vehicle_plans_on_fresh_connection_without_extra_confirmation(self):
         config = sample()
         observations = {"sensor.soc": state("65", "%"),
