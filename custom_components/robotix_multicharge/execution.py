@@ -1694,6 +1694,19 @@ class NativeSwitchExecutor:
             session["budget_last_meter_at"] = sample.observed_at
         return None
 
+    def _switch_epoch_changed(self, charger, session, switch=None):
+        """A newer ON epoch is not proof of continuous owned charging."""
+        if session is None:
+            return False
+        switch = switch or self._switch(self.runtime.hass, charger.get("control_entity"))
+        if switch is None or switch.state != "on":
+            return False
+        old = session.get("switch_on_since")
+        observed = getattr(switch, "last_changed", None)
+        if old is None or observed is None or observed.utcoffset() is None:
+            return False
+        return observed != datetime.fromisoformat(old)
+
     def _session_stop_reason(self, charger, now):
         """Demand closure is based on observed energy, time or SoC, never a guess."""
         session = self._sessions.get(charger["id"])
@@ -1701,6 +1714,8 @@ class NativeSwitchExecutor:
             if charger["id"] in self._start_pending:
                 return None
             return "ACTIVE_CHARGING_UNOWNED_AFTER_RESTART"
+        if self._switch_epoch_changed(charger, session):
+            return "ACTIVE_SWITCH_EPOCH_CHANGED"
         asset = next(
             (a for a in self.runtime.configuration["assets"]
              if a["id"] == session["asset_id"]), None
@@ -2870,6 +2885,14 @@ class NativeSwitchExecutor:
             if state is None:
                 return result("rejected", "NATIVE_SWITCH_UNAVAILABLE")
             if action in ("stop", "pause"):
+                session = self._sessions.get(charger_id)
+                if self._switch_epoch_changed(charger, session, state):
+                    # A different client may have performed OFF/ON between
+                    # observations. Preserve the original checkpoint but
+                    # never attribute the intervening draw to that session.
+                    self._interrupted_sessions[charger_id] = self._recovery_checkpoints()[charger_id]
+                    self._sessions.pop(charger_id)
+                    self._draw_samples.pop(charger_id, None)
                 recovered_session = self._recovery_session_for_stop(charger, state, at)
             if action == "resume":
                 if charger_id not in self._paused:
