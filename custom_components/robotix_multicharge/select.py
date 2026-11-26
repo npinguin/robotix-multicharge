@@ -180,7 +180,7 @@ class _OwnedSelect(SelectEntity):
                 name for name, source in MODES.items()
                 if source == current.get("mode")
             ), "off")
-        elif self.field == "show_indicative_forecast":
+        elif self.field in ("show_indicative_forecast", "maintain_soc_until_ready_by"):
             self._attr_current_option = (
                 "on" if current.get(self.field, DEFAULT_MAINTAIN_SOC_UNTIL_READY_BY if self.field == "maintain_soc_until_ready_by" else True) else "off"
             )
@@ -254,7 +254,7 @@ class _OwnedSelect(SelectEntity):
             if option != "none" and selected is None:
                 raise ValueError("unknown_vehicle")
             value = selected
-        elif self.field == "show_indicative_forecast":
+        elif self.field in ("show_indicative_forecast", "maintain_soc_until_ready_by"):
             value = option == "on"
         elif self.field == "continuous_charging":
             value = option == "continuous"
