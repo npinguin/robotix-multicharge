@@ -369,8 +369,8 @@
       "maintain_soc_until_ready_by": {
         "name": "Behåll laddnivå till avfärd",
         "state": {
-          "on": "Visa",
-          "off": "Dölj"
+          "on": "På",
+          "off": "Av"
         }
       },
       "continuous_charging": {
