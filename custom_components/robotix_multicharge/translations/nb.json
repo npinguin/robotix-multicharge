@@ -369,8 +369,8 @@
       "maintain_soc_until_ready_by": {
         "name": "Behold ladenivå til avreise",
         "state": {
-          "on": "Vis",
-          "off": "Skjul"
+          "on": "På",
+          "off": "Av"
         }
       },
       "continuous_charging": {
