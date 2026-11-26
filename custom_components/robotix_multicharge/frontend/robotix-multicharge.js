@@ -289,6 +289,7 @@ const MC_STYLE = [
   // Calm dense object-first D0/D1 cards; D3/D4 properties are native
   // keyboard-accessible foldable rows, never a simultaneous 82-field form.
   ".object-card{margin:9px 0;padding:14px 16px;border-radius:12px;box-shadow:0 1px 2px #00000009}.object-card>.row:first-child{padding-bottom:7px;border-bottom:1px solid var(--divider-color,#e5e7eb)}.object-card h3{font-size:15px;letter-spacing:-.01em}.object-card>.pair{padding:4px 0}.object-card .plan-key{margin:7px 0}",
+  ".compact-owner{padding:10px 12px}.compact-owner .vehicle-summary{margin:4px 0}.compact-owner .vehicle-soc{font-size:20px}.compact-owner .vehicle-deadline{font-size:12px}.compact-owner .goal-outcome{margin:3px 0;padding-top:3px}.compact-owner .object-disclosure{margin:3px 0}.compact-owner .overview-actions{margin:4px 0}.compact-owner .financial-headline{margin:3px 0}",
   ".object-card .controls{margin:10px 0 4px}.object-card .quick-goal{margin:10px 0;background:transparent}.object-card .details{margin-top:14px}.object-card>.small{color:var(--secondary-text-color,#667085)}",
   ".owner-inventory{margin:16px 0 0;border-top:1px solid var(--divider-color,#d9dce2);padding:12px 0 0}.owner-inventory>h4{font-size:14px;margin:0 0 8px}.owner-group{margin:6px 0;padding:0;overflow:hidden;border-radius:9px;background:var(--card-background-color,#fff)}",
   ".owner-group>summary{cursor:pointer;padding:11px 12px;font-size:13px;font-weight:600;display:list-item;list-style-position:inside;user-select:none}.owner-group>summary:hover{background:var(--secondary-background-color,#f6f8fa)}.owner-group[open]>summary{border-bottom:1px solid var(--divider-color,#e1e4e8)}.owner-summary-count{font-size:11px;font-weight:400;color:var(--secondary-text-color,#65717e);margin-left:7px}",
@@ -2320,39 +2321,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         this.disclosure(card,"asset:"+a.id+":active-session","Active session",sessionDetails);
       }
       if(a.temporary)card.append(mcEl("p","small",mcTr("Guest")+" · "+mcTime(a.expires_at,d.timezone)));
-      const controls=mcEl("div","overview-actions");
-      controls.append(mcButton(mcTr("Charging plan"),()=>{
-        this._tab="Charging Plan";this.selectViewRange(this._day,"asset:"+a.id);
-      }));
-      if(this.canEditSettings()){
-        controls.append(mcButton(mcTr("Set charging goal"),()=>{
-          this._goalEditor=a.id;this._scheduleEditor="";this._assignmentEditor="";
-          this.render();
-        }));
-        controls.append(mcButton(mcTr("Schedule charging"),()=>{
-          this._scheduleEditor=this._scheduleEditor===a.id?"":a.id;
-          this._goalEditor="";this._assignmentEditor="";this.render();
-        }));
-      }
-      if(charger&&this.canManage()){
-        const capabilities=(d.command_capabilities||{})[charger.id]||{};
-        if(capabilities.stop_allowed){
-          const stop=mcButton(mcTr("Stop charging"),()=>
-            this.command(charger.id,"stop"));
-          stop.disabled=this._commandBusy;
-          controls.append(stop);
-        }
-      }
-      // Keep the everyday action cluster together, including assignment and
-      // explicit connected-vehicle confirmation; editors remain outside it.
-      this.assetChargerAssignment(card,a,charger,chargers,controls);
-      card.append(controls);
-      if(this._goalEditor===a.id&&this.canEditSettings())this.assetGoalEditor(card,a);
-      if(this._scheduleEditor===a.id&&this.canEditSettings()){
-        const schedule=mcEl("div","details schedule-editor");
-        schedule.append(mcEl("h4","",mcTr("When should the vehicle be ready?")));
-        this.nativeRepeatEditor(schedule,a);card.append(schedule);
-      }
+      this.assetDailyActions(card,a,charger,chargers,true);
       if(this.compactOwner(charger,a))card.className+=" compact-owner";
       assetCards.append(card);
     }
@@ -2979,6 +2948,35 @@ class RobotixMultiChargeCard extends HTMLElement {
       mcTr("Indicative energy budget, not a guaranteed electricity bill")));
     card.append(form);
   }
+  assetDailyActions(card,a,charger,chargers,showPlan){
+    const controls=mcEl("div","overview-actions");
+    if(showPlan)controls.append(mcButton(mcTr("Charging plan"),()=>{
+      this._tab="Charging Plan";this.selectViewRange(this._day,"asset:"+a.id);
+    }));
+    if(this.canEditSettings()){
+      if(this._goalEditor!==a.id){
+        const goal=mcButton("Set charging goal",()=>{this._goalEditor=a.id;this._scheduleEditor="";this._assignmentEditor="";this.render();});
+        goal.disabled=this._settingsBusy;controls.append(goal);
+      }
+      const schedule=mcButton(this._scheduleEditor===a.id?"Hide charging schedule":"Schedule charging",()=>{
+        this._scheduleEditor=this._scheduleEditor===a.id?"":a.id;
+        this._goalEditor="";this._assignmentEditor="";this.render();
+      });
+      schedule.disabled=this._settingsBusy;controls.append(schedule);
+    }
+    if(charger&&this.canManage()&&this._data.command_capabilities?.[charger.id]?.stop_allowed){
+      const stop=mcButton("Stop charging",()=>this.command(charger.id,"stop"));
+      stop.disabled=this._commandBusy;controls.append(stop);
+    }
+    this.assetChargerAssignment(card,a,charger,chargers,controls);
+    if(controls.children.length)card.append(controls);
+    if(this._goalEditor===a.id&&this.canEditSettings())this.assetGoalEditor(card,a);
+    if(this._scheduleEditor===a.id&&this.canEditSettings()){
+      const schedule=mcEl("div","details schedule-editor");
+      schedule.append(mcEl("h4","",mcTr("When should the vehicle be ready?")));
+      this.nativeRepeatEditor(schedule,a);card.append(schedule);
+    }
+  }
   assetChargerAssignment(card,a,charger,chargers,actions=card){
   if(this.canEditSettings()&&chargers.length){
     const change=mcButton(
@@ -3060,30 +3058,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       this.goalAssessment(card,a,charger);
       this.financialSummary(card,"asset",a.id);
       card.append(mcEl("p","muted small",mcTr("Effective charging power")+" · "+mcValue(obs.effective_power_kw," kW")));
-      // One explicit action opens the goal editor; the default view is a summary.
-      const goalVisible=this._goalEditor===a.id;
-      if(goalVisible)this.assetGoalEditor(card,a);
-      else if(this.canEditSettings())card.append(mcButton(
-        mcTr("Set charging goal"),()=>{
-          this._goalEditor=a.id;this._scheduleEditor="";this._assignmentEditor="";this.render();
-        }));
-      if(this.canEditSettings()){
-        const calendar=mcButton(
-          this._scheduleEditor===a.id?mcTr("Hide charging schedule"):
-            mcTr("Schedule charging"),()=>{
-            this._scheduleEditor=this._scheduleEditor===a.id?"":a.id;
-            this._goalEditor="";this._assignmentEditor="";this.render();
-          });
-        calendar.disabled=this._settingsBusy;
-        card.append(calendar);
-        if(this._scheduleEditor===a.id){
-          const schedule=mcEl("div","details schedule-editor");
-          schedule.append(mcEl("h4","",mcTr("When should the vehicle be ready?")));
-          this.nativeRepeatEditor(schedule,a);
-          card.append(schedule);
-        }
-      }
-      this.assetChargerAssignment(card,a,charger,chargers);
+      this.assetDailyActions(card,a,charger,chargers,false);
       if(this._open===a.id){
         const detail=mcEl("div","details");
         mcPair(detail,"Charging priority",a.priority===undefined?"Not set":a.priority);
@@ -3208,6 +3183,10 @@ class RobotixMultiChargeCard extends HTMLElement {
           mcPair(row,mcTr("Charger at session time"),
             chargers.find(ch=>ch.id===receipt.charger_id)?.name||
               mcTr("Unknown"));
+          if(receipt.charger_id&&!chargers.some(ch=>ch.id===receipt.charger_id)){
+            const technical=mcEl("div");mcPair(technical,mcTr("Stable charger ID"),receipt.charger_id);
+            this.disclosure(row,"asset:"+a.id+":historical-charger:"+receipt.ended_at,"Technical details",technical);
+          }
           mcPair(row,mcTr("Completed"),mcTime(receipt.ended_at,d.timezone));
           this.sessionMetrics(row,receipt,false);
           mcPair(row,mcTr("Physical STOP confirmed"),mcTr("Yes"));
@@ -3627,7 +3606,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       const session=(d.active_sessions||{})[c.id];
       if(session){
         mcPair(card,"Active session",mcTime(session.started_at,d.timezone));
-        this.sessionMetrics(card,session,false);
+        const sessionDetails=mcEl("div");this.sessionMetrics(sessionDetails,session,false);
         const intent=session.requested_budget_amount!=null?
           session.requested_budget_amount+" "+
             (session.requested_budget_currency||"EUR"):
@@ -3635,15 +3614,16 @@ class RobotixMultiChargeCard extends HTMLElement {
           session.requested_duration_minutes!=null?
             session.requested_duration_minutes+" "+mcTr("minutes"):
           session.soc_target!=null?session.soc_target+"%":mcTr("Not set");
-        mcPair(card,mcTr("Active session goal"),intent);
+        mcPair(sessionDetails,mcTr("Active session goal"),intent);
         if(session.requested_budget_amount!=null){
-          mcPair(card,mcTr("Indicative budget used"),
+          mcPair(sessionDetails,mcTr("Indicative budget used"),
             session.budget_cost===null||session.budget_cost===undefined?
               mcTr("Unknown"):String(session.budget_cost)+" "+
                 (session.requested_budget_currency||"EUR"));
-          mcPair(card,mcTr("Budget measurement quality"),
+          mcPair(sessionDetails,mcTr("Budget measurement quality"),
             mcReason(session.budget_quality||"unknown"));
         }
+        this.disclosure(card,"charger:"+c.id+":active-session","Active session",sessionDetails);
       }
       this.chargerQuickSelection(card,c);
       // The owning native chooser already displays the assigned vehicle.
@@ -3660,6 +3640,10 @@ class RobotixMultiChargeCard extends HTMLElement {
         // Cost is shown once in the shared session metrics.
         mcPair(historyPanel,mcTr("Original vehicle at session time"),
           latest.asset_id?((d.configuration.assets||[]).find(a=>a.id===latest.asset_id)?.name||mcTr("Unknown")):mcTr("Anonymous charger-only session"));
+        if(latest.asset_id&&!(d.configuration.assets||[]).some(a=>a.id===latest.asset_id)){
+          const technical=mcEl("div");mcPair(technical,mcTr("Asset ID"),latest.asset_id);
+          this.disclosure(historyPanel,"charger:"+c.id+":historical-identity","Technical details",technical);
+        }
         mcPair(historyPanel,mcTr("Physical STOP confirmed"),
           latest.physical_stop_confirmed===true?mcTr("Yes"):mcTr("Unknown"));
         if(latest.stop_reason)
