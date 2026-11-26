@@ -517,8 +517,9 @@ class NativeSwitchExecutor:
                             or row.get("switch_stop_confirmed") is not False
                             or row.get("recovery_stop_confirmed") is not True):
                         raise ValueError("invalid unknown-continuity receipt")
-                elif (type(duration) not in (int, float) or not isfinite(duration) or duration < 0
-                      or duration > (ended - begun).total_seconds() / 60 + 0.002):
+                elif duration is not None and (
+                        type(duration) not in (int, float) or not isfinite(duration) or duration < 0
+                        or duration > (ended - begun).total_seconds() / 60 + 0.002):
                     raise ValueError("invalid session duration")
                 for field in ("physical_stop_confirmed", "switch_stop_confirmed"):
                     if field in row and type(row[field]) is not bool:
@@ -1850,10 +1851,10 @@ class NativeSwitchExecutor:
                              configuration, *, energized=False):
         """Reuse admission after async boundaries, allowing only this intent."""
         current = self.runtime.configuration
-        if current != configuration and not is_plan_presentation_only_change(configuration, current):
-            return "CONFIGURATION_CHANGED_DURING_START"
         if plan_slot is not None and not self._grant_is_current(plan_slot, at):
             return "PLAN_SLOT_NOT_AUTHORIZED"
+        if current != configuration and not is_plan_presentation_only_change(configuration, current):
+            return "CONFIGURATION_CHANGED_DURING_START"
         # Re-read the native range and every applicable site/phase/circuit
         # constraint, not the old effective charger snapshot.
         raw = next((c for c in current["chargers"] if c["id"] == charger["id"]), None)
@@ -2951,6 +2952,18 @@ class NativeSwitchExecutor:
                         self._persistence_verified = False
                         return result("rejected", "MANUAL_INTENT_NOT_PERSISTED" if plan_slot is None
                                       else "PLANNED_INTENT_NOT_PERSISTED")
+                    # Store I/O yielded: recheck before even the native current
+                    # service, not just before the subsequent switch START.
+                    issue = self._pending_start_issue(
+                        charger, datetime.now(timezone.utc), plan_slot, current_a,
+                        manual_request, start_configuration,
+                    )
+                    if issue or charger_id in self._stop_requested:
+                        self._inflight.pop(hold_key, None)
+                        self._interrupted_sessions.pop(charger_id, None)
+                        if not await self.runtime.persist_control_state():
+                            self._persistence_verified = False
+                        return result("rejected", issue or "STOP_REQUESTED_DURING_START")
                 elif state.state == "off":
                     power = number(self.runtime.hass, charger.get("power_entity"),
                                    "power", at)
