@@ -197,6 +197,11 @@ def build_diagnostics(runtime, entry, captured_at=None):
         "execution": {
             "action_health": live["action_health"],
             "inflight_intent_count": len(executor._inflight),
+            "command_receipt_count": len(executor._requests),
+            "session_receipt_count": len(executor._session_history),
+            "accepted_slot_count": len(executor._accepted_history),
+            "pending_protective_tasks": sum(not task.done() for task in executor._source_stop_tasks.values()),
+            "unloading": executor._draining,
             "intent_holds_without_checkpoint": [
                 _alias(uid) for uid in sorted(executor._inflight.keys() - checkpoint_holds)
             ],
