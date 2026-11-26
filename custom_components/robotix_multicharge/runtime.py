@@ -640,7 +640,7 @@ class MultiChargeRuntime:
                 if deadline is None:
                     self.excluded[uid] = reason
                     continue
-            if amount is not None or minutes is not None or budget is not None:
+            if not soc_based:
                 progress = self.executor.measured_intent_usage(asset, raw, deadline, at)
                 if amount is not None:
                     if progress["energy_kwh"] is None:
