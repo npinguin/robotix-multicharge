@@ -736,6 +736,8 @@ class NativeSwitchExecutor:
             minimum_current = grid[0] if grid else charger.get("min_current_a")
             if self._stopped:
                 reason = "INTEGRATION_UNLOADED"
+            elif self._draining:
+                reason = "INTEGRATION_UNLOADING"
             elif not self._persistence_verified:
                 reason = "CONTROL_STATE_UNVERIFIED"
             elif charger.get("kind") not in ("on_off", "variable_current"):
@@ -765,6 +767,8 @@ class NativeSwitchExecutor:
                 manual_reason = "MANUAL_ONE_OFF_REQUIRES_UNASSIGNED_CHARGER"
             elif self._stopped:
                 manual_reason = "INTEGRATION_UNLOADED"
+            elif self._draining:
+                manual_reason = "INTEGRATION_UNLOADING"
             elif not self._persistence_verified:
                 manual_reason = "CONTROL_STATE_UNVERIFIED"
             elif charger_activation_reason(charger):
@@ -806,7 +810,7 @@ class NativeSwitchExecutor:
                 "pause_allowed": stop_allowed and uid not in self._paused
                     and self._persistence_verified,
                 "resume_allowed": stop_allowed and uid in self._paused
-                    and uid not in self._quarantine and self._persistence_verified,
+                    and not self._draining and uid not in self._quarantine and self._persistence_verified,
                 "manual_one_off_allowed": manual_reason is None,
                 "manual_one_off_reason": manual_reason or "READY",
                 "start_allowed": reason is None and uid not in self._quarantine,
@@ -2666,14 +2670,13 @@ class NativeSwitchExecutor:
         """Revoke admission before verifying every owned output for unload."""
         self._draining = True
         self._grants.clear()
+        stopped = False
         try:
             stopped = await self._stop_owned_for_shutdown()
-        except BaseException:
-            self.cancel_shutdown()
-            raise
-        if not stopped:
-            self.cancel_shutdown()
-        return stopped
+            return stopped
+        finally:
+            if not stopped:
+                self.cancel_shutdown()
 
     def cancel_shutdown(self):
         """A refused unload returns authority to the normal planner, never old grants."""
