@@ -506,7 +506,6 @@ def compile_plan(
             if demand.max_power_kw is not None:
                 remaining_kw = min(remaining_kw, demand.max_power_kw)
             phases = charger.phase_ids
-            voltage = charger.voltage_v
             if estimate_kw:
                 # Unknown physical capability never justifies a rated-power
                 # forecast. Use the same conservative minimum and skip slots
