@@ -293,7 +293,7 @@ def _observed_runs(states, first, last, now):
     return result
 
 
-def _run_valuation(segments, price_slots):
+def _run_valuation(segments, price_slots, *, partition=None):
     """Exact overlap of measured power with the shared unique price partition."""
     if not segments:
         return None
@@ -308,9 +308,12 @@ def _run_valuation(segments, price_slots):
             return None
     except (AttributeError, TypeError, ValueError, OverflowError):
         return None
-    spans = _price_spans(price_slots, min(a for a, _, _ in normalized),
-                         max(b for _, b, _ in normalized))
-    starts = [a for a, _, _ in spans]
+    if partition is None:
+        spans = _price_spans(price_slots, min(a for a, _, _ in normalized),
+                             max(b for _, b, _ in normalized))
+        starts = [a for a, _, _ in spans]
+    else:
+        spans, starts = partition
     total = 0.0
     kinds = set()
     for start, end, power in normalized:
@@ -349,13 +352,24 @@ def planned_costs(slots, price_slots, at, *, until=None):
         groups["charger"].setdefault(row.charger_uid, []).append(segment)
         if row.asset_uid is not None:
             groups["asset"].setdefault(row.asset_uid, []).append(segment)
+    # All owner groups are subsets of the same site segments. Reuse the
+    # exact UTC quote partition, retaining each group's own quality.
+    site = groups["controller"]["site"]
+    partition = None
+    if site and all(a.utcoffset() is not None and b.utcoffset() is not None
+                    for a, b, _ in site):
+        spans = _price_spans(
+            price_slots, min(a.astimezone(timezone.utc) for a, _, _ in site),
+            max(b.astimezone(timezone.utc) for _, b, _ in site),
+        )
+        partition = (spans, [a for a, _, _ in spans])
     result = {}
     for kind, owners in groups.items():
         result[kind] = {}
         for uid, segments in owners.items():
             energy = sum(power * (end-start).total_seconds()/3600
                          for start, end, power in segments)
-            value = _run_valuation(segments, price_slots) if segments else None
+            value = _run_valuation(segments, price_slots, partition=partition) if segments else None
             cost = value["estimated_cost"] if value is not None else None
             result[kind][uid] = {
                 "energy_kwh": round(energy, 6),
