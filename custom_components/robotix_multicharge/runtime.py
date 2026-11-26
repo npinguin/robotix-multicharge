@@ -12,7 +12,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from .contracts import ChargeDemand, PowerEnvelope, PowerLimitSlot
-from .configuration import configuration_revision, PLAN_COLORS, forecast_tariff_source
+from .configuration import configuration_revision, PLAN_COLORS, forecast_tariff_source, charger_is_active
 from .domain import ChargeController, Charger
 from .planner import compile_plan, minimum_planning_power, missing_current_conversion, resolve_recurring_ready_by
 from .source_evidence import (
@@ -297,8 +297,7 @@ class MultiChargeRuntime:
         )
         available = max(0.0, exported)
         for charger in self.configuration["chargers"]:
-            if (charger.get("control_owner") != "multicharge"
-                    or charger.get("physical_commissioned") is not True):
+            if (not charger_is_active(charger)):
                 continue
             state = self.executor._switch(
                 self.hass, charger.get("control_entity"),
@@ -735,7 +734,7 @@ class MultiChargeRuntime:
                 max_power_kw=asset.get("max_charge_kw"),
                 not_before=eligible_after,
             )
-            inactive = raw.get("control_owner") != "multicharge" or raw.get("physical_commissioned") is not True
+            inactive = not charger_is_active(raw)
             identity_unconfirmed = (
                 not disconnected and not inactive and not duration_without_connection
                 and self.executor.connection_confirmation(raw, at) is None
@@ -1051,7 +1050,7 @@ class MultiChargeRuntime:
             connected = cable.value if cable is not None and cable.quality == "ok" else None
             measured = power.value if power is not None and power.quality == "ok" else None
             reported = session.value if session is not None and session.quality == "ok" else None
-            activation = "active" if charger.get("control_owner") == "multicharge" and charger.get("physical_commissioned") is True else "inactive"
+            activation = "active" if charger_is_active(charger) else "inactive"
             switch = self.executor._switch(self.hass, charger.get("control_entity"))
             # Preserve conflicts as unknown rather than choose a convenient source.
             if ((connected is False and (reported in ("charging", "paused") or
@@ -1161,7 +1160,7 @@ class MultiChargeRuntime:
         )
         return {
             "configured_chargers": len(chargers),
-            "active_chargers": sum(c.get("control_owner") == "multicharge" and c.get("physical_commissioned") is True for c in chargers),
+            "active_chargers": sum(charger_is_active(c) for c in chargers),
             "connected_chargers": sum(int(e.value is True) for e in cables) if cable_ok else None,
             "charging_chargers": sum(int(e.value > 0.05) for e in powers) if power_ok else None,
             "actual_power_kw": round(sum(e.value for e in powers), 6) if power_ok else None,
