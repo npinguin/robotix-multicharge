@@ -198,7 +198,10 @@ def compare_frontend_metrics(prior, candidate, work, prior_tag, candidate_tag):
                        metrics_tag=candidate_tag)
         # Count real mounted charts and requested history; virtual-time browser
         # timings are observations, not claims of physical HA/Recorder latency.
-        assert new["apexHosts"] < old["apexHosts"], (old, new)
+        # Future releases must not regress; they need not continually reduce
+        # an already optimized host count. The compact-lane journey separately
+        # requires strictly fewer hosts when a data-bearing lane is collapsed.
+        assert new["apexHosts"] <= old["apexHosts"], (old, new)
         assert new["historyRequests"] <= old["historyRequests"], (old, new)
         print("Exact predecessor/candidate Chromium chart host and query comparison PASS")
     finally:
