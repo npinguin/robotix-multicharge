@@ -507,6 +507,65 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([row[1] for row in services.calls], ["turn_on"])
         self.assertIn("car", store.data["inflight"])
 
+    async def test_transient_store_read_preserves_original_and_recovers(self):
+        from copy import deepcopy
+        from unittest.mock import patch
+        rt, _, services = rig(mode="Automatic")
+        snapshot = rt.executor.export_state()
+        snapshot["paused"] = ["evse"]
+        snapshot["completed"] = {"car": "previous-completion"}
+        original = deepcopy(snapshot)
+
+        class DeferredStore:
+            def __init__(self):
+                self.available = False
+                self.reads = 0
+                self.saved = []
+
+            async def async_load(self):
+                self.reads += 1
+                if not self.available:
+                    raise OSError("temporary read outage")
+                return deepcopy(original)
+
+            async def async_save(self, payload):
+                self.saved.append(deepcopy(payload))
+
+        store = DeferredStore()
+        with patch(ROOT + ".runtime.monotonic", return_value=100):
+            rt.defer_control_store_read(store)
+            self.assertFalse(await rt.persist_control_state())
+            await rt.executor.supervise()
+        self.assertEqual(store.reads, 0)
+        self.assertEqual(store.saved, [])
+        self.assertFalse(rt.executor._persistence_verified)
+        with patch(ROOT + ".runtime.monotonic", return_value=160):
+            await rt.executor.supervise()
+        self.assertEqual(store.reads, 1)
+        self.assertEqual(store.saved, [])
+        store.available = True
+        with patch(ROOT + ".runtime.monotonic", return_value=220):
+            await rt.executor.supervise()
+        self.assertTrue(rt.executor._persistence_verified)
+        self.assertFalse(rt._control_read_failed)
+        self.assertEqual(store.saved[-1]["paused"], ["evse"])
+        self.assertEqual(store.saved[-1]["completed"], original["completed"])
+        self.assertEqual(services.calls, [])
+
+    async def test_deferred_read_does_not_replace_corrupt_store(self):
+        from unittest.mock import AsyncMock, patch
+        rt, _, services = rig()
+        store = SimpleNamespace(async_load=AsyncMock(return_value={"schema_major": -1}),
+                                async_save=AsyncMock())
+        with patch(ROOT + ".runtime.monotonic", return_value=100):
+            rt.defer_control_store_read(store)
+        with patch(ROOT + ".runtime.monotonic", return_value=160):
+            await rt.executor.supervise()
+        self.assertTrue(rt._control_restore_failed)
+        self.assertFalse(rt.executor._persistence_verified)
+        store.async_save.assert_not_called()
+        self.assertEqual(services.calls, [])
+
     async def test_store_retry_never_overwrites_invalid_original_evidence(self):
         from unittest.mock import AsyncMock
         rt, _, services = rig()
@@ -1951,6 +2010,67 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rt.live_state()["action_health"], "hold")
         self.assertEqual(rt.executor.session_snapshot()["evse"]["asset_id"], "car")
         self.assertEqual([row[1] for row in services.calls], ["turn_on"])
+
+    async def test_soc_vehicle_waits_then_draws_without_repeat_start(self):
+        for kind in ("on_off", "variable_current"):
+            with self.subTest(kind=kind):
+                rt, sources, services = rig(group_kw=8, mode="Automatic")
+                asset, charger = rt.configuration["assets"][0], rt.configuration["chargers"][0]
+                asset.pop("requested_kwh")
+                asset.update(soc_entity="sensor.battery", target_soc=75,
+                             capacity_kwh=20, charge_efficiency=0.9)
+                sources["sensor.battery"] = state(50, "%")
+                if kind == "variable_current":
+                    charger.update(kind=kind, rated_power_kw=3.68, voltage_v=230,
+                        min_current_a=6, max_current_a=16, current_step_a=1,
+                        current_control_entity="number.charge_limit",
+                        current_readback_entity="sensor.actual_current")
+                    sources["number.charge_limit"] = state(6, "A")
+                    sources["number.charge_limit"].attributes.update(min=6, max=16, step=1)
+                    sources["sensor.actual_current"] = state(0, "A")
+                original = services.async_call
+
+                async def waiting(*args, **kwargs):
+                    await original(*args, **kwargs)
+                    if args[1] == "turn_on":
+                        sources["sensor.actual_power"] = state(0, "W")
+                        sources["sensor.actual_power"].last_updated = datetime.now(timezone.utc)
+                        if kind == "variable_current":
+                            sources["sensor.actual_current"] = state(0, "A")
+                            sources["sensor.actual_current"].last_updated = datetime.now(timezone.utc)
+
+                services.async_call = waiting
+                at = datetime.now(timezone.utc)
+                quarter = at.replace(minute=(at.minute // 15) * 15, second=0, microsecond=0)
+                for source in sources.values():
+                    source.last_updated = quarter + timedelta(seconds=1)
+                rt.refresh(quarter)
+                await rt.executor.advance_plan(quarter)
+                self.assertEqual(rt.executor.snapshot()["evse"]["reason"],
+                                 "ENABLED_WAITING_FOR_VEHICLE")
+                self.assertIn("evse", rt.executor.session_snapshot())
+                self.assertEqual(rt.charger_states()["evse"]["operational_status"],
+                                 {"status": "idle", "reason": "ENABLED_WAITING_FOR_VEHICLE"})
+                await rt.executor.supervise()
+                self.assertEqual(sources["switch.evse_control"].state, "on")
+                sources["sensor.actual_power"] = state(1000, "W")
+                if kind == "variable_current":
+                    sources["sensor.actual_current"] = state(4, "A")
+                rt.refresh()
+                await rt.executor.supervise()
+                self.assertEqual(rt.charger_states()["evse"]["operational_status"]["status"],
+                                 "charging")
+                self.assertEqual([row[1] for row in services.calls].count("turn_on"), 1)
+                sources["sensor.battery"] = state(75, "%")
+                sources["sensor.meter"] = state(5.5, "kWh")
+                sources["sensor.meter"].last_updated = datetime.now(timezone.utc)
+                rt.refresh()
+                await rt.executor.supervise()
+                self.assertEqual(sources["switch.evse_control"].state, "off")
+                receipt = rt.executor.completed_sessions()[-1]
+                self.assertIsNone(receipt["duration_minutes"])
+                self.assertEqual(receipt["actual_energy_kwh"], 0.5)
+                self.assertEqual(rt.executor._inflight, {})
 
     async def test_external_setpoint_change_is_not_confused_with_vehicle_taper(self):
         rt, sources, services = rig(group_kw=8)
