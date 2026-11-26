@@ -366,6 +366,13 @@
       "ready_day_sun": {
         "name": "Dimanche Ready By"
       },
+      "maintain_soc_until_ready_by": {
+        "name": "Maintenir la charge jusqu'au départ",
+        "state": {
+          "on": "Afficher",
+          "off": "Masquer"
+        }
+      },
       "continuous_charging": {
         "name": "Mode de recharge"
       },
