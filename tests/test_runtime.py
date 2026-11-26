@@ -78,6 +78,22 @@ class RuntimeTests(unittest.TestCase):
         restarted.refresh(NOW + timedelta(seconds=3))
         self.assertTrue(restarted.assessment.plan.slots)
 
+    def test_resident_status_is_derived_from_backend_evidence(self):
+        cfg = sample()
+        cfg["controller"]["mode"] = "Automatic"
+        data = {"sensor.soc": state("80", "%"), "sensor.power": state("0", "W"),
+                "binary_sensor.cable": state("on"), "switch.drive": state("off")}
+        rt = MultiChargeRuntime(SimpleNamespace(states=SimpleNamespace(get=data.get)), cfg)
+        rt.refresh(NOW)
+        row = rt.charger_states()["drive"]
+        self.assertEqual(row["asset_operational_status"]["status"], "ready")
+        self.assertEqual(row["asset_operational_status"]["reason"], "TARGET_MET")
+        data.pop("switch.drive")
+        rt.refresh(NOW)
+        row = rt.charger_states()["drive"]
+        self.assertEqual(row["asset_operational_status"]["status"], "problem")
+        self.assertEqual(row["operational_status"]["status"], "problem")
+
     def test_inactive_adjustable_kw_preview_without_guessed_current(self):
         cfg = sample()
         cfg["controller"]["mode"] = "Automatic"
