@@ -1143,6 +1143,8 @@ def apply_new_import_defaults(before, candidate, *, site_time_zone="UTC", raw_as
             "requested_budget_amount",
         )) and prior.get("target_soc") is not None:
             asset["target_soc"] = prior["target_soc"]
+        if "maintain_soc_until_ready_by" not in asset and "maintain_soc_until_ready_by" in prior:
+            asset["maintain_soc_until_ready_by"] = prior["maintain_soc_until_ready_by"]
         if not any(key in asset for key in schedule_fields):
             for key in schedule_fields:
                 if key in prior:
