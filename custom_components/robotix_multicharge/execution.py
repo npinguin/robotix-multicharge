@@ -17,7 +17,8 @@ from time import monotonic
 
 from .source_evidence import Evidence, binding, connection, intervals, number, soc_with_health
 from .configuration import is_plan_presentation_only_change, charger_activation_reason, charger_is_active
-from .const import DEFAULT_POWER_ADJUSTMENT_INTERVAL_MINUTES, MIN_AC_CURRENT_A
+from .const import (DEFAULT_POWER_ADJUSTMENT_INTERVAL_MINUTES, MIN_AC_CURRENT_A,
+                    DEFAULT_OPPORTUNISTIC_KIND)
 from .history import receipt_overlaps
 from .planner import (resolve_recurring_ready_by, charging_window_allows,
                       qualified_price_policy_cap)
@@ -870,7 +871,7 @@ class NativeSwitchExecutor:
                 return "READY_BY_INVALID"
         price_cap, issue = qualified_price_policy_cap(
             asset.get("maximum_price_per_kwh"),
-            asset.get("opportunistic_kind", "off"),
+            asset.get("opportunistic_kind", DEFAULT_OPPORTUNISTIC_KIND),
             asset.get("opportunistic_level_pct"),
             currency, self.runtime.price_slots, at, future_deadline,
         )
@@ -2018,7 +2019,7 @@ class NativeSwitchExecutor:
                 return False
             # Opportunistic price thresholds depend on the future series.
             # A new horizon may change the selected strategy.
-            if asset.get("opportunistic_kind", "off") != "off":
+            if asset.get("opportunistic_kind", DEFAULT_OPPORTUNISTIC_KIND) != "off":
                 if tuple(q for q in fresh if q.end > at) != tuple(
                         q for q in prices if q.end > at):
                     return False
