@@ -94,23 +94,52 @@ async def commit_ui_configuration_locked(hass, entry, runtime, updated, *,
             or entry.data.get("source") in ("yaml", "json")):
         raise ValueError("readonly_import_configuration")
     committed = effective_configuration(entry)
-    if (not runtime.active or committed != runtime.configuration
-            or configuration_revision(committed) != expected_revision):
+    if configuration_revision(committed) != expected_revision:
         raise ValueError("stale_settings")
     updated = validate_configuration(updated)
-    from .config_flow import _assert_safe_yaml_ui_commit
-    _assert_safe_yaml_ui_commit(runtime, updated)
     expected = configuration_revision(updated)
-    runtime.record_settings_action(scope, target_id, action, changes, expected)
-    if not await runtime.persist_control_state():
-        raise ValueError("settings_not_saved")
-    # Do not overwrite a concurrent external/file-owner revision.
-    if (not runtime.active or effective_configuration(entry) != committed
-            or runtime.configuration != committed):
+    from .config_flow import _assert_safe_yaml_ui_commit
+    from .configuration import charger_is_active
+    if runtime is None:
+        # The Options Flow may edit an entirely external configuration before
+        # its runtime loads. No runtime receipt or physical command is claimed.
+        if any(charger_is_active(row) for row in (*committed["chargers"], *updated["chargers"])):
+            raise ValueError("EXPERT_IMPORT_REQUIRES_RECONCILED_CONTROL_STATE")
+        if hass.data.get(DOMAIN, {}).get(entry.entry_id) is not None:
+            raise ValueError("stale_settings")
+        hass.config_entries.async_update_entry(
+            entry, options={**entry.options, "configuration": updated},
+        )
+        return expected
+    if not runtime.active or committed != runtime.configuration:
         raise ValueError("stale_settings")
-    hass.config_entries.async_update_entry(
-        entry, options={**entry.options, "configuration": updated},
+    _assert_safe_yaml_ui_commit(runtime, updated)
+    receipt = runtime.record_settings_action(
+        scope, target_id, action, changes, expected, publish=False,
     )
+    if not await runtime.persist_control_state(settings_action=receipt):
+        raise ValueError("settings_not_saved")
+    try:
+        # A native provider, an external Config Entry owner or a safety
+        # event can change while the Store write awaits. Recheck the SAME
+        # revision and live guard immediately before the synchronous commit.
+        if (not runtime.active or effective_configuration(entry) != committed
+                or runtime.configuration != committed):
+            raise ValueError("stale_settings")
+        _assert_safe_yaml_ui_commit(runtime, updated)
+        hass.config_entries.async_update_entry(
+            entry, options={**entry.options, "configuration": updated},
+        )
+        if effective_configuration(entry) != updated:
+            raise ValueError("settings_not_saved")
+    except (ValueError, RuntimeError, TypeError, KeyError) as exc:
+        runtime._settings_action = {**receipt, "status": "rejected",
+                                    "reason": "SETTINGS_COMMIT_REJECTED"}
+        runtime.notify()
+        await runtime.persist_control_state()
+        raise ValueError(str(exc)) from exc
+    runtime._settings_action = receipt
+    runtime.notify()
     return expected
 
 
