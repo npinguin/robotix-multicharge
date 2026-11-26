@@ -3183,6 +3183,14 @@ class RobotixMultiChargeCard extends HTMLElement {
       "circuit_id","circuit_limit_a"
     ])readers[field]=this.dashboardFieldControl(panel,"charger",draft,field);
     tech.append(panel);
+    // Backend-supplied nominal values are editable setup proposals only.
+    kind.addEventListener("change",()=>{
+      if(kind.value!=="variable_current")return;
+      for(const [field,value] of Object.entries(this._data?.nominal_setup_defaults||{})){
+        if(readers[field]?.setValue&&readers[field]()===null)readers[field].setValue(value);
+      }
+      tech.open=true;
+    });
     const discovery=mcEl("div","small muted");
     const discover=mcButton("Discover native sources",async()=>{
       const control=readSwitch();
