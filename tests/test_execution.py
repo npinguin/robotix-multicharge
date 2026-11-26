@@ -1981,6 +1981,25 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([row[1] for row in services.calls],
                          ["set_value", "turn_on", "turn_off"])
 
+    async def test_external_off_on_gap_does_not_claim_continuous_finite_progress(self):
+        rt, sources, services = rig()
+        self.assertEqual((await rt.executor.execute("evse", "start"))["status"], "confirmed")
+        # The coalesced source callback sees a new ON epoch, not the
+        # intermediate OFF. Do not assign the intervening energy to our run.
+        sources["switch.evse_control"].last_changed = datetime.now(timezone.utc)
+        sources["sensor.meter"] = state(5.5, "kWh")
+        await rt.executor.supervise()
+        self.assertEqual([row[1] for row in services.calls], ["turn_on", "turn_off"])
+        self.assertEqual(rt.executor.session_snapshot(), {})
+        receipt = rt.executor.completed_sessions()[-1]
+        self.assertEqual(receipt["continuity_quality"], "unknown")
+        self.assertIsNone(receipt["actual_energy_kwh"])
+        self.assertIsNone(receipt["duration_minutes"])
+        self.assertTrue(receipt["recovery_stop_confirmed"])
+        self.assertEqual(rt.executor._inflight, {})
+        self.assertEqual((await rt.executor.execute("evse", "start"))["reason"],
+                         "ASSET_MEASURED_PROGRESS_UNAVAILABLE")
+
     async def test_external_off_with_draw_is_reconciled_without_owned_session(self):
         rt, sources, services = rig(mode="Automatic")
         sources["sensor.actual_power"] = state(1600, "W")
