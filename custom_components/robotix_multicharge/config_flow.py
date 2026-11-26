@@ -790,16 +790,6 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
     def _current(self):
         return effective_configuration(self.config_entry)
 
-    def _saved(self, config):
-        try:
-            result = validate_configuration(config)
-        except ValueError as exc:
-            self._last_config_error = str(exc)
-            return None
-        return self.async_create_entry(
-            title="", data={**self.config_entry.options, "configuration": result}
-        )
-
     async def _safe_structural_save(self, configuration):
         """Never change a commissioned physical writer without real idle proof.
 
@@ -827,31 +817,27 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
             self._last_config_error = "Configuration was changed after opening the editor. Reopen the current configuration."
             return None
         runtime = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
-        if runtime is None:
-            old = self._current()
-            if any(
-                charger_is_active(row)
-                for row in [*old["chargers"], *updated["chargers"]]
-            ):
-                self._last_config_error = "Cannot change a commissioned physical charger while its runtime is unavailable"
-                return None
-            return self._saved(updated)
+        from .command_query import commit_ui_configuration_locked
+        expected = getattr(self, "_form_baseline_revision", configuration_revision(self._current()))
+
+        async def commit():
+            await commit_ui_configuration_locked(
+                self.hass, self.config_entry, runtime, updated,
+                expected_revision=expected, scope="controller",
+                target_id=updated["controller"]["id"],
+                action="save", changes={"format": "native_options"},
+            )
+
         try:
-            async with runtime.executor._lock:
-                if (not same_version() or not runtime.active
-                        or self._current() != runtime.configuration):
-                    self._last_config_error = "Configuration changed or is still being applied. Reopen the current configuration."
-                    return None
-                from .command_query import commit_ui_configuration_locked
-                await commit_ui_configuration_locked(
-                    self.hass, self.config_entry, runtime, updated,
-                    expected_revision=configuration_revision(self._current()),
-                    scope="controller", target_id=updated["controller"]["id"],
-                    action="save", changes={"format": "native_options"},
-                )
-                # HA acknowledges the already committed options, rather than
-                # building a second candidate or independent revision.
-                return self.async_create_entry(title="", data=dict(self.config_entry.options))
+            if runtime is None:
+                await commit()
+            else:
+                async with runtime.executor._lock:
+                    await commit()
+            # Native HA OptionsFlowManager explicitly skips updating options
+            # for CREATE_ENTRY with data=None (pinned HA 2026.11.2).
+            # A successful flow must not write a second stale candidate.
+            return self.async_create_entry(title="", data=None)
         except ValueError as exc:
             self._last_config_error = str(exc)
             return None
@@ -1283,10 +1269,11 @@ class RobotixMultiChargeOptionsFlow(config_entries.OptionsFlow):
         """Optional frontend is a display preference, never a charging control."""
         current = self.config_entry.options.get("enable_ux", True)
         if user_input is not None:
-            return self.async_create_entry(
-                title="",
-                data={**self.config_entry.options, "enable_ux": bool(user_input["enable_ux"])},
+            self.hass.config_entries.async_update_entry(
+                self.config_entry,
+                options={**self.config_entry.options, "enable_ux": bool(user_input["enable_ux"])},
             )
+            return self.async_create_entry(title="", data=None)
         return self.async_show_form(
             step_id="display",
             data_schema=vol.Schema({vol.Required("enable_ux", default=current): bool}),
