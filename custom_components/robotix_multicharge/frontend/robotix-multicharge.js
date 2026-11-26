@@ -2630,10 +2630,11 @@ class RobotixMultiChargeCard extends HTMLElement {
   }
   vehicleSummary(card,asset,charger){
     const d=this._data,obs=d.observations?.assets?.[asset.id]||{};
-    const connected=d.observations?.chargers?.[charger?.id]?.connected;
-    const connection=charger?(connected?.quality==="ok"?
-      (connected.value===true?mcTr("Connected"):mcTr("Disconnected")):mcTr("Connection unknown")):mcTr("Not assigned");
-    const activation=charger?mcTr(d.charger_states?.[charger.id]?.activation==="active"?"Active":"Inactive"):"";
+    const chargerState=d.charger_states?.[charger?.id];
+    const connection=charger?mcTr(chargerState?.connection_state==="asset_connected"?"Connected":
+      chargerState?.connection_state==="no_asset_connected"?"Disconnected":"Connection unknown"):mcTr("Not assigned");
+    const activation=chargerState?.activation==="active"?mcTr("Active"):
+      chargerState?.activation==="inactive"?mcTr("Inactive"):"";
     const color=mcPlanOwnerColor(d,asset.id,charger?.id);
     const summary=mcEl("div","vehicle-summary");
     const row=mcEl("div","row");
@@ -3028,7 +3029,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         }
         if(this.canEditSettings()&&this.ownerEntity("asset",a.id,"opportunistic_kind")){
           const strategy=this.field(detail,mcTr("Opportunistic charging"),
-            a.opportunistic_kind||"off",null,[
+            a.opportunistic_kind??this._data.asset_policy_defaults?.opportunistic_kind,null,[
               ["off",mcTr("Off")],["type1",mcTr("Type 1 — cap fraction")],
               ["type2",mcTr("Type 2 — tomorrow price")],
             ]);
@@ -3041,7 +3042,7 @@ class RobotixMultiChargeCard extends HTMLElement {
           detail.append(mcEl("h4","",mcTr("Continuity and price strategy")));
           const continuity=this.field(
             detail,mcTr("Charging pattern"),
-            a.continuous_charging?"continuous":"flexible",null,[
+            (a.continuous_charging??this._data.asset_policy_defaults?.continuous_charging)?"continuous":"flexible",null,[
               ["flexible",mcTr("Flexible cheapest quarters")],
               ["continuous",mcTr("One continuous charge")],
             ]);
