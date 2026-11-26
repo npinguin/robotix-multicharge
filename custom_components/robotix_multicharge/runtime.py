@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import deque
+from time import perf_counter
 from datetime import datetime, timedelta, timezone
 
 from .const import (DEFAULT_ASSET_PRIORITY, DEFAULT_CONTINUOUS_CHARGING,
@@ -103,7 +105,37 @@ class MultiChargeRuntime:
         self._settings_action = None
         self._listeners = set()
         self._unsubscribers = []
+        # Bounded, nonpersistent timings; diagnostic export only.
+        self._performance = {}
         self.active = True
+
+    def _record_performance(self, operation, started):
+        elapsed_ms = (perf_counter() - started) * 1000
+        count, samples = self._performance.get(operation, (0, None))
+        if samples is None:
+            samples = deque(maxlen=256)
+        samples.append(elapsed_ms)
+        self._performance[operation] = (count + 1, samples)
+
+    def performance_snapshot(self):
+        result = {}
+        for operation, (count, samples) in self._performance.items():
+            ranked = sorted(samples)
+            result[operation] = {
+                "count": count, "sample_count": len(samples),
+                "last_ms": round(samples[-1], 3),
+                "p95_ms": round(ranked[(len(ranked) * 95 + 99) // 100 - 1], 3),
+                "max_sample_ms": round(ranked[-1], 3),
+            }
+        return result
+
+    async def read_history(self, configuration, start, end, **kwargs):
+        """One instrumented native history projection; never a new ledger."""
+        started = perf_counter()
+        try:
+            return await read_actual_history(self.hass, configuration, start, end, **kwargs)
+        finally:
+            self._record_performance("history_projection", started)
 
     def _current_session_cost_identity(self):
         """Invalidate stale projections on source, ownership or session changes."""
@@ -153,8 +185,8 @@ class MultiChargeRuntime:
             tariff_bindings=self.tariff_bindings, active_sessions=active,
             tariff_entity=forecast_tariff_source(cfg["controller"]),
         )
-        _, _, estimates, observed, metrics, daily = await read_actual_history(
-            self.hass, cfg, at-timedelta(hours=48), at+timedelta(minutes=1),
+        _, _, estimates, observed, metrics, daily = await self.read_history(
+            cfg, at-timedelta(hours=48), at+timedelta(minutes=1),
             include_valuations=True, include_observed_sessions=True,
             financial_days={today: days[today]}, **common,
         )
@@ -202,8 +234,8 @@ class MultiChargeRuntime:
             slices = hour_slices(a, b)
             previous = self._archive_partial.get(missing, {})
             pending = {key: pair for key, pair in slices.items() if key not in previous}
-            _, quality, older = await read_actual_history(
-                self.hass, cfg, a, b, financial_days=pending, **common,
+            _, quality, older = await self.read_history(
+                cfg, a, b, financial_days=pending, **common,
             )
             if not self.active or identity != self._current_session_cost_identity():
                 return
@@ -493,10 +525,13 @@ class MultiChargeRuntime:
     def refresh_display_power(self, at=None):
         """Refresh only independent display meters; no new plan or grant."""
         at = (at or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        started = perf_counter()
         self.observations["sources"].update(self._display_power_observations(at))
         self.notify()
+        self._record_performance("display_refresh", started)
 
     def refresh(self, at=None):
+        started = perf_counter()
         at = (at or datetime.now(timezone.utc)).astimezone(timezone.utc)
         cfg = self.configuration
         setting = cfg["controller"]
@@ -1057,6 +1092,7 @@ class MultiChargeRuntime:
             self.price_slots, at,
         )
         self.notify()
+        self._record_performance("full_refresh", started)
 
     def charger_states(self, capabilities=None):
         """Four read-only projections of the existing source and control truth."""
