@@ -11,6 +11,8 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
+from .const import (DEFAULT_ASSET_PRIORITY, DEFAULT_CONTINUOUS_CHARGING,
+                    DEFAULT_OPPORTUNISTIC_KIND, NOMINAL_PHASE_COUNT, NOMINAL_PHASE_VOLTAGE_V)
 from .contracts import ChargeDemand, PowerEnvelope, PowerLimitSlot
 from .configuration import configuration_revision, PLAN_COLORS, forecast_tariff_source, charger_is_active
 from .domain import ChargeController, Charger
@@ -712,14 +714,14 @@ class MultiChargeRuntime:
                 observed_session_draw_kw=draw["power_kw"] if draw else None,
                 observed_draw_setpoint_kw=draw["setpoint_kw"] if draw else None,
                 remaining_grid_kwh=amount, ready_by=deadline,
-                priority=asset.get("priority", 0),
-                continuous_charging=asset.get("continuous_charging", False),
+                priority=asset.get("priority", DEFAULT_ASSET_PRIORITY),
+                continuous_charging=asset.get("continuous_charging", DEFAULT_CONTINUOUS_CHARGING),
                 minimum_priority_kwh=minimum_priority,
                 low_soc_priority_kwh=low_soc_priority,
                 maximum_price_per_kwh=asset.get("maximum_price_per_kwh"),
                 low_price_trigger_per_kwh=asset.get("low_price_trigger_per_kwh"),
                 price_currency=asset.get("price_currency"),
-                opportunistic_kind=asset.get("opportunistic_kind", "off"),
+                opportunistic_kind=asset.get("opportunistic_kind", DEFAULT_OPPORTUNISTIC_KIND),
                 opportunistic_level_pct=asset.get("opportunistic_level_pct"),
                 remaining_duration_minutes=minutes,
                 remaining_budget_amount=budget,
@@ -1414,6 +1416,11 @@ class MultiChargeRuntime:
         return {
             "schema_major": 1,
             "plan_palette": dict(PLAN_COLORS),
+            "nominal_setup_defaults": {"phase_count": NOMINAL_PHASE_COUNT,
+                                       "voltage_v": NOMINAL_PHASE_VOLTAGE_V},
+            "asset_policy_defaults": {"priority": DEFAULT_ASSET_PRIORITY,
+                                      "continuous_charging": DEFAULT_CONTINUOUS_CHARGING,
+                                      "opportunistic_kind": DEFAULT_OPPORTUNISTIC_KIND},
             "planned_costs": self.planned_costs,
             "view_planned_cost": view_costs(assessment),
             "view_indicative_cost": view_costs(self.forecast_assessment)
