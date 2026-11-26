@@ -297,14 +297,14 @@ def compile_plan(
         intervals.append(cursor)
         cursor += QUARTER
 
-    # Normalize each distinct source once for this bounded plan, including
-    # identical tariffs shared by multiple chargers. No persistent cache.
+    # Normalize each shared source once for this bounded plan. Key by
+    # object identity: equal local wall times may have different DST folds.
     source_indexes = {}
     def indexed(rows):
-        key = tuple(rows)
+        key = id(rows)
         if key not in source_indexes:
-            source_indexes[key] = _quarter_coverage(key, intervals)
-        return source_indexes[key]
+            source_indexes[key] = (rows, _quarter_coverage(rows, intervals))
+        return source_indexes[key][1]
 
     binding_index = indexed(binding.slots) if binding is not None else {}
     solar_index = indexed(solar or ())
