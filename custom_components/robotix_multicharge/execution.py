@@ -56,6 +56,8 @@ class NativeSwitchExecutor:
         self._stopped = False
         self._supervising = False
         self._sessions = {}
+        # Restored evidence is never an adopted live session or power grant.
+        self._interrupted_sessions = {}
         self._start_pending = set()
         self._current_pending = set()
         self._stop_requested = set()
@@ -319,6 +321,101 @@ class NativeSwitchExecutor:
         key = self._intent_key(asset, charger, deadline)
         return self._completed.get(asset["id"]) == key
 
+    _RECOVERY_SOURCES = ("control_entity", "connected_entity", "power_entity", "energy_entity")
+
+    def _recovery_checkpoints(self):
+        """Persist only facts needed to reconcile an interrupted owned session."""
+        result = deepcopy(self._interrupted_sessions)
+        chargers = {row["id"]: row for row in self.runtime.configuration["chargers"]}
+        for uid, session in self.session_snapshot().items():
+            charger = chargers.get(uid)
+            if charger is None:
+                continue
+            result[uid] = {
+                "session": session,
+                "sources": {key: charger.get(key) for key in self._RECOVERY_SOURCES},
+                "switch_on_since": session.get("switch_on_since"),
+            }
+        return result
+
+    def _validated_interrupted(self, snapshot, configured, inflight):
+        """Stage restart evidence before adopting any control state."""
+        rows = snapshot.get("interrupted_sessions", {})
+        if not isinstance(rows, dict) or len(rows) > len(configured):
+            raise ValueError("invalid interrupted sessions")
+        checked = {}
+        for uid, row in rows.items():
+            if uid not in configured or not isinstance(row, dict):
+                raise ValueError("invalid interrupted charger identity")
+            sources, session = row["sources"], row["session"]
+            if (not isinstance(sources, dict) or set(sources) != set(self._RECOVERY_SOURCES)
+                    or any(v is not None and (not isinstance(v, str) or "." not in v)
+                           for v in sources.values()) or not isinstance(session, dict)):
+                raise ValueError("invalid interrupted source evidence")
+            asset = session["asset_id"]
+            if asset is not None and not isinstance(asset, str):
+                raise ValueError("invalid interrupted asset identity")
+            hold = asset or f"charger:{uid}"
+            if hold not in inflight or (asset is not None and session["intent_key"] != inflight[hold]):
+                raise ValueError("interrupted session has no matching durable intent")
+            for field in ("started_at", "confirmed_at", "hard_stop_at"):
+                stamp = datetime.fromisoformat(session[field])
+                if stamp.utcoffset() is None:
+                    raise ValueError("invalid interrupted session timestamp")
+            begun, confirmed, end = (datetime.fromisoformat(session[field]) for field in
+                                     ("started_at", "confirmed_at", "hard_stop_at"))
+            if not begun <= confirmed or end < begun:
+                raise ValueError("invalid interrupted session interval")
+            for value in (row.get("switch_on_since"), session.get("connection_epoch"),
+                          session.get("budget_last_meter_at"), session.get("last_physical_readback")):
+                if value is not None and datetime.fromisoformat(value).utcoffset() is None:
+                    raise ValueError("invalid interrupted observation timestamp")
+            for field in ("requested_kwh", "requested_duration_minutes", "requested_budget_amount",
+                          "starting_energy_kwh", "actual_energy_kwh", "budget_cost",
+                          "budget_last_meter_value", "target_current_a", "soc_target"):
+                value = session.get(field)
+                if value is not None and (type(value) not in (int, float)
+                                          or not isfinite(value) or value < 0):
+                    raise ValueError("invalid interrupted session progress")
+            if session.get("requested_budget_amount") is not None and (
+                    not isinstance(session.get("requested_budget_currency"), str)
+                    or session.get("budget_quality") not in (
+                        "qualified_effective_meter_increments",
+                        "conservative_effective_upper_bound", "unknown")
+                    or session.get("budget_cost") is None):
+                raise ValueError("invalid interrupted budget evidence")
+            checked[uid] = deepcopy(row)
+        return checked
+
+    def _recovery_session_for_stop(self, charger, switch, at):
+        """Recover receipt evidence only when original physical continuity is observed.
+
+        A fresh switch or plug epoch is not the previous epoch. Unknown history
+        retains the durable intent and checkpoint, never restarts a full goal.
+        """
+        row = self._interrupted_sessions.get(charger["id"])
+        if row is None or switch.state != "on":
+            return None
+        if row["sources"] != {key: charger.get(key) for key in self._RECOVERY_SOURCES}:
+            return None
+        session = row["session"]
+        if session.get("asset_id") != charger.get("asset"):
+            return None
+        observed_on = getattr(switch, "last_changed", None)
+        if (observed_on is None or row.get("switch_on_since") is None
+                or observed_on != datetime.fromisoformat(row["switch_on_since"])):
+            return None
+        if not session.get("duration_without_connection"):
+            identity = self.connection_confirmation(charger, at)
+            if identity is None or identity.get("connected_at") != session.get("connection_epoch"):
+                return None
+        recovered = deepcopy(session)
+        for field in ("started_at", "confirmed_at", "hard_stop_at", "budget_last_meter_at",
+                      "last_physical_readback"):
+            if recovered.get(field) is not None:
+                recovered[field] = datetime.fromisoformat(recovered[field])
+        return recovered
+
     def restore_state(self, snapshot):
         """Restore decision evidence only; NEVER restore physical ownership."""
         if snapshot is None:
@@ -404,6 +501,7 @@ class NativeSwitchExecutor:
                         or not isinstance(row.get("budget_currency"), str)):
                     raise ValueError("invalid budget progress receipt")
                 receipts.append(dict(row))
+            interrupted = self._validated_interrupted(snapshot, configured, inflight)
             # Adopt ALL persisted decision evidence only after the *last*
             # field has passed validation. A corrupt trailing receipt cannot
             # partially alter pause, intent or attribution on this runtime.
@@ -412,6 +510,7 @@ class NativeSwitchExecutor:
             self._paused = set(paused)
             self._accepted_history = history
             self._session_history = receipts
+            self._interrupted_sessions = interrupted
             self.session_history_revision += 1
         except (ValueError, KeyError, TypeError, OverflowError):
             self._persistence_verified = False
@@ -425,6 +524,7 @@ class NativeSwitchExecutor:
             "paused": sorted(self._paused),
             "sessions": list(self._session_history),
             "inflight": dict(self._inflight),
+            "interrupted_sessions": self._recovery_checkpoints(),
             "accepted": [
                 {**record, "start": record["start"].isoformat(),
                  "end": record["end"].isoformat()}
@@ -469,9 +569,9 @@ class NativeSwitchExecutor:
             rows.reverse()
         return rows
 
-    def _archive_session(self, charger_id, finished_at, reason):
+    def _archive_session(self, charger_id, finished_at, reason, *, recovered_session=None):
         """Only a physically confirmed STOP may produce a completed receipt."""
-        session = self._sessions.get(charger_id)
+        session = recovered_session if recovered_session is not None else self._sessions.get(charger_id)
         if session is None:
             return
         charger = next((c for c in self.runtime.configuration["chargers"]
@@ -643,7 +743,8 @@ class NativeSwitchExecutor:
         return result
 
     def _publish(self, uid, request_id, action, status, reason, requested_at,
-                 *, observed_at=None, measured_kw=None, service_sent=False):
+                 *, observed_at=None, measured_kw=None, service_sent=False,
+                 recovered_session=None):
         result = {
             "charger_id": uid,
             "request_id": request_id,
@@ -662,8 +763,8 @@ class NativeSwitchExecutor:
             # A stopped, physically confirmed and attributable session is
             # reconciled before a future planned session may resume. An
             # unknown meter delta keeps the earlier in-flight safety hold.
-            session = self._sessions.get(uid)
-            self._archive_session(uid, observed_at, reason)
+            session = recovered_session if recovered_session is not None else self._sessions.get(uid)
+            self._archive_session(uid, observed_at, reason, recovered_session=recovered_session)
             if session is not None:
                 receipt = self._session_history[-1] if self._session_history else None
                 hold_key = session.get("asset_id") or f"charger:{uid}"
@@ -674,10 +775,17 @@ class NativeSwitchExecutor:
                         and (receipt.get("physical_stop_confirmed") is True
                              or (session.get("duration_without_connection") and receipt.get("switch_stop_confirmed")))
                         and (session.get("requested_kwh") is None
-                             or receipt.get("actual_energy_kwh") is not None)):
+                             or receipt.get("actual_energy_kwh") is not None)
+                        and (session.get("requested_budget_amount") is None
+                             or receipt.get("budget_accrued_cost") is not None)):
                     self._inflight.pop(hold_key, None)
-            if reason == "NATIVE_SWITCH_STATE":
+                    self._interrupted_sessions.pop(uid, None)
+            if reason == "NATIVE_SWITCH_STATE" and (
+                    uid not in self._interrupted_sessions or
+                    self._interrupted_sessions[uid]["session"].get("duration_without_connection")):
                 self._inflight.pop(f"charger:{uid}", None)
+                if self._interrupted_sessions.get(uid, {}).get("session", {}).get("asset_id") is None:
+                    self._interrupted_sessions.pop(uid, None)
             self._quarantine.discard(uid)
             self._sessions.pop(uid, None)
             self._draw_samples.pop(uid, None)
@@ -2158,7 +2266,7 @@ class NativeSwitchExecutor:
         if charger["kind"] != "variable_current" or not session:
             return False
         existing = session.get("target_current_a")
-        if existing is None:
+        if existing is None or not charger.get("current_step_a") or not charger.get("min_current_a"):
             return False
         step, minimum = charger["current_step_a"], charger["min_current_a"]
         candidate = round(existing - step, 6)
@@ -2477,9 +2585,10 @@ class NativeSwitchExecutor:
             at = datetime.now(timezone.utc)
             cfg = self.runtime.configuration
             charger = next((c for c in cfg["chargers"] if c["id"] == charger_id), None)
+            recovered_session = None
             def result(status, reason, **extras):
                 recorded = self._publish(charger_id, request_id, action, status,
-                                         reason, at, **extras)
+                                         reason, at, recovered_session=recovered_session, **extras)
                 self._requests[request_id] = {
                     **recorded, "manual_request": manual_request,
                 }
@@ -2504,6 +2613,8 @@ class NativeSwitchExecutor:
             state = self._switch(self.runtime.hass, entity)
             if state is None:
                 return result("rejected", "NATIVE_SWITCH_UNAVAILABLE")
+            if action in ("stop", "pause"):
+                recovered_session = self._recovery_session_for_stop(charger, state, at)
             if action == "resume":
                 if charger_id not in self._paused:
                     return result("rejected", "CHARGER_NOT_PAUSED")
@@ -2815,6 +2926,14 @@ class NativeSwitchExecutor:
                             )
                             if reason is None and charger["kind"] == "variable_current":
                                 self._sessions[charger_id]["target_current_a"] = current_a
+                            if reason is None:
+                                native_switch = self._switch(self.runtime.hass, charger["control_entity"])
+                                changed = getattr(native_switch, "last_changed", None)
+                                self._sessions[charger_id]["switch_on_since"] = (
+                                    changed.isoformat() if changed is not None else None)
+                                if not await self.runtime.persist_control_state():
+                                    self._persistence_verified = False
+                                    reason = "SESSION_CHECKPOINT_NOT_PERSISTED"
                             if reason is not None:
                                 protective = await self._protective_stop(charger, context)
                                 return result(
