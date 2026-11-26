@@ -662,8 +662,8 @@ class NativeSwitchExecutor:
             "energy_quality": "unknown", "meter_entity": row["sources"]["energy_entity"],
             "meter_observed_at": None, "cost": None, "currency": None,
             "cost_quality": "unknown", "stop_reason": reason,
-            "physical_stop_confirmed": False, "switch_stop_confirmed": True,
-            "continuity_quality": "unknown",
+            "physical_stop_confirmed": False, "switch_stop_confirmed": False,
+            "continuity_quality": "unknown", "recovery_stop_confirmed": True,
             "budget_accrued_cost": None, "budget_cost_quality": "unknown",
             "budget_currency": session.get("requested_budget_currency"),
         })
@@ -797,9 +797,8 @@ class NativeSwitchExecutor:
         if status == "execution_unknown":
             self._quarantine.add(uid)
         if status == "confirmed" and action in ("stop", "pause"):
-            # A stopped, physically confirmed and attributable session is
-            # reconciled before a future planned session may resume. An
-            # unknown meter delta keeps the earlier in-flight safety hold.
+            # A verified STOP closes the physical lock. Unknown progress
+            # remains associated with the original finite intent in history.
             session = recovered_session if recovered_session is not None else self._sessions.get(uid)
             self._archive_session(uid, observed_at, reason, recovered_session=recovered_session)
             if session is not None:
@@ -810,8 +809,7 @@ class NativeSwitchExecutor:
                         and receipt.get("asset_id") == session.get("asset_id")
                         and receipt.get("intent_key") == expected
                         and (receipt.get("physical_stop_confirmed") is True
-                             or (session.get("duration_without_connection") and receipt.get("switch_stop_confirmed")))
-                        ):
+                             or (session.get("duration_without_connection") and receipt.get("switch_stop_confirmed")))):
                     # Unknown energy/cost now lives in the attributable
                     # receipt and blocks the SAME finite intent through
                     # measured_intent_usage, not a permanent charger lock.
