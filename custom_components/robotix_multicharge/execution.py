@@ -867,16 +867,31 @@ class NativeSwitchExecutor:
                               asset.get("soc_stale_entity"), at)
         if soc.quality != "ok":
             return None
-        due = datetime.fromisoformat(asset["ready_by"]) if asset.get("ready_by") else None
-        if asset.get("ready_by_repeat", "none") != "none" and (
-                due is not None or asset.get("ready_by_repeat") == "specific_days"):
-            due, _ = resolve_recurring_ready_by(
-                due, at, asset["ready_by_repeat"], self.runtime.hass.config.time_zone,
-                asset.get("ready_by_weekdays"),
-            )
+        anchor = datetime.fromisoformat(asset["ready_by"]) if asset.get("ready_by") else None
+        repeat = asset.get("ready_by_repeat", "none")
+        due = anchor
+        fingerprint = self._inflight[asset_id]
+        if repeat != "none" and (anchor is not None or repeat == "specific_days"):
+            zone = self.runtime.hass.config.time_zone
+            weekdays = asset.get("ready_by_weekdays")
+            due, _ = resolve_recurring_ready_by(anchor, at, repeat, zone, weekdays)
             if due is None:
                 return None
-        return asset_id if self._inflight[asset_id] == self._intent_key(asset, charger, due) else None
+            # The previous occurrence may have expired during an outage.
+            # Use the same recurrence resolver and exact fingerprint; no
+            # inference from a mismatching hash or replay of a finite goal.
+            # Every supported recurrence occurs at least weekly.
+            cursor = at - timedelta(days=8)
+            previous = None
+            while cursor < at:
+                occurrence, _ = resolve_recurring_ready_by(anchor, cursor, repeat, zone, weekdays)
+                if occurrence is None or occurrence > at or occurrence <= cursor:
+                    break
+                previous = occurrence
+                cursor = occurrence.astimezone(timezone.utc)
+            if previous is not None and fingerprint == self._intent_key(asset, charger, previous):
+                return asset_id
+        return asset_id if fingerprint == self._intent_key(asset, charger, due) else None
 
     def _publish(self, uid, request_id, action, status, reason, requested_at,
                  *, observed_at=None, measured_kw=None, service_sent=False,
