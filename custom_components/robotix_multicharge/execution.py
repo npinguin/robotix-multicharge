@@ -15,7 +15,7 @@ from copy import deepcopy
 from uuid import uuid4
 from time import monotonic, perf_counter
 
-from .source_evidence import Evidence, binding, connection, intervals, number, soc_with_health
+from .source_evidence import Evidence, binding, connection, intervals, number, soc_with_health, session_status
 from .configuration import (plan_authority_unchanged, charger_activation_reason,
                             charger_is_active, charger_operating_grid)
 from .const import (DEFAULT_POWER_ADJUSTMENT_INTERVAL_MINUTES, MIN_AC_CURRENT_A,
@@ -681,7 +681,8 @@ class NativeSwitchExecutor:
             "charger_id": charger_id, "asset_id": session["asset_id"],
             "intent_key": session.get("intent_key"),
             "started_at": begun.isoformat(), "ended_at": end.isoformat(),
-            "duration_minutes": round((end - begun).total_seconds() / 60, 3),
+            "duration_minutes": (None if session.get("enabled_before_draw")
+                                 else round((end - begun).total_seconds() / 60, 3)),
             "actual_energy_kwh": delivered,
             "energy_quality": "measured" if delivered is not None else "unknown",
             "meter_entity": source, "meter_observed_at": meter_at,
@@ -1933,6 +1934,7 @@ class NativeSwitchExecutor:
             "manual_mode": (self.runtime.configuration["controller"]["mode"]
                             if manual_request is not None else None),
             "switch_only": observed.reason == "NATIVE_SWITCH_STATE",
+            "enabled_before_draw": observed.reason == "ENABLED_WAITING_FOR_VEHICLE",
             # Conservative control/accounting boundary; physical confirmation
             # is separately recorded, not backdated to the command.
             "started_at": command_at,
@@ -2770,7 +2772,8 @@ class NativeSwitchExecutor:
                 return False
         return True
 
-    def _readback(self, charger, action, requested_at, *, bounded_switch=False):
+    def _readback(self, charger, action, requested_at, *, bounded_switch=False,
+                  allow_waiting=False):
         switch = self._switch(self.runtime.hass, charger["control_entity"])
         if switch is None or switch.state != ("on" if action == "start" else "off"):
             return None
@@ -2787,11 +2790,21 @@ class NativeSwitchExecutor:
             return None
         if power.observed_at < requested_at:
             return None
-        if action == "start" and (
-            power.value <= start_power_limit(charger)
-            or power.value > charger["rated_power_kw"] * 1.10
-        ):
-            return None
+        if action == "start":
+            if power.value > charger["rated_power_kw"] * 1.10:
+                return None
+            if power.value <= start_power_limit(charger):
+                # Fresh ON plus independent low draw establishes permission,
+                # not delivered energy, for a bounded live SoC objective.
+                stamp = getattr(switch, "last_updated", None)
+                provider = session_status(self.runtime.hass, charger.get("session_entity"),
+                                          datetime.now(timezone.utc))
+                if (not allow_waiting or stamp is None or stamp < requested_at
+                        or power.value > stop_power_limit(charger)
+                        or (charger.get("session_entity") and (
+                            provider.quality != "ok" or provider.value in ("fault", "unavailable", "charging")))):
+                    return None
+                return Evidence(power.value, "ok", power.observed_at, "ENABLED_WAITING_FOR_VEHICLE")
         if action in ("stop", "pause") and power.value > stop_power_limit(charger):
             return None
         return power
@@ -3242,9 +3255,15 @@ class NativeSwitchExecutor:
                     if self._stopped:
                         return result("execution_unknown", "INTEGRATION_UNLOADED_PENDING",
                                       service_sent=True)
+                    allow_waiting = (action == "start" and manual_request is None
+                        and any(a["id"] == charger.get("asset") and a.get("target_soc") is not None
+                                and all(a.get(k) is None for k in ("requested_kwh",
+                                    "requested_duration_minutes", "requested_budget_amount"))
+                                for a in cfg["assets"]))
                     observed = self._readback(charger, action,
                                               command_at if action == "start" else at,
-                                              bounded_switch=bounded_switch)
+                                              bounded_switch=bounded_switch,
+                                              allow_waiting=allow_waiting)
                     if (observed is not None and action == "start"
                             and charger["kind"] == "variable_current"
                             and not self._current_confirmed(charger, current_a, at)):
@@ -3274,7 +3293,8 @@ class NativeSwitchExecutor:
                                               else ";PROTECTIVE_STOP_UNCONFIRMED"),
                                     service_sent=True
                                 )
-                        outcome = result("confirmed", ("NATIVE_SWITCH_STATE" if observed.reason == "NATIVE_SWITCH_STATE"
+                        outcome = result("confirmed", (observed.reason if observed.reason in
+                                          ("NATIVE_SWITCH_STATE", "ENABLED_WAITING_FOR_VEHICLE")
                                           else "INDEPENDENT_POWER_READBACK"),
                                       observed_at=observed.observed_at,
                                       measured_kw=observed.value,
