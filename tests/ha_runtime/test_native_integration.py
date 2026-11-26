@@ -1920,7 +1920,10 @@ async def test_installed_scale_source_publication_and_reload(hass: HomeAssistant
                               {"unit_of_measurement": "W"})
         await hass.async_block_till_done()
         samples.append((perf_counter()-started)*1000)
-        assert float(hass.states.get(aggregate).state) == pytest.approx(count*watts/1000)
+        if count:
+            assert float(hass.states.get(aggregate).state) == pytest.approx(count*watts/1000)
+        else:
+            assert hass.states.get(aggregate).state == "unknown"
         assert all(float(hass.states.get(entity).state) == pytest.approx(watts/1000)
                    for entity in owner_ids)
         assert runtime.executor.snapshot() == {}
