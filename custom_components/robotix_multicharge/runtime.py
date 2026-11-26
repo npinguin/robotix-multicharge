@@ -56,6 +56,18 @@ def _display_power(hass, entity, at, *, signed=False):
     return result
 
 
+def display_only_power_sources(configuration):
+    """PV/home meters are display-only unless also selected in another role."""
+    ctl = configuration["controller"]
+    display_fields = ("solar_power_entity", "home_power_entity")
+    display = {ctl.get(field) for field in display_fields}
+    other = {value for row in (ctl, *configuration["assets"], *configuration["chargers"])
+             for key, value in row.items()
+             if key.endswith("_entity") and isinstance(value, str)
+             and not (row is ctl and key in display_fields)}
+    return frozenset(value for value in display if value and value not in other)
+
+
 class MultiChargeRuntime:
     def __init__(self, hass, configuration):
         self.hass = hass
@@ -470,6 +482,19 @@ class MultiChargeRuntime:
             elif quality != "OK":
                 tariff_quality = quality
         return tuple(tariff), tariff_quality, tariff_coverage
+
+    def _display_power_observations(self, at):
+        setting = self.configuration["controller"]
+        return {
+            "solar_power": _display_power(self.hass, setting.get("solar_power_entity"), at),
+            "home_power": _display_power(self.hass, setting.get("home_power_entity"), at),
+        }
+
+    def refresh_display_power(self, at=None):
+        """Refresh only independent display meters; no new plan or grant."""
+        at = (at or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        self.observations["sources"].update(self._display_power_observations(at))
+        self.notify()
 
     def refresh(self, at=None):
         at = (at or datetime.now(timezone.utc)).astimezone(timezone.utc)
@@ -886,8 +911,7 @@ class MultiChargeRuntime:
             "tariff_tomorrow_quality": tariff_coverage.get("tomorrow_quality"),
             "binding_quality": binding_quality,
             "current_price": current_price,
-            "solar_power": _display_power(self.hass, setting.get("solar_power_entity"), at),
-            "home_power": _display_power(self.hass, setting.get("home_power_entity"), at),
+            **self._display_power_observations(at),
             "grid_power": _display_power(self.hass, setting.get("grid_power_entity"), at, signed=True),
             "surplus_power": _evidence(live_power(
                 self.hass, setting.get("solar_surplus_entity"), at,
