@@ -17,6 +17,7 @@ from time import monotonic
 
 from .source_evidence import Evidence, binding, connection, intervals, number, soc_with_health
 from .configuration import is_plan_presentation_only_change
+from .const import DEFAULT_POWER_ADJUSTMENT_INTERVAL_MINUTES, MIN_AC_CURRENT_A
 from .history import receipt_overlaps
 from .planner import (resolve_recurring_ready_by, charging_window_allows,
                       qualified_price_policy_cap)
@@ -1006,20 +1007,25 @@ class NativeSwitchExecutor:
             charger = {**charger, "phase_count": len(charger["phase_ids"])}
         if charger["kind"] != "variable_current":
             return charger
+        def unqualified(reason):
+            return {**charger, "min_current_a": None, "max_current_a": None,
+                    "current_step_a": None, "_current_capability_reason": reason}
+
         if not str(charger.get("current_control_entity", "")).startswith("number."):
-            return charger
+            return unqualified("CURRENT_WRITE_OR_INDEPENDENT_READBACK_MISSING")
         device = self.runtime.hass.states.get(charger["current_control_entity"])
         if device is None or device.state in ("unknown", "unavailable"):
-            return charger
+            return unqualified("CURRENT_CONTROL_UNAVAILABLE")
         try:
             attrs = device.attributes
             lo, hi, step = (float(attrs[key]) for key in ("min", "max", "step"))
-            if (attrs.get("unit_of_measurement") != "A"
-                    or not all(isfinite(x) for x in (lo, hi, step))
+            if attrs.get("unit_of_measurement") != "A":
+                return unqualified("NATIVE_CURRENT_UNIT_UNSUPPORTED")
+            if (not all(isfinite(x) for x in (lo, hi, step))
                     or lo < 0 or hi <= 0 or hi < lo or step <= 0 or (hi-lo)/step > 1000):
-                return charger
+                return unqualified("NATIVE_CURRENT_CAPABILITY_UNVERIFIED")
         except (KeyError, TypeError, ValueError, OverflowError):
-            return charger
+            return unqualified("NATIVE_CURRENT_CAPABILITY_UNVERIFIED")
         # A nominal 1-phase/230 V forecast cannot prove installed topology.
         # Keep unknown wiring out of physical conversion and let the existing
         # installer setup supply the missing installation facts once.
@@ -1028,7 +1034,7 @@ class NativeSwitchExecutor:
         # Zero is a valid native setpoint, not a charging allocation. For
         # AC EVSEs without a declared positive minimum, start at the 6 A
         # operating floor (IEC 61851), rounded onto the actual native grid.
-        declared_min = max(6.0, lo, charger.get("min_current_a", 6.0))
+        declared_min = max(MIN_AC_CURRENT_A, lo, charger.get("min_current_a") or MIN_AC_CURRENT_A)
         declared_max = charger.get("max_current_a", hi)
         declared_step = charger.get("current_step_a")
         origin = charger.get("min_current_a", lo)
@@ -1044,12 +1050,10 @@ class NativeSwitchExecutor:
             feasible.append(round(current, 9))
         if not feasible:
             # Preserve the nominal rating for a labelled preview only.
-            return {**charger, "min_current_a": None, "max_current_a": None,
-                    "current_step_a": None}
+            return unqualified("CURRENT_RANGE_UNVERIFIED")
         spacing = feasible[1]-feasible[0] if len(feasible)>1 else step
         if any(abs(b-a-spacing)>1e-6 for a, b in zip(feasible, feasible[1:])):
-            return {**charger, "min_current_a": None, "max_current_a": None,
-                    "current_step_a": None}
+            return unqualified("CURRENT_RANGE_UNVERIFIED")
         return {**charger, "min_current_a": feasible[0],
                 "max_current_a": feasible[-1], "current_step_a": round(spacing, 9)}
 
@@ -1057,6 +1061,8 @@ class NativeSwitchExecutor:
         """Reject a claimed adjustable capability until native source metadata agrees."""
         if charger.get("kind") != "variable_current":
             return "CHARGER_NOT_ADJUSTABLE", None
+        if charger.get("_current_capability_reason"):
+            return charger["_current_capability_reason"], None
         if (not isinstance(current, (float, int)) or isinstance(current, bool)
                 or not isfinite(current)):
             return "CURRENT_SETPOINT_REQUIRED", None
@@ -1915,7 +1921,7 @@ class NativeSwitchExecutor:
 
     def _power_adjustment_due(self):
         interval = self.runtime.configuration["controller"].get(
-            "power_adjustment_interval_minutes", 5,
+            "power_adjustment_interval_minutes", DEFAULT_POWER_ADJUSTMENT_INTERVAL_MINUTES,
         )
         # Wall time governs the quarter and physical receipts; elapsed
         # regulation time must not jump on NTP/timezone corrections.
@@ -2220,7 +2226,8 @@ class NativeSwitchExecutor:
                 charger.get("current_readback_entity"), "current", at)
             session = self._sessions.get(uid)
             current = session.get("target_current_a") if session else None
-            if current is None:
+            if current is None or charger.get("_current_capability_reason") or any(
+                    charger.get(field) is None for field in ("phase_count", "voltage_v", "current_step_a")):
                 unsafe = True
             elif charger.get("current_readback_entity"):
                 if (amps.quality != "ok" or amps.value > current + max(
