@@ -2600,14 +2600,18 @@ class NativeSwitchExecutor:
                 if source_entity not in sources:
                     continue
             switch = self._switch(self.runtime.hass, configured.get("control_entity"))
-            if switch is None or switch.state != "on":
+            if switch is None:
+                continue
+            power = number(self.runtime.hass, configured.get("power_entity"), "power", at)
+            contradictory = switch.state == "off" and power.quality == "ok" and power.value > stop_power_limit(configured)
+            if switch.state != "on" and not contradictory:
                 continue
             task = self._source_stop_tasks.get(uid)
             if task is not None and not task.done():
                 continue
             charger = self.effective_charger(configured)
             unsafe, limit_reason, reason = self._active_safety(charger, at)
-            if unsafe or limit_reason is not None:
+            if contradictory or unsafe or limit_reason is not None:
                 # Modulation cannot safely acquire the lock while another
                 # command awaits readback. Fall back to the same guarded STOP.
                 self._source_stop_tasks[uid] = create_task(self._stop_active(charger, at, reason))
@@ -2636,23 +2640,23 @@ class NativeSwitchExecutor:
                     continue
                 if state.state == "on":
                     active.append(c)
-                elif (c["id"] not in self._start_pending
-                      and (c["id"] in self._interrupted_sessions or c["id"] in self._sessions
-                           or self._orphaned_soc_asset(c, at) is not None)):
-                    row = self._interrupted_sessions.get(c["id"])
-                    if row and row["sources"]["control_entity"] != c.get("control_entity"):
-                        continue
+                elif c["id"] not in (self._start_pending | self._current_pending):
+                    uid = c["id"]
+                    row = self._interrupted_sessions.get(uid)
                     power = number(self.runtime.hass, c.get("power_entity"), "power", at)
-                    session = row["session"] if row else self._sessions.get(c["id"], {})
-                    # An orphan needs independent power evidence. Positive
-                    # draw with an OFF switch is contradictory, not idle:
-                    # use the same protective STOP/readback path before release.
-                    if not session and power.quality != "ok":
+                    contradictory = power.quality == "ok" and power.value > stop_power_limit(c)
+                    # Native apps may stop an uncertain command, or report OFF
+                    # while the physical output still draws. Reconcile even
+                    # without a previous MultiCharge-owned session.
+                    if not (contradictory or uid in self._quarantine
+                            or row or uid in self._sessions
+                            or self._orphaned_soc_asset(c, at) is not None):
                         continue
+                    session = row["session"] if row else self._sessions.get(uid, {})
                     if (power.quality == "ok" or (c["kind"] == "on_off"
                             and (not c.get("power_entity")
                                  or session.get("duration_without_connection")))):
-                        await self.execute(c["id"], "stop")
+                        await self.execute(uid, "stop")
             for configured in active:
                 charger = self.effective_charger(configured)
                 uid = charger["id"]
@@ -2811,7 +2815,10 @@ class NativeSwitchExecutor:
                     self._stop_requested.add(charger_id)
                 elif pending and self._lock.locked() and request_id not in self._urgent_stop_requests:
                     switch = self._switch(self.runtime.hass, charger.get("control_entity"))
-                    if switch is not None and switch.state == "on":
+                    power = number(self.runtime.hass, charger.get("power_entity"),
+                                   "power", datetime.now(timezone.utc))
+                    if switch is not None and (switch.state == "on" or (
+                            power.quality == "ok" and power.value > stop_power_limit(charger))):
                         self._urgent_stop_requests.add(request_id)
                         # Dispatch only; the ordinary serialized path still
                         # owns independent confirmation and Pause persistence.
@@ -3091,6 +3098,12 @@ class NativeSwitchExecutor:
                     checkpoint = self._interrupted_sessions.get(charger_id)
                     since = (datetime.fromisoformat(checkpoint["session"]["started_at"])
                              if checkpoint else None)
+                    # An old idle sample cannot clear a later unknown command.
+                    previous = self._outcomes.get(charger_id, {})
+                    if (charger_id in self._quarantine
+                            and previous.get("status") == "execution_unknown"):
+                        last_request = datetime.fromisoformat(previous["requested_at"])
+                        since = max(since, last_request) if since is not None else last_request
                     switch_at = getattr(state, "last_updated", None)
                     if (not charger.get("power_entity") and charger["kind"] == "on_off"
                             and (since is None or switch_at is not None and switch_at >= since)):
