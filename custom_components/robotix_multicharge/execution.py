@@ -1012,7 +1012,7 @@ class NativeSwitchExecutor:
                     "current_step_a": None, "_current_capability_reason": reason}
 
         if not str(charger.get("current_control_entity", "")).startswith("number."):
-            return unqualified("CURRENT_WRITE_OR_INDEPENDENT_READBACK_MISSING")
+            return unqualified("VARIABLE_CURRENT_CAPABILITY_UNVERIFIED")
         device = self.runtime.hass.states.get(charger["current_control_entity"])
         if device is None or device.state in ("unknown", "unavailable"):
             return unqualified("CURRENT_CONTROL_UNAVAILABLE")
@@ -1216,7 +1216,7 @@ class NativeSwitchExecutor:
                                 setting = number(self.runtime.hass, other.get("current_control_entity"),
                                                  "current", at)
                                 if setting.quality == "ok" and abs(setting.value-target) <= max(
-                                        0.25, other.get("current_step_a", 1) / 2):
+                                        0.25, (other.get("current_step_a") or 1) / 2):
                                     amps = target
                                     if other.get("voltage_v") and other.get("phase_count"):
                                         reserved_kw = max(power.value, target * other["voltage_v"]
@@ -1325,7 +1325,7 @@ class NativeSwitchExecutor:
         watts = number(self.runtime.hass, charger.get("power_entity"), "power",
                        datetime.now(timezone.utc))
         target_kw = current * charger["voltage_v"] * charger["phase_count"] / 1000
-        tolerance = max(0.25, charger.get("current_step_a", 1) / 2)
+        tolerance = max(0.25, (charger.get("current_step_a") or 1) / 2)
         # A native EVSE current setting is a ceiling, not a promise that
         # the vehicle will consume exactly that current. Confirm the setpoint
         # separately from actual draw; tapering or lower vehicle acceptance is valid.
