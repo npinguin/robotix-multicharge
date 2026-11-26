@@ -578,7 +578,10 @@ function mcPlanTickText(value,data){
     timeZone:data.timezone||"UTC",day:"numeric",hour:"2-digit",minute:"2-digit",hourCycle:"h23"
   });
 }
-function mcPlanSeries(data,visibleChargers,rows,actuals,forecast,includeTotals=false){
+function mcPlanSeries(data,visibleChargers,rows,actuals,forecast,includeTotals=false,technical=true){
+  if(!technical){
+    rows=rows.map(row=>({...row,proposed_power_kw:Number.isFinite(row.accepted_power_kw)?row.accepted_power_kw:row.proposed_power_kw,accepted_power_kw:null}));
+  }
   const from=Date.parse(data.start),until=Date.parse(data.end);
   const visible=new Set(visibleChargers.map(c=>c.id));
   const config=data.configuration||{};
@@ -599,7 +602,7 @@ function mcPlanSeries(data,visibleChargers,rows,actuals,forecast,includeTotals=f
       const color=mcPlanOwnerColor(data,assetId,row.charger_id);
       const label=mcPlanName({...row,asset_id:assetId},config,labels);
       const id=JSON.stringify([index,row.charger_id,assetId]);
-      if(!groups.has(id))groups.set(id,{name:status+" · "+label,color,index,chargerId:row.charger_id,intervals:new Map()});
+      if(!groups.has(id))groups.set(id,{name:(!technical&&index===0?"Planned":!technical&&index===2?"Actual":status)+" · "+label,color,index,chargerId:row.charger_id,intervals:new Map()});
       const g=groups.get(id);
       const x=Math.max(a,from),y=Math.min(b,until);
       if(!g.intervals.has(x))g.intervals.set(x,{start:x,end:y,power:row[key]});
@@ -698,11 +701,11 @@ function mcApexLane(data,charger,rows,actuals,forecast){
   mcMountApex(plot,mcPlanChartOptions(data,series,190,"Charger "+charger.id));
   const lane=mcEl("div");lane.append(plot);if(plot._mcLegend)lane.append(plot._mcLegend);return lane;
 }
-function mcCombinedChargingChart(data, visibleChargers, slots, actuals, forecast=[]){
+function mcCombinedChargingChart(data, visibleChargers, slots, actuals, forecast=[],technical=false){
   const wrapper=mcEl("section","card combined-plan");
   wrapper.append(mcEl("h3","",mcTr("All charging · Power & price")));
   wrapper.append(mcEl("p","muted small",
-    mcTr("Measured physical · accepted · proposed · independently scaled price")));
+    mcTr(technical?"Measured physical · accepted · proposed · independently scaled price":"Actual and planned charging · reference price")));
   const from=Date.parse(data.start),until=Date.parse(data.end);
   if(!Number.isFinite(from)||!Number.isFinite(until)||until<=from){
     wrapper.append(mcEl("p","muted",mcTr("No qualified timeline")));return wrapper;
@@ -711,7 +714,7 @@ function mcCombinedChargingChart(data, visibleChargers, slots, actuals, forecast
   if(count>200||count<1){wrapper.append(mcEl("p","muted",mcTr("Unavailable")));return wrapper;}
   const visible=new Set(visibleChargers.map(c=>c.id));
   const buckets=Array.from({length:count},(_,i)=>({at:from+i*900000,price:null}));
-  const series=mcPlanSeries(data,visibleChargers,slots,actuals,forecast,true);
+  const series=mcPlanSeries(data,visibleChargers,slots,actuals,forecast,technical,technical);
   const quotes=(data.price_slots||[]).filter(x=>
     typeof x.price_per_kwh==="number"&&Number.isFinite(x.price_per_kwh)&&
     /^[A-Z]{3}$/.test(x.currency||""));
@@ -2412,7 +2415,9 @@ class RobotixMultiChargeCard extends HTMLElement {
         [...rows,...forecast,...measured].some(s=>
           s.charger_id===item.id&&s.asset_id===assetId);
     });
-    container.append(mcCombinedChargingChart(d,shown,rows,measured,forecastVisible?forecast:[]));
+    container.append(mcCombinedChargingChart(d,shown,rows,measured,forecastVisible?forecast:[],this._folds["plan:technical"]===true));
+    const technicalToggle=mcButton(this._folds["plan:technical"]?"Actual and planned charging":"Proposed / accepted / measured",()=>{this._folds["plan:technical"]=!this._folds["plan:technical"];this.render();});
+    selectors.append(technicalToggle);
     this.disclosure(container,"plan:options","Chart options",selectors);
     if(!d.price_slots?.length){
       const msg=mcEl("div","card");msg.append(mcEl("p","muted small",mcTr("Future tariff intervals")+" · "+mcReason(d.observations?.sources?.tariff_quality||"SOURCE_NOT_SELECTED")));
@@ -2516,7 +2521,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     for(const phrase of ["Proposed","Accepted","Measured","Indicative"]){
       key.append(mcEl("span","",phrase));
     }
-    container.append(key);
+    this.disclosure(container,"plan:series-key","Planning details",key);
     const groups=Object.entries(assumptions).filter(([id,meta])=>
       forecastVisible&&(!this._filter||this._filter==="charger:"+id||
         this._filter==="asset:"+meta.asset_id));
@@ -2781,10 +2786,11 @@ class RobotixMultiChargeCard extends HTMLElement {
         mcEl("strong","",typeof goal[field]==="number"&&Number.isFinite(goal[field])?goal[field].toFixed(2)+" kWh":mcTr("Unknown")));
       metrics.append(cell);
     }
-    result.append(metrics);
+    const technical=mcEl("div");
+    technical.append(metrics);
     if((goal.timeline_windows||[]).length&&
         (!goal.conditional||this._data.configuration?.controller?.show_indicative_forecast!==false))
-      this.goalTimeline(result,goal,mcPlanOwnerColor(this._data,asset.id,charger.id));
+      this.goalTimeline(technical,goal,mcPlanOwnerColor(this._data,asset.id,charger.id));
     const timing=[];
     if(goal.next_charge_at)timing.push(mcTr("Next charge")+" · "+mcTime(goal.next_charge_at,this._data.timezone));
     if(goal.planned_finish_at)timing.push(mcTr("Planned finish")+" · "+mcTime(goal.planned_finish_at,this._data.timezone));
@@ -2798,20 +2804,21 @@ class RobotixMultiChargeCard extends HTMLElement {
     if(goal.reason&&goal.reason!=="PROPOSED"&&goal.reason!=="TARGET_MET")
       result.append(mcEl("p","muted small",mcReason(goal.reason)));
     if(typeof goal.session_draw_estimate?.power_kw==="number"&&goal.status!=="target_met"){
-      result.append(mcEl("p","muted small",mcTr("Forecast from measured session power")+
+      technical.append(mcEl("p","muted small",mcTr("Forecast from measured session power")+
         " · "+goal.session_draw_estimate.power_kw.toFixed(2)+" kW"));
     }
     if(goal.headroom_boost&&goal.status!=="target_met"){
-      result.append(mcEl("p","muted small",mcTr("Conservative plan · available boost")+
+      technical.append(mcEl("p","muted small",mcTr("Conservative plan · available boost")+
         " "+Number(goal.maximum_reserved_power_kw).toFixed(2)+" kW"));
     }
     if(goal.deadline_recovery&&goal.status!=="target_met")
-      result.append(mcEl("p","muted small",mcTr("Deadline recovery · higher verified setpoint, actual draw may differ")));
+      technical.append(mcEl("p","muted small",mcTr("Deadline recovery · higher verified setpoint, actual draw may differ")));
     if(goal.power_capability_verified===false&&goal.status!=="target_met"){
       const minimum=goal.minimum_planning_power_kw;
-      result.append(mcEl("p","muted small",mcTr("Assumed minimum planning power")+
+      technical.append(mcEl("p","muted small",mcTr("Assumed minimum planning power")+
         (typeof minimum==="number"?" · "+minimum.toFixed(2)+" kW":"")));
     }
+    this.disclosure(result,"goal:"+asset.id+":"+charger.id,"Planning details",technical);
     card.append(result);
     const socGoal=asset.target_soc!==undefined&&
       ["requested_kwh","requested_duration_minutes","requested_budget_amount"].every(k=>asset[k]==null);
@@ -3835,7 +3842,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     this.feedback(container);
     const settingsGrid=mcEl("div","settings-grid");
     for(const title of MC_SETTINGS){
-      const primary=["Charging site","Charging strategy","Sources & bindings"].includes(title);
+      const primary=title==="Charging site";
       const open=primary||title===this._settingsOpen;
       const group=mcEl("section","card settings-card"+(open?" expanded":""));
       const heading=mcEl("div","settings-heading");
@@ -3861,7 +3868,8 @@ class RobotixMultiChargeCard extends HTMLElement {
         const detail=mcEl("div","details");
         if(title==="Charging site"){
           mcPair(detail,"Site name",ctl.name);
-          mcPair(detail,mcTr("Site controller ID"),ctl.id);
+          const identity=mcEl("div");mcPair(identity,mcTr("Site controller ID"),ctl.id);
+          this.disclosure(detail,"controller:identity","Technical details",identity);
           if(this.canEditSettings()&&this.ownerEntity("controller",ctl.id,"name")){
             const rename=mcEl("div","row");
             rename.append(mcEl("span","",mcTr("Site name")),
@@ -3969,10 +3977,6 @@ class RobotixMultiChargeCard extends HTMLElement {
         }else if(title==="Safety & limits"){
           mcPair(detail,"Maximum group kW",
             ctl.max_power_kw===undefined?"Unknown":ctl.max_power_kw+" kW");
-          this.nativeNumberEditor(detail,"controller",ctl.id,"max_power_kw",
-            "Maximum group power",ctl.max_power_kw,"kW");
-          this.nativeNumberEditor(detail,"controller",ctl.id,"max_parallel",
-            "Parallel chargers",ctl.max_parallel);
           const phaseValues=Object.entries(ctl.phase_limits_a||{});
           mcPair(detail,"Electrical limits",phaseValues.length?
             phaseValues.map(([id,amps])=>id+": "+amps+" A").join(" · "):
