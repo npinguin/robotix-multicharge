@@ -375,8 +375,8 @@ class MultiChargeRuntime:
 
     def record_settings_action(self, scope, target_id, action, changes,
                                expected_revision, *, status="accepted_unconfirmed",
-                               reason=None):
-        self._settings_action = {
+                               reason=None, publish=True):
+        recorded = {
             "scope": scope, "target_id": target_id, "action": action,
             "fields": sorted(str(field) for field in changes),
             "expected_revision": expected_revision,
@@ -384,9 +384,12 @@ class MultiChargeRuntime:
             "status": status,
             "reason": reason,
         }
-        self.notify()
+        if publish:
+            self._settings_action = recorded
+            self.notify()
+        return recorded
 
-    async def persist_control_state(self):
+    async def persist_control_state(self, *, settings_action=None):
         if self._control_store is None:
             return True  # isolated developer tests, never a production HA fallback
         try:
@@ -398,7 +401,8 @@ class MultiChargeRuntime:
                     return False
                 await self._control_store.async_save({
                     **self.executor.export_state(),
-                    "settings_action": self._settings_action,
+                    "settings_action": (settings_action if settings_action is not None
+                                        else self._settings_action),
                     "power_bindings": self.power_bindings,
                     "energy_bindings": self.energy_bindings,
                     "tariff_bindings": self.tariff_bindings,
