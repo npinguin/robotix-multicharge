@@ -273,6 +273,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     runtime.set_unsubscribe(
         async_track_time_interval(hass, on_minute, timedelta(minutes=1))
     )
+    runtime.set_unsubscribe(lambda: pending.cancel() if pending is not None and not pending.done() else None)
     runtime.set_unsubscribe(lambda: price_pending.cancel() if price_pending is not None and not price_pending.done() else None)
     runtime.set_unsubscribe(lambda: finance_pending.cancel() if finance_pending is not None and not finance_pending.done() else None)
 
