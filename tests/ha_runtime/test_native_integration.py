@@ -1863,6 +1863,134 @@ async def test_dashboard_native_energy_source_mapping_no_shadow_settings(
     assert "energy" in menu["menu_options"]
     assert await hass.config_entries.async_unload(entry.entry_id)
 
+@pytest.mark.asyncio
+async def test_installed_automatic_soc_recovers_external_stop_and_source_return(
+    hass: HomeAssistant, freezer,
+):
+    """End-to-end native HA time/events, one writer, no repeated resident actions."""
+    from datetime import datetime, timedelta, timezone
+    from pytest_homeassistant.common import async_fire_time_changed
+
+    initial = datetime(2026, 11, 26, 8, 1, tzinfo=timezone.utc)
+    freezer.move_to(initial)
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    cfg = validate_configuration({
+        "controller": {"id": "site", "name": "Autonomous recovery", "mode": "Automatic",
+                       "max_parallel": 1, "max_power_kw": 3.6},
+        "assets": [{"id": "car", "name": "Car", "kind": "car",
+                    "soc_entity": "sensor.auto_soc", "target_soc": 80,
+                    "capacity_kwh": 30, "charge_efficiency": 0.9}],
+        "chargers": [{"id": "drive", "name": "Drive", "kind": "on_off",
+                      "asset": "car", "rated_power_kw": 2, "phase_count": 1,
+                      "control_owner": "multicharge", "physical_commissioned": True,
+                      "control_entity": "switch.auto_drive",
+                      "connected_entity": "binary_sensor.auto_cable",
+                      "power_entity": "sensor.auto_power", "energy_entity": "sensor.auto_meter"}],
+    })
+    def power(watts):
+        hass.states.async_set("sensor.auto_power", str(watts), {"unit_of_measurement": "W"})
+
+    hass.states.async_set("switch.auto_drive", "off")
+    hass.states.async_set("binary_sensor.auto_cable", "on")
+    hass.states.async_set("sensor.auto_soc", "50", {"unit_of_measurement": "%"})
+    hass.states.async_set("sensor.auto_meter", "5", {"unit_of_measurement": "kWh"})
+    power(0)
+    commands = []
+
+    async def start(call):
+        commands.append(call.service)
+        hass.states.async_set("switch.auto_drive", "on")
+        power(0)  # vehicle initially refuses energy; switch is positively enabled
+
+    async def stop(call):
+        commands.append(call.service)
+        hass.states.async_set("switch.auto_drive", "off")
+        power(0)
+
+    hass.services.async_register("switch", "turn_on", start)
+    hass.services.async_register("switch", "turn_off", stop)
+    entry = MockConfigEntry(domain=DOMAIN, title="Automatic recovery",
+                            data={"source": "ui", "configuration": cfg}, unique_id=DOMAIN)
+    entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    assert commands == []
+
+    async def quarter(minute):
+        when = initial.replace(minute=minute)
+        freezer.move_to(when)
+        # Refresh independent provider evidence before the actual HA timer.
+        hass.states.async_set("binary_sensor.auto_cable", "on")
+        hass.states.async_set("sensor.auto_soc", "50", {"unit_of_measurement": "%"})
+        power(0)
+        await hass.async_block_till_done()
+        async_fire_time_changed(hass, when)
+        await hass.async_block_till_done()
+        assert hass.states.get("switch.auto_drive").state == "on"
+        assert runtime.executor.snapshot()["drive"]["reason"] == "ENABLED_WAITING_FOR_VEHICLE"
+        assert runtime.executor.session_snapshot()["drive"]["asset_id"] == "car"
+        assert runtime.charger_states()["drive"]["operational_status"]["status"] == "idle"
+
+    await quarter(15)
+    freezer.move_to(initial.replace(minute=16))
+    power(1200)
+    await hass.async_block_till_done()
+    assert runtime.charger_states()["drive"]["operational_status"]["status"] == "charging"
+    assert commands == ["turn_on"]
+    freezer.move_to(initial.replace(minute=17))
+    hass.states.async_set("sensor.auto_meter", "5.1", {"unit_of_measurement": "kWh"})
+    hass.states.async_set("switch.auto_drive", "off")
+    power(0)
+    await hass.async_block_till_done()
+    assert not runtime.executor._inflight and not runtime.executor.session_snapshot()
+    assert commands == ["turn_on"]  # external verified STOP needs no repeat command
+
+    await quarter(30)
+    freezer.move_to(initial.replace(minute=31))
+    hass.states.async_set("binary_sensor.auto_cable", "unavailable")
+    await hass.async_block_till_done()
+    assert hass.states.get("switch.auto_drive").state == "off"
+    assert commands == ["turn_on", "turn_on", "turn_off"]
+    assert not runtime.executor._inflight
+    freezer.move_to(initial.replace(minute=32))
+    hass.states.async_set("binary_sensor.auto_cable", "on")
+    await hass.async_block_till_done()
+    assert commands[-1] == "turn_off"  # next eligible quarter owns admission
+
+    await quarter(45)
+    freezer.move_to(initial.replace(minute=46))
+    power(1200)
+    hass.states.async_set("sensor.auto_meter", "5.3", {"unit_of_measurement": "kWh"})
+    hass.states.async_set("sensor.auto_soc", "80", {"unit_of_measurement": "%"})
+    await hass.async_block_till_done()
+    assert hass.states.get("switch.auto_drive").state == "off"
+    assert commands == ["turn_on", "turn_on", "turn_off", "turn_on", "turn_off"]
+    assert not runtime.executor._inflight and not runtime.executor.session_snapshot()
+    assert runtime.goal_assessments["drive"]["status"] == "target_met"
+    # A normal OEM-app action is not a second autonomous controller. Stop an
+    # externally energized output when the goal is already met.
+    freezer.move_to(initial.replace(minute=47))
+    hass.states.async_set("switch.auto_drive", "on")
+    power(1000)
+    await hass.async_block_till_done()
+    assert hass.states.get("switch.auto_drive").state == "off"
+    assert commands[-1] == "turn_off"
+    receipts = runtime.executor.completed_sessions()
+    assert len(receipts) == 3
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    replacement = hass.data[DOMAIN][entry.entry_id]
+    assert replacement is not runtime and replacement.configuration == cfg
+    assert replacement.executor.completed_sessions() == receipts
+    assert not replacement.executor._inflight
+    assert commands.count("turn_on") == 3
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
 @pytest.mark.parametrize("count", [0, 1, 4, 10])
 @pytest.mark.asyncio
 async def test_installed_scale_source_publication_and_reload(hass: HomeAssistant, count):
