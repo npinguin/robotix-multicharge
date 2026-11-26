@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from uuid import uuid4
 
 import voluptuous as vol
 
@@ -57,11 +58,15 @@ async def websocket_charge_command(
             "One-off energy/duration/budget is valid only for manual START",
         )
         return
-    result = await runtimes[0].executor.execute(
-        msg["charger_id"], msg["action"],
-        request_id=msg.get("request_id"), context=connection.context(msg),
-        current_a=msg.get("current_a"), manual_request=manual_request or None,
-    )
+    try:
+        result = await runtimes[0].executor.execute(
+            msg["charger_id"], msg["action"],
+            request_id=msg.get("request_id", uuid4().hex), context=connection.context(msg),
+            current_a=msg.get("current_a"), manual_request=manual_request or None,
+        )
+    except ValueError as exc:
+        connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT, str(exc))
+        return
     connection.send_result(msg["id"], result)
 
 

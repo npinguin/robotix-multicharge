@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import deque
+from time import perf_counter, monotonic
 from datetime import datetime, timedelta, timezone
 
 from .const import (DEFAULT_ASSET_PRIORITY, DEFAULT_CONTINUOUS_CHARGING,
@@ -29,7 +31,7 @@ from .cost_archive import (
 )
 from .history import (
     civil_cost_days, civil_period_costs, daily_costs, planned_costs, read_actual_history,
-    reconcile_power_bindings, reconcile_tariff_bindings, session_costs,
+    reconcile_power_bindings, reconcile_tariff_bindings, session_costs, read_recorder_samples,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -45,6 +47,20 @@ def _evidence(value):
             "observed_at": value.observed_at.isoformat() if value.observed_at else None}
 
 
+def _soc_grid_requirement(asset, reading):
+    """Independent remaining battery demand; command ownership is not a meter."""
+    if (any(asset.get(k) is not None for k in (
+            "requested_kwh", "requested_duration_minutes", "requested_budget_amount"))
+            or reading.quality != "ok" or asset.get("target_soc") is None):
+        return None
+    if reading.value >= asset["target_soc"]:
+        return 0.0
+    if asset.get("capacity_kwh") is None or asset.get("charge_efficiency") is None:
+        return None
+    return max(0.0, (asset["target_soc"] - reading.value)
+               * asset["capacity_kwh"] / 100 / asset["charge_efficiency"])
+
+
 def _display_power(hass, entity, at, *, signed=False):
     """Retain a clearly labeled last report for UI only, not control."""
     reading = live_power(hass, entity, at, signed=signed)
@@ -54,6 +70,18 @@ def _display_power(hass, entity, at, *, signed=False):
         if previous.quality == "ok":
             result["last_reported_value"] = previous.value
     return result
+
+
+def display_only_power_sources(configuration):
+    """PV/home meters are display-only unless also selected in another role."""
+    ctl = configuration["controller"]
+    display_fields = ("solar_power_entity", "home_power_entity")
+    display = {ctl.get(field) for field in display_fields}
+    other = {value for row in (ctl, *configuration["assets"], *configuration["chargers"])
+             for key, value in row.items()
+             if key.endswith("_entity") and isinstance(value, str)
+             and not (row is ctl and key in display_fields)}
+    return frozenset(value for value in display if value and value not in other)
 
 
 class MultiChargeRuntime:
@@ -83,7 +111,10 @@ class MultiChargeRuntime:
         self.nordpool_prices = None
         self.executor = NativeSwitchExecutor(self)
         self._control_store = None
+        self._control_read_failed = False
         self._control_restore_failed = False
+        self._control_write_failed = False
+        self._control_retry_at = 0.0
         self.power_bindings = reconcile_power_bindings(None, configuration, datetime.now(timezone.utc))
         self.energy_bindings = reconcile_power_bindings({}, configuration, datetime.now(timezone.utc), field="energy_entity")
         self.tariff_bindings = reconcile_tariff_bindings(None, configuration, datetime.now(timezone.utc))
@@ -91,7 +122,64 @@ class MultiChargeRuntime:
         self._settings_action = None
         self._listeners = set()
         self._unsubscribers = []
+        # Bounded, nonpersistent timings; diagnostic export only.
+        self._performance = {}
+        self._recorder_inflight = {}
         self.active = True
+
+    def _record_performance(self, operation, started):
+        elapsed_ms = (perf_counter() - started) * 1000
+        count, samples = self._performance.get(operation, (0, None))
+        if samples is None:
+            samples = deque(maxlen=256)
+        samples.append(elapsed_ms)
+        self._performance[operation] = (count + 1, samples)
+
+    def performance_snapshot(self):
+        result = {}
+        for operation, (count, samples) in self._performance.items():
+            ranked = sorted(samples)
+            result[operation] = {
+                "count": count, "sample_count": len(samples),
+                "last_ms": round(samples[-1], 3),
+                "p95_ms": round(ranked[(len(ranked) * 95 + 99) // 100 - 1], 3),
+                "max_sample_ms": round(ranked[-1], 3),
+            }
+        return result
+
+    async def _read_recorder_samples(self, first, end, entities):
+        """Share only identical running Recorder calls; never cache past data."""
+        key = (first, end, tuple(sorted(set(entities))))
+        task = self._recorder_inflight.get(key)
+        if task is None or task.done():
+            async def query():
+                started = perf_counter()
+                try:
+                    return await read_recorder_samples(self.hass, *key)
+                finally:
+                    self._record_performance("recorder_query", started)
+
+            task = self.hass.async_create_task(query())
+            self._recorder_inflight[key] = task
+
+            def remove(finished):
+                if self._recorder_inflight.get(key) is finished:
+                    self._recorder_inflight.pop(key, None)
+                if not finished.cancelled():
+                    finished.exception()  # consume if all waiting readers cancelled
+
+            task.add_done_callback(remove)
+        # A browser leaving the page cannot cancel a shared finance read.
+        return await asyncio.shield(task)
+
+    async def read_history(self, configuration, start, end, **kwargs):
+        """One instrumented native history projection; never a new ledger."""
+        started = perf_counter()
+        try:
+            return await read_actual_history(self.hass, configuration, start, end,
+                                             read_samples=self._read_recorder_samples, **kwargs)
+        finally:
+            self._record_performance("history_projection", started)
 
     def _current_session_cost_identity(self):
         """Invalidate stale projections on source, ownership or session changes."""
@@ -141,9 +229,9 @@ class MultiChargeRuntime:
             tariff_bindings=self.tariff_bindings, active_sessions=active,
             tariff_entity=forecast_tariff_source(cfg["controller"]),
         )
-        _, _, estimates, observed, metrics, daily = await read_actual_history(
-            self.hass, cfg, at-timedelta(hours=48), at+timedelta(minutes=1),
-            include_valuations=True, include_observed_sessions=True,
+        _, _, estimates, observed, metrics, daily = await self.read_history(
+            cfg, at-timedelta(hours=48), at+timedelta(minutes=1),
+            include_valuations=True, include_observed_sessions=True, include_quarters=False,
             financial_days={today: days[today]}, **common,
         )
         if not self.active or identity != self._current_session_cost_identity():
@@ -190,8 +278,8 @@ class MultiChargeRuntime:
             slices = hour_slices(a, b)
             previous = self._archive_partial.get(missing, {})
             pending = {key: pair for key, pair in slices.items() if key not in previous}
-            _, quality, older = await read_actual_history(
-                self.hass, cfg, a, b, financial_days=pending, **common,
+            _, quality, older = await self.read_history(
+                cfg, a, b, financial_days=pending, **common,
             )
             if not self.active or identity != self._current_session_cost_identity():
                 return
@@ -320,9 +408,19 @@ class MultiChargeRuntime:
             available += measured.value
         return round(available, 6), "OK"
 
+    def defer_control_store_read(self, store):
+        """Keep the original Store untouched until a transient read succeeds."""
+        self._control_store = store
+        self._control_read_failed = True
+        self._control_retry_at = monotonic() + 60
+        self.executor._persistence_verified = False
+
     def attach_control_store(self, store, snapshot):
         self._control_store = store
+        self._control_read_failed = False
         self._control_restore_failed = False
+        self._control_write_failed = False
+        self._control_retry_at = 0.0
         # Stage all binding histories before adopting any recovered control evidence.
         # A malformed later section cannot leave a partially restored runtime.
         now = datetime.now(timezone.utc)
@@ -398,7 +496,7 @@ class MultiChargeRuntime:
                 # A STOP is still physically available after failed restore.
                 # Neither that STOP nor an unrelated settings audit may
                 # replace the only recoverable original control evidence.
-                if self._control_restore_failed:
+                if self._control_restore_failed or self._control_read_failed:
                     return False
                 await self._control_store.async_save({
                     **self.executor.export_state(),
@@ -414,8 +512,54 @@ class MultiChargeRuntime:
                 })
             return True
         except (OSError, ValueError, RuntimeError):
+            self._control_write_failed = True
+            self._control_retry_at = monotonic() + 60
             _LOGGER.exception("Failed to persist charging control evidence")
             return False
+
+    async def retry_control_persistence(self):
+        """Retry a transient write, never replace an unreadable original Store."""
+        executor = self.executor
+        if (self._control_restore_failed or not (self._control_write_failed or self._control_read_failed)
+                or executor._persistence_verified or executor._evidence_invalid
+                or executor._draining or not self.active
+                or monotonic() < self._control_retry_at):
+            return False
+        # Same physical-writer lock: no pending START/current or configuration
+        # command may change evidence while this checkpoint is acknowledged.
+        if executor._lock.locked():
+            return False
+        async with executor._lock:
+            if (executor._draining or executor._sessions or executor._start_pending
+                    or executor._current_pending or not self.active):
+                return False
+            if self._control_read_failed:
+                try:
+                    saved = await self._control_store.async_load()
+                except (OSError, RuntimeError):
+                    self._control_retry_at = monotonic() + 60
+                    return False
+                except ValueError:
+                    saved = {"schema_major": -1}
+                if not self.active or executor._draining:
+                    return False
+                # The deferred read was not corrupt evidence. Validation and
+                # adoption remain synchronous and transactional.
+                executor._persistence_verified = True
+                self.attach_control_store(self._control_store, saved)
+                if not executor._persistence_verified:
+                    self.refresh()
+                    return False
+                # Recovered checkpoints must be reconciled through STOP, not
+                # treated as live sessions. Do not admit until saved.
+                executor._persistence_verified = False
+            if not await self.persist_control_state():
+                return False
+            self._control_write_failed = False
+            executor._persistence_verified = True
+            self.refresh()
+            _LOGGER.info("Charging control Store recovered; normal admission restored")
+            return True
 
     def set_unsubscribe(self, unsubscribe):
         self._unsubscribers.append(unsubscribe)
@@ -448,6 +592,9 @@ class MultiChargeRuntime:
 
     def stop(self):
         self.active = False
+        for task in self._recorder_inflight.values():
+            task.cancel()
+        self._recorder_inflight.clear()
         self.executor.detach()
         for unsubscribe in self._unsubscribers:
             unsubscribe()
@@ -471,7 +618,23 @@ class MultiChargeRuntime:
                 tariff_quality = quality
         return tuple(tariff), tariff_quality, tariff_coverage
 
+    def _display_power_observations(self, at):
+        setting = self.configuration["controller"]
+        return {
+            "solar_power": _display_power(self.hass, setting.get("solar_power_entity"), at),
+            "home_power": _display_power(self.hass, setting.get("home_power_entity"), at),
+        }
+
+    def refresh_display_power(self, at=None):
+        """Refresh only independent display meters; no new plan or grant."""
+        at = (at or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        started = perf_counter()
+        self.observations["sources"].update(self._display_power_observations(at))
+        self.notify()
+        self._record_performance("display_refresh", started)
+
     def refresh(self, at=None):
+        started = perf_counter()
         at = (at or datetime.now(timezone.utc)).astimezone(timezone.utc)
         cfg = self.configuration
         setting = cfg["controller"]
@@ -585,8 +748,8 @@ class MultiChargeRuntime:
             minimum_priority = 0.0
             low_soc_priority = 0.0
             budget_minutes = 24 * 60 if budget is not None else None
-            if soc_based and reading.quality == "ok" and asset.get("target_soc") is not None and reading.value >= asset["target_soc"]:
-                amount = 0.0
+            if soc_based:
+                amount = _soc_grid_requirement(asset, reading)
             if soc_based and amount != 0 and (
                     asset.get("minimum_soc_pct") is not None
                     or asset.get("low_soc_trigger_pct") is not None):
@@ -602,11 +765,6 @@ class MultiChargeRuntime:
                     and "capacity_kwh" in asset
                     and "charge_efficiency" in asset
                 ):
-                    amount = max(
-                        0.0,
-                        (asset["target_soc"] - reading.value)
-                        * asset["capacity_kwh"] / 100 / asset["charge_efficiency"],
-                    )
                     if asset.get("minimum_soc_pct") is not None:
                         minimum_priority = min(
                             amount,
@@ -886,8 +1044,7 @@ class MultiChargeRuntime:
             "tariff_tomorrow_quality": tariff_coverage.get("tomorrow_quality"),
             "binding_quality": binding_quality,
             "current_price": current_price,
-            "solar_power": _display_power(self.hass, setting.get("solar_power_entity"), at),
-            "home_power": _display_power(self.hass, setting.get("home_power_entity"), at),
+            **self._display_power_observations(at),
             "grid_power": _display_power(self.hass, setting.get("grid_power_entity"), at, signed=True),
             "surplus_power": _evidence(live_power(
                 self.hass, setting.get("solar_surplus_entity"), at,
@@ -1011,7 +1168,9 @@ class MultiChargeRuntime:
                 "conditional": conditional, "deadline": (
                     due.isoformat() if due else self.observations["assets"][asset["id"]]["next_ready_by"]
                 ),
-                "required_grid_kwh": 0.0 if measured_target_met else request.remaining_grid_kwh if request else None,
+                "required_grid_kwh": (0.0 if measured_target_met else
+                    request.remaining_grid_kwh if request else
+                    _soc_grid_requirement(asset, soc)),
                 "planned_grid_kwh": proposed, "shortfall_grid_kwh": shortfall,
                 "coverage": coverage,
                 "assumption": self.forecast_assumptions.get(uid, {}).get("assumption"),
@@ -1033,6 +1192,7 @@ class MultiChargeRuntime:
             self.price_slots, at,
         )
         self.notify()
+        self._record_performance("full_refresh", started)
 
     def charger_states(self, capabilities=None):
         """Four read-only projections of the existing source and control truth."""
@@ -1051,6 +1211,11 @@ class MultiChargeRuntime:
             reported = session.value if session is not None and session.quality == "ok" else None
             activation = "active" if charger_is_active(charger) else "inactive"
             switch = self.executor._switch(self.hass, charger.get("control_entity"))
+            owned = self.executor._sessions.get(uid)
+            waiting = (owned is not None and owned.get("soc_target") is not None
+                       and switch is not None and switch.state == "on"
+                       and connected is True and measured is not None and measured <= 0.05
+                       and reported not in ("charging", "fault", "unavailable"))
             # Preserve conflicts as unknown rather than choose a convenient source.
             if ((connected is False and (reported in ("charging", "paused") or
                                          measured is not None and measured > 0.05))
@@ -1112,6 +1277,8 @@ class MultiChargeRuntime:
                 readiness, reason = "waiting", "USER_PAUSED"
             elif activation == "active" and connected is not False and blocking:
                 readiness, reason = "unknown", blocking
+            elif waiting:
+                readiness, reason = "waiting", "ENABLED_WAITING_FOR_VEHICLE"
             elif reported == "paused":
                 readiness, reason = "waiting", session.reason if session.reason != "OK" else "PROVIDER_SUSPENDED"
             elif (switch is not None or reported in ("charging", "stopped", "idle", "completed")
@@ -1148,6 +1315,8 @@ class MultiChargeRuntime:
                     return {"status": "ready", "reason": "TARGET_MET"}
                 if problem:
                     return {"status": "problem", "reason": problem_reason}
+                if waiting:
+                    return {"status": "idle", "reason": "ENABLED_WAITING_FOR_VEHICLE"}
                 return {"status": "idle", "reason": None}
 
             goal = self.goal_assessments.get(uid, {})
@@ -1196,12 +1365,8 @@ class MultiChargeRuntime:
             r.get("status") in ("requested", "accepted_unconfirmed")
             for r in actions
         )
-        unresolved_restart = (
-            not self.executor._persistence_verified or bool(
-                self.executor._inflight and not self.executor.session_snapshot()
-                and not pending
-            )
-        )
+        unresolved_restart = (not self.executor._persistence_verified
+                              or bool(self.executor.unresolved_intent_keys()))
         command_status = (
             "hold" if unresolved_restart
             else "unconfirmed" if any(r.get("status") == "execution_unknown" for r in actions)

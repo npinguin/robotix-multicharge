@@ -13,10 +13,10 @@ from math import floor, isfinite
 from datetime import datetime, timedelta, timezone
 from copy import deepcopy
 from uuid import uuid4
-from time import monotonic
+from time import monotonic, perf_counter
 
-from .source_evidence import Evidence, binding, connection, intervals, number, soc_with_health
-from .configuration import (is_plan_presentation_only_change, charger_activation_reason,
+from .source_evidence import Evidence, binding, connection, intervals, number, soc_with_health, session_status
+from .configuration import (plan_authority_unchanged, charger_activation_reason,
                             charger_is_active, charger_operating_grid)
 from .const import (DEFAULT_POWER_ADJUSTMENT_INTERVAL_MINUTES, MIN_AC_CURRENT_A,
                     DEFAULT_MAINTAIN_SOC_UNTIL_READY_BY,
@@ -57,12 +57,14 @@ class NativeSwitchExecutor:
         # neither a second planner nor an optimistic physical STOP receipt.
         self._paused = set()
         self._stopped = False
+        self._draining = False
         self._supervising = False
         self._sessions = {}
         # Restored evidence is never an adopted live session or power grant.
         self._interrupted_sessions = {}
         self._start_pending = set()
         self._current_pending = set()
+        self._stop_pending = set()
         self._stop_requested = set()
         self._urgent_stop_requests = set()
         self._source_stop_tasks = {}
@@ -81,6 +83,7 @@ class NativeSwitchExecutor:
         self._session_history = []
         self.session_history_revision = 0
         self._persistence_verified = True
+        self._evidence_invalid = False
         # Current physical plug identity is volatile. Only an explicit
         # dedicated assignment may qualify a new fresh physical connection.
         self._plug_confirmations = {}
@@ -559,6 +562,7 @@ class NativeSwitchExecutor:
             self.session_history_revision += 1
         except (ValueError, KeyError, TypeError, OverflowError):
             self._persistence_verified = False
+            self._evidence_invalid = True
             _LOGGER.error("Invalid charging control state: physical START held")
 
     def export_state(self):
@@ -578,8 +582,32 @@ class NativeSwitchExecutor:
         }
 
     def detach(self):
-        """Do not replay commands on unload or a restarted runtime."""
+        """Retire volatile peer protection after the verified unload path."""
         self._stopped = True
+        for task in self._source_stop_tasks.values():
+            if not task.done():
+                task.cancel()
+        self._source_stop_tasks.clear()
+
+    def unresolved_intent_keys(self):
+        """A healthy peer session cannot hide another unresolved durable hold."""
+        covered = set()
+        for uid, session in self._sessions.items():
+            asset = session.get("asset_id")
+            key = asset or f"charger:{uid}"
+            if key in self._inflight and (asset is None or
+                    self._inflight[key] == session.get("intent_key")):
+                covered.add(key)
+        for uid in self._start_pending:
+            row = self._interrupted_sessions.get(uid)
+            if row and row.get("pending"):
+                session = row["session"]
+                asset = session.get("asset_id")
+                key = asset or f"charger:{uid}"
+                if key in self._inflight and (asset is None or
+                        self._inflight[key] == session.get("intent_key")):
+                    covered.add(key)
+        return self._inflight.keys() - covered
 
     def snapshot(self):
         return {uid: dict(record) for uid, record in self._outcomes.items()}
@@ -658,7 +686,8 @@ class NativeSwitchExecutor:
             "charger_id": charger_id, "asset_id": session["asset_id"],
             "intent_key": session.get("intent_key"),
             "started_at": begun.isoformat(), "ended_at": end.isoformat(),
-            "duration_minutes": round((end - begun).total_seconds() / 60, 3),
+            "duration_minutes": (None if session.get("enabled_before_draw")
+                                 else round((end - begun).total_seconds() / 60, 3)),
             "actual_energy_kwh": delivered,
             "energy_quality": "measured" if delivered is not None else "unknown",
             "meter_entity": source, "meter_observed_at": meter_at,
@@ -735,6 +764,8 @@ class NativeSwitchExecutor:
             minimum_current = grid[0] if grid else charger.get("min_current_a")
             if self._stopped:
                 reason = "INTEGRATION_UNLOADED"
+            elif self._draining:
+                reason = "INTEGRATION_UNLOADING"
             elif not self._persistence_verified:
                 reason = "CONTROL_STATE_UNVERIFIED"
             elif charger.get("kind") not in ("on_off", "variable_current"):
@@ -764,6 +795,8 @@ class NativeSwitchExecutor:
                 manual_reason = "MANUAL_ONE_OFF_REQUIRES_UNASSIGNED_CHARGER"
             elif self._stopped:
                 manual_reason = "INTEGRATION_UNLOADED"
+            elif self._draining:
+                manual_reason = "INTEGRATION_UNLOADING"
             elif not self._persistence_verified:
                 manual_reason = "CONTROL_STATE_UNVERIFIED"
             elif charger_activation_reason(charger):
@@ -805,7 +838,7 @@ class NativeSwitchExecutor:
                 "pause_allowed": stop_allowed and uid not in self._paused
                     and self._persistence_verified,
                 "resume_allowed": stop_allowed and uid in self._paused
-                    and uid not in self._quarantine and self._persistence_verified,
+                    and not self._draining and uid not in self._quarantine and self._persistence_verified,
                 "manual_one_off_allowed": manual_reason is None,
                 "manual_one_off_reason": manual_reason or "READY",
                 "start_allowed": reason is None and uid not in self._quarantine,
@@ -815,6 +848,56 @@ class NativeSwitchExecutor:
                           else reason or "READY",
             }
         return result
+
+    def _orphaned_soc_asset(self, charger, at):
+        """Identify a recoverable legacy hold, never a finite-progress intent."""
+        uid, asset_id = charger["id"], charger.get("asset")
+        if (not self._persistence_verified or asset_id not in self._inflight
+                or uid in self._sessions or uid in self._interrupted_sessions
+                or uid in self._start_pending or uid in self._current_pending
+                or uid in self._grants):
+            return None
+        if any(row.get("asset_id") == asset_id for row in self._sessions.values()) or any(
+                row["session"].get("asset_id") == asset_id
+                for row in self._interrupted_sessions.values()):
+            return None
+        cfg = self.runtime.configuration
+        if sum(c.get("asset") == asset_id for c in cfg["chargers"]) != 1:
+            return None
+        asset = next((a for a in cfg["assets"] if a["id"] == asset_id), None)
+        if (asset is None or asset.get("target_soc") is None
+                or any(asset.get(k) is not None for k in (
+                    "requested_kwh", "requested_duration_minutes", "requested_budget_amount"))):
+            return None
+        soc = soc_with_health(self.runtime.hass, asset.get("soc_entity"),
+                              asset.get("soc_stale_entity"), at)
+        if soc.quality != "ok":
+            return None
+        anchor = datetime.fromisoformat(asset["ready_by"]) if asset.get("ready_by") else None
+        repeat = asset.get("ready_by_repeat", "none")
+        due = anchor
+        fingerprint = self._inflight[asset_id]
+        if repeat != "none" and (anchor is not None or repeat == "specific_days"):
+            zone = self.runtime.hass.config.time_zone
+            weekdays = asset.get("ready_by_weekdays")
+            due, _ = resolve_recurring_ready_by(anchor, at, repeat, zone, weekdays)
+            if due is None:
+                return None
+            # The previous occurrence may have expired during an outage.
+            # Use the same recurrence resolver and exact fingerprint; no
+            # inference from a mismatching hash or replay of a finite goal.
+            # Every supported recurrence occurs at least weekly.
+            cursor = at - timedelta(days=8)
+            previous = None
+            while cursor < at:
+                occurrence, _ = resolve_recurring_ready_by(anchor, cursor, repeat, zone, weekdays)
+                if occurrence is None or occurrence > at or occurrence <= cursor:
+                    break
+                previous = occurrence
+                cursor = occurrence.astimezone(timezone.utc)
+            if previous is not None and fingerprint == self._intent_key(asset, charger, previous):
+                return asset_id
+        return asset_id if fingerprint == self._intent_key(asset, charger, due) else None
 
     def _publish(self, uid, request_id, action, status, reason, requested_at,
                  *, observed_at=None, measured_kw=None, service_sent=False,
@@ -869,6 +952,19 @@ class NativeSwitchExecutor:
                             self._completed[asset_id] = intent
             elif uid in self._interrupted_sessions:
                 self._close_unknown_interruption(uid, observed_at, reason)
+            elif (reason in ("ALREADY_PHYSICALLY_STOPPED", "INDEPENDENT_POWER_READBACK")
+                    and observed_at is not None and measured_kw is not None):
+                charger = next((c for c in self.runtime.configuration["chargers"]
+                                if c["id"] == uid), None)
+                if charger is not None and measured_kw <= stop_power_limit(charger):
+                    switch = self._switch(self.runtime.hass, charger.get("control_entity"))
+                    if switch is not None and switch.state == "off":
+                        asset_id = self._orphaned_soc_asset(charger, datetime.now(timezone.utc))
+                        if asset_id is not None:
+                            # Live SoC is the remaining-demand authority. No
+                            # historical session or finite progress is invented.
+                            self._inflight.pop(asset_id)
+                            _LOGGER.info("Reconciled orphaned SoC hold after verified STOP: %s", uid)
             if reason == "NATIVE_SWITCH_STATE" and uid not in self._interrupted_sessions:
                 self._inflight.pop(f"charger:{uid}", None)
             self._quarantine.discard(uid)
@@ -992,6 +1088,8 @@ class NativeSwitchExecutor:
                      energized=False):
         cfg = self.runtime.configuration
         ctl = cfg["controller"]
+        if self._draining:
+            return "INTEGRATION_UNLOADING"
         if not self._persistence_verified:
             return "CONTROL_STATE_UNVERIFIED"
         interrupted = self._interrupted_sessions.get(charger["id"])
@@ -1503,11 +1601,15 @@ class NativeSwitchExecutor:
 
     async def _native_service(self, domain, service, data, context):
         """Bound the native service wait independently of physical readback."""
-        await asyncio.wait_for(
-            self.runtime.hass.services.async_call(
-                domain, service, data, blocking=True, context=context,
-            ), timeout=NATIVE_SERVICE_TIMEOUT_SECONDS,
-        )
+        started = perf_counter()
+        try:
+            await asyncio.wait_for(
+                self.runtime.hass.services.async_call(
+                    domain, service, data, blocking=True, context=context,
+                ), timeout=NATIVE_SERVICE_TIMEOUT_SECONDS,
+            )
+        finally:
+            self.runtime._record_performance("native_" + service, started)
 
     async def _set_native_current(self, charger, current, context):
         """Native HA write only, not confirmation of physical charging current."""
@@ -1613,6 +1715,19 @@ class NativeSwitchExecutor:
             session["budget_last_meter_at"] = sample.observed_at
         return None
 
+    def _switch_epoch_changed(self, charger, session, switch=None):
+        """A newer ON epoch is not proof of continuous owned charging."""
+        if session is None:
+            return False
+        switch = switch or self._switch(self.runtime.hass, charger.get("control_entity"))
+        if switch is None or switch.state != "on":
+            return False
+        old = session.get("switch_on_since")
+        observed = getattr(switch, "last_changed", None)
+        if old is None or observed is None or observed.utcoffset() is None:
+            return False
+        return observed != datetime.fromisoformat(old)
+
     def _session_stop_reason(self, charger, now):
         """Demand closure is based on observed energy, time or SoC, never a guess."""
         session = self._sessions.get(charger["id"])
@@ -1620,6 +1735,8 @@ class NativeSwitchExecutor:
             if charger["id"] in self._start_pending:
                 return None
             return "ACTIVE_CHARGING_UNOWNED_AFTER_RESTART"
+        if self._switch_epoch_changed(charger, session):
+            return "ACTIVE_SWITCH_EPOCH_CHANGED"
         asset = next(
             (a for a in self.runtime.configuration["assets"]
              if a["id"] == session["asset_id"]), None
@@ -1822,6 +1939,7 @@ class NativeSwitchExecutor:
             "manual_mode": (self.runtime.configuration["controller"]["mode"]
                             if manual_request is not None else None),
             "switch_only": observed.reason == "NATIVE_SWITCH_STATE",
+            "enabled_before_draw": observed.reason == "ENABLED_WAITING_FOR_VEHICLE",
             # Conservative control/accounting boundary; physical confirmation
             # is separately recorded, not backdated to the command.
             "started_at": command_at,
@@ -1853,7 +1971,7 @@ class NativeSwitchExecutor:
         current = self.runtime.configuration
         if plan_slot is not None and not self._grant_is_current(plan_slot, at):
             return "PLAN_SLOT_NOT_AUTHORIZED"
-        if current != configuration and not is_plan_presentation_only_change(configuration, current):
+        if not plan_authority_unchanged(configuration, current):
             return "CONFIGURATION_CHANGED_DURING_START"
         # Re-read the native range and every applicable site/phase/circuit
         # constraint, not the old effective charger snapshot.
@@ -2064,6 +2182,7 @@ class NativeSwitchExecutor:
         if datetime.fromisoformat(changes[-1]["at"] if changes else
                                  receipt.get("confirmed_from", receipt["start"].isoformat())) >= at:
             # Do not fabricate chronology after a clock correction.
+            self._evidence_invalid = True
             self._persistence_verified = False
             return False
         accepted.update(current_a=current, power_kw=power)
@@ -2083,15 +2202,14 @@ class NativeSwitchExecutor:
 
     def _grant_is_current(self, slot, at):
         """Recheck grant after waiting for the native writer lock."""
-        if (slot is None or self._grant_configuration is None
+        if (self._draining or slot is None or self._grant_configuration is None
                 or self._grants.get(slot.charger_uid) != slot
                 or not slot.start <= at < slot.end):
             return False
         current = self.runtime.configuration
         assessment = self.runtime.assessment
         if not (assessment and assessment.plan.revision == self._grant_plan_revision
-                and (current == self._grant_configuration
-                     or is_plan_presentation_only_change(self._grant_configuration, current))):
+                and plan_authority_unchanged(self._grant_configuration, current)):
             return False
         return self._slot_tariff_is_current(slot, at, self._grant_prices)
 
@@ -2145,7 +2263,7 @@ class NativeSwitchExecutor:
                 or not session or session.get("asset_id") != slot.asset_uid
                 or session.get("manual_mode") is not None
                 or uid in self._paused or uid in self._quarantine
-                or not self._persistence_verified or self._stopped):
+                or not self._persistence_verified or self._stopped or self._draining):
             return False
         if self.runtime.configuration["controller"].get("mode") not in (
             "Automatic", "Economy", "Solar", "Ready By",
@@ -2155,10 +2273,8 @@ class NativeSwitchExecutor:
         if original is None:
             return False
         # A cadence edit is a runtime preference, not a new power grant.
-        before, after = deepcopy(original), deepcopy(self.runtime.configuration)
-        for cfg in (before, after):
-            cfg["controller"].pop("power_adjustment_interval_minutes", None)
-        if before != after and not is_plan_presentation_only_change(before, after):
+        if not plan_authority_unchanged(original, self.runtime.configuration,
+                                        allow_adjustment_cadence=True):
             return False
         return self._slot_tariff_is_current(slot, at, accepted.get("_prices", ()))
 
@@ -2169,7 +2285,7 @@ class NativeSwitchExecutor:
         The original forecast and minimum reservations are never rewritten.
         No unplanned START, separate scheduler, or delayed safety intervention.
         """
-        if (self._stopped or self._supervising or self._regulating
+        if (self._stopped or self._draining or self._supervising or self._regulating
                 or not self._accepted or not self._power_adjustment_due()):
             return
         slots = {
@@ -2243,7 +2359,7 @@ class NativeSwitchExecutor:
         accepted command without an independent current-session authority.
         """
         mode = self.runtime.configuration["controller"]["mode"]
-        if (self._stopped or not self._persistence_verified
+        if (self._stopped or self._draining or not self._persistence_verified
                 or mode not in ("Automatic", "Economy", "Solar", "Ready By")):
             return
         if self._last_advance == quarter_start:
@@ -2412,7 +2528,7 @@ class NativeSwitchExecutor:
         if mode == "Force Charge" and accepted is not None:
             wrong_mode = True
         unsafe = (
-            uid in self._paused or wrong_mode
+            not self._persistence_verified or uid in self._paused or wrong_mode
             or ((not duration_without_connection or not self.duration_connection_allowed(cable))
                 and (cable.quality != "ok" or cable.value is not True))
             or ((not switch_only and not duration_without_connection) and power.quality != "ok")
@@ -2427,17 +2543,18 @@ class NativeSwitchExecutor:
             if current is None or charger.get("_current_capability_reason") or any(
                     charger.get(field) is None for field in ("phase_count", "voltage_v", "current_step_a")):
                 unsafe = True
-            elif charger.get("current_readback_entity"):
-                if (amps.quality != "ok" or amps.value > current + max(
-                        0.25, charger.get("current_step_a", 1) / 2)):
-                    unsafe = True
             else:
+                # The provider's writable ceiling and the vehicle's actual
+                # acceptance are independent. A second client may change the
+                # ceiling while the vehicle still draws less (or zero).
                 setting = number(self.runtime.hass,
                     charger.get("current_control_entity"), "current", at)
                 target_kw = current * charger["voltage_v"] * charger["phase_count"] / 1000
-                if (setting.quality != "ok" or abs(setting.value-current) >
-                        max(0.25, charger.get("current_step_a", 1) / 2)
-                        or power.quality != "ok" or power.value > target_kw * 1.10 + 0.01):
+                tolerance = max(0.25, charger.get("current_step_a", 1) / 2)
+                if (setting.quality != "ok" or abs(setting.value-current) > tolerance
+                        or power.quality != "ok" or power.value > target_kw * 1.10 + 0.01
+                        or (charger.get("current_readback_entity")
+                            and (amps.quality != "ok" or amps.value > current + tolerance))):
                     unsafe = True
         if not unsafe:
             session = self._sessions.get(uid)
@@ -2504,7 +2621,7 @@ class NativeSwitchExecutor:
         A peer safety violation cannot wait for a different EVSE's readback.
         Normal supervision still owns modulations and confirmation.
         """
-        pending = self._start_pending | self._current_pending
+        pending = self._start_pending | self._current_pending | self._stop_pending
         if not pending or self._stopped or not self._lock.locked():
             return
         at = datetime.now(timezone.utc)
@@ -2524,14 +2641,18 @@ class NativeSwitchExecutor:
                 if source_entity not in sources:
                     continue
             switch = self._switch(self.runtime.hass, configured.get("control_entity"))
-            if switch is None or switch.state != "on":
+            if switch is None:
+                continue
+            power = number(self.runtime.hass, configured.get("power_entity"), "power", at)
+            contradictory = switch.state == "off" and power.quality == "ok" and power.value > stop_power_limit(configured)
+            if switch.state != "on" and not contradictory:
                 continue
             task = self._source_stop_tasks.get(uid)
             if task is not None and not task.done():
                 continue
             charger = self.effective_charger(configured)
             unsafe, limit_reason, reason = self._active_safety(charger, at)
-            if unsafe or limit_reason is not None:
+            if contradictory or unsafe or limit_reason is not None:
                 # Modulation cannot safely acquire the lock while another
                 # command awaits readback. Fall back to the same guarded STOP.
                 self._source_stop_tasks[uid] = create_task(self._stop_active(charger, at, reason))
@@ -2560,17 +2681,23 @@ class NativeSwitchExecutor:
                     continue
                 if state.state == "on":
                     active.append(c)
-                elif (c["id"] not in self._start_pending
-                      and (c["id"] in self._interrupted_sessions or c["id"] in self._sessions)):
-                    row = self._interrupted_sessions.get(c["id"])
-                    if row and row["sources"]["control_entity"] != c.get("control_entity"):
-                        continue
+                elif c["id"] not in (self._start_pending | self._current_pending):
+                    uid = c["id"]
+                    row = self._interrupted_sessions.get(uid)
                     power = number(self.runtime.hass, c.get("power_entity"), "power", at)
-                    session = row["session"] if row else self._sessions[c["id"]]
+                    contradictory = power.quality == "ok" and power.value > stop_power_limit(c)
+                    # Native apps may stop an uncertain command, or report OFF
+                    # while the physical output still draws. Reconcile even
+                    # without a previous MultiCharge-owned session.
+                    if not (contradictory or uid in self._quarantine
+                            or row or uid in self._sessions
+                            or self._orphaned_soc_asset(c, at) is not None):
+                        continue
+                    session = row["session"] if row else self._sessions.get(uid, {})
                     if (power.quality == "ok" or (c["kind"] == "on_off"
                             and (not c.get("power_entity")
                                  or session.get("duration_without_connection")))):
-                        await self.execute(c["id"], "stop")
+                        await self.execute(uid, "stop")
             for configured in active:
                 charger = self.effective_charger(configured)
                 uid = charger["id"]
@@ -2598,11 +2725,30 @@ class NativeSwitchExecutor:
                         session_reason = "SESSION_CHECKPOINT_NOT_PERSISTED"
                 if unsafe:
                     await self._stop_active(charger, at, session_reason)
+            # Transient Store failures are retried without restoring stale
+            # commands or changing resident preferences. Existing minute/source
+            # supervision provides the retry opportunity, not a new task.
+            await self.runtime.retry_control_persistence()
         finally:
             self._supervising = False
 
     async def shutdown(self):
-        """Stop each owned charger before unload, with actual power readback."""
+        """Revoke admission before verifying every owned output for unload."""
+        self._draining = True
+        self._grants.clear()
+        stopped = False
+        try:
+            stopped = await self._stop_owned_for_shutdown()
+            return stopped
+        finally:
+            if not stopped:
+                self.cancel_shutdown()
+
+    def cancel_shutdown(self):
+        """A refused unload returns authority to the normal planner, never old grants."""
+        self._draining = False
+
+    async def _stop_owned_for_shutdown(self):
         for charger in self.runtime.configuration["chargers"]:
             if (charger.get("kind") not in ("on_off", "variable_current")
                     or not charger_is_active(charger)):
@@ -2631,7 +2777,8 @@ class NativeSwitchExecutor:
                 return False
         return True
 
-    def _readback(self, charger, action, requested_at, *, bounded_switch=False):
+    def _readback(self, charger, action, requested_at, *, bounded_switch=False,
+                  allow_waiting=False):
         switch = self._switch(self.runtime.hass, charger["control_entity"])
         if switch is None or switch.state != ("on" if action == "start" else "off"):
             return None
@@ -2648,11 +2795,21 @@ class NativeSwitchExecutor:
             return None
         if power.observed_at < requested_at:
             return None
-        if action == "start" and (
-            power.value <= start_power_limit(charger)
-            or power.value > charger["rated_power_kw"] * 1.10
-        ):
-            return None
+        if action == "start":
+            if power.value > charger["rated_power_kw"] * 1.10:
+                return None
+            if power.value <= start_power_limit(charger):
+                # Fresh ON plus independent low draw establishes permission,
+                # not delivered energy, for a bounded live SoC objective.
+                stamp = getattr(switch, "last_updated", None)
+                provider = session_status(self.runtime.hass, charger.get("session_entity"),
+                                          datetime.now(timezone.utc))
+                if (not allow_waiting or stamp is None or stamp < requested_at
+                        or power.value > stop_power_limit(charger)
+                        or (charger.get("session_entity") and (
+                            provider.quality != "ok" or provider.value in ("fault", "unavailable", "charging")))):
+                    return None
+                return Evidence(power.value, "ok", power.observed_at, "ENABLED_WAITING_FOR_VEHICLE")
         if action in ("stop", "pause") and power.value > stop_power_limit(charger):
             return None
         return power
@@ -2661,43 +2818,71 @@ class NativeSwitchExecutor:
                       request_id=None, readback_seconds=READBACK_SECONDS,
                       current_a=None, plan_slot=None, manual_request=None,
                       active_regulation=False, completion=None):
-        """Perform a real HA switch call; success requires fresh independent power."""
+        """Deduplicate caller-supplied identities before any physical side effect."""
         if action not in ("start", "stop", "set_current", "pause", "resume"):
             raise ValueError("unsupported physical action")
-        at = datetime.now(timezone.utc)
-        request_id = request_id or uuid4().hex
-        if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
+        if request_id is not None and (
+                not isinstance(request_id, str) or not 1 <= len(request_id) <= 128):
             raise ValueError("request ID must be 1..128 characters")
+        # Internal quarter/safety/native entity commands have no retry identity.
+        # Their outcome and durable physical receipts remain available.
+        kwargs = dict(context=context, readback_seconds=readback_seconds,
+                      current_a=current_a, plan_slot=plan_slot,
+                      manual_request=deepcopy(manual_request),
+                      active_regulation=active_regulation, completion=completion)
+        if request_id is None:
+            return await self._execute_once(charger_id, action, uuid4().hex, **kwargs)
+        identity = (charger_id, action, current_a, kwargs["manual_request"])
+        previous = self._requests.get(request_id)
+        if previous is not None:
+            original, finished = previous
+            if original != identity:
+                raise ValueError("request ID used for a different command")
+            outcome = await asyncio.shield(finished)
+            if outcome is None:
+                raise ValueError("previous request interrupted; reconcile physical state")
+            return dict(outcome)
+        finished = asyncio.get_running_loop().create_future()
+        self._requests[request_id] = (identity, finished)
+        try:
+            outcome = await self._execute_once(charger_id, action, request_id, **kwargs)
+            finished.set_result(dict(outcome))
+            return outcome
+        finally:
+            # Cancellation or an unexpected error must never replay the writer.
+            if not finished.done():
+                finished.set_result(None)
+
+    async def _execute_once(self, charger_id, action, request_id, *, context,
+                            readback_seconds, current_a, plan_slot, manual_request,
+                            active_regulation, completion):
+        """Perform one native action; success requires fresh independent readback."""
+        started = perf_counter()
         # STOP and Pause share one preemption path. Revoke the quarter before
         # waiting; a same-charger pending writer must finish/cancel first.
-        if (action in ("stop", "pause") and request_id not in self._requests
-                and not self._stopped):
+        if action in ("stop", "pause") and not self._stopped:
             charger = next((c for c in self.runtime.configuration["chargers"]
                             if c["id"] == charger_id), None)
             if (charger is not None and charger_is_active(charger)
                     and charger.get("kind") in ("on_off", "variable_current")):
                 self._grants.pop(charger_id, None)
-                pending = self._start_pending | self._current_pending
-                if charger_id in pending:
+                pending = self._start_pending | self._current_pending | self._stop_pending
+                if charger_id in (self._start_pending | self._current_pending):
                     self._stop_requested.add(charger_id)
-                elif pending and self._lock.locked() and request_id not in self._urgent_stop_requests:
+                elif charger_id not in pending and pending and self._lock.locked() and request_id not in self._urgent_stop_requests:
                     switch = self._switch(self.runtime.hass, charger.get("control_entity"))
-                    if switch is not None and switch.state == "on":
+                    power = number(self.runtime.hass, charger.get("power_entity"),
+                                   "power", datetime.now(timezone.utc))
+                    if switch is not None and (switch.state == "on" or (
+                            power.quality == "ok" and power.value > stop_power_limit(charger))):
                         self._urgent_stop_requests.add(request_id)
                         # Dispatch only; the ordinary serialized path still
                         # owns independent confirmation and Pause persistence.
                         await self._protective_stop(charger, context)
+        lock_started = perf_counter()
         async with self._lock:
+            self.runtime._record_performance("command_lock_wait", lock_started)
             self._urgent_stop_requests.discard(request_id)
-            previous = self._requests.get(request_id)
-            if previous is not None:
-                if (previous["charger_id"] != charger_id
-                        or previous["action"] != action
-                        or previous.get("requested_current_a") != current_a
-                        or previous.get("manual_request") != manual_request):
-                    raise ValueError("request ID used for a different command")
-                return {key: value for key, value in previous.items()
-                        if key != "manual_request"}
             # Time captured before awaiting the lock can be an expired
             # quarter by admission time. All evidence checks use actual now.
             at = datetime.now(timezone.utc)
@@ -2708,9 +2893,7 @@ class NativeSwitchExecutor:
                 recorded = self._publish(charger_id, request_id, action, status,
                                          reason, at, recovered_session=recovered_session,
                                          completion=completion, **extras)
-                self._requests[request_id] = {
-                    **recorded, "manual_request": manual_request,
-                }
+                self.runtime._record_performance("command_" + action + "_outcome", started)
                 return recorded
             if active_regulation and (action != "set_current" or not self._regulating
                                       or not self._active_grant_is_current(plan_slot, at)):
@@ -2720,6 +2903,8 @@ class NativeSwitchExecutor:
             charger = self.effective_charger(charger)
             if self._stopped:
                 return result("rejected", "INTEGRATION_UNLOADED")
+            if self._draining and action not in ("stop", "pause"):
+                return result("rejected", "INTEGRATION_UNLOADING")
             if action != "stop" and not self._persistence_verified:
                 return result("rejected", "CONTROL_STATE_UNVERIFIED")
             if charger.get("kind") not in ("on_off", "variable_current"):
@@ -2733,6 +2918,14 @@ class NativeSwitchExecutor:
             if state is None:
                 return result("rejected", "NATIVE_SWITCH_UNAVAILABLE")
             if action in ("stop", "pause"):
+                session = self._sessions.get(charger_id)
+                if self._switch_epoch_changed(charger, session, state):
+                    # A different client may have performed OFF/ON between
+                    # observations. Preserve the original checkpoint but
+                    # never attribute the intervening draw to that session.
+                    self._interrupted_sessions[charger_id] = self._recovery_checkpoints()[charger_id]
+                    self._sessions.pop(charger_id)
+                    self._draw_samples.pop(charger_id, None)
                 recovered_session = self._recovery_session_for_stop(charger, state, at)
             if action == "resume":
                 if charger_id not in self._paused:
@@ -2837,6 +3030,7 @@ class NativeSwitchExecutor:
                         current_problem, kw = self._requested_current(self.effective_charger(charger), current_a, now)
                         issue = ("STOP_REQUESTED_DURING_CURRENT_CHANGE"
                                  if charger_id in self._stop_requested else
+                                 "CONTROL_STATE_UNVERIFIED" if not self._persistence_verified else
                                  self._session_stop_reason(charger, now) or current_problem
                                  or self._physical_budget(charger, now, kw, current_a,
                                                           plan_slot=effective_slot,
@@ -2872,7 +3066,6 @@ class NativeSwitchExecutor:
                                 measured_kw=number(self.runtime.hass,
                                     charger.get("power_entity"), "power",
                                     datetime.now(timezone.utc)).value, service_sent=True)
-                            self._requests[request_id]["requested_current_a"] = current_a
                             return out
                         if asyncio.get_running_loop().time() >= deadline:
                             await self._protective_stop(charger, context)
@@ -2970,6 +3163,12 @@ class NativeSwitchExecutor:
                     checkpoint = self._interrupted_sessions.get(charger_id)
                     since = (datetime.fromisoformat(checkpoint["session"]["started_at"])
                              if checkpoint else None)
+                    # An old idle sample cannot clear a later unknown command.
+                    previous = self._outcomes.get(charger_id, {})
+                    if (charger_id in self._quarantine
+                            and previous.get("status") == "execution_unknown"):
+                        last_request = datetime.fromisoformat(previous["requested_at"])
+                        since = max(since, last_request) if since is not None else last_request
                     switch_at = getattr(state, "last_updated", None)
                     if (not charger.get("power_entity") and charger["kind"] == "on_off"
                             and (since is None or switch_at is not None and switch_at >= since)):
@@ -2994,6 +3193,8 @@ class NativeSwitchExecutor:
                     or (action in ("stop", "pause")
                         and self._interrupted_sessions.get(charger_id, {}).get("sources", {}).get("control_entity") == entity
                         and self._interrupted_sessions.get(charger_id, {}).get("session", {}).get("duration_without_connection")))
+                if action in ("stop", "pause"):
+                    self._stop_pending.add(charger_id)
                 self._publish(charger_id, request_id, action, "requested",
                               "REQUESTED", at)
                 try:
@@ -3061,9 +3262,15 @@ class NativeSwitchExecutor:
                     if self._stopped:
                         return result("execution_unknown", "INTEGRATION_UNLOADED_PENDING",
                                       service_sent=True)
+                    allow_waiting = (action == "start" and manual_request is None
+                        and any(a["id"] == charger.get("asset") and a.get("target_soc") is not None
+                                and all(a.get(k) is None for k in ("requested_kwh",
+                                    "requested_duration_minutes", "requested_budget_amount"))
+                                for a in cfg["assets"]))
                     observed = self._readback(charger, action,
                                               command_at if action == "start" else at,
-                                              bounded_switch=bounded_switch)
+                                              bounded_switch=bounded_switch,
+                                              allow_waiting=allow_waiting)
                     if (observed is not None and action == "start"
                             and charger["kind"] == "variable_current"
                             and not self._current_confirmed(charger, current_a, at)):
@@ -3093,7 +3300,8 @@ class NativeSwitchExecutor:
                                               else ";PROTECTIVE_STOP_UNCONFIRMED"),
                                     service_sent=True
                                 )
-                        outcome = result("confirmed", ("NATIVE_SWITCH_STATE" if observed.reason == "NATIVE_SWITCH_STATE"
+                        outcome = result("confirmed", (observed.reason if observed.reason in
+                                          ("NATIVE_SWITCH_STATE", "ENABLED_WAITING_FOR_VEHICLE")
                                           else "INDEPENDENT_POWER_READBACK"),
                                       observed_at=observed.observed_at,
                                       measured_kw=observed.value,
@@ -3124,3 +3332,5 @@ class NativeSwitchExecutor:
                 if action == "start":
                     self._start_pending.discard(charger_id)
                     self._stop_requested.discard(charger_id)
+                elif action in ("stop", "pause"):
+                    self._stop_pending.discard(charger_id)

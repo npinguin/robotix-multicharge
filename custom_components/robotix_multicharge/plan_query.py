@@ -12,7 +12,6 @@ from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN, NOMINAL_PHASE_COUNT, NOMINAL_PHASE_VOLTAGE_V
 from .configuration import WEEKDAYS, forecast_tariff_source, charger_operating_grid, effective_configuration
-from .history import read_actual_history
 
 
 def charger_setup_projection(hass, registry, runtime, charger):
@@ -271,8 +270,8 @@ async def websocket_get_plan(
             receipts = runtime.executor.completed_sessions(
                 start=history_start, end=history_end, charger_id=msg.get("charger_id"),
             )
-            actual, quality, estimates, observed_sessions, session_metrics = await read_actual_history(
-                hass, result["configuration"], start, end,
+            actual, quality, estimates, observed_sessions, session_metrics = await runtime.read_history(
+                result["configuration"], start, end,
                 charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
                 session_receipts=receipts,
                 price_slots=deepcopy(runtime.price_slots), include_valuations=True,

@@ -6,6 +6,7 @@ Native source/planning lifecycle and a physically guarded single charging writer
 from __future__ import annotations
 
 import logging
+from time import perf_counter
 from datetime import datetime as utc_datetime, timedelta, timezone
 
 from homeassistant.core import callback
@@ -27,7 +28,7 @@ from .configuration import (
     is_in_place_runtime_preference_change,
 )
 from .const import DOMAIN
-from .runtime import MultiChargeRuntime
+from .runtime import MultiChargeRuntime, display_only_power_sources
 from .source_evidence import async_native_nordpool_prices
 from .plan_query import register_plan_query
 from .command_query import register_command_query, register_settings_query
@@ -145,6 +146,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Expose only truthful configuration-status entities in this bootstrap."""
+    setup_started = perf_counter()
     if (entry.data.get("source") in ("yaml", "json")
             and not hass.data.get(f"{DOMAIN}_source_present", False)):
         _LOGGER.error("MultiCharge expert source missing; previous settings are NOT resumed")
@@ -157,12 +159,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     runtime = MultiChargeRuntime(hass, cfg)
     runtime.statistics_namespace = entry.entry_id
     store = Store(hass, 1, f"{DOMAIN}_{entry.entry_id}_control")
+    store_started = perf_counter()
     try:
         saved = await store.async_load()
-    except (OSError, ValueError, RuntimeError):
-        _LOGGER.exception("Cannot read stored MultiCharge control state; START disabled")
+    except (OSError, RuntimeError):
+        _LOGGER.exception("Temporarily cannot read MultiCharge control state; retrying in supervision")
+        saved = None
+        runtime.defer_control_store_read(store)
+    except ValueError:
+        _LOGGER.exception("Invalid stored MultiCharge control state; START disabled")
         saved = {"schema_major": -1}
-    runtime.attach_control_store(store, saved)
+        runtime.attach_control_store(store, saved)
+    else:
+        runtime.attach_control_store(store, saved)
+    runtime._record_performance("setup_store_restore", store_started)
     # Only persist new/changed mapping metadata, never raw Recorder values.
     # Do not replace an invalid physical intent snapshot with an empty one.
     previous_bindings = saved.get("power_bindings") if isinstance(saved, dict) else None
@@ -177,6 +187,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     pending = None
     dirty = False
+    planning_dirty = False
+    display_only = display_only_power_sources(cfg)
     pending_quarter = None
     price_pending = None
     price_last_attempt = None
@@ -184,9 +196,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     price_source = forecast_tariff_source(cfg["controller"])
 
     async def reconcile():
-        nonlocal dirty, pending_quarter
+        nonlocal dirty, planning_dirty, pending_quarter
         while dirty and runtime.active:
             dirty = False
+            full_refresh, planning_dirty = planning_dirty, False
             quarter, pending_quarter = pending_quarter, None
             at = utc_datetime.now(timezone.utc)
             current_quarter = at.replace(minute=(at.minute // 15) * 15,
@@ -196,10 +209,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # source refreshes are serialized in the same existing task.
                 runtime.refresh(quarter)
                 await runtime.executor.advance_plan(quarter)
-            else:
+            elif full_refresh or quarter is not None:
                 runtime.refresh(at)
+            else:
+                runtime.refresh_display_power(at)
+                continue
             await runtime.executor.supervise()
-            await runtime.executor.regulate_active_plan()
+            if runtime.active:
+                await runtime.executor.regulate_active_plan()
 
     async def fetch_price():
         result = await async_native_nordpool_prices(hass, price_source, utc_datetime.now(timezone.utc))
@@ -210,7 +227,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     @callback
     def on_source_change(event=None):
-        nonlocal pending, dirty, price_pending, price_last_attempt
+        nonlocal pending, dirty, planning_dirty, price_pending, price_last_attempt
         if not runtime.active:
             return
         if event is not None:
@@ -234,8 +251,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             price_last_attempt = now
             price_pending = hass.async_create_task(fetch_price())
         dirty = True
+        # Timers, price completion and every control-relevant source still
+        # traverse the full existing safety/planning path. Only unaliased
+        # display-only meters can bypass it.
+        planning_dirty |= event is None or event.data.get("entity_id") not in display_only
         if pending is None or pending.done():
-            pending = hass.async_create_task(reconcile())
+            # HA may start tasks eagerly inside a state_changed callback.
+            # Defer the ordinary reconcile to the next loop turn so a native
+            # OFF and its simultaneous power update form one observation.
+            # The synchronous connection-event and urgent peer protection
+            # above remain immediate; genuinely contradictory draw still STOPs.
+            pending = hass.async_create_task(reconcile(), eager_start=False)
 
     @callback
     def on_minute(_now):
@@ -252,6 +278,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     runtime.set_unsubscribe(
         async_track_time_interval(hass, on_minute, timedelta(minutes=1))
     )
+    runtime.set_unsubscribe(lambda: pending.cancel() if pending is not None and not pending.done() else None)
     runtime.set_unsubscribe(lambda: price_pending.cancel() if price_pending is not None and not price_pending.done() else None)
     runtime.set_unsubscribe(lambda: finance_pending.cancel() if finance_pending is not None and not finance_pending.done() else None)
 
@@ -280,19 +307,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             async_track_state_change_event(hass, list(monitored), on_source_change)
         )
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = runtime
+    platform_started = perf_counter()
     try:
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     except Exception:
         runtime.stop()
         hass.data[DOMAIN].pop(entry.entry_id, None)
         raise
+    runtime._record_performance("setup_platforms", platform_started)
+    frontend_started = perf_counter()
     reconcile_frontend(hass, entry)
     await register_sidebar_panel(hass, entry)
+    runtime._record_performance("setup_frontend", frontend_started)
+    supervisor_started = perf_counter()
     await runtime.executor.supervise()
+    runtime._record_performance("setup_supervision", supervisor_started)
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     if price_source:
         on_source_change()
     refresh_finance()
+    runtime._record_performance("setup_total", setup_started)
     return True
 
 
@@ -301,7 +335,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if runtime is not None and not await runtime.executor.shutdown():
         _LOGGER.error("MultiCharge unload blocked by unconfirmed physical STOP")
         return False
-    ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    ok = False
+    try:
+        ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    finally:
+        if not ok and runtime is not None:
+            runtime.executor.cancel_shutdown()
+            runtime.notify()
     if ok:
         unregister_sidebar_panel(hass)
         reconcile_frontend(hass)

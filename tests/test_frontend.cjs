@@ -1176,6 +1176,37 @@ async function main(){
     "Explicit Cancel exits without writing an unsaved draft");
   assert.equal(editorFixture.configuration.controller.name,"Edited complete YAML");
 
+  // A detached sidebar/card cannot leak retries or accept an old snapshot.
+  const lifecycleCard=new Card();
+  let resolveOld;
+  const oldResponse=new Promise(resolve=>{resolveOld=resolve;});
+  let lifecycleReads=0;
+  const lifecycleData=JSON.parse(JSON.stringify(fixture));
+  lifecycleData.configuration.controller.home_power_entity="sensor.lifecycle_home";
+  lifecycleCard._hass={user:{is_admin:true},states:{},callWS:async()=>{
+    lifecycleReads++;return lifecycleReads===1?oldResponse:lifecycleData;
+  }};
+  const oldLoad=lifecycleCard.load();
+  lifecycleCard.scheduleSourceRefresh();
+  lifecycleCard.disconnectedCallback();
+  resolveOld(lifecycleData);
+  await oldLoad;
+  assert.equal(lifecycleCard._data,null,"Detached view rejects its late snapshot");
+  assert.equal(lifecycleCard._refreshTimer,null);
+  assert.equal(lifecycleCard._refreshPending,false);
+  lifecycleCard.connectedCallback();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(lifecycleReads,2);
+  assert.equal(lifecycleCard._data,lifecycleData,"Reconnect reads a fresh snapshot");
+  const watch=lifecycleCard.watchedEntities();
+  assert.ok(watch.includes("sensor.lifecycle_home"));
+  assert.equal(lifecycleCard.watchedEntities(),watch,"Unchanged snapshot reuses watch list");
+  lifecycleCard._data={...lifecycleData,configuration:{...lifecycleData.configuration,
+    controller:{...lifecycleData.configuration.controller,home_power_entity:"sensor.new_home"}}};
+  assert.ok(lifecycleCard.watchedEntities().includes("sensor.new_home"));
+  assert.ok(!lifecycleCard.watchedEntities().includes("sensor.lifecycle_home"));
+  lifecycleCard.disconnectedCallback();
+
   // UC14-UX-INPUT-PERSISTENCE-01: passive HA/Sensor refresh must never
   // unmount an editor or discard a typed field, even after input blur.
   const typingData=JSON.parse(JSON.stringify(fixture));

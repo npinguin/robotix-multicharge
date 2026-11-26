@@ -293,7 +293,7 @@ def _observed_runs(states, first, last, now):
     return result
 
 
-def _run_valuation(segments, price_slots):
+def _run_valuation(segments, price_slots, *, partition=None):
     """Exact overlap of measured power with the shared unique price partition."""
     if not segments:
         return None
@@ -308,9 +308,12 @@ def _run_valuation(segments, price_slots):
             return None
     except (AttributeError, TypeError, ValueError, OverflowError):
         return None
-    spans = _price_spans(price_slots, min(a for a, _, _ in normalized),
-                         max(b for _, b, _ in normalized))
-    starts = [a for a, _, _ in spans]
+    if partition is None:
+        spans = _price_spans(price_slots, min(a for a, _, _ in normalized),
+                             max(b for _, b, _ in normalized))
+        starts = [a for a, _, _ in spans]
+    else:
+        spans, starts = partition
     total = 0.0
     kinds = set()
     for start, end, power in normalized:
@@ -349,13 +352,24 @@ def planned_costs(slots, price_slots, at, *, until=None):
         groups["charger"].setdefault(row.charger_uid, []).append(segment)
         if row.asset_uid is not None:
             groups["asset"].setdefault(row.asset_uid, []).append(segment)
+    # All owner groups are subsets of the same site segments. Reuse the
+    # exact UTC quote partition, retaining each group's own quality.
+    site = groups["controller"]["site"]
+    partition = None
+    if site and all(a.utcoffset() is not None and b.utcoffset() is not None
+                    for a, b, _ in site):
+        spans = _price_spans(
+            price_slots, min(a.astimezone(timezone.utc) for a, _, _ in site),
+            max(b.astimezone(timezone.utc) for _, b, _ in site),
+        )
+        partition = (spans, [a for a, _, _ in spans])
     result = {}
     for kind, owners in groups.items():
         result[kind] = {}
         for uid, segments in owners.items():
             energy = sum(power * (end-start).total_seconds()/3600
                          for start, end, power in segments)
-            value = _run_valuation(segments, price_slots) if segments else None
+            value = _run_valuation(segments, price_slots, partition=partition) if segments else None
             cost = value["estimated_cost"] if value is not None else None
             result[kind][uid] = {
                 "energy_kwh": round(energy, 6),
@@ -854,12 +868,20 @@ def _price_spans(quotes, first, last):
             continue
         if a < last and b > first:
             rows.append((a, b, row))
-    edges = sorted({first, last} | {edge for a, b, _ in rows
-                                  for edge in (a, b) if first < edge < last})
+    # Sweep once across the clipped quote boundaries. Distinct row indices
+    # keep duplicate/overlapping observations ambiguous, including identical prices.
+    opens, closes = {}, {}
+    for index, (a, b, row) in enumerate(rows):
+        opens.setdefault(max(first, a), []).append((index, row))
+        closes.setdefault(min(last, b), []).append(index)
+    edges = sorted({first, last} | opens.keys() | closes.keys())
+    active = {}
     result = []
     for a, b in zip(edges, edges[1:]):
-        found = [row for left, right, row in rows if left <= a and right >= b]
-        result.append((a, b, found[0] if len(found) == 1 else None))
+        for index in closes.get(a, ()):
+            active.pop(index, None)
+        active.update(opens.get(a, ()))
+        result.append((a, b, next(iter(active.values())) if len(active) == 1 else None))
     return result
 
 
@@ -952,6 +974,9 @@ def reconciled_quarter_history(historical, bindings, energy_bindings, selected,
     remaps, shared owners, resets and cross-quarter meter deltas stay gaps.
     """
     empty = _quarter_actuals([], first, last, now)
+    receipts_by_charger = {}
+    for receipt in receipts:
+        receipts_by_charger.setdefault(receipt.get("charger_id"), []).append(receipt)
     power_claims = _source_claims(bindings, first, last)
     meter_claims = _source_claims(energy_bindings, first, last)
     power_cache, meter_cache, by_source = {}, {}, {}
@@ -996,7 +1021,7 @@ def reconciled_quarter_history(historical, bindings, energy_bindings, selected,
                     row.update(actual_energy_kwh=round(energy, 6),
                                actual_power_kw=round(energy*4, 6),
                                quality="measured_energy_delta")
-            attributed = (_session_asset_at_time(receipts, uid, since, until)
+            attributed = (_session_asset_at_time(receipts_by_charger.get(uid, ()), uid, since, until)
                           if (source or meter) and not overlaps and not remap else None)
             row.update(charger_id=uid, asset_id=attributed,
                        asset_provenance=("confirmed_closed_session" if attributed is not None
@@ -1229,14 +1254,25 @@ def civil_period_costs(days, available):
     return result
 
 
+async def read_recorder_samples(hass, first, end, entities):
+    """Exact native Recorder range, without a second history authority."""
+    from homeassistant.components.recorder import get_instance, history
+
+    return await get_instance(hass).async_add_executor_job(
+        history.get_significant_states,
+        hass, first, end, list(entities), None, True, False, False, False, False,
+    )
+
+
 async def read_actual_history(hass, configuration, start, end, *,
                               charger_id=None, asset_id=None,
                               session_receipts=(), price_slots=(),
                               include_valuations=False, power_bindings=None,
                               include_observed_sessions=False, active_sessions=None,
                               tariff_entity=None, energy_bindings=None, tariff_bindings=None,
-                              financial_days=None, as_of=None):
-    """Query the installed native Recorder once for exact configured chargers."""
+                              financial_days=None, as_of=None, include_quarters=True,
+                              read_samples=None):
+    """Query native Recorder once; background finance need not build graph rows."""
     now = as_of or datetime.now(timezone.utc)
     first, last = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
     if last <= first or last-first > timedelta(hours=49):
@@ -1273,7 +1309,6 @@ async def read_actual_history(hass, configuration, start, end, *,
     async def reply(rows, quality, historical=None):
         if not include_valuations and not include_observed_sessions and financial_days is None:
             return rows, quality
-        valued = {}
         quotes = price_slots
         if historical is not None and tariff_bindings is not None:
             quotes = _quotes_at_binding(
@@ -1301,44 +1336,53 @@ async def read_actual_history(hass, configuration, start, end, *,
             day_projection = await hass.async_add_executor_job(project_days)
             if not include_valuations and not include_observed_sessions:
                 return rows, quality, day_projection
-        if historical is not None and quotes:
-            for receipt in session_receipts:
-                charger = receipt.get("charger_id")
-                if (charger not in selected
-                        or charger_id is not None and charger_id != charger
-                        or asset_id is not None and asset_id != receipt.get("asset_id")):
-                    continue
-                try:
-                    started = datetime.fromisoformat(receipt["started_at"])
-                    ended = datetime.fromisoformat(receipt["ended_at"])
-                    if (started.utcoffset() is None or ended.utcoffset() is None
-                            or started < first or ended > min(last, now)):
+        def project_sessions():
+            # Pure Recorder projections can be CPU-heavy with frequent power
+            # samples; never occupy the HA event loop or its physical guards.
+            valued = {}
+            if historical is not None and quotes:
+                for receipt in session_receipts:
+                    charger = receipt.get("charger_id")
+                    if (charger not in selected
+                            or charger_id is not None and charger_id != charger
+                            or asset_id is not None and asset_id != receipt.get("asset_id")):
                         continue
-                except (KeyError, ValueError, TypeError, OverflowError):
-                    continue
-                source = _binding_for_interval(bindings.get(charger, ()), started, ended)
-                if not source:
-                    continue
-                evidence = _estimated_session_variable_cost(
-                    historical.get(source, []), receipt, tuple(
-                        row for row in quotes if row.start < ended and row.end > started
-                    ), now,
-                )
-                if evidence is not None:
-                    valued[(charger, receipt["started_at"],
-                            receipt["ended_at"])] = evidence
-        if include_observed_sessions:
+                    try:
+                        started = datetime.fromisoformat(receipt["started_at"])
+                        ended = datetime.fromisoformat(receipt["ended_at"])
+                        if (started.utcoffset() is None or ended.utcoffset() is None
+                                or started < first or ended > min(last, now)):
+                            continue
+                    except (KeyError, ValueError, TypeError, OverflowError):
+                        continue
+                    source = _binding_for_interval(bindings.get(charger, ()), started, ended)
+                    if not source:
+                        continue
+                    evidence = _estimated_session_variable_cost(
+                        historical.get(source, []), receipt, tuple(
+                            row for row in quotes if row.start < ended and row.end > started
+                        ), now,
+                    )
+                    if evidence is not None:
+                        valued[(charger, receipt["started_at"],
+                                receipt["ended_at"])] = evidence
+            if not include_observed_sessions:
+                return (rows, quality, valued)
             observed = (_observed_session_rows(
                 historical, bindings, selected, history_first, history_end, now,
                 session_receipts, active_sessions, quotes, energy_bindings,
-            ) if historical is not None and asset_id is None else [])
-            metrics = (await hass.async_add_executor_job(
-                _receipt_view_metrics, historical, bindings, selected, history_first, history_end, now,
+            ) if asset_id is None else [])
+            metrics = _receipt_view_metrics(
+                historical, bindings, selected, history_first, history_end, now,
                 session_receipts, active_sessions, quotes, asset_id, energy_bindings,
-            ) if historical is not None else {})
-            result = (rows, quality, valued, observed, metrics)
+            )
+            return (rows, quality, valued, observed, metrics)
+
+        if historical is None:
+            result = ((rows, quality, {}, [], {}) if include_observed_sessions
+                      else (rows, quality, {}))
         else:
-            result = (rows, quality, valued)
+            result = await hass.async_add_executor_job(project_sessions)
         return (*result, day_projection) if financial_days is not None else result
     if not selected:
         return await reply([], "NO_MATCHING_CHARGER")
@@ -1377,20 +1421,22 @@ async def read_actual_history(hass, configuration, start, end, *,
     if "recorder" not in hass.config.components:
         return await reply([], "RECORDER_NOT_LOADED")
     try:
-        from homeassistant.components.recorder import get_instance, history
-
-        # Use the Recorder's own executor, preserving the native DB lifecycle.
-        historical = await get_instance(hass).async_add_executor_job(
-            history.get_significant_states,
-            hass, history_first, min(now, history_end+timedelta(microseconds=1)), entities,
-            None, True, False, False, False, False,
-        )
+        # The runtime can share an identical in-flight native query. The
+        # projection still uses its own exact as-of, owner and binding scope.
+        query_end = min(now, history_end+timedelta(microseconds=1))
+        if read_samples is None:
+            historical = await read_recorder_samples(hass, history_first, query_end, entities)
+        else:
+            historical = await read_samples(history_first, query_end, entities)
     except (ImportError, RuntimeError, ValueError, OSError, KeyError):
         return await reply([], "RECORDER_UNAVAILABLE")
     if financial_days is not None and not include_valuations and not include_observed_sessions:
         return await reply([], "FINANCIAL_DAY", historical)
     if first >= now:
         return await reply([], "FUTURE_ONLY", historical)
+    if not include_quarters:
+        # Finance consumes the same native samples, not the chart projection.
+        return await reply([], "QUARTERS_NOT_REQUESTED", historical)
     # The same bounded Recorder evidence feeds both measured and exact
     # energy-reconciled quarters, off the HA event loop.
     result = await hass.async_add_executor_job(

@@ -7,6 +7,7 @@ The HA adapter supplies qualified source readings; the command owner is separate
 
 from __future__ import annotations
 
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -185,10 +186,16 @@ def _ceil_quarter(value: datetime) -> datetime:
     return datetime.fromtimestamp(ceil(seconds / 900) * 900, timezone.utc)
 
 
-def _cover(slots: Sequence[PriceSlot | PowerLimitSlot], start: datetime,
-           end: datetime):
-    matching = [s for s in slots if _utc(s.start) <= start and _utc(s.end) >= end]
-    return matching[0] if len(matching) == 1 else None
+def _quarter_coverage(slots: Sequence[PriceSlot | PowerLimitSlot],
+                      quarters: Sequence[datetime]):
+    """Index unique full-quarter coverage; overlaps and holes stay unknown."""
+    covered = {}
+    for row in slots:
+        first = bisect_left(quarters, _utc(row.start))
+        last = bisect_right(quarters, _utc(row.end) - QUARTER)
+        for stamp in quarters[first:last]:
+            covered[stamp] = row if stamp not in covered else None
+    return covered
 
 
 @dataclass(frozen=True)
@@ -289,6 +296,21 @@ def compile_plan(
     while cursor + QUARTER <= ends:
         intervals.append(cursor)
         cursor += QUARTER
+
+    # Normalize each shared source once for this bounded plan. Key by
+    # object identity: equal local wall times may have different DST folds.
+    source_indexes = {}
+    def indexed(rows):
+        key = id(rows)
+        if key not in source_indexes:
+            source_indexes[key] = (rows, _quarter_coverage(rows, intervals))
+        return source_indexes[key][1]
+
+    binding_index = indexed(binding.slots) if binding is not None else {}
+    solar_index = indexed(solar or ())
+    group_cap = controller.max_group_power_kw
+    if group_cap is None:
+        group_cap = sum(row.rated_power_kw for row in chargers.values())
 
     used_kw: dict[datetime, float] = {}
     used_phase_a: dict[datetime, dict[str, float]] = {}
@@ -459,6 +481,7 @@ def compile_plan(
                 return min(reserved, demand.observed_session_draw_kw)
             return reserved
 
+        tariff_index = indexed((tariffs or {}).get(uid, ()))
         possible = []
         blocked_price = set()
         low_price_eligible = set()
@@ -481,21 +504,19 @@ def compile_plan(
                 continue
             # An unselected site ceiling is not an invented electrical limit.
             # Each charger rating, parallelism and selected binding still apply.
-            cap = controller.max_group_power_kw
-            if cap is None:
-                cap = sum(row.rated_power_kw for row in chargers.values())
+            cap = group_cap
             if binding is not None:
                 if (_utc(binding.issued_at) > slot
                         or _utc(binding.valid_until) < finish):
                     missing_binding = True
                     continue
-                bound = _cover(binding.slots, slot, finish)
+                bound = binding_index.get(slot)
                 if bound is None:
                     missing_binding = True
                     continue
                 cap = min(cap, bound.max_charging_kw)
             if mode == "Solar":
-                source = _cover(solar or (), slot, finish)
+                source = solar_index.get(slot)
                 if source is None:
                     missing_solar = True
                     continue
@@ -550,7 +571,7 @@ def compile_plan(
                     ) + current > charger.circuit_limit_a + 1e-9
                 ):
                     continue
-            tariff = _cover((tariffs or {}).get(uid, ()), slot, finish)
+            tariff = tariff_index.get(slot)
             if mode == "Economy" and tariff is None:
                 missing_price = True
                 continue
@@ -571,7 +592,7 @@ def compile_plan(
                         and rate <= demand.low_price_trigger_per_kwh + 1e-9):
                     low_price_eligible.add(slot)
             if mode == "Automatic":
-                available_solar = _cover(solar or (), slot, finish)
+                available_solar = solar_index.get(slot)
                 solar_covers = (
                     available_solar is not None
                     and used_kw.get(slot, 0.0) + power
@@ -772,16 +793,14 @@ def compile_plan(
         if grid is None:
             continue
         first, last, step, factor = grid
-        cap = controller.max_group_power_kw
-        if cap is None:
-            cap = sum(c.rated_power_kw for c in chargers.values())
+        cap = group_cap
         if binding is not None:
-            bound = _cover(binding.slots, stamp, finish)
+            bound = binding_index.get(stamp)
             if bound is None or _utc(binding.issued_at) > stamp or _utc(binding.valid_until) < finish:
                 continue
             cap = min(cap, bound.max_charging_kw)
         if mode == "Solar" or method == "solar":
-            source = _cover(solar or (), stamp, finish)
+            source = solar_index.get(stamp)
             if source is None:
                 continue
             cap = min(cap, source.max_charging_kw)
