@@ -582,6 +582,26 @@ class NativeSwitchExecutor:
         """Do not replay commands on unload or a restarted runtime."""
         self._stopped = True
 
+    def unresolved_intent_keys(self):
+        """A healthy peer session cannot hide another unresolved durable hold."""
+        covered = set()
+        for uid, session in self._sessions.items():
+            asset = session.get("asset_id")
+            key = asset or f"charger:{uid}"
+            if key in self._inflight and (asset is None or
+                    self._inflight[key] == session.get("intent_key")):
+                covered.add(key)
+        for uid in self._start_pending:
+            row = self._interrupted_sessions.get(uid)
+            if row and row.get("pending"):
+                session = row["session"]
+                asset = session.get("asset_id")
+                key = asset or f"charger:{uid}"
+                if key in self._inflight and (asset is None or
+                        self._inflight[key] == session.get("intent_key")):
+                    covered.add(key)
+        return self._inflight.keys() - covered
+
     def snapshot(self):
         return {uid: dict(record) for uid, record in self._outcomes.items()}
 
