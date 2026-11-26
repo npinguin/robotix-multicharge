@@ -82,6 +82,10 @@ assert.ok(uiSource.includes("this.dashboardChargerCreate(container)"),
   "New Chargers are created inside MultiCharge with native source selectors");
 const Card=customElements.get("robotix-multicharge-card");
 assert.ok(Card,"native custom card registered");
+const costDisplay=new Card();
+assert.ok(costDisplay.formatCost({cost:-1.25,currency:"EUR",basis:"spot"}).includes("-"),"Negative reference prices remain negative");
+assert.ok(costDisplay.formatCost({cost:null,covered_cost:0.75,currency:"EUR",basis:"variable_reference"}).includes("Partial coverage"),"Partial amount stays qualified");
+assert.ok(costDisplay.formatCost({cost:null,currency:"EUR"}).includes("Unknown"),"Missing cost is not zero");
 const Panel=customElements.get("robotix-multicharge-panel");
 assert.ok(Panel,"native HA sidebar panel element registered");
 const nativePanel=new Panel();
@@ -1455,6 +1459,7 @@ async function main(){
   let residentPlot;
   visit(plot,node=>{if(node._mcSignature)residentPlot=node;});
   const residentOptions=JSON.parse(residentPlot._mcSignature);
+  assert.ok(residentOptions._mcLegendOwners.some(x=>x.key==="unidentified:drive"),"Unattributed history uses stable anonymous owner identity, not today\'s assignment");
   assert.ok(residentOptions.series.some(x=>x.name.startsWith("Actual ·")&&x.data.some(p=>p.y===2.2)),
     "Actual measured kW remains independent and is not relabeled as a plan");
   assert.ok(!residentOptions.series.some(x=>/^(Proposed|Accepted) ·/.test(x.name)),

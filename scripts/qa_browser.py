@@ -84,7 +84,7 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
     if row["viewport"] != size:
         raise AssertionError(f"{label}: requested width not actually honored: {row}")
     if view == "setup":
-        required = ("observed", "prefilled", "progressive", "noWrite",
+        required = ("observed", "visibleSetup", "prefilled", "progressive", "noWrite",
                     "reviewed", "denied", "active")
         if not all(row.get(key) is True for key in required):
             raise AssertionError(f"{label}: setup/activation/session journey failed: {row}")
@@ -137,7 +137,7 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
     if view == "overview":
         if (not row["siteFirst"] or not row["siteDetailsLocal"] or not row["overviewGrid"] or row["quickSelectors"] != 0
                 or row["assetAssignmentActions"] != (count if role == "admin" else 0)
-                or not row["navigationReset"] or not row["financeCompact"]):
+                or not row["navigationReset"] or not row["financeCompact"] or not row["visibleSafety"]):
             raise AssertionError(f"{label}: site-first asset assignment hierarchy lost: {row}")
     if view == "charger":
         if row["quickSelectors"] != count:

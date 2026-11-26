@@ -112,7 +112,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
             view==="charger"?"Chargers":
             view==="plan"?"Charging Plan":"Overview";
   card.render();
-  let navigationReset=true,financeCompact=true;
+  let navigationReset=true,financeCompact=true,visibleSafety=true;
   if(view==="overview"&&count){
     const root=card.shadowRoot;
     const finance=[...root.querySelectorAll('details[data-disclosure$=":finance"]')];
@@ -139,6 +139,13 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
       !requests.at(-1).charger_id&&root.querySelectorAll(".plan-lane").length===count;
     tab("Overview").click();
     await new Promise(resolve=>setTimeout(resolve,80));
+    const target=devices[count-1],originalPower=observations.chargers[target.id].power_kw;
+    observations.chargers[target.id].power_kw={quality:"unavailable",value:null};
+    data.command_capabilities[target.id]={stop_allowed:true};
+    card.render();
+    const stop=[...root.querySelectorAll(`[data-mc-object="asset:${target.asset}"] button`)].find(b=>b.textContent==="Stop charging");
+    visibleSafety=role==="admin"?!!stop&&stop.getBoundingClientRect().height>0:!stop;
+    delete data.command_capabilities[target.id];observations.chargers[target.id].power_kw=originalPower;card.render();
   }
   if(view==="setup"){
     const c=devices[0];c.kind="variable_current";c.control_entity="switch.native_evse";
@@ -176,9 +183,11 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     const btn=(prefix,scope=root)=>[...scope.querySelectorAll("button")].find(x=>x.textContent.startsWith(prefix));
     const observed=root.textContent.includes("1.50 kWh")&&root.textContent.includes("0.42 EUR")&&
       root.textContent.includes("Vehicle unknown")&&root.textContent.includes("not a bill");
-    btn("Review charger setup").click();
+    const review=btn("Review charger setup");
+    const visibleSetup=!!review&&review.getBoundingClientRect().height>0;
+    review.click();
     const editor=root.querySelector(".dashboard-field-edit");
-    const prefilled=[...editor.querySelectorAll("input")].some(x=>x.value==="sensor.native_power");
+    const prefilled=editor.getBoundingClientRect().height>0&&[...editor.querySelectorAll("input")].some(x=>x.value==="sensor.native_power");
     const progressive=editor.querySelector("details")?.open===false;
     const noWrite=writes===0;
     btn("Save charger setup",editor).click();
@@ -203,7 +212,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
       view,count,role,viewport:innerWidth,render:!!root.querySelector(".root"),
       documentWidth:document.documentElement.scrollWidth,
       tabs:[...root.querySelectorAll(".tabs button")].map(b=>b.textContent),
-      observed,prefilled,progressive,noWrite,reviewed,denied,active
+      observed,visibleSetup,prefilled,progressive,noWrite,reviewed,denied,active
     });
     return;
   }
@@ -356,8 +365,11 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     // visibility gate and one authoritative Save, while HA states change.
     card._tab="Settings";card.render();
     const root=card.shadowRoot;
+    const expert=root.querySelector('details[data-disclosure="controller:expert"]');
+    if(!expert)throw Error("Expert settings disclosure missing");
+    if(!expert.open)expert.querySelector("summary").click();
     const edit=[...root.querySelectorAll("button")].find(b=>b.textContent==="Edit YAML");
-    if(!edit)throw Error("Edit YAML button missing");
+    if(!edit||edit.getBoundingClientRect().height<=0)throw Error("Visible Edit YAML button missing");
     edit.click();
     const textarea=root.querySelector(".yaml-editor textarea");
     if(!textarea)throw Error("YAML textarea missing");
@@ -479,7 +491,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
   const toggle=chartLegend?.querySelector("button");
   if(toggle)toggle.click();
   const report={
-    count,role,view,viewport:innerWidth,navigationReset,financeCompact,
+    count,role,view,viewport:innerWidth,navigationReset,financeCompact,visibleSafety,
     render:!!frame,frameWidth:Math.round(rect?.width||0),
     documentWidth:document.documentElement.scrollWidth,
     tabs:[...root.querySelectorAll(".tabs button")].map(b=>b.textContent),
