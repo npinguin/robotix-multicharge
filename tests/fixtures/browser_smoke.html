@@ -50,6 +50,12 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
       assets,chargers:devices
     },
     observations,slots:[],actual_slots:[],forecast_slots:[],price_slots:[],
+    charger_states:Object.fromEntries(devices.map((c,i)=>[c.id,{
+      activation:"inactive",connection_state:i%2===0?"asset_connected":"no_asset_connected",
+      charging_session:"stopped",charging_state:"waiting",reason:"CHARGER_INACTIVE",
+      operational_status:{status:"idle",reason:null},asset_operational_status:{status:"idle",reason:null},
+    }])),
+    asset_policy_defaults:{priority:0,continuous_charging:false,opportunistic_kind:"off",maintain_soc_until_ready_by:true},
     reasons:{},shortfall_kwh:{},completed_sessions:[],active_sessions:{},
     command_capabilities:{},command_outcomes:{},connection_identity:{},
     preference_entities:{
