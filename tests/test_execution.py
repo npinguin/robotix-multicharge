@@ -1888,8 +1888,8 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(new.executor.accepted_slots() == {})
 
     async def test_orphaned_soc_intent_reconciles_only_with_verified_stop(self):
-        for physical_on in (False, True):
-            with self.subTest(physical_on=physical_on):
+        for physical in ("idle", "on", "off_with_draw"):
+            with self.subTest(physical=physical):
                 rt, sources, services = rig(mode="Automatic")
                 asset = rt.configuration["assets"][0]
                 asset.pop("requested_kwh")
@@ -1907,8 +1907,9 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
                         saved.append(data)
 
                 rt.attach_control_store(MemoryStore(), snapshot)
-                if physical_on:
+                if physical == "on":
                     sources["switch.evse_control"] = state("on")
+                if physical != "idle":
                     sources["sensor.actual_power"] = state(1600, "W")
                 rt.refresh()
                 self.assertEqual(rt.excluded["evse"], "UNRESOLVED_PREVIOUS_CHARGE_INTENT")
@@ -1918,7 +1919,7 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(rt.executor.session_snapshot(), {})
                 self.assertEqual(saved[-1]["inflight"], {})
                 self.assertEqual([c[1] for c in services.calls],
-                                 ["turn_off"] if physical_on else [])
+                                 ["turn_off"] if physical != "idle" else [])
                 self.assertNotEqual(rt.excluded.get("evse"),
                                     "UNRESOLVED_PREVIOUS_CHARGE_INTENT")
                 restored = MultiChargeRuntime(rt.hass, rt.configuration)
