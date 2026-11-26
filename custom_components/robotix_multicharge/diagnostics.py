@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from hashlib import sha256
 
+from .configuration import charger_is_active
 from .const import DOMAIN, DEFAULT_POWER_ADJUSTMENT_INTERVAL_MINUTES, NOMINAL_PHASE_COUNT, NOMINAL_PHASE_VOLTAGE_V
 
 
@@ -104,7 +105,7 @@ def build_diagnostics(runtime, entry, captured_at=None):
             "phase_ids": item.get("phase_ids"),
             "circuit_limit_a": item.get("circuit_limit_a"),
             "control_owner": item.get("control_owner", "external"),
-            "physical_commissioned": item.get("physical_commissioned", False),
+            "physical_commissioned": charger_is_active(item),
             "assigned_asset": _alias(item.get("asset")),
             "dedicated_asset": _alias(item.get("dedicated_asset_id")),
             "bindings": {
