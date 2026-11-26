@@ -111,7 +111,21 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
   card._tab=view==="asset"?"Chargeable Assets":
             view==="charger"?"Chargers":
             view==="plan"?"Charging Plan":"Overview";
+  const renderStarted=performance.now();
   card.render();
+  const renderMs=performance.now()-renderStarted;
+  if(args.get("metrics")==="1"){
+    await new Promise(resolve=>setTimeout(resolve,1400));
+    const root=card.shadowRoot,hosts=[...root.querySelectorAll(".mc-apex")];
+    document.getElementById("smoke-result").textContent=JSON.stringify({
+      render:!!root.querySelector(".root"),viewport:innerWidth,documentWidth:document.documentElement.scrollWidth,
+      tabs:[...root.querySelectorAll(".tabs button")].map(b=>b.textContent),
+      apexHosts:hosts.length,apexLive:hosts.filter(h=>h.querySelector(".apexcharts-svg")).length,
+      domElements:root.querySelectorAll("*").length,renderMs,
+      planRequests:requests.filter(r=>r.type==="robotix_multicharge/get_plan").length,
+      historyRequests:requests.filter(r=>r.type==="robotix_multicharge/get_plan"&&r.include_history).length
+    });return;
+  }
   let navigationReset=true,financeCompact=true,visibleSafety=true;
   if(view==="overview"&&count){
     const root=card.shadowRoot;
