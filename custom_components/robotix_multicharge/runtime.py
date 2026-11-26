@@ -12,7 +12,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from .contracts import ChargeDemand, PowerEnvelope, PowerLimitSlot
-from .configuration import configuration_revision, PLAN_COLORS
+from .configuration import configuration_revision, PLAN_COLORS, forecast_tariff_source
 from .domain import ChargeController, Charger
 from .planner import compile_plan, minimum_planning_power, missing_current_conversion, resolve_recurring_ready_by
 from .source_evidence import (
@@ -136,8 +136,7 @@ class MultiChargeRuntime:
             session_receipts=receipts, price_slots=self.price_slots,
             power_bindings=self.power_bindings, energy_bindings=self.energy_bindings,
             tariff_bindings=self.tariff_bindings, active_sessions=active,
-            tariff_entity=(cfg["controller"].get("price_entity") or
-                           cfg["controller"].get("current_price_entity")),
+            tariff_entity=forecast_tariff_source(cfg["controller"]),
         )
         _, _, estimates, observed, metrics, daily = await read_actual_history(
             self.hass, cfg, at-timedelta(hours=48), at+timedelta(minutes=1),
@@ -464,7 +463,7 @@ class MultiChargeRuntime:
     def qualified_tariff(self, at):
         """One native price reader for proposals and fresh physical admission."""
         setting = self.configuration["controller"]
-        tariff_source = setting.get("price_entity") or setting.get("current_price_entity")
+        tariff_source = forecast_tariff_source(setting)
         tariff_coverage = {}
         tariff, tariff_quality = intervals(
             self.hass, tariff_source, "price", at, coverage_details=tariff_coverage,
@@ -809,7 +808,7 @@ class MultiChargeRuntime:
                 else:
                     power = source_power
             readings["effective_power_kw"] = power
-        tariff_source = setting.get("price_entity") or setting.get("current_price_entity")
+        tariff_source = forecast_tariff_source(setting)
         tariff, tariff_quality, tariff_coverage = self.qualified_tariff(at)
         solar_kind = setting.get(
             "solar_source_kind", "intervals" if setting.get("solar_entity") else "none",
