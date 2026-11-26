@@ -1450,8 +1450,21 @@ async function main(){
     "All 10 real Charger objects get their own dynamic detail lane");
   assert.ok(content(plot).includes("spot · EUR/kWh"),
     "Price is explicitly marked as spot and never an invoice");
-  assert.ok(content(plot).includes("Measured"),
-    "Actual kW stays separate from proposed or accepted");
+  assert.ok(content(plot).includes("Actual and planned charging"),
+    "Resident chart explains actual and planned without exposing engineering series");
+  let residentPlot;
+  visit(plot,node=>{if(node._mcSignature)residentPlot=node;});
+  const residentOptions=JSON.parse(residentPlot._mcSignature);
+  assert.ok(residentOptions.series.some(x=>x.name.startsWith("Actual ·")&&x.data.some(p=>p.y===2.2)),
+    "Actual measured kW remains independent and is not relabeled as a plan");
+  assert.ok(!residentOptions.series.some(x=>/^(Proposed|Accepted) ·/.test(x.name)),
+    "Default view has a single planned projection rather than duplicate technical series");
+  many._folds["plan:technical"]=true;many.render();
+  let expertPlot;
+  visit(many.shadowRoot,node=>{if(node._mcSignature&&node.attributes["aria-label"]==="MultiCharge combined power and price")expertPlot=node;});
+  assert.ok(expertPlot&&JSON.parse(expertPlot._mcSignature).series.some(x=>x.name.startsWith("Measured ·")),
+    "Expert chart preserves separately named physical evidence");
+  many._folds["plan:technical"]=false;many.render();
   assert.ok(content(many.shadowRoot).includes("vehicle may be unknown"),
     "Charger metering is shown without fabricating historical Vehicle identity");
   multiPlan.observations.sources.tariff_tomorrow_quality="INTERVAL_COVERAGE_INCOMPLETE";
