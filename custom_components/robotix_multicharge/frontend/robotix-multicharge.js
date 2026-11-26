@@ -586,7 +586,26 @@ function mcPlanTickText(value,data){
 }
 function mcPlanSeries(data,visibleChargers,rows,actuals,forecast,includeTotals=false,technical=true){
   if(!technical){
-    rows=rows.map(row=>({...row,proposed_power_kw:Number.isFinite(row.accepted_power_kw)&&row.accepted_power_kw>0?row.accepted_power_kw:row.proposed_power_kw,accepted_power_kw:null}));
+    // Accepted receipts can cover only part of a proposed quarter. Split at
+    // all physical boundaries and select one authoritative interval per charger.
+    // A finite accepted zero is evidence, not an absent receipt.
+    const merged=[];
+    for(const charger of visibleChargers){
+      const candidates=rows.filter(row=>row.charger_id===charger.id&&
+        (Number.isFinite(row.accepted_power_kw)||Number.isFinite(row.proposed_power_kw))&&
+        Date.parse(row.end)>Date.parse(row.start));
+      const boundaries=[...new Set(candidates.flatMap(row=>[Date.parse(row.start),Date.parse(row.end)]))].sort((a,b)=>a-b);
+      for(let i=0;i<boundaries.length-1;i++){
+        const start=boundaries[i],end=boundaries[i+1];
+        const covering=candidates.filter(row=>Date.parse(row.start)<=start&&Date.parse(row.end)>=end);
+        const accepted=covering.filter(row=>Number.isFinite(row.accepted_power_kw));
+        const chosen=accepted.length?accepted:covering.filter(row=>Number.isFinite(row.proposed_power_kw));
+        if(chosen.length!==1)continue;
+        const row=chosen[0];
+        merged.push({...row,start:new Date(start).toISOString(),end:new Date(end).toISOString(),proposed_power_kw:accepted.length?row.accepted_power_kw:row.proposed_power_kw,accepted_power_kw:null});
+      }
+    }
+    rows=merged;
   }
   const from=Date.parse(data.start),until=Date.parse(data.end);
   const visible=new Set(visibleChargers.map(c=>c.id));
@@ -2296,7 +2315,10 @@ class RobotixMultiChargeCard extends HTMLElement {
       this.goalAssessment(card,a,charger);
       this.financialSummary(card,"asset",a.id);
       const running=charger&&d.active_sessions?.[charger.id];
-      if(running?.asset_id===a.id)this.sessionMetrics(card,running,false);
+      if(running?.asset_id===a.id){
+        const sessionDetails=mcEl("div");this.sessionMetrics(sessionDetails,running,false);
+        this.disclosure(card,"asset:"+a.id+":active-session","Active session",sessionDetails);
+      }
       if(a.temporary)card.append(mcEl("p","small",mcTr("Guest")+" · "+mcTime(a.expires_at,d.timezone)));
       const controls=mcEl("div","overview-actions");
       controls.append(mcButton(mcTr("Charging plan"),()=>{
@@ -2313,10 +2335,8 @@ class RobotixMultiChargeCard extends HTMLElement {
         }));
       }
       if(charger&&this.canManage()){
-        const physical=(observations[charger.id]||{}).power_kw;
         const capabilities=(d.command_capabilities||{})[charger.id]||{};
-        if(capabilities.stop_allowed&&physical?.quality==="ok"&&
-            typeof physical.value==="number"&&physical.value>0){
+        if(capabilities.stop_allowed){
           const stop=mcButton(mcTr("Stop charging"),()=>
             this.command(charger.id,"stop"));
           stop.disabled=this._commandBusy;
@@ -2333,11 +2353,8 @@ class RobotixMultiChargeCard extends HTMLElement {
         schedule.append(mcEl("h4","",mcTr("When should the vehicle be ready?")));
         this.nativeRepeatEditor(schedule,a);card.append(schedule);
       }
-      if(this.compactOwner(charger,a)){
-        const compact=mcEl("section","card");
-        this.disclosure(compact,"overview:compact:"+a.id,a.name,card,this.operationalIndicator(charger,a).textContent+" · "+mcAssetGoalText(a));
-        assetCards.append(compact);
-      }else assetCards.append(card);
+      if(this.compactOwner(charger,a))card.className+=" compact-owner";
+      assetCards.append(card);
     }
     if(!assets.length&&chargers.length)this.notice(container,"No vehicles",false);
     const next=mcEl("div","card");next.append(mcEl("h3","","Next action"));
@@ -2347,7 +2364,14 @@ class RobotixMultiChargeCard extends HTMLElement {
         this._tab="Chargers";this._createCharger=true;this.render();
       }));
     const reasons=Object.entries(d.reasons||{}).filter(([key,val])=>val!=="PROPOSED");
-    if(reasons.length)next.append(mcEl("p","muted small",reasons.map(([key,val])=>key+": "+mcReason(val)).slice(0,4).join(" · ")));
+    for(const [key,val] of reasons){
+      const charger=chargers.find(x=>x.id===key);
+      if(!charger)continue;
+      const row=mcEl("div","row");row.append(mcEl("span","small",charger.name+" · "+mcReason(val)));
+      if(this.canEditSettings()&&d.charger_states?.[key]?.operational_status?.status==="problem")
+        row.append(mcButton("Details",()=>{this._tab="Chargers";this._open=key;this.render();}));
+      next.append(row);
+    }
     container.append(next);
   }
   plan(container){
@@ -2718,8 +2742,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     const state=this._data.charger_states?.[charger?.id];
     const projection=asset?state?.asset_operational_status:state?.operational_status;
     const tone=projection?.status||(charger?"unknown":"idle");
-    const label=projection?.reason==="ENABLED_WAITING_FOR_VEHICLE"&&tone==="idle"?"Waiting for vehicle":
-      ({problem:"Problem",charging:"Charging",ready:"Goal reached",idle:!charger?"Not assigned":state?.connection_state==="no_asset_connected"?"Disconnected":"Idle"}[tone]||"Unknown");
+    const idleLabel=!charger?"Not assigned":state?.reason==="USER_PAUSED"||state?.charging_session==="paused"?"Paused":projection?.reason==="ENABLED_WAITING_FOR_VEHICLE"?"Waiting for vehicle":state?.connection_state==="no_asset_connected"?"Disconnected":state?.activation==="inactive"?"Inactive":state?.connection_state==="unknown"?"Connection unknown":"Idle";
+    const label=({problem:"Problem",charging:"Charging",ready:"Goal reached",idle:idleLabel}[tone]||"Unknown");
     const indicator=mcEl("span","operational-indicator "+tone,mcTr(label));
     indicator.setAttribute("data-operational-status",tone);
     if(tone==="problem"){
@@ -3183,7 +3207,7 @@ class RobotixMultiChargeCard extends HTMLElement {
           const row=mcEl("div","owner-group");
           mcPair(row,mcTr("Charger at session time"),
             chargers.find(ch=>ch.id===receipt.charger_id)?.name||
-              receipt.charger_id||mcTr("Unknown"));
+              mcTr("Unknown"));
           mcPair(row,mcTr("Completed"),mcTime(receipt.ended_at,d.timezone));
           this.sessionMetrics(row,receipt,false);
           mcPair(row,mcTr("Physical STOP confirmed"),mcTr("Yes"));
@@ -3196,11 +3220,8 @@ class RobotixMultiChargeCard extends HTMLElement {
           recent.length+" "+mcTr("configured fields"));
         card.append(detail);
       }
-      if(this.compactOwner(charger,a)){
-        const compact=mcEl("section","card");
-        this.disclosure(compact,"assets:compact:"+a.id,a.name,card,this.operationalIndicator(charger,a).textContent+" · "+mcAssetGoalText(a));
-        assetCards.append(compact);
-      }else assetCards.append(card);
+      if(this.compactOwner(charger,a))card.className+=" compact-owner";
+      assetCards.append(card);
     }
   }
   assetCreate(container){
@@ -3273,7 +3294,6 @@ class RobotixMultiChargeCard extends HTMLElement {
       mcTr("configured entirely in MultiCharge")));
     box.append(mcEl("p","muted small",
       "Active allows MultiCharge control. Inactive retains monitoring. Save sends no charging command."));
-    const id=this.field(box,mcTr("Stable charger ID"),"","text");
     const name=this.field(box,mcTr("Charger name"),"","text");
     const kind=this.field(box,mcTr("Control type"),"on_off",null,[
       ["on_off",mcTr("On/off")],["variable_current",mcTr("Variable current")]
@@ -3287,6 +3307,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     const tech=mcEl("details","owner-group");
     tech.append(mcEl("summary","",mcTr("Native connection, power and current sources")));
     const panel=mcEl("div","owner-fields");
+    const id=this.field(panel,mcTr("Stable charger ID"),"","text");
     const draft={id:"new_charger"};
     const readers={};
     for(const field of [
@@ -3638,7 +3659,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         this.sessionMetrics(historyPanel,latest,false);
         // Cost is shown once in the shared session metrics.
         mcPair(historyPanel,mcTr("Original vehicle at session time"),
-          latest.asset_id||mcTr("Anonymous charger-only session"));
+          latest.asset_id?((d.configuration.assets||[]).find(a=>a.id===latest.asset_id)?.name||mcTr("Unknown")):mcTr("Anonymous charger-only session"));
         mcPair(historyPanel,mcTr("Physical STOP confirmed"),
           latest.physical_stop_confirmed===true?mcTr("Yes"):mcTr("Unknown"));
         if(latest.stop_reason)
@@ -3772,11 +3793,8 @@ class RobotixMultiChargeCard extends HTMLElement {
         status.setAttribute("role",bad?"alert":"status");
         card.append(status);
       }
-      if(this.compactOwner(c)&&!(d.command_capabilities?.[c.id]?.stop_allowed&&d.charger_states?.[c.id]?.switch_state==="on")){
-        const compact=mcEl("section","card");
-        this.disclosure(compact,"chargers:compact:"+c.id,c.name,card,this.operationalIndicator(c).textContent);
-        chargerCards.append(compact);
-      }else chargerCards.append(card);
+      if(this.compactOwner(c))card.className+=" compact-owner";
+      chargerCards.append(card);
     }
   }
 
