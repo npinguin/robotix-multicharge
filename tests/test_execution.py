@@ -720,6 +720,22 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(rt.charger_states()["evse"]["operational_status"]["status"], "problem")
         self.assertEqual(rt.charger_states()["evse"]["connection_state"], "unknown")
 
+    async def test_resident_assigned_on_off_duration_without_optional_sources(self):
+        rt, sources, services = rig(mode="Automatic")
+        charger = rt.configuration["chargers"][0]
+        for field in ("connected_entity", "power_entity", "energy_entity", "dedicated_asset_id"):
+            charger.pop(field, None)
+        rt.refresh()
+        result = await rt.executor.execute("evse", "manual_start",
+                                           manual_request={"duration_minutes": 20})
+        self.assertEqual(result["status"], "confirmed", result)
+        self.assertIsNone(result["measured_power_kw"])
+        self.assertTrue(rt.executor.session_snapshot()["evse"]["duration_without_connection"])
+        self.assertEqual((await rt.executor.execute("evse", "manual_stop"))["status"], "confirmed")
+        self.assertEqual(rt.executor.completed_sessions()[-1]["asset_id"], "car")
+        self.assertIsNone(rt.executor.completed_sessions()[-1]["actual_energy_kwh"])
+        self.assertEqual((await rt.executor.execute("evse", "auto"))["status"], "confirmed")
+
     async def test_resident_manual_denied_off_external_and_capacity(self):
         for args in ({"mode": "Off"}, {"owner": "external", "commissioned": False}, {"group_kw": 0.5}):
             rt, _, services = rig(**args)

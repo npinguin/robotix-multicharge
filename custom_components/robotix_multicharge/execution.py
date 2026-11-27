@@ -1186,7 +1186,7 @@ class NativeSwitchExecutor:
         if asset is not None and asset.get("temporary") and datetime.fromisoformat(asset["expires_at"]) <= at:
             return "TEMPORARY_ASSET_EXPIRED"
         cable = self._connection(charger, at)
-        bounded_switch = charger["kind"] == "on_off" and duration is not None and not (resident and asset is not None)
+        bounded_switch = charger["kind"] == "on_off" and duration is not None
         if (not (bounded_switch and self.duration_connection_allowed(cable))
                 and (cable.quality != "ok" or cable.value is not True)):
             return "PHYSICAL_CONNECTION_UNVERIFIED"
@@ -1979,7 +1979,7 @@ class NativeSwitchExecutor:
             "identity_basis": identity["basis"] if identity else None,
             "intent_key": intent_key,
             "manual_duration": manual_request is not None and duration is not None,
-            "duration_without_connection": charger["kind"] == "on_off" and duration is not None and not (resident and asset is not None),
+            "duration_without_connection": charger["kind"] == "on_off" and duration is not None,
             "resident_override": resident,
             "manual_mode": (self.runtime.configuration["controller"]["mode"]
                             if resident or manual_request is not None else None),
@@ -3222,7 +3222,7 @@ class NativeSwitchExecutor:
                             "asset_id": asset["id"] if asset else None,
                             "intent_key": hold_intent if asset else None,
                             "started_at": at.isoformat(),
-                            "duration_without_connection": charger["kind"] == "on_off" and duration is not None and not (resident_start and asset is not None),
+                            "duration_without_connection": charger["kind"] == "on_off" and duration is not None,
                             "resident_override": resident_start,
                             "requested_budget_currency": (goal_request or {}).get("currency") if goal_request is not None else (asset or {}).get("requested_budget_currency"),
                         },
@@ -3274,9 +3274,10 @@ class NativeSwitchExecutor:
                             self._persistence_verified = False
                         return outcome
                 bounded_switch = charger["kind"] == "on_off" and (
-                    (manual_request is not None and manual_request.get("duration_minutes") is not None and not (resident_start and charger.get("asset")))
-                    or (action == "start" and not (resident_start and charger.get("asset")) and any(a["id"] == charger.get("asset")
+                    (manual_request is not None and manual_request.get("duration_minutes") is not None)
+                    or (action == "start" and any(a["id"] == charger.get("asset")
                         and a.get("requested_duration_minutes") is not None for a in cfg["assets"]))
+                    or (resident_stop and charger.get("asset") is None)
                     or self._sessions.get(charger_id, {}).get("duration_without_connection", False)
                     or (action in ("stop", "pause")
                         and self._interrupted_sessions.get(charger_id, {}).get("sources", {}).get("control_entity") == entity
