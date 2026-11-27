@@ -255,7 +255,7 @@ async function main(){
     callWS:async()=>owners};
   await new Promise(resolve=>setImmediate(resolve));
   vehicle._tab="Chargeable Assets";vehicle.render();
-  find(vehicle.shadowRoot,"button","Details").click();
+  find(vehicle.shadowRoot,"summary","Asset settings").click();
   const vehicleText=content(vehicle.shadowRoot);
   for(const label of ["Vehicle identity & lifetime","Goal & timing",
                       "Price & charging decisions","Battery & source references",
@@ -288,7 +288,7 @@ async function main(){
     callWS:async()=>owners};
   await new Promise(resolve=>setImmediate(resolve));
   evse._tab="Chargers";evse.render();
-  find(evse.shadowRoot,"button","Details").click();
+  find(evse.shadowRoot,"summary","Charger settings").click();
   const evseText=content(evse.shadowRoot);
   for(const label of ["Physical Charger & verified sources",
                       "Identity & ownership","Connection & meter sources",
@@ -323,7 +323,7 @@ async function main(){
   ro.hass={user:{is_admin:false},states:{},callWS:async()=>owners};
   await new Promise(resolve=>setImmediate(resolve));
   ro._tab="Chargers";ro.render();
-  find(ro.shadowRoot,"button","Details").click();
+  find(ro.shadowRoot,"summary","Charger settings").click();
   assert.ok(content(ro.shadowRoot).includes("Native Charger control switch"),
     "Read-only user can observe owning technical configuration");
   assert.equal(find(ro.shadowRoot,"a","Configure in Home Assistant"),undefined,
@@ -481,7 +481,7 @@ async function main(){
   };
   await new Promise(resolve=>setImmediate(resolve));
   scheduleCard._tab="Chargeable Assets";scheduleCard.render();
-  find(scheduleCard.shadowRoot,"button","Details").click();
+  find(scheduleCard.shadowRoot,"summary","Asset settings").click();
   // PARITY-07 native continuous Select on the same Asset and Config Entry.
   let pattern;
   visit(scheduleCard.shadowRoot,node=>{
@@ -700,6 +700,7 @@ async function main(){
   }];
   minimalData.command_capabilities={plug:{
     manual_one_off_allowed:false,
+    resident_start_allowed:false, resident_goal_reasons:{duration:"PHYSICAL_CONNECTION_UNVERIFIED"},
     manual_one_off_reason:"PHYSICAL_CONNECTION_UNVERIFIED",
     start_allowed:false,stop_allowed:false
   }};
@@ -716,11 +717,12 @@ async function main(){
   };
   await new Promise(resolve=>setImmediate(resolve));
   find(minimalCard.shadowRoot,"button","Chargers").click();
-  assert.ok(content(minimalCard.shadowRoot).includes("Manual one-off charge"),
+  find(minimalCard.shadowRoot,"button","Start charging").click();
+  assert.ok(content(minimalCard.shadowRoot).includes("Manual charging"),
     "An unassigned Charger must show bounded manual preparation even before commissioning");
   assert.ok(content(minimalCard.shadowRoot).includes("Connection not verified"),
     "Missing native cable evidence must produce a specific HOLD, not invented Connected");
-  assert.equal(find(minimalCard.shadowRoot,"button","Start bounded session").disabled,true);
+  assert.equal(find(minimalCard.shadowRoot,"button","Start manual charging").disabled,true);
   function finiteInput(card,label){
     let input;
     visit(card.shadowRoot,node=>{
@@ -740,22 +742,25 @@ async function main(){
     "No physical command may originate from a disabled manual setup");
 
   minimalData.command_capabilities.plug.manual_one_off_allowed=true;
+  minimalData.command_capabilities.plug.resident_start_allowed=true;
+  minimalData.command_capabilities.plug.resident_goal_reasons.duration="READY";
   minimalData.command_capabilities.plug.manual_one_off_reason="READY";
   await minimalCard.load();
-  const enabledStart=find(minimalCard.shadowRoot,"button","Start bounded session");
+  const enabledStart=find(minimalCard.shadowRoot,"button","Start manual charging");
   assert.equal(enabledStart.disabled,false,
     "Existing safe executor remains reachable once qualification succeeds");
   enabledStart.click();
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(manualWS.some(r=>r.type==="robotix_multicharge/command"&&
-    r.charger_id==="plug"&&r.action==="start"&&r.duration_minutes===15),
+    r.charger_id==="plug"&&r.action==="manual_start"&&r.duration_minutes===15),
     "Only a bounded real executor request can start an eligible manual session");
 
   // GUEST-UX-02: the selected objective alone determines readiness and request.
-  minimalData.command_capabilities.plug.manual_goal_reasons={
+  minimalData.command_capabilities.plug.resident_goal_reasons={
     duration:"READY",energy:"MEASURED_ENERGY_METER_REQUIRED",budget:"BUDGET_EFFECTIVE_TARIFF_UNAVAILABLE"
   };
   await minimalCard.load();
+  find(minimalCard.shadowRoot,"button","Start charging").click();
   const goalPicker=finiteInput(minimalCard,"Charging goal");
   goalPicker.value="budget";goalPicker.events.change();
   assert.equal(finiteInput(minimalCard,"Time limit (minutes)"),undefined,
@@ -763,16 +768,16 @@ async function main(){
   const moneyDraft=finiteInput(minimalCard,"Budget limit (€)");
   assert.ok(moneyDraft);
   moneyDraft.value="10";moneyDraft.events.input();
-  assert.equal(find(minimalCard.shadowRoot,"button","Start bounded session").disabled,true);
+  assert.equal(find(minimalCard.shadowRoot,"button","Start manual charging").disabled,true);
   const beforeMoney=manualWS.filter(r=>r.type==="robotix_multicharge/command").length;
   assert.equal(manualWS.filter(r=>r.type==="robotix_multicharge/command").length,beforeMoney);
-  minimalData.command_capabilities.plug.manual_goal_reasons.budget="READY";
+  minimalData.command_capabilities.plug.resident_goal_reasons.budget="READY";
   await minimalCard.load();
   assert.equal(finiteInput(minimalCard,"Budget limit (€)").value,"10");
-  find(minimalCard.shadowRoot,"button","Start bounded session").click();
+  find(minimalCard.shadowRoot,"button","Start manual charging").click();
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(manualWS.some(r=>r.type==="robotix_multicharge/command"&&
-    r.action==="start"&&r.cost_amount===10&&r.currency==="EUR"&&r.duration_minutes===undefined),
+    r.action==="manual_start"&&r.cost_amount===10&&r.currency==="EUR"&&r.duration_minutes===undefined),
     "Only the selected €10 objective reaches the owner-protected executor");
 
   // GUEST-UX-01: an ordinary Guest is created with an amount and relative
@@ -915,13 +920,16 @@ async function main(){
   // second persisted charge-request store or a physical session.
   minimalData.configuration_revision="minimal-rev-b";
   await minimalCard.load();
-  assert.equal(finiteInput(minimalCard,"Time limit (minutes)").value,"");
+  assert.equal(minimalCard._manualEditor,"","Changed configuration invalidates an old authorization context");
+  assert.equal(finiteInput(minimalCard,"Time limit (minutes)"),undefined);
+  find(minimalCard.shadowRoot,"button","Start charging").click();
+  assert.equal(finiteInput(minimalCard,"Time limit (minutes)").value,"30","Fresh draft uses the default, not stale input");
   const residentMinimal=new Card();
   residentMinimal.setConfig({});
   residentMinimal.hass={user:{is_admin:false},states:{},callWS:async()=>minimalData};
   await new Promise(resolve=>setImmediate(resolve));
   find(residentMinimal.shadowRoot,"button","Chargers").click();
-  assert.equal(find(residentMinimal.shadowRoot,"button","Start bounded session"),undefined,
+  assert.equal(find(residentMinimal.shadowRoot,"button","Start manual charging"),undefined,
     "Resident read access never exposes admin-only manual command");
 
   // UC15: tariff-period native Recorder costs are explicitly indicative,
@@ -985,7 +993,7 @@ async function main(){
     callWS:async()=>adjustableFixture};
   await new Promise(resolve=>setImmediate(resolve));
   find(adjustableCard.shadowRoot,"button","Chargers").click();
-  find(adjustableCard.shadowRoot,"button","Details").click();
+  find(adjustableCard.shadowRoot,"summary","Charger settings").click();
   const adjustableText=content(adjustableCard.shadowRoot);
   assert.ok(adjustableText.includes("Minimum charging power"));
   assert.ok(adjustableText.includes("Maximum charging power"));
@@ -995,7 +1003,7 @@ async function main(){
   fixedCard.hass={user:{is_admin:true},states:{},callWS:async()=>fixture};
   await new Promise(resolve=>setImmediate(resolve));
   find(fixedCard.shadowRoot,"button","Chargers").click();
-  find(fixedCard.shadowRoot,"button","Details").click();
+  find(fixedCard.shadowRoot,"summary","Charger settings").click();
   assert.ok(content(fixedCard.shadowRoot).includes("On/off only"));
   // Power controls live directly in the Charger view and write ONLY the
   // MultiCharge-owned HA Number entity (never a provider Amp endpoint).
@@ -1613,7 +1621,7 @@ async function main(){
   find(card.shadowRoot,"button","Chargeable Assets").click();
   assert.ok(content(card.shadowRoot).includes("Family car"));
   assert.ok(content(card.shadowRoot).includes("20%"));
-  find(card.shadowRoot,"button","Details").click();
+  (find(card.shadowRoot,"summary","Asset settings")||find(card.shadowRoot,"summary","Charger settings")||find(card.shadowRoot,"button","Details")).click();
   assert.ok(content(card.shadowRoot).includes("Charging limit"),
     "Asset dashboard directly presents user 80% target");
   assert.ok(find(card.shadowRoot,"button","Schedule charging"),
@@ -1624,25 +1632,26 @@ async function main(){
   assert.ok(content(card.shadowRoot).includes("Driveway"));
   assert.ok(content(card.shadowRoot).includes("2.3 kW"));
   fixture.command_capabilities={drive:{
-    pause_allowed:true,stop_allowed:true,paused:false
+    pause_allowed:true,stop_allowed:true,paused:false,control_mode:"Automatic"
   }};
   card.render();
-  const pause=find(card.shadowRoot,"button","Pause charging");
-  assert.ok(pause,"native Charger offers real durable Pause action");
+  assert.ok(!find(card.shadowRoot,"button","Pause charging"),"Pause is a technical transition, not a resident quick action");
+  const pause=find(card.shadowRoot,"button","Stop charging");
+  assert.ok(pause&&!pause.disabled,"Resident Stop uses durable hold");
   pause.click();
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(commands.some(c=>c.type==="robotix_multicharge/command"&&
-    c.action==="pause"&&c.charger_id==="drive"));
+    c.action==="manual_stop"&&c.charger_id==="drive"));
   fixture.command_capabilities={drive:{
-    resume_allowed:true,paused:true,start_allowed:false
+    resume_allowed:true,paused:true,start_allowed:false,auto_allowed:true,control_mode:"Stopped"
   }};
   card.render();
-  const resume=find(card.shadowRoot,"button","Resume charging");
-  assert.ok(resume,"paused Charger exposes explicit Resume");
+  const resume=find(card.shadowRoot,"button","Auto");
+  assert.ok(resume&&!resume.disabled,"Stopped Charger exposes Auto");
   resume.click();
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(commands.some(c=>c.type==="robotix_multicharge/command"&&
-    c.action==="resume"&&c.charger_id==="drive"));
+    c.action==="auto"&&c.charger_id==="drive"));
   fixture.command_capabilities={};
   card.render();
   const addCharger=find(card.shadowRoot,"button","Add charger");
@@ -1718,7 +1727,7 @@ async function main(){
   assert.ok(nativeCalls.some(c=>c.args.entity_id==="select.site_mode"&&
     c.args.option==="economy"),"native select owner receives strategy");
   card._tab="Chargeable Assets";card._open="";card.render();
-  find(card.shadowRoot,"button","Details").click();
+  (find(card.shadowRoot,"summary","Asset settings")||find(card.shadowRoot,"summary","Charger settings")||find(card.shadowRoot,"button","Details")).click();
   assert.ok(find(card.shadowRoot,"select"),"vehicle offers a native color choice");
   assert.ok(find(card.shadowRoot,"button","Apply"),
     "Vehicle target and energy settings are controlled inline by native HA Numbers");
@@ -1769,7 +1778,7 @@ async function main(){
   assert.equal(fixture.configuration.chargers[0].asset,"car",
     "Native Charger selection persists in the canonical object");
   card._tab="Chargers";card._open="";card.render();
-  find(card.shadowRoot,"button","Details").click();
+  (find(card.shadowRoot,"summary","Asset settings")||find(card.shadowRoot,"summary","Charger settings")||find(card.shadowRoot,"button","Details")).click();
   assert.ok(content(card.shadowRoot).includes("Plan color"));
   let chargerColor;
   visit(card.shadowRoot,x=>{
@@ -1848,14 +1857,15 @@ async function main(){
     "Disconnected charger must not ask for confirmation");
   fixture.observations.chargers.drive.connected={quality:"ok",value:true};
   card.render();
-  assert.ok(!find(card.shadowRoot,"button","Start charging"),
-            "uncommissioned hardware cannot gain optimistic action");
-  fixture.command_capabilities={drive:{start_allowed:true,stop_allowed:true,reason:"READY"}};
+  const blockedStart=find(card.shadowRoot,"button","Start charging");
+  assert.ok(blockedStart,"Uncommissioned hardware exposes preparation, not an optimistic physical action");
+  if(!blockedStart.disabled){blockedStart.click();assert.ok(find(card.shadowRoot,"button","Start manual charging").disabled);card._manualEditor="";}
+  fixture.command_capabilities={drive:{start_allowed:true,stop_allowed:true,reason:"READY",resident_start_allowed:true,resident_goal_reasons:{goal:"READY"},control_mode:"Automatic",auto_allowed:true}};
   const beforeStopPower=fixture.observations.chargers.drive.power_kw;
   for(const power of [{quality:"ok",value:0},{quality:"unavailable",value:null}]){
     fixture.observations.chargers.drive.power_kw=power;
     card._tab="Overview";card.render();
-    assert.ok(find(card.shadowRoot,"button","Stop charging"),"Backend STOP authority must be visible even without positive measured power");
+    assert.ok(find(card.shadowRoot,"button","Stop charging")&&!find(card.shadowRoot,"button","Stop charging").disabled,"Backend STOP authority must remain enabled even without positive measured power");
   }
   fixture.observations.chargers.drive.power_kw=beforeStopPower;
   card._hass.callWS=async request=>{
@@ -1872,9 +1882,12 @@ async function main(){
   card._tab="Chargers";card._last=0;
   await card.load();
   assert.ok(find(card.shadowRoot,"button","Start charging"));
+  const beforeStart=commands.filter(c=>c.type==="robotix_multicharge/command").length;
   find(card.shadowRoot,"button","Start charging").click();
+  assert.equal(commands.filter(c=>c.type==="robotix_multicharge/command").length,beforeStart,"Opening manual settings never energizes");
+  find(card.shadowRoot,"button","Start manual charging").click();
   await new Promise(resolve=>setImmediate(resolve));
-  assert.ok(commands.some(c=>c.type==="robotix_multicharge/command"&&c.action==="start"),
+  assert.ok(commands.some(c=>c.type==="robotix_multicharge/command"&&c.action==="manual_start"),
             "Start button must invoke real native WS command API");
   assert.ok(content(card.shadowRoot).includes("Charging"),
             "display only a returned physical confirmation");
@@ -1882,7 +1895,7 @@ async function main(){
             "physically admitted Stop action is present");
   find(card.shadowRoot,"button","Stop charging").click();
   await new Promise(resolve=>setImmediate(resolve));
-  assert.ok(commands.some(c=>c.type==="robotix_multicharge/command"&&c.action==="stop"),
+  assert.ok(commands.some(c=>c.type==="robotix_multicharge/command"&&c.action==="manual_stop"),
             "Stop button must invoke real native WS command API");
   console.log("MultiCharge source-only five-view and native-command wiring PASS (not HA browser acceptance)");
 }

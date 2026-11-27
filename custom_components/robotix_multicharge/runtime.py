@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from .const import (DEFAULT_ASSET_PRIORITY, DEFAULT_CONTINUOUS_CHARGING,
                     DEFAULT_MAINTAIN_SOC_UNTIL_READY_BY,
                     DEFAULT_OPPORTUNISTIC_KIND, NOMINAL_PHASE_COUNT, NOMINAL_PHASE_VOLTAGE_V)
-from .contracts import ChargeDemand, PowerEnvelope, PowerLimitSlot
+from .contracts import ChargeDemand, PowerEnvelope, PowerLimitSlot, PlannedChargeSlot
 from .configuration import configuration_revision, PLAN_COLORS, forecast_tariff_source, charger_is_active
 from .domain import ChargeController, Charger
 from .planner import compile_plan, minimum_planning_power, missing_current_conversion, resolve_recurring_ready_by
@@ -712,16 +712,20 @@ class MultiChargeRuntime:
             duration_without_connection = (raw["kind"] == "on_off"
                 and asset is not None and asset.get("requested_duration_minutes") is not None
                 and self.executor.duration_connection_allowed(cable))
+            if uid in self.executor._paused:
+                self.excluded[uid] = "USER_PAUSED"
+                self.forecast_excluded[uid] = "USER_PAUSED"
+                continue
+            if self.executor._sessions.get(uid, {}).get("manual_mode") is not None:
+                self.excluded[uid] = "MANUAL_CHARGING_ACTIVE"
+                self.forecast_excluded[uid] = "MANUAL_CHARGING_ACTIVE"
+                continue
             if not duration_without_connection and (
                     cable.value not in (True, False) or cable.quality != "ok"):
                 self.excluded[uid] = "CONNECTION_UNCONFIRMED"
                 self.forecast_excluded[uid] = "CONNECTION_UNCONFIRMED"
                 continue
             disconnected = cable.quality == "ok" and cable.value is False
-            if uid in self.executor._paused:
-                self.excluded[uid] = "USER_PAUSED"
-                self.forecast_excluded[uid] = "USER_PAUSED"
-                continue
             asset = assets.get(raw.get("asset"))
             if asset is None:
                 self.excluded[uid] = (
@@ -1070,11 +1074,33 @@ class MultiChargeRuntime:
         }
         site_zone = getattr(getattr(self.hass, "config", None),
                             "time_zone", "UTC")
+        # A verified manual session occupies the same shared physical capacity.
+        # Reserve its authorized ceiling until its bounded deadline (not a
+        # forecast of actual draw); do not publish the reserve as a plan slot.
+        manual_reservations = []
+        quarter = at.replace(minute=(at.minute // 15) * 15, second=0, microsecond=0)
+        if quarter < at:
+            quarter += timedelta(minutes=15)
+        for uid, session in self.executor._sessions.items():
+            owner = chargers.get(uid)
+            if owner is None or session.get("manual_mode") is None:
+                continue
+            end = min(session["hard_stop_at"], at + timedelta(hours=48))
+            amps = session.get("target_current_a") if owner.control_kind == "variable_current" else owner.fixed_current_a
+            kw = (amps * owner.voltage_v * owner.phase_count / 1000
+                  if owner.control_kind == "variable_current" and amps is not None and owner.voltage_v and owner.phase_count
+                  else owner.rated_power_kw)
+            cursor = quarter
+            while cursor < end:
+                manual_reservations.append(PlannedChargeSlot(uid, session.get("asset_id"), cursor,
+                    cursor + timedelta(minutes=15), kw, amps if owner.control_kind == "variable_current" else None))
+                cursor += timedelta(minutes=15)
         try:
             self.assessment = compile_plan(
                 controller, chargers, demands, at, mode=setting["mode"],
                 tariffs={uid: tariff for uid in chargers}, solar=solar,
                 binding=external_binding,
+                reserved_slots=manual_reservations,
                 charging_windows=active_windows, site_time_zone=site_zone,
             )
         except (ValueError, TypeError, OverflowError) as exc:
@@ -1089,7 +1115,7 @@ class MultiChargeRuntime:
                     mode=setting["mode"],
                     tariffs={uid: tariff for uid in chargers}, solar=solar,
                     binding=external_binding,
-                    reserved_slots=self.assessment.plan.slots,
+                    reserved_slots=(*manual_reservations, *self.assessment.plan.slots),
                     charging_windows=active_windows, site_time_zone=site_zone,
                     indicative_only=True,
                 )
@@ -1302,7 +1328,20 @@ class MultiChargeRuntime:
                     or (connected is True and asset_id and identity is None)
                 )
             )
-            problem_reason = blocking or reason or goal_reason or "CONNECTION_UNCONFIRMED"
+            # A reachable switch is positive equipment evidence, not the cause
+            # of an unqualified connection or meter observation.
+            if connected is None:
+                problem_reason = cable.reason if cable is not None else "CONNECTION_UNCONFIRMED"
+            elif connected is True and measured is None:
+                problem_reason = power.reason if power is not None else "INDEPENDENT_POWER_UNAVAILABLE"
+            elif connected is True and asset_id and identity is None:
+                problem_reason = "CURRENT_PLUG_ASSET_UNCONFIRMED"
+            else:
+                problem_reason = blocking or reason or goal_reason or "CONNECTION_UNCONFIRMED"
+            if (charger.get("kind") == "on_off" and asset_id is None and switch is not None
+                    and switch.state == "off" and capability.get("resident_goal_reasons", {}).get("duration") == "READY"
+                    and not actual_fault and not blocking):
+                problem = False
             if actual_fault:
                 problem_reason = reason if readiness in ("error", "unavailable") else "CONFLICTING_PHYSICAL_STATE"
 

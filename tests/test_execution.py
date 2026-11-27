@@ -601,6 +601,149 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rt.executor.completed_sessions()[-1]["actual_energy_kwh"],
                          1.0)
 
+    async def test_resident_start_stop_auto_preserves_global_strategy(self):
+        rt, sources, services = rig(mode="Automatic")
+        original = rt.configuration["assets"][0].copy()
+        self.assertTrue(rt.executor.capabilities()["evse"]["resident_start_allowed"])
+        result = await rt.executor.execute("evse", "manual_start",
+                                           manual_request={"duration_minutes": 30})
+        self.assertEqual(result["status"], "confirmed", result)
+        self.assertEqual(rt.executor.capabilities()["evse"]["control_mode"], "Manual")
+        self.assertEqual(rt.executor.session_snapshot()["evse"]["requested_duration_minutes"], 30)
+        self.assertEqual(rt.configuration["controller"]["mode"], "Automatic")
+        self.assertEqual(rt.configuration["assets"][0], original)
+        self.assertEqual((await rt.executor.execute("evse", "manual_stop"))["status"], "confirmed")
+        self.assertEqual(sources["switch.evse_control"].state, "off")
+        self.assertEqual(rt.executor.capabilities()["evse"]["control_mode"], "Stopped")
+        stored = rt.executor.export_state()
+        self.assertEqual(stored["paused"], ["evse"])
+        restored, _, calls = rig(mode="Automatic")
+        restored.executor.restore_state(stored)
+        self.assertEqual(restored.executor.capabilities()["evse"]["control_mode"], "Stopped")
+        self.assertEqual((await restored.executor.execute("evse", "auto"))["status"], "confirmed")
+        self.assertEqual(calls.calls, [])
+        self.assertEqual(restored.executor.capabilities()["evse"]["control_mode"], "Automatic")
+
+    async def test_resident_manual_goal_and_auto_active_stop(self):
+        rt, sources, services = rig(mode="Automatic")
+        result = await rt.executor.execute("evse", "manual_start")
+        self.assertEqual(result["status"], "confirmed", result)
+        self.assertEqual(rt.executor.session_snapshot()["evse"]["requested_kwh"], 1.0)
+        result = await rt.executor.execute("evse", "auto")
+        self.assertEqual(result["status"], "confirmed", result)
+        self.assertEqual(sources["switch.evse_control"].state, "off")
+        self.assertEqual(rt.executor.capabilities()["evse"]["control_mode"], "Automatic")
+
+    async def test_resident_manual_start_from_stopped_and_finite_completion(self):
+        rt, sources, services = rig(mode="Automatic")
+        self.assertEqual((await rt.executor.execute("evse", "manual_stop"))["status"], "confirmed")
+        result = await rt.executor.execute("evse", "manual_start",
+                                           manual_request={"duration_minutes": 1})
+        self.assertEqual(result["status"], "confirmed", result)
+        self.assertFalse(rt.executor.capabilities()["evse"]["paused"])
+        rt.executor._sessions["evse"]["hard_stop_at"] = datetime.now(timezone.utc) - timedelta(seconds=1)
+        await rt.executor.supervise()
+        self.assertEqual(sources["switch.evse_control"].state, "off")
+        self.assertEqual(rt.executor.capabilities()["evse"]["control_mode"], "Stopped")
+
+    async def test_resident_manual_restart_holds_auto_until_reconciled(self):
+        rt, sources, _ = rig(mode="Automatic")
+        result = await rt.executor.execute("evse", "manual_start",
+                                           manual_request={"duration_minutes": 30})
+        self.assertEqual(result["status"], "confirmed", result)
+        snapshot = rt.executor.export_state()
+        restored, observed, services = rig(mode="Automatic")
+        restored.executor.restore_state(snapshot)
+        self.assertTrue(restored.executor.capabilities()["evse"]["paused"])
+        self.assertFalse(restored.executor.capabilities()["evse"]["auto_allowed"])
+        self.assertEqual(restored.executor.session_snapshot(), {})
+        self.assertEqual(services.calls, [])
+        result = await restored.executor.execute("evse", "auto")
+        self.assertEqual(result["status"], "rejected")
+        self.assertEqual(services.calls, [])
+
+    async def test_resident_manual_reserves_other_charger_capacity(self):
+        rt, sources, services = rig(mode="Automatic")
+        cfg = rt.configuration
+        cfg["assets"].append({"id": "other_car", "name": "Other car", "kind": "car", "requested_kwh": 1.0})
+        cfg["chargers"].append({**cfg["chargers"][0], "id": "other", "name": "Other",
+            "asset": "other_car", "dedicated_asset_id": "other_car", "control_entity": "switch.other",
+            "connected_entity": "binary_sensor.other", "power_entity": "sensor.other_power",
+            "energy_entity": "sensor.other_meter"})
+        sources.update({"switch.other": state("off"), "binary_sensor.other": state("on"),
+                        "sensor.other_power": state(0, "W"), "sensor.other_meter": state(0, "kWh")})
+        rt.configuration = validate_configuration(cfg)
+        rt.refresh()
+        result = await rt.executor.execute("evse", "manual_start",
+                                           manual_request={"duration_minutes": 60})
+        self.assertEqual(result["status"], "confirmed", result)
+        end = rt.executor._sessions["evse"]["hard_stop_at"]
+        slots = rt.assessment.plan.slots
+        self.assertFalse(any(slot.charger_uid == "evse" for slot in slots))
+        self.assertFalse(any(slot.start < end for slot in slots))
+        self.assertTrue(any(slot.charger_uid == "other" for slot in slots))
+        self.assertEqual([call[1] for call in services.calls], ["turn_on"])
+
+    async def test_resident_manual_current_ceiling_is_session_local(self):
+        rt, sources, services = rig(mode="Automatic", group_kw=3.6)
+        charger = rt.configuration["chargers"][0]
+        charger.update(kind="variable_current", rated_power_kw=3.6,
+                       voltage_v=230, min_current_a=6, max_current_a=16,
+                       current_step_a=1, dedicated_asset_id="car",
+                       current_control_entity="number.charge_limit",
+                       current_readback_entity="sensor.actual_current")
+        native = state(6, "A")
+        native.attributes.update(min=6, max=16, step=1)
+        sources["number.charge_limit"] = native
+        sources["sensor.actual_current"] = state(0, "A")
+        rt.configuration = validate_configuration(rt.configuration)
+        rt.refresh()
+        result = await rt.executor.execute("evse", "manual_start",
+            manual_request={"duration_minutes": 30}, current_a=10)
+        self.assertEqual(result["status"], "confirmed", result)
+        self.assertEqual(rt.executor.session_snapshot()["evse"]["target_current_a"], 10)
+        self.assertEqual(rt.configuration["chargers"][0]["max_current_a"], 16)
+        self.assertEqual(services.calls[0][2]["value"], 10)
+
+    async def test_utility_stale_sources_do_not_claim_equipment_fault(self):
+        rt, sources, _ = rig(mode="Automatic")
+        charger = rt.configuration["chargers"][0]
+        charger.pop("asset")
+        charger.pop("dedicated_asset_id", None)
+        old = datetime.now(timezone.utc) - timedelta(hours=1)
+        for name in ("binary_sensor.cable", "sensor.actual_power"):
+            sources[name].last_updated = old
+            sources[name].last_changed = old
+        rt.refresh()
+        cap = rt.executor.capabilities()["evse"]
+        self.assertEqual(cap["resident_goal_reasons"]["duration"], "READY")
+        self.assertNotEqual(rt.charger_states()["evse"]["operational_status"]["status"], "problem")
+        self.assertEqual(rt.charger_states()["evse"]["connection_state"], "unknown")
+
+    async def test_resident_assigned_on_off_duration_without_optional_sources(self):
+        rt, sources, services = rig(mode="Automatic")
+        charger = rt.configuration["chargers"][0]
+        for field in ("connected_entity", "power_entity", "energy_entity", "dedicated_asset_id"):
+            charger.pop(field, None)
+        rt.refresh()
+        result = await rt.executor.execute("evse", "manual_start",
+                                           manual_request={"duration_minutes": 20})
+        self.assertEqual(result["status"], "confirmed", result)
+        self.assertIsNone(result["measured_power_kw"])
+        self.assertTrue(rt.executor.session_snapshot()["evse"]["duration_without_connection"])
+        self.assertEqual((await rt.executor.execute("evse", "manual_stop"))["status"], "confirmed")
+        self.assertEqual(rt.executor.completed_sessions()[-1]["asset_id"], "car")
+        self.assertIsNone(rt.executor.completed_sessions()[-1]["actual_energy_kwh"])
+        self.assertEqual((await rt.executor.execute("evse", "auto"))["status"], "confirmed")
+
+    async def test_resident_manual_denied_off_external_and_capacity(self):
+        for args in ({"mode": "Off"}, {"owner": "external", "commissioned": False}, {"group_kw": 0.5}):
+            rt, _, services = rig(**args)
+            result = await rt.executor.execute("evse", "manual_start",
+                                               manual_request={"duration_minutes": 30})
+            self.assertEqual(result["status"], "rejected", result)
+            self.assertEqual(services.calls, [])
+
     async def test_pause_persists_hold_and_resume_never_starts_hardware(self):
         rt, sources, services = rig()
         outcome = await rt.executor.execute("evse", "pause")

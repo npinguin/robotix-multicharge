@@ -133,7 +133,8 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     financeCompact=finance.length===count+1&&finance.every(el=>!el.open&&
       el.querySelector("summary")?.textContent.includes("Cost details")&&
       el.parentElement.querySelector(".financial-headline")?.textContent.includes("Charging cost today")&&
-      el.parentElement.querySelector(".financial-headline")?.getBoundingClientRect().height>0&&
+      [...el.parentElement.querySelectorAll(".financial-headline .metric")].every(m=>m.getBoundingClientRect().height>0)&&
+      el.parentElement.querySelector(".financial-headline")?.textContent.includes("Energy today")&&
       el.querySelector(".financial-details")?.getBoundingClientRect().height===0);
     const first=finance[0];
     first.querySelector("summary").click();
@@ -155,10 +156,11 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     await new Promise(resolve=>setTimeout(resolve,80));
     const target=devices[count-1],originalPower=observations.chargers[target.id].power_kw;
     observations.chargers[target.id].power_kw={quality:"unavailable",value:null};
-    data.command_capabilities[target.id]={stop_allowed:true};
+    target.control_owner="multicharge";
+    data.command_capabilities[target.id]={stop_allowed:true,control_mode:"Automatic"};
     card.render();
     const stop=[...root.querySelectorAll(`[data-mc-object="asset:${target.asset}"] button`)].find(b=>b.textContent==="Stop charging");
-    visibleSafety=role==="admin"?!!stop&&stop.getBoundingClientRect().height>0:!stop;
+    visibleSafety=role==="admin"?!!stop&&!stop.disabled&&stop.getBoundingClientRect().height>0:!stop;
     delete data.command_capabilities[target.id];observations.chargers[target.id].power_kw=originalPower;card.render();
   }
   if(view==="setup"){
@@ -230,6 +232,54 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     });
     return;
   }
+  if(view==="manual"){
+    const c=devices[0],a=assets[0];
+    Object.assign(c,{control_owner:"multicharge",kind:"variable_current",phase_count:1,voltage_v:230,min_current_a:6,max_current_a:16,current_step_a:1});
+    data.configuration.controller.mode="Automatic";
+    data.charger_states[c.id].activation="active";
+    data.charger_setup={[c.id]:{effective_electrical:{voltage_v:230,phase_count:1},effective_current:{min_current_a:6,max_current_a:16,current_step_a:1}}};
+    const cap={resident_start_allowed:true,resident_goal_reasons:{goal:"READY",duration:"READY",energy:"READY",budget:"BUDGET_EFFECTIVE_TARIFF_UNAVAILABLE"},stop_allowed:true,auto_allowed:true,control_mode:"Automatic"};
+    data.command_capabilities[c.id]=cap;
+    const commands=[];
+    card.hass={user:{is_admin:true},language:"en",states:{},callWS:async msg=>{
+      if(msg.type==="robotix_multicharge/command"){
+        commands.push(msg);
+        if(msg.action==="manual_start"){
+          cap.control_mode="Manual";cap.resident_start_allowed=false;
+          data.active_sessions[c.id]={resident_override:true,asset_id:a.id,requested_duration_minutes:msg.duration_minutes,hard_stop_at:"2026-11-28T12:00:00+01:00",target_current_a:msg.current_a};
+        }else if(msg.action==="manual_stop"){cap.control_mode="Stopped";delete data.active_sessions[c.id];cap.resident_start_allowed=true;}
+        else if(msg.action==="auto")cap.control_mode="Automatic";
+        return {status:"confirmed",action:msg.action};
+      }
+      return data;
+    }};
+    card._tab="Chargeable Assets";card.render();
+    const root=card.shadowRoot,button=name=>[...root.querySelectorAll("button")].find(x=>x.textContent===name);
+    const field=label=>[...root.querySelectorAll(".manual-editor .field")].find(x=>x.querySelector("label")?.textContent===label)?.querySelector("input, select");
+    button("Start charging").click();
+    const editor=root.querySelector(".manual-editor");
+    const opensWithoutWrite=!!editor&&editor.getBoundingClientRect().height>0&&commands.length===0;
+    const goal=field("Charging goal");goal.value="duration";goal.dispatchEvent(new Event("change",{bubbles:true}));
+    const unit=field("Duration unit");unit.value="hours";unit.dispatchEvent(new Event("change",{bubbles:true}));
+    const hours=field("Time limit (hours)");hours.value="2";hours.dispatchEvent(new Event("input",{bubbles:true}));
+    const power=field("Session power limit (kW)");power.value="2.5";power.dispatchEvent(new Event("input",{bubbles:true}));
+    button("Start manual charging").click();await new Promise(resolve=>setTimeout(resolve,100));
+    const bounded=commands.length===1&&commands[0].action==="manual_start"&&commands[0].duration_minutes===120&&commands[0].current_a===10;
+    const active=!!root.querySelector(".manual-summary")&&root.querySelector(".manual-summary").getBoundingClientRect().height>0;
+    card._tab="Chargers";card.render();
+    const sameControl=!!root.querySelector(".manual-summary")&&!!button("Stop charging")&&!button("Stop charging").disabled;
+    button("Stop charging").click();await new Promise(resolve=>setTimeout(resolve,100));
+    const stopped=commands.at(-1)?.action==="manual_stop"&&!!root.querySelector(".control-note");
+    button("Auto").click();await new Promise(resolve=>setTimeout(resolve,100));
+    const automatic=commands.at(-1)?.action==="auto"&&data.configuration.controller.mode==="Automatic"&&cap.control_mode==="Automatic";
+    button("Start charging").click();
+    const picker=field("Charging goal");picker.value="budget";picker.dispatchEvent(new Event("change",{bubbles:true}));
+    const denied=button("Start manual charging").disabled;
+    button("Cancel").click();
+    const cancelled=commands.length===3&&!root.querySelector(".manual-editor");
+    document.getElementById("smoke-result").textContent=JSON.stringify({view,count,role,viewport:innerWidth,render:!!root.querySelector(".root"),documentWidth:document.documentElement.scrollWidth,tabs:[...root.querySelectorAll(".tabs button")].map(x=>x.textContent),opensWithoutWrite,bounded,active,sameControl,stopped,automatic,denied,cancelled});
+    return;
+  }
   if(view==="goal"){
     // Real browser interaction on a representative planner-shaped payload.
     // Source tests separately prove the actual planner's 192-quarter result.
@@ -266,8 +316,8 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     const initial=outcome()?.getAttribute("data-goal-status")==="achievable"&&
       summary()?.textContent.includes("88%")&&summary()?.textContent.includes("95%")&&
       summary()?.textContent.includes("Inactive")&&
-      !!outcome().querySelector(".goal-window")&&!!outcome().querySelector(".goal-deadline-marker")&&
-      outcome().textContent.includes("1.56 kWh")&&outcome().textContent.includes("Not reserved");
+      !!root.querySelector(".goal-window")&&!!root.querySelector(".goal-deadline-marker")&&
+      root.querySelector('details[data-disclosure^="goal:"]')?.textContent.includes("1.56 kWh")&&outcome().textContent.includes("Not reserved");
     const compact=!!btn("Set charging goal")&&!btn("Save charging goal")&&
       summary().getBoundingClientRect().height<135;
     const variants={};
@@ -297,7 +347,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     const reopened=[...root.querySelectorAll(".field")].some(n=>n.querySelector("label")?.textContent==="Friday"&&n.querySelector("input")?.value==="08:00");
     btn("Cancel").click();
     card._tab="Overview";card.render();
-    const shared=!!outcome()?.querySelector(".goal-window")&&!!summary();
+    const shared=!!root.querySelector(".goal-window")&&!!summary();
     document.getElementById("smoke-result").textContent=JSON.stringify({
       view,count,role,viewport:innerWidth,render:!!root.querySelector(".root"),
       documentWidth:document.documentElement.scrollWidth,
@@ -441,9 +491,26 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     document.getElementById("smoke-result").textContent=JSON.stringify(report);
     return;
   }
+  // Inspect default geometry before opening any object detail.
+  const defaultCards=[...card.shadowRoot.querySelectorAll(".object-grid > .topic-card")].map(el=>el.getBoundingClientRect());
+  const equalCardRows=defaultCards.every(a=>defaultCards.every(b=>Math.abs(a.top-b.top)>2||Math.abs(a.height-b.height)<=2));
+  const balancedActions=[...card.shadowRoot.querySelectorAll(".topic-card > .topic-quick > .topic-actions")].every(group=>{
+    const box=group.getBoundingClientRect();
+    const buttons=[...group.querySelectorAll(":scope > button")].map(b=>b.getBoundingClientRect()).filter(b=>b.height>0);
+    return buttons.every(a=>{
+      const row=buttons.filter(b=>Math.abs(a.top-b.top)<2);
+      return Math.abs(Math.min(...row.map(b=>b.left))-box.left)<=2&&Math.abs(Math.max(...row.map(b=>b.right))-box.right)<=2&&row.every(b=>Math.abs(b.height-a.height)<=2);
+    });
+  });
+  const orderedActions=[...card.shadowRoot.querySelectorAll(".topic-card")].every(c=>{
+    const action=c.querySelector(":scope > .topic-quick");
+    const fold=c.querySelector(":scope > details");
+    const summary=c.querySelector(":scope > .financial-headline");
+    return !action||(!fold||action.getBoundingClientRect().bottom<=fold.getBoundingClientRect().top+2)&&(!summary||summary.getBoundingClientRect().bottom<=action.getBoundingClientRect().top+2);
+  });
   if(view==="asset"||view==="charger"){
-    const details=[...card.shadowRoot.querySelectorAll("button")].find(
-      b=>b.textContent==="Details");
+    const details=[...card.shadowRoot.querySelectorAll("details > summary")].find(
+      b=>b.textContent===(view==="asset"?"Asset settings":"Charger settings"));
     if(details)details.click();
   }
   let defaultChartHosts=0,foldedChartHosts=0,chartLifecycle=true;
@@ -509,7 +576,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     render:!!frame,frameWidth:Math.round(rect?.width||0),
     documentWidth:document.documentElement.scrollWidth,
     tabs:[...root.querySelectorAll(".tabs button")].map(b=>b.textContent),
-    cards:cards.length,folds:folds.length,
+    cards:cards.length,folds:folds.length,equalCardRows,balancedActions,orderedActions,
     apexHosts:apexHosts.length,apexLive,defaultChartHosts,foldedChartHosts,chartLifecycle,sameRange,colorAndQuarter,pixelAligned,geometry:geometry.map(r=>r?[r.left,r.right]:null),
     legendContained:!!chartLegend&&chartLegend.getBoundingClientRect().top>=chartHost.getBoundingClientRect().bottom-1,
     legendToggle:toggle?.getAttribute("aria-pressed")==="false",
@@ -531,7 +598,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     keyboardSummary:folds.every(x=>x.firstElementChild?.tagName==="SUMMARY"),
     goalEditable:[...root.querySelectorAll("button")].some(x=>x.textContent==="Set charging goal"&&x.getBoundingClientRect().height>0),
     technicalReadable:root.textContent.includes("Complete object settings & sources"),
-    commandButtons:buttons.filter(x=>x==="Start charging"||x==="Stop charging").length,
+    commandButtons:[...root.querySelectorAll("button")].filter(x=>!x.disabled&&(x.textContent==="Start manual charging"||x.textContent==="Stop charging")).length,
     errors:root.querySelectorAll("[role=alert]").length
   };
   document.getElementById("smoke-result").textContent=JSON.stringify(report);

@@ -222,7 +222,7 @@ async def test_all_native_owner_settings_deny_resident_service_bypass():
 
 @pytest.mark.asyncio
 async def test_clean_ha_minimal_unassigned_charger_has_finite_manual_hold(
-    hass: HomeAssistant,
+    hass: HomeAssistant, hass_ws_client,
 ):
     """UC05/11/17: a clean site can configure a suitable on/off role safely."""
     source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
@@ -318,13 +318,28 @@ async def test_clean_ha_minimal_unassigned_charger_has_finite_manual_hold(
     assert receipt["switch_stop_confirmed"] is True
     assert receipt["physical_stop_confirmed"] is False
     assert receipt["actual_energy_kwh"] is None
+    # Actual installed HA websocket dispatch uses the same native writer.
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 101, "type": "robotix_multicharge/command", "charger_id": "plug", "action": "manual_start", "duration_minutes": 10})
+    reply = await client.receive_json()
+    assert reply["success"] and reply["result"]["status"] == "confirmed"
+    assert runtime.executor.capabilities()["plug"]["control_mode"] == "Manual"
+    await client.send_json({"id": 102, "type": "robotix_multicharge/command", "charger_id": "plug", "action": "manual_stop"})
+    reply = await client.receive_json()
+    assert reply["success"] and reply["result"]["status"] == "confirmed"
+    assert runtime.executor.capabilities()["plug"]["control_mode"] == "Stopped"
+    await client.send_json({"id": 103, "type": "robotix_multicharge/command", "charger_id": "plug", "action": "auto"})
+    reply = await client.receive_json()
+    assert reply["success"] and reply["result"]["status"] == "confirmed"
+    assert runtime.executor.capabilities()["plug"]["control_mode"] == "Automatic"
+    assert issued == ["turn_on", "turn_off", "turn_on", "turn_off"]
     await apply_native_preference(hass, entry, runtime, "charger", "plug",
                                   {"control_owner": "external"}, structural=True)
     await hass.async_block_till_done()
     runtime = hass.data[DOMAIN][entry.entry_id]
     assert runtime.charger_states()["plug"]["activation"] == "inactive"
     assert runtime.configuration["chargers"][0]["control_entity"] == "switch.suitable_plug"
-    assert issued == ["turn_on", "turn_off"]
+    assert issued == ["turn_on", "turn_off", "turn_on", "turn_off"]
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 

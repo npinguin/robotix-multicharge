@@ -99,6 +99,14 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
             raise AssertionError(f"{label}: charger setup screenshot missing")
         print(f"BROWSER PASS {label}: reviewed native setup, observed session, busy refusal and retry")
         return
+    if view == "manual":
+        required = ("opensWithoutWrite", "bounded", "active", "sameControl", "stopped", "automatic", "denied", "cancelled")
+        if not all(row.get(key) is True for key in required):
+            raise AssertionError(f"{label}: manual resident journey failed: {row}")
+        if not screenshot.is_file() or screenshot.stat().st_size < 2000:
+            raise AssertionError(f"{label}: manual charging screenshot missing")
+        print(f"BROWSER PASS {label}: Start/Stop/Auto, bounded request, owner parity and denied budget")
+        return
     if view == "goal":
         required = ("initial", "compact", "actionable", "allDays", "noImplicitWrite",
                     "saved", "reopened", "shared", "variants")
@@ -132,6 +140,8 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
         print(f"BROWSER PASS {label}: direct YAML Save/readback, "
               "350ms refresh and explicit Cancel")
         return
+    if view in ("overview", "asset", "charger") and not all(row.get(key) is True for key in ("equalCardRows", "balancedActions", "orderedActions")):
+        raise AssertionError(f"{label}: topic card geometry or action hierarchy failed: {row}")
     if view in ("asset", "charger"):
         if row["cards"] != count:
             raise AssertionError(f"{label}: object count drift: {row}")
@@ -233,11 +243,13 @@ def main():
             run_case(chrome, base, width, 2, "admin", "goal", False)
         for width in (390, 1024, 1600):
             run_case(chrome, base, width, 1, "admin", "setup", False)
+        for width in (390, 1024, 1600):
+            run_case(chrome, base, width, 2, "admin", "manual", False)
     finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
-    print(f"Real Chromium responsive source-UX PASS: {len(CASES) + 12} cases "
+    print(f"Real Chromium responsive source-UX PASS: {len(CASES) + 15} cases "
           "(simulated HA input; installed target HA and real EVSE separately unqualified)")
 
 
