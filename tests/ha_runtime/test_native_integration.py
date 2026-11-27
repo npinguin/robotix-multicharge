@@ -2108,11 +2108,18 @@ async def test_installed_adjustable_consecutive_quarters_keep_one_physical_sessi
     assert runtime.executor.completed_sessions() == []
     assert runtime.executor._accepted["drive"]["end"] == initial.replace(minute=45)
 
-    # Without the actual next grant, expiry must still stop: no grace/replay.
-    freezer.move_to(initial.replace(minute=45, second=1))
-    hass.states.async_set("sensor.cont_soc", "52", {"unit_of_measurement": "%"})
+    # HA's native timer may fire when the frozen clock advances, even without
+    # an explicit test event. Make the next quarter genuinely ineligible.
+    # Missed timer expiry is independently exercised by the source executor
+    # test_seven_minute_regulation_keeps_cadence_across_quarter_and_expiry.
+    third = initial.replace(minute=45)
+    freezer.move_to(third)
+    hass.states.async_set("sensor.cont_soc", "90", {"unit_of_measurement": "%"})
+    async_fire_time_changed(hass, third)
     await hass.async_block_till_done()
-    assert hass.states.get("switch.cont_drive").state == "off"
+    assert hass.states.get("switch.cont_drive").state == "off", (
+        commands, runtime.executor._accepted, runtime.executor.session_snapshot()
+    )
     assert [action for action, _ in commands if action != "current"] == ["start", "stop"]
     assert not runtime.executor.session_snapshot()
     assert len(runtime.executor.completed_sessions()) == 1
