@@ -1,10 +1,10 @@
 {
-  "status": "PENDING_AUTHORIZATION",
+  "status": "AUTHORIZED_FOR_TEST",
   "distribution": "open_source_community",
   "expected_tag": "v0.1.27",
   "precompile": false,
   "qualification_scope": "Complete agreed resident topic-card UX and Start/Stop/Auto local manual charging batch (PR #32), including Utility Plug status, layout, cost/energy, assignment and existing automation/ownership regression. Exact candidate qualification required.",
-  "limitations": "HACS TEST only after explicit version authorization. Physical installation, Safari/iPad, actual Recorder latency and unattended recovery/endurance remain separate evidence; not STABLE. Retain native Home Assistant backup including database and matching v0.1.26 code before upgrade; confirm STOP before rollback, preserve upgraded-state backup separately and restore the prior checkpoint with matching code. No code-only downgrade or live-state merging.",
+  "limitations": "HACS TEST only. Physical installation, Safari/iPad, actual Recorder latency and unattended recovery/endurance remain separate evidence; not STABLE. Retain native Home Assistant backup including database and matching v0.1.26 code before upgrade; confirm STOP before rollback, preserve upgraded-state backup separately and restore the prior checkpoint with matching code. No code-only downgrade or live-state merging.",
   "rollback_evidence": {
     "tag": "v0.1.26",
     "source_sha": "6f0dbf214fac2f33ac62e4380658eea3390015a8",
