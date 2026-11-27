@@ -1,10 +1,10 @@
 {
-  "status": "PENDING_AUTHORIZATION",
+  "status": "AUTHORIZED_FOR_TEST",
   "distribution": "open_source_community",
   "expected_tag": "v0.1.28",
   "precompile": false,
   "qualification_scope": "Complete field audit correction: version-specific native sidebar upgrade, approved resident UX regression, bounded Recorder history work and consecutive-quarter charging continuity regression. Exact candidate qualification required.",
-  "limitations": "HACS TEST only after explicit version authorization. Real site browser/physical readback, latency and unattended operation remain separate; not STABLE. Retain native HA backup and database with matching v0.1.27 code; confirm STOP before rollback, retain upgraded backup separately and restore prior checkpoint with matching code. No code-only downgrade or live-state merging.",
+  "limitations": "HACS TEST only. Real site browser/physical readback, latency and unattended operation remain separate; not STABLE. Retain native HA backup and database with matching v0.1.27 code; confirm STOP before rollback, retain upgraded backup separately and restore prior checkpoint with matching code. No code-only downgrade or live-state merging.",
   "rollback_evidence": {
     "tag": "v0.1.27",
     "source_sha": "d288be70a46c4e97e18cd008bced88b94655fbbf",
