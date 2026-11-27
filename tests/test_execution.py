@@ -647,7 +647,7 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rt.executor.capabilities()["evse"]["control_mode"], "Stopped")
 
     async def test_resident_manual_denied_off_external_and_capacity(self):
-        for args in ({"mode": "Off"}, {"owner": "external"}, {"group_kw": 0.5}):
+        for args in ({"mode": "Off"}, {"owner": "external", "commissioned": False}, {"group_kw": 0.5}):
             rt, _, services = rig(**args)
             result = await rt.executor.execute("evse", "manual_start",
                                                manual_request={"duration_minutes": 30})
