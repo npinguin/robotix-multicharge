@@ -133,7 +133,8 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     financeCompact=finance.length===count+1&&finance.every(el=>!el.open&&
       el.querySelector("summary")?.textContent.includes("Cost details")&&
       el.parentElement.querySelector(".financial-headline")?.textContent.includes("Charging cost today")&&
-      el.parentElement.querySelector(".financial-headline")?.getBoundingClientRect().height>0&&
+      [...el.parentElement.querySelectorAll(".financial-headline .metric")].every(m=>m.getBoundingClientRect().height>0)&&
+      el.parentElement.querySelector(".financial-headline")?.textContent.includes("Energy today")&&
       el.querySelector(".financial-details")?.getBoundingClientRect().height===0);
     const first=finance[0];
     first.querySelector("summary").click();
@@ -158,7 +159,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     data.command_capabilities[target.id]={stop_allowed:true};
     card.render();
     const stop=[...root.querySelectorAll(`[data-mc-object="asset:${target.asset}"] button`)].find(b=>b.textContent==="Stop charging");
-    visibleSafety=role==="admin"?!!stop&&stop.getBoundingClientRect().height>0:!stop;
+    visibleSafety=role==="admin"?!!stop&&!stop.disabled&&stop.getBoundingClientRect().height>0:!stop;
     delete data.command_capabilities[target.id];observations.chargers[target.id].power_kw=originalPower;card.render();
   }
   if(view==="setup"){
