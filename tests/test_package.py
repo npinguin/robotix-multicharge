@@ -160,6 +160,12 @@ class PackageTest(unittest.TestCase):
         self.assertIn('module_url=VERSIONED_RESOURCE', source)
         self.assertIn('add_extra_js_url(hass, VERSIONED_RESOURCE)', source)
         self.assertIn('remove_extra_js_url(hass, VERSIONED_RESOURCE)', source)
+        manifest = json.loads((COMPONENT / "manifest.json").read_text(encoding="utf8"))
+        cards = (COMPONENT / "frontend/robotix-multicharge.js").read_text(encoding="utf8")
+        self.assertIn('const MC_FRONTEND_VERSION="' + manifest['version'] + '";', cards)
+        self.assertIn('webcomponent_name=PANEL_ELEMENT', source)
+        self.assertIn('PANEL_ELEMENT = f"robotix-multicharge-panel-v', source)
+        self.assertIn('document.createElement(MC_CARD_TAG)', cards)
 
     def test_manifest_is_standalone(self):
         m = json.loads((COMPONENT / "manifest.json").read_text(encoding="utf8"))
