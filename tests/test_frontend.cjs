@@ -88,9 +88,29 @@ assert.ok(costDisplay.formatCost({cost:null,covered_cost:0.75,currency:"EUR",bas
 assert.ok(costDisplay.formatCost({cost:null,currency:"EUR"}).includes("Unknown"),"Missing cost is not zero");
 const Panel=customElements.get("robotix-multicharge-panel");
 assert.ok(Panel,"native HA sidebar panel element registered");
-const nativePanel=new Panel();
-assert.ok(nativePanel._card instanceof Card,
-  "sidebar reuses exactly the existing five-view native card");
+const version=JSON.parse(fs.readFileSync(path.join(__dirname,"../custom_components/robotix_multicharge/manifest.json"),"utf8")).version;
+const suffix="-v"+version.replace(/\./g,"-");
+const VersionedPanel=customElements.get("robotix-multicharge-panel"+suffix);
+const VersionedCard=customElements.get("robotix-multicharge-card"+suffix);
+assert.ok(VersionedPanel&&VersionedCard,"release-specific native element registration");
+const nativePanel=new VersionedPanel();
+assert.ok(nativePanel._card instanceof Card && nativePanel._card instanceof VersionedCard,
+  "sidebar reuses the exact released five-view native card");
+// A previous stable alias must not prevent the new release-specific panel/card.
+const vm=require("node:vm"), previousRegistry=new Map();
+class PriorCard extends Element {}
+class PriorPanel extends Element {}
+previousRegistry.set("robotix-multicharge-card",PriorCard);
+previousRegistry.set("robotix-multicharge-panel",PriorPanel);
+const previousDocument={...global.document,createElement:tag=>previousRegistry.has(tag)?new (previousRegistry.get(tag))():new Element(tag)};
+const previousContext={HTMLElement:Element,customElements:{get:n=>previousRegistry.get(n),define:(n,c)=>previousRegistry.set(n,c)},window:{},document:previousDocument};
+vm.runInNewContext(uiSource,previousContext);
+vm.runInNewContext(uiSource,previousContext); // duplicate load must not redeclare globals or override elements
+const freshPanel=new (previousRegistry.get("robotix-multicharge-panel"+suffix))();
+assert.equal(previousRegistry.get("robotix-multicharge-card"),PriorCard);
+assert.equal(previousRegistry.get("robotix-multicharge-panel"),PriorPanel);
+assert.ok(freshPanel._card instanceof previousRegistry.get("robotix-multicharge-card"+suffix));
+assert.ok(!(freshPanel._card instanceof PriorCard),"native sidebar must not instantiate predecessor card");
 assert.ok(nativePanel.shadowRoot.children.includes(nativePanel._content),
   "sidebar has standalone rendered content");
 
