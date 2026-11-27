@@ -2067,15 +2067,18 @@ async def test_installed_adjustable_consecutive_quarters_keep_one_physical_sessi
         hass.states.async_set("switch.cont_drive", "off")
         draw(0)
 
-    hass.services.async_register("number", "set_value", current)
-    hass.services.async_register("switch", "turn_on", start)
-    hass.services.async_register("switch", "turn_off", stop)
     entry = MockConfigEntry(domain=DOMAIN, title="Quarter continuity",
                             data={"source": "ui", "configuration": cfg}, unique_id=DOMAIN)
     entry.add_to_hass(hass)
     assert await async_setup_component(hass, DOMAIN, {})
     await hass.async_block_till_done()
     runtime = hass.data[DOMAIN][entry.entry_id]
+    # Match the existing adjustable HA fixture: native number platform setup
+    # installs its service handler, so register the independent provider test
+    # boundary only after the real integration and number platform are loaded.
+    hass.services.async_register("number", "set_value", current)
+    hass.services.async_register("switch", "turn_on", start)
+    hass.services.async_register("switch", "turn_off", stop)
 
     first = initial.replace(minute=15)
     freezer.move_to(first)
