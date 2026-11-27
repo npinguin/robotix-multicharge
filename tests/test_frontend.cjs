@@ -1848,14 +1848,15 @@ async function main(){
     "Disconnected charger must not ask for confirmation");
   fixture.observations.chargers.drive.connected={quality:"ok",value:true};
   card.render();
-  assert.ok(!find(card.shadowRoot,"button","Start charging"),
-            "uncommissioned hardware cannot gain optimistic action");
+  const blockedStart=find(card.shadowRoot,"button","Start charging");
+  assert.ok(blockedStart&&blockedStart.disabled,
+            "Uncommissioned hardware shows disabled Start without optimistic permission");
   fixture.command_capabilities={drive:{start_allowed:true,stop_allowed:true,reason:"READY"}};
   const beforeStopPower=fixture.observations.chargers.drive.power_kw;
   for(const power of [{quality:"ok",value:0},{quality:"unavailable",value:null}]){
     fixture.observations.chargers.drive.power_kw=power;
     card._tab="Overview";card.render();
-    assert.ok(find(card.shadowRoot,"button","Stop charging"),"Backend STOP authority must be visible even without positive measured power");
+    assert.ok(find(card.shadowRoot,"button","Stop charging")&&!find(card.shadowRoot,"button","Stop charging").disabled,"Backend STOP authority must remain enabled even without positive measured power");
   }
   fixture.observations.chargers.drive.power_kw=beforeStopPower;
   card._hass.callWS=async request=>{
