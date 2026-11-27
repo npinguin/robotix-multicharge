@@ -718,6 +718,10 @@ class MultiChargeRuntime:
                 self.forecast_excluded[uid] = "CONNECTION_UNCONFIRMED"
                 continue
             disconnected = cable.quality == "ok" and cable.value is False
+            if self.executor._sessions.get(uid, {}).get("resident_override"):
+                self.excluded[uid] = "MANUAL_CHARGING_ACTIVE"
+                self.forecast_excluded[uid] = "MANUAL_CHARGING_ACTIVE"
+                continue
             if uid in self.executor._paused:
                 self.excluded[uid] = "USER_PAUSED"
                 self.forecast_excluded[uid] = "USER_PAUSED"
@@ -1302,7 +1306,20 @@ class MultiChargeRuntime:
                     or (connected is True and asset_id and identity is None)
                 )
             )
-            problem_reason = blocking or reason or goal_reason or "CONNECTION_UNCONFIRMED"
+            # A reachable switch is positive equipment evidence, not the cause
+            # of an unqualified connection or meter observation.
+            if connected is None:
+                problem_reason = cable.reason if cable is not None else "CONNECTION_UNCONFIRMED"
+            elif connected is True and measured is None:
+                problem_reason = power.reason if power is not None else "INDEPENDENT_POWER_UNAVAILABLE"
+            elif connected is True and asset_id and identity is None:
+                problem_reason = "CURRENT_PLUG_ASSET_UNCONFIRMED"
+            else:
+                problem_reason = blocking or reason or goal_reason or "CONNECTION_UNCONFIRMED"
+            if (charger.get("kind") == "on_off" and asset_id is None and switch is not None
+                    and switch.state == "off" and capability.get("resident_goal_reasons", {}).get("duration") == "READY"
+                    and not actual_fault and not blocking):
+                problem = False
             if actual_fault:
                 problem_reason = reason if readiness in ("error", "unavailable") else "CONFLICTING_PHYSICAL_STATE"
 

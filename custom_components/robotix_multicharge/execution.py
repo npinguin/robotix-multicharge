@@ -832,7 +832,30 @@ class NativeSwitchExecutor:
                 if goal_reason is None and uid in self._quarantine:
                     goal_reason = "PREVIOUS_COMMAND_UNCONFIRMED"
                 goals[goal] = goal_reason or "READY"
+            resident_goals = {}
+            for goal, request in (("goal", {}), ("duration", {"duration_minutes": 30}),
+                                  ("energy", {"energy_kwh": 1}), ("budget", {"cost_amount": 1, "currency": "EUR"})):
+                reason_local = None
+                if self._stopped or self._draining or not self._persistence_verified:
+                    reason_local = "CONTROL_STATE_UNVERIFIED"
+                elif charger_activation_reason(charger):
+                    reason_local = charger_activation_reason(charger)
+                elif self._switch(self.runtime.hass, charger.get("control_entity")) is None:
+                    reason_local = "NATIVE_SWITCH_UNAVAILABLE"
+                elif self._switch(self.runtime.hass, charger.get("control_entity")).state != "off":
+                    reason_local = "SWITCH_ALREADY_ON"
+                elif uid in self._quarantine:
+                    reason_local = "PREVIOUS_COMMAND_UNCONFIRMED"
+                else:
+                    reason_local = self._admit_start(charger, at, target_current=minimum_current if charger.get("kind") == "variable_current" else None,
+                                                     manual_request={**request, "_resident": True})
+                resident_goals[goal] = reason_local or "READY"
+            control = "Stopped" if uid in self._paused else "Manual" if self._sessions.get(uid, {}).get("resident_override") else "Automatic"
             result[uid] = {
+                "control_mode": control,
+                "resident_goal_reasons": resident_goals,
+                "resident_start_allowed": "READY" in resident_goals.values(),
+                "auto_allowed": stop_allowed and not self._draining and self._persistence_verified and uid not in self._quarantine,
                 "manual_goal_reasons": goals,
                 "paused": uid in self._paused,
                 "pause_allowed": stop_allowed and uid not in self._paused
@@ -1083,9 +1106,18 @@ class NativeSwitchExecutor:
         return None
 
 
+    @staticmethod
+    def _manual_goal(request):
+        """Separate the resident override marker from the existing finite goal."""
+        if not isinstance(request, dict) or request.get("_resident") is not True:
+            return False, request
+        goal = {k: v for k, v in request.items() if k != "_resident"}
+        return True, goal or None
+
     def _admit_start(self, charger, at, *, planned=False, target_current=None,
                      manual_request=None, plan_slot=None, own_intent=False,
                      energized=False):
+        resident, manual_request = self._manual_goal(manual_request)
         cfg = self.runtime.configuration
         ctl = cfg["controller"]
         if self._draining:
@@ -1096,9 +1128,11 @@ class NativeSwitchExecutor:
         if interrupted is not None and not (
                 own_intent and charger["id"] in self._start_pending and interrupted.get("pending")):
             return "UNRESOLVED_PREVIOUS_CHARGE_INTENT"
-        if charger["id"] in self._paused:
+        if charger["id"] in self._paused and not resident:
             return "USER_PAUSED"
-        if not planned and ctl.get("mode") != "Force Charge" and not (
+        if resident and (planned or ctl.get("mode") == "Off"):
+            return "AUTOMATIC_MODE_NOT_ENABLED"
+        if not resident and not planned and ctl.get("mode") != "Force Charge" and not (
                 manual_request is not None and ctl.get("mode") == "Automatic"):
             return "MANUAL_START_REQUIRES_FORCE_CHARGE"
         if planned and ctl.get("mode") not in (
@@ -1109,7 +1143,7 @@ class NativeSwitchExecutor:
             (a for a in cfg["assets"] if a["id"] == charger.get("asset")), None
         )
         if manual_request is not None:
-            if planned or charger.get("asset") is not None:
+            if planned or (charger.get("asset") is not None and not resident):
                 return "MANUAL_ONE_OFF_REQUIRES_UNASSIGNED_CHARGER"
             if not isinstance(manual_request, dict):
                 return "ONE_FINITE_MANUAL_LIMIT_REQUIRED"
@@ -1145,22 +1179,24 @@ class NativeSwitchExecutor:
         # Check the actual source before accounting or intent reconciliation:
         # a confirmed disconnect must report the physical blocker, not an
         # unrelated missing energy-meter progress from a completed session.
+        if asset is not None and asset.get("temporary") and datetime.fromisoformat(asset["expires_at"]) <= at:
+            return "TEMPORARY_ASSET_EXPIRED"
         cable = self._connection(charger, at)
-        bounded_switch = charger["kind"] == "on_off" and duration is not None
+        bounded_switch = charger["kind"] == "on_off" and duration is not None and not (resident and asset is not None)
         if (not (bounded_switch and self.duration_connection_allowed(cable))
                 and (cable.quality != "ok" or cable.value is not True)):
             return "PHYSICAL_CONNECTION_UNVERIFIED"
-        if asset is not None and asset.get("charging_windows"):
+        if not resident and asset is not None and asset.get("charging_windows"):
             if not charging_window_allows(
                 asset["charging_windows"], at, timedelta(seconds=1),
                 self.runtime.hass.config.time_zone,
             ):
                 return "CHARGING_WINDOW_CLOSED"
-        if asset is not None and asset.get("earliest_start_at"):
+        if not resident and asset is not None and asset.get("earliest_start_at"):
             earliest = datetime.fromisoformat(asset["earliest_start_at"])
             if at < earliest:
                 return "EARLIEST_START_NOT_REACHED"
-        if asset is not None:
+        if not resident and asset is not None:
             policy_issue = self._asset_price_policy_issue(
                 asset, at,
                 finite_goal=(amount is not None or duration is not None
@@ -1245,7 +1281,7 @@ class NativeSwitchExecutor:
                 return "ASSET_SOC_UNAVAILABLE"
             if soc.value >= asset["target_soc"]:
                 return "TARGET_ALREADY_MET"
-        if asset is not None and (
+        if (not resident or manual_request is None) and asset is not None and (
                 asset.get("ready_by")
                 or asset.get("ready_by_repeat") == "specific_days"):
             try:
@@ -1266,7 +1302,7 @@ class NativeSwitchExecutor:
                     return "SOC_TARGET_DROPPED_AFTER_COMPLETION"
             except ValueError:
                 return "READY_BY_INVALID"
-        if (manual_request is None and not bounded_switch
+        if ((manual_request is None or (resident and asset is not None)) and not bounded_switch
                 and self.connection_confirmation(charger, at) is None):
             return "CURRENT_PLUG_ASSET_UNCONFIRMED"
         this_power = number(self.runtime.hass, charger.get("power_entity"), "power", at)
@@ -1755,12 +1791,12 @@ class NativeSwitchExecutor:
             if (asset.get("temporary")
                     and datetime.fromisoformat(asset["expires_at"]) <= now):
                 return "TEMPORARY_ASSET_EXPIRED"
-            if asset.get("charging_windows") and not charging_window_allows(
+            if not session.get("resident_override") and asset.get("charging_windows") and not charging_window_allows(
                 asset["charging_windows"], now, timedelta(seconds=1),
                 self.runtime.hass.config.time_zone,
             ):
                 return "CHARGING_WINDOW_CLOSED"
-            policy_issue = self._asset_price_policy_issue(
+            policy_issue = None if session.get("resident_override") else self._asset_price_policy_issue(
                 asset, now, finite_goal=(
                     session["requested_kwh"] is not None
                     or session["requested_duration_minutes"] is not None
@@ -1832,6 +1868,7 @@ class NativeSwitchExecutor:
     def _start_session(self, charger, observed, manual_request=None, *,
                        command_at, baseline, plug_epoch):
         """Adopt a confirmed physical start, with a bounded attributable intent."""
+        resident, manual_request = self._manual_goal(manual_request)
         asset = next(
             (a for a in self.runtime.configuration["assets"]
              if a["id"] == charger.get("asset")), None
@@ -1869,7 +1906,9 @@ class NativeSwitchExecutor:
                 if due is None:
                     return error
             intent_key = self._intent_key(asset, charger, due)
-            if explicit_energy is not None or duration is not None or budget is not None:
+            if resident and manual_request is not None:
+                intent_key = self._inflight[asset["id"]]
+            if manual_request is None and (explicit_energy is not None or duration is not None or budget is not None):
                 progress = self.measured_intent_usage(asset, charger, due, now)
                 if budget is not None:
                     if progress.get("budget_amount") is None or progress.get("duration_minutes") is None:
@@ -1911,7 +1950,7 @@ class NativeSwitchExecutor:
         end = command_at + timedelta(minutes=budget_minutes if budget is not None else 24 * 60)
         if duration is not None:
             end = min(end, command_at + timedelta(minutes=duration))
-        if asset is not None and (
+        if (not resident or manual_request is None) and asset is not None and (
                 asset.get("ready_by")
                 or asset.get("ready_by_repeat") == "specific_days"):
             due = (datetime.fromisoformat(
@@ -1935,9 +1974,10 @@ class NativeSwitchExecutor:
             "identity_basis": identity["basis"] if identity else None,
             "intent_key": intent_key,
             "manual_duration": manual_request is not None and duration is not None,
-            "duration_without_connection": charger["kind"] == "on_off" and duration is not None,
+            "duration_without_connection": charger["kind"] == "on_off" and duration is not None and not (resident and asset is not None),
+            "resident_override": resident,
             "manual_mode": (self.runtime.configuration["controller"]["mode"]
-                            if manual_request is not None else None),
+                            if resident or manual_request is not None else None),
             "switch_only": observed.reason == "NATIVE_SWITCH_STATE",
             "enabled_before_draw": observed.reason == "ENABLED_WAITING_FOR_VEHICLE",
             # Conservative control/accounting boundary; physical confirmation
@@ -2522,7 +2562,7 @@ class NativeSwitchExecutor:
         switch_only = self._sessions.get(uid, {}).get("switch_only", False)
         manual_mode = self._sessions.get(uid, {}).get("manual_mode")
         wrong_mode = mode == "Off" or (is_auto and (no_plan or unowned)
-            and not (manual_mode == mode == "Automatic"))
+            and not (manual_mode == mode and (mode == "Automatic" or self._sessions.get(uid, {}).get("resident_override"))))
         if manual_mode is not None and manual_mode != mode:
             wrong_mode = True
         if mode == "Force Charge" and accepted is not None:
@@ -2585,7 +2625,7 @@ class NativeSwitchExecutor:
         if session_reason in (
             "REQUESTED_ENERGY_COMPLETE", "REQUESTED_DURATION_COMPLETE",
             "REQUESTED_BUDGET_COMPLETE", "SOC_TARGET_REACHED"
-        ) and is_auto:
+        ) and is_auto and not self._sessions.get(uid, {}).get("resident_override"):
             asset = next((a for a in cfg["assets"]
                           if a["id"] == charger.get("asset")), None)
             if asset is not None:
@@ -2609,7 +2649,7 @@ class NativeSwitchExecutor:
                     )
         completion = ((completed_asset, completed_intent, session_reason)
                       if completed_asset is not None and completed_intent is not None else None)
-        outcome = await self.execute(uid, "stop", completion=completion)
+        outcome = await self.execute(uid, "pause" if self._sessions.get(uid, {}).get("resident_override") and self._persistence_verified else "stop", completion=completion)
         if outcome["status"] != "confirmed":
             _LOGGER.error("Protective charger STOP not physically confirmed: %s %s",
                           uid, outcome["reason"])
@@ -2819,7 +2859,7 @@ class NativeSwitchExecutor:
                       current_a=None, plan_slot=None, manual_request=None,
                       active_regulation=False, completion=None):
         """Deduplicate caller-supplied identities before any physical side effect."""
-        if action not in ("start", "stop", "set_current", "pause", "resume"):
+        if action not in ("start", "stop", "set_current", "pause", "resume", "manual_start", "manual_stop", "auto"):
             raise ValueError("unsupported physical action")
         if request_id is not None and (
                 not isinstance(request_id, str) or not 1 <= len(request_id) <= 128):
@@ -2858,6 +2898,14 @@ class NativeSwitchExecutor:
                             active_regulation, completion):
         """Perform one native action; success requires fresh independent readback."""
         started = perf_counter()
+        resident_start = action == "manual_start"
+        resident_stop = action == "manual_stop"
+        return_auto = action == "auto"
+        if resident_start:
+            action = "start"
+            manual_request = {**(manual_request or {}), "_resident": True}
+        elif resident_stop:
+            action = "stop"
         # STOP and Pause share one preemption path. Revoke the quarter before
         # waiting; a same-charger pending writer must finish/cancel first.
         if action in ("stop", "pause") and not self._stopped:
@@ -2917,6 +2965,15 @@ class NativeSwitchExecutor:
             state = self._switch(self.runtime.hass, entity)
             if state is None:
                 return result("rejected", "NATIVE_SWITCH_UNAVAILABLE")
+            if return_auto:
+                if charger_id in self._paused:
+                    action = "resume"
+                elif self._sessions.get(charger_id, {}).get("resident_override"):
+                    action = "stop"
+                elif charger_id in self._quarantine or charger_id in self._interrupted_sessions:
+                    return result("rejected", "PREVIOUS_COMMAND_UNCONFIRMED")
+                else:
+                    return result("confirmed", "ALREADY_AUTOMATIC")
             if action in ("stop", "pause"):
                 session = self._sessions.get(charger_id)
                 if self._switch_epoch_changed(charger, session, state):
@@ -2948,12 +3005,14 @@ class NativeSwitchExecutor:
                 return result("confirmed", "PAUSE_RELEASED_NO_PHYSICAL_START",
                               observed_at=power.observed_at or getattr(state, "last_updated", None),
                               measured_kw=power.value if power.quality == "ok" else None)
-            if action == "pause" and charger_id not in self._paused:
+            if (action == "pause" or resident_stop) and charger_id not in self._paused:
                 self._paused.add(charger_id)
                 if not await self.runtime.persist_control_state():
                     self._paused.discard(charger_id)
                     self._persistence_verified = False
-                    return result("rejected", "PAUSE_HOLD_NOT_PERSISTED")
+                    if not resident_stop:
+                        return result("rejected", "PAUSE_HOLD_NOT_PERSISTED")
+                    # A persistence fault must not prevent an authorized physical STOP.
             if action in ("start", "set_current"):
                 if charger["kind"] == "variable_current":
                     if current_a is None and action == "start" and plan_slot is None:
@@ -2993,6 +3052,8 @@ class NativeSwitchExecutor:
                     return result("rejected", "ACTIVE_SESSION_NOT_SAFE_FOR_MODULATION")
                 mode = cfg["controller"]["mode"]
                 previous_current = self._sessions[charger_id].get("target_current_a")
+                if self._sessions[charger_id].get("resident_override") and (previous_current is None or current_a > previous_current + 1e-6):
+                    return result("rejected", "CURRENT_INCREASE_REQUIRES_ACCEPTED_SLOT")
                 if mode != "Force Charge":
                     if mode not in ("Automatic", "Solar", "Economy", "Ready By"):
                         return result("rejected", "MODE_REQUIRES_PHYSICAL_STOP")
@@ -3118,6 +3179,8 @@ class NativeSwitchExecutor:
                                 return result("rejected", issue)
                         hold_key = asset["id"]
                         hold_intent = self._intent_key(asset, charger, due)
+                        if resident_start and self._manual_goal(manual_request)[1] is not None:
+                            hold_intent = sha256(dumps({"asset": asset["id"], "charger": charger_id, "request": request_id}, sort_keys=True).encode()).hexdigest()
                     else:
                         hold_key = f"charger:{charger_id}"
                         hold_intent = sha256(dumps({
@@ -3125,7 +3188,8 @@ class NativeSwitchExecutor:
                         }, sort_keys=True).encode()).hexdigest()
                     if hold_key in self._inflight:
                         return result("rejected", "UNRESOLVED_PREVIOUS_CHARGE_INTENT")
-                    duration = (manual_request or {}).get("duration_minutes") if asset is None else asset.get("requested_duration_minutes")
+                    goal_request = self._manual_goal(manual_request)[1]
+                    duration = (goal_request or {}).get("duration_minutes") if goal_request is not None or asset is None else asset.get("requested_duration_minutes")
                     self._inflight[hold_key] = hold_intent
                     self._interrupted_sessions[charger_id] = {
                         "pending": True,
@@ -3135,8 +3199,8 @@ class NativeSwitchExecutor:
                             "asset_id": asset["id"] if asset else None,
                             "intent_key": hold_intent if asset else None,
                             "started_at": at.isoformat(),
-                            "duration_without_connection": charger["kind"] == "on_off" and duration is not None,
-                            "requested_budget_currency": (asset or {}).get("requested_budget_currency"),
+                            "duration_without_connection": charger["kind"] == "on_off" and duration is not None and not (resident_start and asset is not None),
+                            "requested_budget_currency": (goal_request or {}).get("currency") if goal_request is not None else (asset or {}).get("requested_budget_currency"),
                         },
                     }
                     if not await self.runtime.persist_control_state():
@@ -3186,8 +3250,8 @@ class NativeSwitchExecutor:
                             self._persistence_verified = False
                         return outcome
                 bounded_switch = charger["kind"] == "on_off" and (
-                    (manual_request is not None and manual_request.get("duration_minutes") is not None)
-                    or (action == "start" and any(a["id"] == charger.get("asset")
+                    (manual_request is not None and manual_request.get("duration_minutes") is not None and not (resident_start and charger.get("asset")))
+                    or (action == "start" and not (resident_start and charger.get("asset")) and any(a["id"] == charger.get("asset")
                         and a.get("requested_duration_minutes") is not None for a in cfg["assets"]))
                     or self._sessions.get(charger_id, {}).get("duration_without_connection", False)
                     or (action in ("stop", "pause")
@@ -3262,7 +3326,7 @@ class NativeSwitchExecutor:
                     if self._stopped:
                         return result("execution_unknown", "INTEGRATION_UNLOADED_PENDING",
                                       service_sent=True)
-                    allow_waiting = (action == "start" and manual_request is None
+                    allow_waiting = (action == "start" and self._manual_goal(manual_request)[1] is None
                         and any(a["id"] == charger.get("asset") and a.get("target_soc") is not None
                                 and all(a.get(k) is None for k in ("requested_kwh",
                                     "requested_duration_minutes", "requested_budget_amount"))
@@ -3289,7 +3353,12 @@ class NativeSwitchExecutor:
                                 self._sessions[charger_id]["switch_on_since"] = (
                                     changed.isoformat() if changed is not None else None)
                                 self._interrupted_sessions.pop(charger_id, None)
+                                was_held = charger_id in self._paused
+                                if resident_start:
+                                    self._paused.discard(charger_id)
                                 if not await self.runtime.persist_control_state():
+                                    if was_held:
+                                        self._paused.add(charger_id)
                                     self._persistence_verified = False
                                     reason = "SESSION_CHECKPOINT_NOT_PERSISTED"
                             if reason is not None:
