@@ -8,6 +8,7 @@ from __future__ import annotations
 from bisect import bisect_left, bisect_right
 from copy import deepcopy
 from datetime import datetime, time, timedelta, timezone
+from functools import cached_property
 from zoneinfo import ZoneInfo
 from math import isfinite
 
@@ -106,8 +107,44 @@ def _sample(state):
         return None
 
 
+class _RecorderSamples:
+    """Request-local, lazy indexes of one exact native Recorder result.
+
+    No cross-query cache: a late Recorder sample, changed binding, new receipt
+    or new request is never hidden. Each physical source is normalized once
+    for the quarter, civil-day, receipt and observed-run projections.
+    """
+
+    def __init__(self, states):
+        self.states = states
+
+    def __iter__(self):
+        return iter(self.states)
+
+    @cached_property
+    def power_index(self):
+        samples = _power_samples(self.states)
+        return samples, [stamp for stamp, _ in samples]
+
+    @cached_property
+    def energy_index(self):
+        samples = _energy_samples(self.states)
+        stamps = [stamp for stamp, _ in samples]
+        unique = all(a != b for a, b in zip(stamps, stamps[1:]))
+        return samples, stamps, unique
+
+
+def _power_index(states):
+    if isinstance(states, _RecorderSamples):
+        return states.power_index
+    samples = _power_samples(states)
+    return samples, [stamp for stamp, _ in samples]
+
+
 def _power_samples(states):
     """One normalization rule for all historical power projections."""
+    if isinstance(states, _RecorderSamples):
+        return states.power_index[0]
     samples = {}
     for state in states:
         reading = _sample(state)
@@ -386,6 +423,8 @@ def planned_costs(slots, price_slots, at, *, until=None):
 
 def _energy_samples(states):
     """Native cumulative kWh observations; invalid values split evidence."""
+    if isinstance(states, _RecorderSamples):
+        return states.energy_index[0]
     samples = []
     for state in states:
         try:
@@ -406,16 +445,23 @@ def _energy_samples(states):
     return samples
 
 
+def _energy_index(states):
+    if isinstance(states, _RecorderSamples):
+        return states.energy_index
+    samples = _energy_samples(states)
+    stamps = [stamp for stamp, _ in samples]
+    return samples, stamps, all(a != b for a, b in zip(stamps, stamps[1:]))
+
+
 def _meter_delta(states, power_states, start, end, now, ongoing):
     """Use cumulative kWh only with known idle boundaries and no meter reset."""
-    samples = _energy_samples(states)
-    if not samples or len({row[0] for row in samples}) != len(samples):
+    samples, stamps, unique = _energy_index(states)
+    if not samples or not unique:
         return None
-    before = [row for row in samples if row[0] <= start]
-    after = [row for row in samples if end <= row[0] <= min(now, end+MAX_OBSERVATION_AGE)]
-    if not before:
+    baseline_index = bisect_right(stamps, start)-1
+    if baseline_index < 0:
         return None
-    a, initial = before[-1]
+    a, initial = samples[baseline_index]
     if initial is None or start-a > MAX_OBSERVATION_AGE:
         return None
     if a < start:
@@ -423,19 +469,20 @@ def _meter_delta(states, power_states, start, end, now, ongoing):
         if not idle or any(power > 0.05 for _, _, power in idle):
             return None
     if ongoing:
-        recent = [row for row in samples if start < row[0] <= end]
-        if not recent or end-recent[-1][0] > MAX_OBSERVATION_AGE:
+        final_index = bisect_right(stamps, end)-1
+        if (final_index <= baseline_index or end-stamps[final_index] > MAX_OBSERVATION_AGE):
             return None
-        b, final = recent[-1]
-    elif after:
-        b, final = after[0]
+        b, final = samples[final_index]
+    else:
+        final_index = bisect_left(stamps, end)
+        if final_index >= len(stamps) or stamps[final_index] > min(now, end+MAX_OBSERVATION_AGE):
+            return None
+        b, final = samples[final_index]
         if b > end:
             idle = _covered_power_segments(power_states, end, b)
             if not idle or any(power > 0.05 for _, _, power in idle):
                 return None
-    else:
-        return None
-    values = [value for stamp, value in samples if a <= stamp <= b]
+    values = [value for _, value in samples[baseline_index:final_index+1]]
     if (final is None or any(value is None for value in values)
             or any(y < x-0.00001 for x, y in zip(values, values[1:]))):
         return None
@@ -838,9 +885,11 @@ def _power_spans(states, first, last):
     """
     if first >= last:
         return []
-    samples = _power_samples(states)
-    stamps = [stamp for stamp, _ in samples]
-    edges = sorted({first, last} | {edge for stamp in stamps
+    samples, stamps = _power_index(states)
+    # Older samples cannot contribute either a fresh value or an internal
+    # expiry boundary. Limit edge construction to this actual interval.
+    relevant = stamps[bisect_left(stamps, first-MAX_OBSERVATION_AGE):bisect_left(stamps, last)]
+    edges = sorted({first, last} | {edge for stamp in relevant
                     for edge in (stamp, stamp+MAX_OBSERVATION_AGE)
                     if first < edge < last})
     spans = []
@@ -914,11 +963,10 @@ def _meter_gap_blocks(historical, meter_epochs, uid, start, end,
         if not entity:
             continue
         if entity not in cache:
-            samples = _energy_samples(historical.get(entity, ()))
+            samples, stamps, unique = _energy_index(historical.get(entity, ()))
             # Duplicate stamps, including conflicting readings, cannot bound
             # an independently measured interval.
-            samples = samples if len({a for a, _ in samples}) == len(samples) else []
-            cache[entity] = (samples, [a for a, _ in samples])
+            cache[entity] = (samples, stamps) if unique else ([], [])
         samples, stamps = cache[entity]
         # Bounded indexed slice: a high-frequency native meter must not be
         # rescanned from the start of the day for each quarter/hour.
@@ -1428,6 +1476,9 @@ async def read_actual_history(hass, configuration, start, end, *,
             historical = await read_recorder_samples(hass, history_first, query_end, entities)
         else:
             historical = await read_samples(history_first, query_end, entities)
+        # The same exact samples feed all projections. Their lazy indexes
+        # live only until this read completes, including off-loop work.
+        historical = {entity: _RecorderSamples(states) for entity, states in historical.items()}
     except (ImportError, RuntimeError, ValueError, OSError, KeyError):
         return await reply([], "RECORDER_UNAVAILABLE")
     if financial_days is not None and not include_valuations and not include_observed_sessions:

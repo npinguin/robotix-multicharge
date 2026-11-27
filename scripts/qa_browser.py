@@ -49,12 +49,17 @@ def chrome_path():
     raise RuntimeError("Real Chromium not installed; browser acceptance cannot PASS")
 
 
-def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view: str, dark: bool, *, metrics_tag=None):
-    query = urlencode({"width": size, "count": count, "role": role, "view": view, "metrics": "1" if metrics_tag else "0"})
+def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view: str, dark: bool, *, metrics_tag=None, upgrade_tag=None):
+    params = {"width": size, "count": count, "role": role, "view": view, "metrics": "1" if metrics_tag else "0"}
+    if upgrade_tag:
+        params["upgrade_tag"] = upgrade_tag
+    query = urlencode(params)
     url = base_url + "/tests/fixtures/browser_shell.html?" + query
     label = f"{size}px_{count}chargers_{role}_{view}_{'dark' if dark else 'light'}"
     if metrics_tag:
         label += f"_{metrics_tag}_metrics"
+    if upgrade_tag:
+        label += f"_{upgrade_tag}_upgrade"
     PROOF.mkdir(parents=True, exist_ok=True)
     screenshot = PROOF / (label + ".png")
     args = [
@@ -103,6 +108,8 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
         required = ("opensWithoutWrite", "bounded", "active", "sameControl", "stopped", "automatic", "denied", "cancelled")
         if not all(row.get(key) is True for key in required):
             raise AssertionError(f"{label}: manual resident journey failed: {row}")
+        if upgrade_tag and row.get("upgradeVersion") is not True:
+            raise AssertionError(f"{label}: predecessor element still owns upgraded native panel: {row}")
         if not screenshot.is_file() or screenshot.stat().st_size < 2000:
             raise AssertionError(f"{label}: manual charging screenshot missing")
         print(f"BROWSER PASS {label}: Start/Stop/Auto, bounded request, owner parity and denied budget")
@@ -214,6 +221,9 @@ def compare_frontend_metrics(prior, candidate, work, prior_tag, candidate_tag):
         assert new["apexHosts"] <= old["apexHosts"], (old, new)
         assert new["historyRequests"] <= old["historyRequests"], (old, new)
         print("Exact predecessor/candidate Chromium chart host and query comparison PASS")
+        run_case(chrome, base + "/ux-candidate", 1024, 2, "admin", "manual", False,
+                 upgrade_tag=candidate_tag)
+        print("Exact predecessor registered before candidate native panel: Start/Stop/Auto PASS")
     finally:
         server.shutdown()
         server.server_close()
