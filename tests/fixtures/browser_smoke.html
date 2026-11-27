@@ -442,6 +442,23 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     document.getElementById("smoke-result").textContent=JSON.stringify(report);
     return;
   }
+  // Inspect default geometry before opening any object detail.
+  const defaultCards=[...card.shadowRoot.querySelectorAll(".object-grid > .topic-card")].map(el=>el.getBoundingClientRect());
+  const equalCardRows=defaultCards.every(a=>defaultCards.every(b=>Math.abs(a.top-b.top)>2||Math.abs(a.height-b.height)<=2));
+  const balancedActions=[...card.shadowRoot.querySelectorAll(".topic-card > .topic-actions")].every(group=>{
+    const box=group.getBoundingClientRect();
+    const buttons=[...group.querySelectorAll(":scope > button")].map(b=>b.getBoundingClientRect()).filter(b=>b.height>0);
+    return buttons.every(a=>{
+      const row=buttons.filter(b=>Math.abs(a.top-b.top)<2);
+      return Math.abs(Math.min(...row.map(b=>b.left))-box.left)<=2&&Math.abs(Math.max(...row.map(b=>b.right))-box.right)<=2&&row.every(b=>Math.abs(b.height-a.height)<=2);
+    });
+  });
+  const orderedActions=[...card.shadowRoot.querySelectorAll(".topic-card")].every(c=>{
+    const action=c.querySelector(":scope > .topic-actions");
+    const fold=c.querySelector(":scope > details");
+    const summary=c.querySelector(":scope > .financial-headline");
+    return !action||(!fold||action.getBoundingClientRect().bottom<=fold.getBoundingClientRect().top+2)&&(!summary||summary.getBoundingClientRect().bottom<=action.getBoundingClientRect().top+2);
+  });
   if(view==="asset"||view==="charger"){
     const details=[...card.shadowRoot.querySelectorAll("button")].find(
       b=>b.textContent==="Details");
@@ -510,7 +527,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     render:!!frame,frameWidth:Math.round(rect?.width||0),
     documentWidth:document.documentElement.scrollWidth,
     tabs:[...root.querySelectorAll(".tabs button")].map(b=>b.textContent),
-    cards:cards.length,folds:folds.length,
+    cards:cards.length,folds:folds.length,equalCardRows,balancedActions,orderedActions,
     apexHosts:apexHosts.length,apexLive,defaultChartHosts,foldedChartHosts,chartLifecycle,sameRange,colorAndQuarter,pixelAligned,geometry:geometry.map(r=>r?[r.left,r.right]:null),
     legendContained:!!chartLegend&&chartLegend.getBoundingClientRect().top>=chartHost.getBoundingClientRect().bottom-1,
     legendToggle:toggle?.getAttribute("aria-pressed")==="false",
@@ -532,7 +549,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     keyboardSummary:folds.every(x=>x.firstElementChild?.tagName==="SUMMARY"),
     goalEditable:[...root.querySelectorAll("button")].some(x=>x.textContent==="Set charging goal"&&x.getBoundingClientRect().height>0),
     technicalReadable:root.textContent.includes("Complete object settings & sources"),
-    commandButtons:buttons.filter(x=>x==="Start charging"||x==="Stop charging").length,
+    commandButtons:[...root.querySelectorAll("button")].filter(x=>!x.disabled&&(x.textContent==="Start charging"||x.textContent==="Stop charging")).length,
     errors:root.querySelectorAll("[role=alert]").length
   };
   document.getElementById("smoke-result").textContent=JSON.stringify(report);

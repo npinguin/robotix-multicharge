@@ -132,6 +132,8 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
         print(f"BROWSER PASS {label}: direct YAML Save/readback, "
               "350ms refresh and explicit Cancel")
         return
+    if view in ("overview", "asset", "charger") and not all(row.get(key) is True for key in ("equalCardRows", "balancedActions", "orderedActions")):
+        raise AssertionError(f"{label}: topic card geometry or action hierarchy failed: {row}")
     if view in ("asset", "charger"):
         if row["cards"] != count:
             raise AssertionError(f"{label}: object count drift: {row}")
