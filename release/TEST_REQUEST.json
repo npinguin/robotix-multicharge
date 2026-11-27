@@ -1,15 +1,15 @@
 {
   "status": "AUTHORIZED_FOR_TEST",
   "distribution": "open_source_community",
-  "expected_tag": "v0.1.25",
+  "expected_tag": "v0.1.26",
   "precompile": false,
-  "qualification_scope": "Owner direction 26 November 2026, PR #30 / issue #1: complete agreed MultiCharge simplification, reliability, autonomous recovery and NFR batch, retaining all v0.1.24 functionality and single native authority. Ordinary external client changes, vehicle waiting and source/persistence recovery; no persistent competing-controller arbitration. Publication only after agreed exact-candidate qualification.",
-  "limitations": "HACS TEST only after qualification; no STABLE or physical Wessels acceptance claim. Actual site/iPad/EVSE acceptance and unattended endurance remain evidence gates. Before upgrading retain native HA backup including database and matching v0.1.24 code; after confirmed STOP, retain upgraded-state backup and restore previous checkpoint with matching code for rollback. No direct code-only downgrade or live-state merge.",
+  "qualification_scope": "Complete agreed resident-first MultiCharge UX, cost clarity, ownership, code reuse, performance and stability regression batch, preserving all v0.1.25 functionality and native authority. Exact-candidate qualification required before TEST publication.",
+  "limitations": "HACS TEST only. Physical charger and browser acceptance at the installation and unattended endurance are separate evidence gates; not STABLE. Retain native Home Assistant backup including database and matching v0.1.25 code before upgrading; confirm STOP before rollback, preserve upgraded-state backup separately and restore previous checkpoint with matching code. No code-only downgrade or live-state merging.",
   "rollback_evidence": {
-    "tag": "v0.1.24",
-    "source_sha": "63e810b4612fb8a6719b4b88847fd16567142bb5",
-    "artifact": "robotix_multicharge-0.1.24.zip",
-    "sha256": "09ba5fbcd0e0c582e663901196547df86a9f273d2cfb9e5a2a86cc3307d56eef",
+    "tag": "v0.1.25",
+    "source_sha": "ffcd107f8d83ed2ecb07f40b0f26203e040fef7e",
+    "artifact": "robotix_multicharge-0.1.25.zip",
+    "sha256": "1452cb19eab28da8a1d83f134864af5064a961144a8ae48c7af6077777404cfa",
     "scope": "Exact predecessor/candidate native HA Core archive/startup restore, configuration and Store checkpoint readback and receipt preservation; no code-only downgrade or live-state merging."
   }
 }

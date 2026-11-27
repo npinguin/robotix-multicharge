@@ -49,10 +49,12 @@ def chrome_path():
     raise RuntimeError("Real Chromium not installed; browser acceptance cannot PASS")
 
 
-def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view: str, dark: bool):
-    query = urlencode({"width": size, "count": count, "role": role, "view": view})
+def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view: str, dark: bool, *, metrics_tag=None):
+    query = urlencode({"width": size, "count": count, "role": role, "view": view, "metrics": "1" if metrics_tag else "0"})
     url = base_url + "/tests/fixtures/browser_shell.html?" + query
     label = f"{size}px_{count}chargers_{role}_{view}_{'dark' if dark else 'light'}"
+    if metrics_tag:
+        label += f"_{metrics_tag}_metrics"
     PROOF.mkdir(parents=True, exist_ok=True)
     screenshot = PROOF / (label + ".png")
     args = [
@@ -83,8 +85,13 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
         raise AssertionError(f"{label}: horizontal page overflow: {row}")
     if row["viewport"] != size:
         raise AssertionError(f"{label}: requested width not actually honored: {row}")
+    if metrics_tag:
+        if row["apexHosts"] < 1 or row["apexLive"] != row["apexHosts"]:
+            raise AssertionError(f"{label}: measured chart hosts did not render: {row}")
+        print(f"BROWSER EXACT ARTIFACT METRICS {metrics_tag}: {row}")
+        return row
     if view == "setup":
-        required = ("observed", "prefilled", "progressive", "noWrite",
+        required = ("observed", "visibleSetup", "prefilled", "progressive", "noWrite",
                     "reviewed", "denied", "active")
         if not all(row.get(key) is True for key in required):
             raise AssertionError(f"{label}: setup/activation/session journey failed: {row}")
@@ -135,9 +142,9 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
         if row["goalEditable"] != (role == "admin"):
             raise AssertionError(f"{label}: novice goal or resident auth drift: {row}")
     if view == "overview":
-        if (not row["siteFirst"] or not row["overviewGrid"] or row["quickSelectors"] != 0
+        if (not row["siteFirst"] or not row["siteDetailsLocal"] or not row["overviewGrid"] or row["quickSelectors"] != 0
                 or row["assetAssignmentActions"] != (count if role == "admin" else 0)
-                or not row["navigationReset"] or not row["financeCompact"]):
+                or not row["navigationReset"] or not row["financeCompact"] or not row["visibleSafety"]):
             raise AssertionError(f"{label}: site-first asset assignment hierarchy lost: {row}")
     if view == "charger":
         if row["quickSelectors"] != count:
@@ -147,6 +154,9 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
     if view == "plan" and count:
         # Two Chargers have source-qualified plan data; the remaining
         # lanes must not manufacture charts or measurements.
+        if not row["chartLifecycle"] or (count >= 2 and row["defaultChartHosts"] >= row["foldedChartHosts"]):
+            raise AssertionError(f"{label}: compact chart lifecycle/host reduction failed: {row}")
+        print(f"BROWSER CHART HOSTS {label}: default={row['defaultChartHosts']}, expanded={row['foldedChartHosts']}, cleanup={row['chartLifecycle']}")
         if row["apexHosts"] < 1 or row["apexLive"] != row["apexHosts"]:
             raise AssertionError(f"{label}: all source-qualified local ApexCharts must render: {row}")
         if row.get("apexErrors"):
@@ -164,6 +174,40 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
 class QuietFiles(SimpleHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
+
+
+def compare_frontend_metrics(prior, candidate, work, prior_tag, candidate_tag):
+    """Same bounded fixture/Chromium for the two checksum-verified bundles."""
+    for name, source in (("ux-prior", prior), ("ux-candidate", candidate)):
+        dest = work / name
+        shutil.copytree(source / "custom_components", dest / "custom_components",
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        fixtures = dest / "tests" / "fixtures"
+        fixtures.mkdir(parents=True)
+        for filename in ("browser_shell.html", "browser_smoke.html"):
+            shutil.copy2(PAGE.parent / filename, fixtures / filename)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), partial(QuietFiles, directory=str(work)))
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base = f"http://127.0.0.1:{server.server_port}"
+        chrome = chrome_path()
+        old = run_case(chrome, base + "/ux-prior", 1024, 10, "admin", "plan", False,
+                       metrics_tag=prior_tag)
+        new = run_case(chrome, base + "/ux-candidate", 1024, 10, "admin", "plan", False,
+                       metrics_tag=candidate_tag)
+        # Count real mounted charts and requested history; virtual-time browser
+        # timings are observations, not claims of physical HA/Recorder latency.
+        # Future releases must not regress; they need not continually reduce
+        # an already optimized host count. The compact-lane journey separately
+        # requires strictly fewer hosts when a data-bearing lane is collapsed.
+        assert new["apexHosts"] <= old["apexHosts"], (old, new)
+        assert new["historyRequests"] <= old["historyRequests"], (old, new)
+        print("Exact predecessor/candidate Chromium chart host and query comparison PASS")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
 
 
 def main():

@@ -246,6 +246,9 @@ def verify_rollback_checkpoint(candidate, manifest, work):
         assert measured[count]["signature"] == baseline[count]["signature"], count
         print("MC_EXACT_ARTIFACT_PLAN", count, "predecessor", tag, baseline[count],
               "candidate", manifest["version"], measured[count])
+    # Compare exact bundled frontends with the same bounded existing fixture.
+    from qa_browser import compare_frontend_metrics
+    compare_frontend_metrics(prior, candidate, work, tag, "v" + manifest["version"])
     # No invented physical speedup or arbitrary cross-runner timing threshold.
     pre = work / "pre-upgrade"
     pre.mkdir()

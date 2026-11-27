@@ -82,6 +82,10 @@ assert.ok(uiSource.includes("this.dashboardChargerCreate(container)"),
   "New Chargers are created inside MultiCharge with native source selectors");
 const Card=customElements.get("robotix-multicharge-card");
 assert.ok(Card,"native custom card registered");
+const costDisplay=new Card();
+assert.ok(costDisplay.formatCost({cost:-1.25,currency:"EUR",basis:"spot"}).includes("-"),"Negative reference prices remain negative");
+assert.ok(costDisplay.formatCost({cost:null,covered_cost:0.75,currency:"EUR",basis:"variable_reference"}).includes("Partial coverage"),"Partial amount stays qualified");
+assert.ok(costDisplay.formatCost({cost:null,currency:"EUR"}).includes("Unknown"),"Missing cost is not zero");
 const Panel=customElements.get("robotix-multicharge-panel");
 assert.ok(Panel,"native HA sidebar panel element registered");
 const nativePanel=new Panel();
@@ -1450,8 +1454,35 @@ async function main(){
     "All 10 real Charger objects get their own dynamic detail lane");
   assert.ok(content(plot).includes("spot · EUR/kWh"),
     "Price is explicitly marked as spot and never an invoice");
-  assert.ok(content(plot).includes("Measured"),
-    "Actual kW stays separate from proposed or accepted");
+  assert.ok(content(plot).includes("Actual and planned charging"),
+    "Resident chart explains actual and planned without exposing engineering series");
+  let residentPlot;
+  visit(plot,node=>{if(node._mcSignature)residentPlot=node;});
+  const residentOptions=JSON.parse(residentPlot._mcSignature);
+  assert.ok(residentOptions._mcLegendOwners.some(x=>x.key==="unidentified:drive"),"Unattributed history uses stable anonymous owner identity, not today\'s assignment");
+  assert.ok(residentOptions.series.some(x=>x.name.startsWith("Actual ·")&&x.data.some(p=>p.y===2.2)),
+    "Actual measured kW remains independent and is not relabeled as a plan");
+  assert.ok(!residentOptions.series.some(x=>/^(Proposed|Accepted) ·/.test(x.name)),
+    "Default view has a single planned projection rather than duplicate technical series");
+  const savedSlots=multiPlan.slots;
+  multiPlan.slots=[{charger_id:"drive",asset_id:"car",start:"2026-11-22T13:00:00+01:00",end:"2026-11-22T13:15:00+01:00",proposed_power_kw:3.6,accepted_power_kw:null},
+    {charger_id:"drive",asset_id:"car",start:"2026-11-22T13:05:00+01:00",end:"2026-11-22T13:10:00+01:00",accepted_power_kw:1.4},
+    {charger_id:"drive",asset_id:"car",start:"2026-11-22T13:10:00+01:00",end:"2026-11-22T13:15:00+01:00",accepted_power_kw:0}];
+  many.render();
+  let mergedPlot;visit(many.shadowRoot,node=>{if(node._mcSignature&&node.attributes["aria-label"]==="MultiCharge combined power and price")mergedPlot=node;});
+  const mergedSeries=JSON.parse(mergedPlot._mcSignature).series.filter(x=>x.name.startsWith("Planned ·"));
+  assert.equal(mergedSeries.length,1,"Overlapping accepted/proposed intervals must have one resident projection");
+  for(const [minute,power] of [[0,3.6],[5,1.4],[10,0]]){
+    const stamp=Date.parse("2026-11-22T13:"+String(minute).padStart(2,"0")+":00+01:00");
+    assert.deepEqual(mergedSeries[0].data.filter(x=>x.x===stamp).map(x=>x.y),[power],"Accepted zero and mid-quarter boundaries retain authority");
+  }
+  multiPlan.slots=savedSlots;
+  many._folds["plan:technical"]=true;many.render();
+  let expertPlot;
+  visit(many.shadowRoot,node=>{if(node._mcSignature&&node.attributes["aria-label"]==="MultiCharge combined power and price")expertPlot=node;});
+  assert.ok(expertPlot&&JSON.parse(expertPlot._mcSignature).series.some(x=>x.name.startsWith("Measured ·")),
+    "Expert chart preserves separately named physical evidence");
+  many._folds["plan:technical"]=false;many.render();
   assert.ok(content(many.shadowRoot).includes("vehicle may be unknown"),
     "Charger metering is shown without fabricating historical Vehicle identity");
   multiPlan.observations.sources.tariff_tomorrow_quality="INTERVAL_COVERAGE_INCOMPLETE";
@@ -1820,6 +1851,13 @@ async function main(){
   assert.ok(!find(card.shadowRoot,"button","Start charging"),
             "uncommissioned hardware cannot gain optimistic action");
   fixture.command_capabilities={drive:{start_allowed:true,stop_allowed:true,reason:"READY"}};
+  const beforeStopPower=fixture.observations.chargers.drive.power_kw;
+  for(const power of [{quality:"ok",value:0},{quality:"unavailable",value:null}]){
+    fixture.observations.chargers.drive.power_kw=power;
+    card._tab="Overview";card.render();
+    assert.ok(find(card.shadowRoot,"button","Stop charging"),"Backend STOP authority must be visible even without positive measured power");
+  }
+  fixture.observations.chargers.drive.power_kw=beforeStopPower;
   card._hass.callWS=async request=>{
     commands.push(request);
     if(request.type==="robotix_multicharge/command"){
