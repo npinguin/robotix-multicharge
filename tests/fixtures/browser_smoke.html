@@ -13,6 +13,12 @@ html,body { margin:0; padding:0; width:100%; background:var(--secondary-backgrou
 main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
 </style>
 <script src="../../custom_components/robotix_multicharge/frontend/vendor/apexcharts.min.js"></script>
+<script>
+// The exact-artifact upgrade check loads the immutable previous release first.
+if(new URLSearchParams(location.search).has("upgrade_tag")){
+  document.write('<script src="../../../ux-prior/custom_components/robotix_multicharge/frontend/robotix-multicharge.js"><\\/script>');
+}
+</script>
 <script src="../../custom_components/robotix_multicharge/frontend/robotix-multicharge.js"></script>
 </head>
 <body>
@@ -96,7 +102,19 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
       end:"2026-11-23T10:15:00+01:00",price_per_kwh:0.23,
       currency:"EUR",basis:"spot"}];
   }
-  const card=document.querySelector("robotix-multicharge-card");
+  let card=document.querySelector("robotix-multicharge-card");
+  let upgradeVersion=false;
+  const upgradeTag=args.get("upgrade_tag");
+  if(upgradeTag){
+    const stable=customElements.get("robotix-multicharge-card");
+    const suffix="-"+upgradeTag.replace(/\./g,"-");
+    const name="robotix-multicharge-panel"+suffix;
+    if(!customElements.get(name))throw Error("release-specific native panel not registered");
+    const panel=document.createElement(name);
+    card.replaceWith(panel);card=panel._card;
+    upgradeVersion=card.localName==="robotix-multicharge-card"+suffix&&!(card instanceof stable);
+    if(!upgradeVersion)throw Error("native panel instantiated predecessor card");
+  }
   card.setConfig({});
   const requests=[];
   if(view==="overview"&&count){
@@ -277,7 +295,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     const denied=button("Start manual charging").disabled;
     button("Cancel").click();
     const cancelled=commands.length===3&&!root.querySelector(".manual-editor");
-    document.getElementById("smoke-result").textContent=JSON.stringify({view,count,role,viewport:innerWidth,render:!!root.querySelector(".root"),documentWidth:document.documentElement.scrollWidth,tabs:[...root.querySelectorAll(".tabs button")].map(x=>x.textContent),opensWithoutWrite,bounded,active,sameControl,stopped,automatic,denied,cancelled});
+    document.getElementById("smoke-result").textContent=JSON.stringify({view,count,role,viewport:innerWidth,render:!!root.querySelector(".root"),documentWidth:document.documentElement.scrollWidth,tabs:[...root.querySelectorAll(".tabs button")].map(x=>x.textContent),opensWithoutWrite,bounded,active,sameControl,stopped,automatic,denied,cancelled,upgradeVersion});
     return;
   }
   if(view==="goal"){
