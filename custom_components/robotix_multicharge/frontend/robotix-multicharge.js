@@ -3002,12 +3002,12 @@ class RobotixMultiChargeCard extends HTMLElement {
     const start=mcButton("Start charging",()=>{
       if(capability.start_allowed)this.command(charger.id,"start");
       else if(!charger.asset&&capability.manual_one_off_allowed){
-        this._tab="Chargers";this._folds["charger:"+charger.id+":one-off"]=true;this.render();
+        this._tab="Chargers";this._folds["charger:"+charger.id+":actions"]=true;this._folds["charger:"+charger.id+":one-off"]=true;this.render();
       }
     });
     const canStart=capability.start_allowed||(!charger.asset&&capability.manual_one_off_allowed);
     start.disabled=this._commandBusy||!canStart;
-    if(!canStart)start.title=mcReason(capability.reason||capability.manual_one_off_reason);
+    if(!canStart)start.title=mcReason((charger.asset?capability.reason:capability.manual_one_off_reason)||capability.reason);
     const stop=mcButton("Stop charging",()=>this.command(charger.id,"stop"));
     stop.disabled=this._commandBusy||!capability.stop_allowed;
     if(!capability.stop_allowed)stop.title=mcReason(capability.reason);
@@ -3634,7 +3634,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       }
       const stateDetails=mcEl("div");stateDetails.append(chip,stateGrid);
       const stateKey="charger:"+c.id+":states";
-      if(this._editingField==="charger:"+c.id+":setup")this._folds[stateKey]=true;
+      if(["charger:"+c.id+":setup","charger:"+c.id+":control_owner"].includes(this._editingField))this._folds[stateKey]=true;
       this.disclosure(folds,stateKey,"Technical details",stateDetails);
       if(this._settingsFeedback?.status==="confirmed"&&this._settingsFeedback.scope==="charger"&&
           this._settingsFeedback.targetId===c.id)this.feedback(card);
@@ -3722,6 +3722,17 @@ class RobotixMultiChargeCard extends HTMLElement {
       }
       const observed=mcEl("div");this.observedChargerActivity(observed,c);
       if(observed.children.length)this.disclosure(folds,"charger:"+c.id+":observations","Observed charging runs",observed);
+      const detailedActions=mcEl("div","topic-action-details");
+      const powerLimits=mcEl("div","charger-limits");
+      if(c.kind==="variable_current"){
+        for(const [field,label] of [["min_charging_power_kw","Minimum charging power"],["max_charging_power_kw","Maximum charging power"],["set_charging_power_kw","Set charging power"]]){
+          const session=d.active_sessions?.[c.id];
+          const kw=field==="set_charging_power_kw"?(session?.target_current_a!=null&&c.voltage_v&&c.phase_count?session.target_current_a*c.voltage_v*c.phase_count/1000:null):c[field];
+          this.nativeNumberEditor(powerLimits,"charger",c.id,field,label,kw,"kW");
+          if(!this.canEditSettings()||!this.ownerEntity("charger",c.id,field))mcPair(powerLimits,mcTr(label),kw==null?mcTr("Not set"):Number(kw).toFixed(2)+" kW");
+        }
+      }else mcPair(powerLimits,mcTr("Charging power control"),mcTr("On/off only"));
+      detailedActions.append(powerLimits);
       if(this._open==="charger:"+c.id){
         const detail=mcEl("div","details");
         detail.append(mcEl("h4","",mcTr("Physical Charger & verified sources")));
@@ -3731,54 +3742,37 @@ class RobotixMultiChargeCard extends HTMLElement {
         const bounds=d.charger_setup?.[c.id]?.effective_current||c;
         mcPair(detail,"Current range",bounds.min_current_a!=null&&bounds.max_current_a!=null?
           bounds.min_current_a+"–"+bounds.max_current_a+" A":"Unknown");
-        if(c.kind==="variable_current"){
-          for(const [field,label] of [
-            ["min_charging_power_kw","Minimum charging power"],
-            ["max_charging_power_kw","Maximum charging power"],
-            ["set_charging_power_kw","Set charging power"]
-          ]){
-            const session=(d.active_sessions||{})[c.id];
-            const kw=field==="set_charging_power_kw"?
-              (session?.target_current_a!=null&&c.voltage_v&&c.phase_count?
-                session.target_current_a*c.voltage_v*c.phase_count/1000:null):
-              c[field];
-            mcPair(detail,mcTr(label),kw==null?mcTr("Not set"):Number(kw).toFixed(2)+" kW");
-            this.nativeNumberEditor(detail,"charger",c.id,field,label,
-              kw,"kW");
-          }
-        }else{
-          mcPair(detail,mcTr("Charging power control"),mcTr("On/off only"));
-        }
         mcPair(detail,"Source state",obs.power_kw?mcTr(obs.power_kw.quality==="ok"?"Ready":"Unavailable"):"Unknown");
         const actual=(d.command_outcomes||{})[c.id]||{};
         mcPair(detail,"Status",mcTr(actual.status==="confirmed"?"Confirmed":actual.status==="rejected"?"Rejected":actual.status==="execution_unknown"?"Unavailable":"No action"));
         if(actual.reason)mcPair(detail,"Reason",mcReason(actual.reason));
         if(actual.readback_at)mcPair(detail,"Measured confirmation",mcTime(actual.readback_at,d.timezone));
         if(this.canEditSettings())this.ownerColorControl(detail,"charger",c);
-        this.ownerFacts(detail,"charger",c,["control_owner"]);
+        this.ownerFacts(detail,"charger",c,["control_owner","min_charging_power_kw","max_charging_power_kw","set_charging_power_kw"]);
         folds.append(detail);
       }
       const capability=(d.command_capabilities||{})[c.id]||{};
       const outcome=this._commandFeedback[c.id]||(d.command_outcomes||{})[c.id];
       const controls=mcEl("div","controls topic-actions");
       this.chargingQuickActions(controls,c);
-      const detailedActions=mcEl("div","topic-actions");
+      const secondaryControls=mcEl("div","topic-actions");
       if(this.canManage()&&capability.pause_allowed){
         const pause=mcButton(mcTr("Pause charging"),()=>this.command(c.id,"pause"));
         pause.disabled=this._commandBusy;
-        detailedActions.append(pause);
+        secondaryControls.append(pause);
       }
       if(this.canManage()&&capability.resume_allowed){
         const resume=mcButton(mcTr("Resume charging"),()=>this.command(c.id,"resume"));
         resume.disabled=this._commandBusy;
-        detailedActions.append(resume);
+        secondaryControls.append(resume);
       }
       if(controls.children.length)card.append(controls);
+      if(secondaryControls.children.length)detailedActions.append(secondaryControls);
       if(this.canManage()&&!c.asset){
         // One user goal, one input, one command. All readiness is server-owned.
         const oneOff=mcEl("div","details");
 
-        const draft=this._manualDrafts[c.id]||{kind:"duration",duration:"",energy:"",budget:""};
+        const draft=this._manualDrafts[c.id]||{kind:"duration",duration:"",durationUnit:"minutes",energy:"",budget:""};
         this._manualDrafts[c.id]=draft;
         const goal=this.field(oneOff,mcTr("Charging goal"),draft.kind,null,[
           ["duration",mcTr("Time limit (minutes)")],
@@ -3786,9 +3780,15 @@ class RobotixMultiChargeCard extends HTMLElement {
           ["budget",mcTr("Budget limit (€)")]
         ]);
         const labels={duration:"Time limit (minutes)",energy:"Energy limit (kWh)",budget:"Budget limit (€)"};
-        const amount=this.field(oneOff,mcTr(labels[draft.kind]),draft[draft.kind],"number");
-        amount.setAttribute("min",draft.kind==="duration"?"1":"0.01");
-        amount.setAttribute("step",draft.kind==="duration"?"1":"any");
+        const isHours=draft.kind==="duration"&&draft.durationUnit==="hours";
+        if(draft.kind==="duration"){
+          const unit=this.field(oneOff,mcTr("Duration unit"),draft.durationUnit||"minutes",null,[["minutes",mcTr("minutes")],["hours",mcTr("hours")]]);
+          unit.addEventListener("change",()=>{draft.durationUnit=unit.value;draft.duration="";this.render();});
+        }
+        const amount=this.field(oneOff,mcTr(isHours?"Time limit (hours)":labels[draft.kind]),draft[draft.kind],"number");
+        amount.setAttribute("min",draft.kind==="duration"&&!isHours?"1":"0.01");
+        amount.setAttribute("step",draft.kind==="duration"&&!isHours?"1":"any");
+        const minutes=()=>Number(amount.value)*(isHours?60:1);
         goal.addEventListener("change",()=>{
           draft.kind=goal.value;
           this.render();
@@ -3796,7 +3796,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         const valid=()=>{
           const value=Number(amount.value);
           return !!amount.value.trim()&&Number.isFinite(value)&&value>0&&
-            (draft.kind!=="duration"||(Number.isInteger(value)&&value<=1440))&&
+            (draft.kind!=="duration"||(Number.isInteger(minutes())&&minutes()>=1&&minutes()<=1440))&&
             (draft.kind!=="energy"||value<=1000)&&(draft.kind!=="budget"||value<=10000);
         };
         const reason=capability.manual_goal_reasons?.[draft.kind]||
@@ -3804,7 +3804,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         const submit=mcButton(mcTr("Start bounded session"),()=>{
           if(reason!=="READY"||!valid())return;
           const value=Number(amount.value);
-          this.command(c.id,"start",draft.kind==="duration"?{duration_minutes:value}:
+          this.command(c.id,"start",draft.kind==="duration"?{duration_minutes:minutes()}:
             draft.kind==="energy"?{energy_kwh:value}:{cost_amount:value,currency:"EUR"});
         });
         const availability=mcEl("p","muted small");
@@ -3822,7 +3822,6 @@ class RobotixMultiChargeCard extends HTMLElement {
         card.append(mcEl("p","muted small",mcTr("Start unavailable")+" · "+mcReason(capability.reason)));
       if(detailedActions.children.length){
         const key="charger:"+c.id+":actions";
-        if(this._folds["charger:"+c.id+":one-off"])this._folds[key]=true;
         this.disclosure(card,key,"Detailed actions",detailedActions);
       }
       card.append(...Array.from(folds.children));
