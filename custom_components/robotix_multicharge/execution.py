@@ -850,7 +850,9 @@ class NativeSwitchExecutor:
                     reason_local = self._admit_start(charger, at, target_current=minimum_current if charger.get("kind") == "variable_current" else None,
                                                      manual_request={**request, "_resident": True})
                 resident_goals[goal] = reason_local or "READY"
-            control = "Stopped" if uid in self._paused else "Manual" if self._sessions.get(uid, {}).get("resident_override") else "Automatic"
+            control = ("Unknown" if not self._persistence_verified else
+                       "Stopped" if uid in self._paused else
+                       "Manual" if self._sessions.get(uid, {}).get("manual_mode") is not None else "Automatic")
             result[uid] = {
                 "control_mode": control,
                 "resident_goal_reasons": resident_goals,
@@ -1325,7 +1327,7 @@ class NativeSwitchExecutor:
         return self._physical_budget(
             charger, at, requested_kw,
             target_current if charger["kind"] == "variable_current"
-            else charger.get("fixed_current_a"), plan_slot=plan_slot,
+            else charger.get("fixed_current_a"), plan_slot=plan_slot, resident=resident,
         )
 
 
@@ -1454,7 +1456,7 @@ class NativeSwitchExecutor:
 
 
     def _highest_safe_current(self, charger, at, *, ceiling=None, plan_slot=None,
-                              reserve_minima=False):
+                              reserve_minima=False, resident=False):
         """Highest currently qualified safe setpoint, bounded by any slot grant."""
         grid = charger_operating_grid(charger)
         if grid is None:
@@ -1470,13 +1472,13 @@ class NativeSwitchExecutor:
             reason, kw = self._requested_current(charger, candidate, at)
             if reason is None and self._physical_budget(
                 charger, at, kw, candidate, plan_slot=plan_slot,
-                reserve_minima=reserve_minima
+                reserve_minima=reserve_minima, resident=resident
             ) is None:
                 return candidate
         return None
 
     def _physical_budget(self, charger, at, kw, current, *, plan_slot=None,
-                         reserve_minima=False):
+                         reserve_minima=False, resident=False):
         """Conservative site, phase and circuit budget across all configured sources."""
         cfg = self.runtime.configuration
         ctl = cfg["controller"]
@@ -1603,7 +1605,8 @@ class NativeSwitchExecutor:
             return "MAX_PARALLEL_REACHED"
         if cap is not None and reserved > cap + 1e-9:
             return "SITE_CAPACITY_EXCEEDED"
-        solar_required = (ctl.get("mode") == "Solar"
+        resident = resident or self._sessions.get(charger["id"], {}).get("resident_override", False)
+        solar_required = not resident and (ctl.get("mode") == "Solar"
                           or getattr(plan_slot, "strategy", None) == "solar")
         if solar_required and ctl.get("solar_source_kind") in ("grid_export", "direct_surplus"):
             available_solar, quality = self.runtime.native_surplus_power(at)
@@ -2649,7 +2652,7 @@ class NativeSwitchExecutor:
                     )
         completion = ((completed_asset, completed_intent, session_reason)
                       if completed_asset is not None and completed_intent is not None else None)
-        outcome = await self.execute(uid, "pause" if self._sessions.get(uid, {}).get("resident_override") and self._persistence_verified else "stop", completion=completion)
+        outcome = await self.execute(uid, "manual_stop" if self._sessions.get(uid, {}).get("resident_override") else "stop", completion=completion)
         if outcome["status"] != "confirmed":
             _LOGGER.error("Protective charger STOP not physically confirmed: %s %s",
                           uid, outcome["reason"])
@@ -2968,7 +2971,7 @@ class NativeSwitchExecutor:
             if return_auto:
                 if charger_id in self._paused:
                     action = "resume"
-                elif self._sessions.get(charger_id, {}).get("resident_override"):
+                elif self._sessions.get(charger_id, {}).get("manual_mode") is not None:
                     action = "stop"
                 elif charger_id in self._quarantine or charger_id in self._interrupted_sessions:
                     return result("rejected", "PREVIOUS_COMMAND_UNCONFIRMED")
@@ -2991,7 +2994,10 @@ class NativeSwitchExecutor:
                     return result("rejected", "UNCONFIRMED_SESSION_CANNOT_RESUME")
                 power = number(self.runtime.hass, charger.get("power_entity"),
                                "power", at)
-                if (state.state != "off" or (charger.get("power_entity") and (
+                switch_only_idle = (return_auto and charger["kind"] == "on_off"
+                    and charger.get("asset") is None and power.quality != "ok"
+                    and charger_id not in self._interrupted_sessions)
+                if (state.state != "off" or (charger.get("power_entity") and not switch_only_idle and (
                         power.quality != "ok" or power.value > stop_power_limit(charger)))):
                     return result("rejected", "PHYSICAL_STOP_NOT_VERIFIED")
                 self._paused.remove(charger_id)
@@ -3008,13 +3014,25 @@ class NativeSwitchExecutor:
             if (action == "pause" or resident_stop) and charger_id not in self._paused:
                 self._paused.add(charger_id)
                 if not await self.runtime.persist_control_state():
-                    self._paused.discard(charger_id)
                     self._persistence_verified = False
                     if not resident_stop:
+                        self._paused.discard(charger_id)
                         return result("rejected", "PAUSE_HOLD_NOT_PERSISTED")
                     # A persistence fault must not prevent an authorized physical STOP.
             if action in ("start", "set_current"):
                 if charger["kind"] == "variable_current":
+                    if resident_start:
+                        assigned = next((a for a in cfg["assets"] if a["id"] == charger.get("asset")), None)
+                        grid = charger_operating_grid(charger)
+                        ceiling = current_a
+                        if ceiling is not None and (not isfinite(ceiling) or ceiling <= 0):
+                            return result("rejected", "NO_SAFE_ADJUSTABLE_CURRENT")
+                        if grid and assigned and assigned.get("max_charge_kw") is not None:
+                            asset_ceiling = assigned["max_charge_kw"] / grid[3]
+                            ceiling = min(ceiling, asset_ceiling) if ceiling is not None else asset_ceiling
+                        current_a = self._highest_safe_current(charger, at, ceiling=ceiling, resident=True)
+                        if current_a is None:
+                            return result("rejected", "NO_SAFE_ADJUSTABLE_CURRENT")
                     if current_a is None and action == "start" and plan_slot is None:
                         current_a = self._highest_safe_current(charger, at)
                         if current_a is None:
@@ -3041,7 +3059,7 @@ class NativeSwitchExecutor:
                     problem, requested_kw = self._requested_current(charger, current_a, at)
                     if problem:
                         return result("rejected", problem)
-                elif action == "set_current":
+                elif action == "set_current" or (resident_start and current_a is not None):
                     return result("rejected", "ON_OFF_CANNOT_MODULATE")
             if action == "set_current":
                 if state.state != "on" or charger_id not in self._sessions:
