@@ -2753,7 +2753,7 @@ class RobotixMultiChargeCard extends HTMLElement {
   }
   controlLabel(card,charger){
     const control=this._data.command_capabilities?.[charger?.id]?.control_mode;
-    if(charger&&control)card.append(mcEl("p","control-label muted small",mcTr(control)));
+    if(charger&&control&&charger.control_owner!=="external")card.append(mcEl("p","control-label muted small",mcTr(control)));
   }
   vehicleSummary(card,asset,charger){
     const d=this._data,obs=d.observations?.assets?.[asset.id]||{};
@@ -3020,8 +3020,9 @@ class RobotixMultiChargeCard extends HTMLElement {
       this._manualEditor=this._manualEditor===charger.id?"":charger.id;
       this._goalEditor="";this._scheduleEditor="";this._assignmentEditor="";this.render();
     });
-    start.disabled=this._commandBusy||capability.resident_start_allowed!==true;
-    if(start.disabled)start.title=mcReason(capability.resident_goal_reasons?.goal||capability.resident_goal_reasons?.duration||capability.reason);
+    start.disabled=this._commandBusy||charger.control_owner==="external";
+    start.setAttribute("aria-expanded",String(this._manualEditor===charger.id));
+    if(capability.resident_start_allowed!==true)start.title=mcReason(capability.resident_goal_reasons?.goal||capability.resident_goal_reasons?.duration||capability.reason);
     const stop=mcButton("Stop charging",()=>this.command(charger.id,"manual_stop"));
     stop.disabled=this._commandBusy||!capability.stop_allowed;
     const auto=mcButton("Auto",()=>this.command(charger.id,"auto"));
@@ -3046,7 +3047,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(session.target_current_a!=null)mcPair(summary,mcTr("Set charging power"),session.target_current_a+" A");
       card.append(summary);
     }
-    if(this._manualEditor!==charger.id||!this.canManage())return;
+    if(this._manualEditor!==charger.id||!this.canManage()||charger.control_owner==="external")return;
     card.className+=" expanded";
     const editor=mcEl("section","manual-editor quick-goal");
     editor.append(mcEl("h4","",mcTr("Manual charging")));
@@ -3094,10 +3095,10 @@ class RobotixMultiChargeCard extends HTMLElement {
       }
       return request;
     };
-    const reason=reasons[draft.kind]||"SOURCE_NOT_SELECTED";
-    const submit=mcButton("Start manual charging",()=>{const req=payload();if(req&&reason==="READY")this.command(charger.id,"manual_start",req);});
+    const reason=reasons[draft.kind]||capability.manual_one_off_reason||"SOURCE_NOT_SELECTED";
+    const submit=mcButton("Start manual charging",()=>{const req=payload();if(req&&reason==="READY"&&capability.resident_start_allowed===true)this.command(charger.id,"manual_start",req);});
     const feedback=mcEl("p","muted small",reason==="READY"?"":mcTr("Start unavailable")+" · "+mcReason(reason));
-    const update=()=>{submit.disabled=this._commandBusy||reason!=="READY"||payload()===null;};
+    const update=()=>{submit.disabled=this._commandBusy||capability.resident_start_allowed!==true||reason!=="READY"||payload()===null;};
     const row=mcEl("div","topic-actions");row.append(submit,mcButton("Cancel",()=>{this._manualEditor="";delete this._manualDrafts[charger.id];this.render();}));
     editor.append(feedback,row);update();card.append(editor);
   }

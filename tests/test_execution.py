@@ -601,6 +601,59 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rt.executor.completed_sessions()[-1]["actual_energy_kwh"],
                          1.0)
 
+    async def test_resident_start_stop_auto_preserves_global_strategy(self):
+        rt, sources, services = rig(mode="Automatic")
+        original = rt.configuration["assets"][0].copy()
+        self.assertTrue(rt.executor.capabilities()["evse"]["resident_start_allowed"])
+        result = await rt.executor.execute("evse", "manual_start",
+                                           manual_request={"duration_minutes": 30})
+        self.assertEqual(result["status"], "confirmed", result)
+        self.assertEqual(rt.executor.capabilities()["evse"]["control_mode"], "Manual")
+        self.assertEqual(rt.executor.session_snapshot()["evse"]["requested_duration_minutes"], 30)
+        self.assertEqual(rt.configuration["controller"]["mode"], "Automatic")
+        self.assertEqual(rt.configuration["assets"][0], original)
+        self.assertEqual((await rt.executor.execute("evse", "manual_stop"))["status"], "confirmed")
+        self.assertEqual(sources["switch.evse_control"].state, "off")
+        self.assertEqual(rt.executor.capabilities()["evse"]["control_mode"], "Stopped")
+        stored = rt.executor.export_state()
+        self.assertEqual(stored["paused"], ["evse"])
+        restored, _, calls = rig(mode="Automatic")
+        restored.executor.restore_state(stored)
+        self.assertEqual(restored.executor.capabilities()["evse"]["control_mode"], "Stopped")
+        self.assertEqual((await restored.executor.execute("evse", "auto"))["status"], "confirmed")
+        self.assertEqual(calls.calls, [])
+        self.assertEqual(restored.executor.capabilities()["evse"]["control_mode"], "Automatic")
+
+    async def test_resident_manual_goal_and_auto_active_stop(self):
+        rt, sources, services = rig(mode="Automatic")
+        result = await rt.executor.execute("evse", "manual_start")
+        self.assertEqual(result["status"], "confirmed", result)
+        self.assertEqual(rt.executor.session_snapshot()["evse"]["requested_kwh"], 1.0)
+        result = await rt.executor.execute("evse", "auto")
+        self.assertEqual(result["status"], "confirmed", result)
+        self.assertEqual(sources["switch.evse_control"].state, "off")
+        self.assertEqual(rt.executor.capabilities()["evse"]["control_mode"], "Automatic")
+
+    async def test_resident_manual_start_from_stopped_and_finite_completion(self):
+        rt, sources, services = rig(mode="Automatic")
+        self.assertEqual((await rt.executor.execute("evse", "manual_stop"))["status"], "confirmed")
+        result = await rt.executor.execute("evse", "manual_start",
+                                           manual_request={"duration_minutes": 1})
+        self.assertEqual(result["status"], "confirmed", result)
+        self.assertFalse(rt.executor.capabilities()["evse"]["paused"])
+        rt.executor._sessions["evse"]["hard_stop_at"] = datetime.now(timezone.utc) - timedelta(seconds=1)
+        await rt.executor.supervise()
+        self.assertEqual(sources["switch.evse_control"].state, "off")
+        self.assertEqual(rt.executor.capabilities()["evse"]["control_mode"], "Stopped")
+
+    async def test_resident_manual_denied_off_external_and_capacity(self):
+        for args in ({"mode": "Off"}, {"owner": "external"}, {"group_kw": 0.5}):
+            rt, _, services = rig(**args)
+            result = await rt.executor.execute("evse", "manual_start",
+                                               manual_request={"duration_minutes": 30})
+            self.assertEqual(result["status"], "rejected", result)
+            self.assertEqual(services.calls, [])
+
     async def test_pause_persists_hold_and_resume_never_starts_hardware(self):
         rt, sources, services = rig()
         outcome = await rt.executor.execute("evse", "pause")

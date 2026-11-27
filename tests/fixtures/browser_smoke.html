@@ -267,8 +267,8 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     const initial=outcome()?.getAttribute("data-goal-status")==="achievable"&&
       summary()?.textContent.includes("88%")&&summary()?.textContent.includes("95%")&&
       summary()?.textContent.includes("Inactive")&&
-      !!outcome().querySelector(".goal-window")&&!!outcome().querySelector(".goal-deadline-marker")&&
-      outcome().textContent.includes("1.56 kWh")&&outcome().textContent.includes("Not reserved");
+      !!root.querySelector(".goal-window")&&!!root.querySelector(".goal-deadline-marker")&&
+      root.querySelector('details[data-disclosure^="goal:"]')?.textContent.includes("1.56 kWh")&&outcome().textContent.includes("Not reserved");
     const compact=!!btn("Set charging goal")&&!btn("Save charging goal")&&
       summary().getBoundingClientRect().height<135;
     const variants={};
@@ -298,7 +298,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     const reopened=[...root.querySelectorAll(".field")].some(n=>n.querySelector("label")?.textContent==="Friday"&&n.querySelector("input")?.value==="08:00");
     btn("Cancel").click();
     card._tab="Overview";card.render();
-    const shared=!!outcome()?.querySelector(".goal-window")&&!!summary();
+    const shared=!!root.querySelector(".goal-window")&&!!summary();
     document.getElementById("smoke-result").textContent=JSON.stringify({
       view,count,role,viewport:innerWidth,render:!!root.querySelector(".root"),
       documentWidth:document.documentElement.scrollWidth,
@@ -445,7 +445,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
   // Inspect default geometry before opening any object detail.
   const defaultCards=[...card.shadowRoot.querySelectorAll(".object-grid > .topic-card")].map(el=>el.getBoundingClientRect());
   const equalCardRows=defaultCards.every(a=>defaultCards.every(b=>Math.abs(a.top-b.top)>2||Math.abs(a.height-b.height)<=2));
-  const balancedActions=[...card.shadowRoot.querySelectorAll(".topic-card > .topic-actions")].every(group=>{
+  const balancedActions=[...card.shadowRoot.querySelectorAll(".topic-card > .topic-quick > .topic-actions")].every(group=>{
     const box=group.getBoundingClientRect();
     const buttons=[...group.querySelectorAll(":scope > button")].map(b=>b.getBoundingClientRect()).filter(b=>b.height>0);
     return buttons.every(a=>{
@@ -454,7 +454,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     });
   });
   const orderedActions=[...card.shadowRoot.querySelectorAll(".topic-card")].every(c=>{
-    const action=c.querySelector(":scope > .topic-actions");
+    const action=c.querySelector(":scope > .topic-quick");
     const fold=c.querySelector(":scope > details");
     const summary=c.querySelector(":scope > .financial-headline");
     return !action||(!fold||action.getBoundingClientRect().bottom<=fold.getBoundingClientRect().top+2)&&(!summary||summary.getBoundingClientRect().bottom<=action.getBoundingClientRect().top+2);
@@ -549,7 +549,7 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     keyboardSummary:folds.every(x=>x.firstElementChild?.tagName==="SUMMARY"),
     goalEditable:[...root.querySelectorAll("button")].some(x=>x.textContent==="Set charging goal"&&x.getBoundingClientRect().height>0),
     technicalReadable:root.textContent.includes("Complete object settings & sources"),
-    commandButtons:[...root.querySelectorAll("button")].filter(x=>!x.disabled&&(x.textContent==="Start charging"||x.textContent==="Stop charging")).length,
+    commandButtons:[...root.querySelectorAll("button")].filter(x=>!x.disabled&&(x.textContent==="Start manual charging"||x.textContent==="Stop charging")).length,
     errors:root.querySelectorAll("[role=alert]").length
   };
   document.getElementById("smoke-result").textContent=JSON.stringify(report);
