@@ -27,6 +27,61 @@ def recorded(at, value, units="W"):
 
 
 class NativeMeasuredHistoryTests(unittest.TestCase):
+    def test_recorder_indexes_normalize_once_and_keep_exact_gaps(self):
+        from bisect import bisect_right
+        from unittest.mock import patch
+        first = NOW-timedelta(hours=4)
+        # Include dense native readings, a conflicting timestamp and unavailable
+        # data. The prior full scan defines the exact interval semantics.
+        states = [recorded(first+timedelta(seconds=i*5), str((i % 7)*500))
+                  for i in range(2880)]
+        states.append(recorded(first+timedelta(seconds=1000), "unavailable"))
+        states.append(recorded(first+timedelta(seconds=1500), "900"))
+        samples = mod._power_samples(states)
+        stamps = [stamp for stamp, _ in samples]
+
+        def prior(a, b):
+            edges = sorted({a, b} | {edge for stamp in stamps
+                            for edge in (stamp, stamp+mod.MAX_OBSERVATION_AGE)
+                            if a < edge < b})
+            result = []
+            for left, right in zip(edges, edges[1:]):
+                index = bisect_right(stamps, left)-1
+                value = (samples[index][1] if index >= 0 and
+                         right-stamps[index] <= mod.MAX_OBSERVATION_AGE else None)
+                result.append((left, right, value))
+            return result
+
+        windows = [(first+timedelta(minutes=i*7-15),
+                    first+timedelta(minutes=i*7+5)) for i in range(40)]
+        expected = [prior(a, b) for a, b in windows]
+        with patch.object(mod, "_sample", wraps=mod._sample) as normalize:
+            indexed = mod._RecorderSamples(states)
+            self.assertEqual([mod._power_spans(indexed, a, b) for a, b in windows],
+                             expected)
+            self.assertEqual(mod._power_samples(indexed), samples)
+            self.assertEqual(normalize.call_count, len(states))
+        # A later Recorder result is not hidden by a previous request index.
+        replacement = [recorded(first, "7000")]
+        self.assertEqual(mod._power_spans(mod._RecorderSamples(replacement),
+                         first, first+timedelta(minutes=1)),
+                         [(first, first+timedelta(minutes=1), 7.0)])
+
+    def test_indexed_meter_delta_preserves_duplicate_and_reset_rejection(self):
+        first = NOW-timedelta(minutes=15)
+        power = [recorded(first, "0"), recorded(NOW, "0")]
+        meters = [recorded(first, "1", "kWh"), recorded(NOW, "2", "kWh")]
+        cached = mod._RecorderSamples(meters)
+        self.assertEqual(mod._meter_delta(cached, mod._RecorderSamples(power),
+                                         first, NOW, NOW, False),
+                         mod._meter_delta(meters, power, first, NOW, NOW, False))
+        self.assertEqual(mod._meter_delta(cached, power, first, NOW, NOW, True)
+                         ["meter_energy_kwh"], 1)
+        for bad in (meters+[recorded(first, "1", "kWh")],
+                    meters+[recorded(first+timedelta(minutes=5), "3", "kWh")]):
+            self.assertIsNone(mod._meter_delta(mod._RecorderSamples(bad),
+                                              power, first, NOW, NOW, False))
+
     def test_tariff_boundary_sweep_preserves_conflicting_and_missing_evidence(self):
         step = timedelta(minutes=15)
         start, end = NOW, NOW + 192 * step
