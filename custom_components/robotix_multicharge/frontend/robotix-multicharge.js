@@ -1487,9 +1487,13 @@ class RobotixMultiChargeCard extends HTMLElement {
         this._historyFetchedAt=0;this._refreshPending=true;
       }
       if(this._data?.configuration_revision&&
-         this._data.configuration_revision!==nextData.configuration_revision&&!this._manualEditor)
-        this._manualDrafts={};
+         this._data.configuration_revision!==nextData.configuration_revision){
+        // Configuration revisions invalidate authorization context, not just
+        // typed values. Close the old editor instead of reusing a stale cap.
+        this._manualDrafts={};this._manualEditor="";this._unsavedInput=false;
+      }
       const chargerIds=new Set((nextData.configuration?.chargers||[]).map(c=>c.id));
+      if(this._manualEditor&&!chargerIds.has(this._manualEditor))this._manualEditor="";
       const assetIds=new Set((nextData.configuration?.assets||[]).map(a=>a.id));
       for(const [drafts,ids] of [[this._manualDrafts,chargerIds],[this._goalDrafts,assetIds],[this._calendarDrafts,assetIds],[this._batteryDrafts,assetIds]])
         for(const id of Object.keys(drafts))if(!ids.has(id))delete drafts[id];

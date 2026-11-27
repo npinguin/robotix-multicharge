@@ -920,13 +920,16 @@ async function main(){
   // second persisted charge-request store or a physical session.
   minimalData.configuration_revision="minimal-rev-b";
   await minimalCard.load();
-  assert.equal(finiteInput(minimalCard,"Time limit (minutes)").value,"");
+  assert.equal(minimalCard._manualEditor,"","Changed configuration invalidates an old authorization context");
+  assert.equal(finiteInput(minimalCard,"Time limit (minutes)"),undefined);
+  find(minimalCard.shadowRoot,"button","Start charging").click();
+  assert.equal(finiteInput(minimalCard,"Time limit (minutes)").value,"30","Fresh draft uses the default, not stale input");
   const residentMinimal=new Card();
   residentMinimal.setConfig({});
   residentMinimal.hass={user:{is_admin:false},states:{},callWS:async()=>minimalData};
   await new Promise(resolve=>setImmediate(resolve));
   find(residentMinimal.shadowRoot,"button","Chargers").click();
-  assert.equal(find(residentMinimal.shadowRoot,"button","Start bounded session"),undefined,
+  assert.equal(find(residentMinimal.shadowRoot,"button","Start manual charging"),undefined,
     "Resident read access never exposes admin-only manual command");
 
   // UC15: tariff-period native Recorder costs are explicitly indicative,
