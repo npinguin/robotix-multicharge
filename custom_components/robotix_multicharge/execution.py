@@ -377,7 +377,7 @@ class NativeSwitchExecutor:
             if hold not in inflight or (asset is not None and session["intent_key"] != inflight[hold]):
                 raise ValueError("interrupted session has no matching durable intent")
             pending = row.get("pending", False)
-            if type(pending) is not bool:
+            if type(pending) is not bool or type(session.get("resident_override", False)) is not bool:
                 raise ValueError("invalid interrupted command phase")
             if pending:
                 stamp = datetime.fromisoformat(session["started_at"])
@@ -555,7 +555,9 @@ class NativeSwitchExecutor:
             # partially alter pause, intent or attribution on this runtime.
             self._completed = dict(completed)
             self._inflight = dict(inflight)
-            self._paused = set(paused)
+            # Reconcile interrupted resident commands without replaying them.
+            self._paused = set(paused) | {uid for uid, row in interrupted.items()
+                                         if row["session"].get("resident_override")}
             self._accepted_history = history
             self._session_history = receipts
             self._interrupted_sessions = interrupted
@@ -850,14 +852,14 @@ class NativeSwitchExecutor:
                     reason_local = self._admit_start(charger, at, target_current=minimum_current if charger.get("kind") == "variable_current" else None,
                                                      manual_request={**request, "_resident": True})
                 resident_goals[goal] = reason_local or "READY"
-            control = ("Unknown" if not self._persistence_verified else
+            control = ("Unknown" if not self._persistence_verified or uid in self._quarantine or uid in self._interrupted_sessions else
                        "Stopped" if uid in self._paused else
                        "Manual" if self._sessions.get(uid, {}).get("manual_mode") is not None else "Automatic")
             result[uid] = {
                 "control_mode": control,
                 "resident_goal_reasons": resident_goals,
                 "resident_start_allowed": "READY" in resident_goals.values(),
-                "auto_allowed": stop_allowed and not self._draining and self._persistence_verified and uid not in self._quarantine,
+                "auto_allowed": stop_allowed and not self._draining and self._persistence_verified and uid not in self._quarantine and uid not in self._interrupted_sessions,
                 "manual_goal_reasons": goals,
                 "paused": uid in self._paused,
                 "pause_allowed": stop_allowed and uid not in self._paused
@@ -2969,6 +2971,9 @@ class NativeSwitchExecutor:
             if state is None:
                 return result("rejected", "NATIVE_SWITCH_UNAVAILABLE")
             if return_auto:
+                if charger_id in self._quarantine or charger_id in self._interrupted_sessions:
+                    return result("rejected", "PREVIOUS_COMMAND_UNCONFIRMED")
+                self._grants.pop(charger_id, None)
                 if charger_id in self._paused:
                     action = "resume"
                 elif self._sessions.get(charger_id, {}).get("manual_mode") is not None:
@@ -3218,6 +3223,7 @@ class NativeSwitchExecutor:
                             "intent_key": hold_intent if asset else None,
                             "started_at": at.isoformat(),
                             "duration_without_connection": charger["kind"] == "on_off" and duration is not None and not (resident_start and asset is not None),
+                            "resident_override": resident_start,
                             "requested_budget_currency": (goal_request or {}).get("currency") if goal_request is not None else (asset or {}).get("requested_budget_currency"),
                         },
                     }

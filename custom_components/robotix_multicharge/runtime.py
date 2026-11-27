@@ -712,20 +712,20 @@ class MultiChargeRuntime:
             duration_without_connection = (raw["kind"] == "on_off"
                 and asset is not None and asset.get("requested_duration_minutes") is not None
                 and self.executor.duration_connection_allowed(cable))
+            if uid in self.executor._paused:
+                self.excluded[uid] = "USER_PAUSED"
+                self.forecast_excluded[uid] = "USER_PAUSED"
+                continue
+            if self.executor._sessions.get(uid, {}).get("manual_mode") is not None:
+                self.excluded[uid] = "MANUAL_CHARGING_ACTIVE"
+                self.forecast_excluded[uid] = "MANUAL_CHARGING_ACTIVE"
+                continue
             if not duration_without_connection and (
                     cable.value not in (True, False) or cable.quality != "ok"):
                 self.excluded[uid] = "CONNECTION_UNCONFIRMED"
                 self.forecast_excluded[uid] = "CONNECTION_UNCONFIRMED"
                 continue
             disconnected = cable.quality == "ok" and cable.value is False
-            if self.executor._sessions.get(uid, {}).get("resident_override"):
-                self.excluded[uid] = "MANUAL_CHARGING_ACTIVE"
-                self.forecast_excluded[uid] = "MANUAL_CHARGING_ACTIVE"
-                continue
-            if uid in self.executor._paused:
-                self.excluded[uid] = "USER_PAUSED"
-                self.forecast_excluded[uid] = "USER_PAUSED"
-                continue
             asset = assets.get(raw.get("asset"))
             if asset is None:
                 self.excluded[uid] = (
