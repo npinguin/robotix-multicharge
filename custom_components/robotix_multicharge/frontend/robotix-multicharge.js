@@ -1028,6 +1028,7 @@ for(const [locale,entries] of Object.entries({"nl":{"Site energy & technical det
 // Resident intent strings share the existing localization table.
 for(const [locale,entries] of Object.entries({"nl":{"Auto":"Auto","Manual":"Manueel","Available":"Beschikbaar","Energy today":"Energie vandaag","Duration unit":"Tijdseenheid","Time limit":"Tijdslimiet","Time limit (hours)":"Tijdslimiet (uren)","Until charging goal":"Tot laaddoel","Manual charging":"Manueel laden","Start manual charging":"Start manueel laden","Manual session active":"Manuele sessie actief","Session power limit (kW)":"Sessielimiet (kW)","Session ends no later than":"Sessie eindigt uiterlijk","Highest safe power":"Hoogste veilige vermogen","Manually stopped. Select Auto to restore automatic charging.":"Manueel gestopt. Kies Auto om automatisch laden te herstellen.","Configuration changed; reopen manual charging":"Configuratie gewijzigd; open manueel laden opnieuw","Asset settings":"Voertuiginstellingen","Charger settings":"Laadpuntinstellingen","Charging settings":"Laadinstellingen","Manual charging active":"Manueel laden actief"},"fr":{"Auto":"Auto","Manual":"Manuel","Available":"Disponible","Energy today":"Énergie aujourd’hui","Duration unit":"Unité de durée","Time limit":"Limite de durée","Time limit (hours)":"Limite de durée (heures)","Until charging goal":"Jusqu’à l’objectif","Manual charging":"Recharge manuelle","Start manual charging":"Démarrer la recharge manuelle","Manual session active":"Session manuelle active","Session power limit (kW)":"Limite de session (kW)","Session ends no later than":"Fin de session au plus tard","Highest safe power":"Puissance sûre maximale","Manually stopped. Select Auto to restore automatic charging.":"Arrêt manuel. Sélectionnez Auto pour rétablir la recharge automatique.","Configuration changed; reopen manual charging":"Configuration modifiée ; rouvrez la recharge manuelle","Asset settings":"Paramètres du véhicule","Charger settings":"Paramètres de la borne","Charging settings":"Paramètres de recharge","Manual charging active":"Recharge manuelle active"},"de":{"Auto":"Auto","Manual":"Manuell","Available":"Verfügbar","Energy today":"Energie heute","Duration unit":"Zeiteinheit","Time limit":"Zeitlimit","Time limit (hours)":"Zeitlimit (Stunden)","Until charging goal":"Bis zum Ladeziel","Manual charging":"Manuelles Laden","Start manual charging":"Manuelles Laden starten","Manual session active":"Manuelle Sitzung aktiv","Session power limit (kW)":"Sitzungslimit (kW)","Session ends no later than":"Sitzung endet spätestens","Highest safe power":"Höchste sichere Leistung","Manually stopped. Select Auto to restore automatic charging.":"Manuell gestoppt. Auto wählen, um automatisches Laden wiederherzustellen.","Configuration changed; reopen manual charging":"Konfiguration geändert; manuelles Laden erneut öffnen","Asset settings":"Fahrzeugeinstellungen","Charger settings":"Ladepunkteinstellungen","Charging settings":"Ladeeinstellungen","Manual charging active":"Manuelles Laden aktiv"},"es":{"Auto":"Auto","Manual":"Manual","Available":"Disponible","Energy today":"Energía hoy","Duration unit":"Unidad de tiempo","Time limit":"Límite de tiempo","Time limit (hours)":"Límite de tiempo (horas)","Until charging goal":"Hasta el objetivo de carga","Manual charging":"Carga manual","Start manual charging":"Iniciar carga manual","Manual session active":"Sesión manual activa","Session power limit (kW)":"Límite de sesión (kW)","Session ends no later than":"Fin de sesión como máximo","Highest safe power":"Potencia segura máxima","Manually stopped. Select Auto to restore automatic charging.":"Parada manual. Seleccione Auto para restaurar la carga automática.","Configuration changed; reopen manual charging":"Configuración modificada; vuelva a abrir la carga manual","Asset settings":"Ajustes del vehículo","Charger settings":"Ajustes del cargador","Charging settings":"Ajustes de carga","Manual charging active":"Carga manual activa"},"da":{"Auto":"Auto","Manual":"Manuel","Available":"Tilgængelig","Energy today":"Energi i dag","Duration unit":"Tidsenhed","Time limit":"Tidsgrænse","Time limit (hours)":"Tidsgrænse (timer)","Until charging goal":"Indtil lademålet","Manual charging":"Manuel opladning","Start manual charging":"Start manuel opladning","Manual session active":"Manuel session aktiv","Session power limit (kW)":"Sessionsgrænse (kW)","Session ends no later than":"Session slutter senest","Highest safe power":"Højeste sikre effekt","Manually stopped. Select Auto to restore automatic charging.":"Manuelt stoppet. Vælg Auto for at genoptage automatisk opladning.","Configuration changed; reopen manual charging":"Konfiguration ændret; åbn manuel opladning igen","Asset settings":"Køretøjsindstillinger","Charger settings":"Laderindstillinger","Charging settings":"Ladeindstillinger","Manual charging active":"Manuel opladning aktiv"},"nb":{"Auto":"Auto","Manual":"Manuell","Available":"Tilgjengelig","Energy today":"Energi i dag","Duration unit":"Tidsenhet","Time limit":"Tidsgrense","Time limit (hours)":"Tidsgrense (timer)","Until charging goal":"Til lademålet","Manual charging":"Manuell lading","Start manual charging":"Start manuell lading","Manual session active":"Manuell økt aktiv","Session power limit (kW)":"Øktgrense (kW)","Session ends no later than":"Økten slutter senest","Highest safe power":"Høyeste sikre effekt","Manually stopped. Select Auto to restore automatic charging.":"Manuelt stoppet. Velg Auto for å gjenoppta automatisk lading.","Configuration changed; reopen manual charging":"Konfigurasjonen er endret; åpne manuell lading på nytt","Asset settings":"Kjøretøyinnstillinger","Charger settings":"Laderinnstillinger","Charging settings":"Ladeinnstillinger","Manual charging active":"Manuell lading aktiv"},"sv":{"Auto":"Auto","Manual":"Manuell","Available":"Tillgänglig","Energy today":"Energi idag","Duration unit":"Tidsenhet","Time limit":"Tidsgräns","Time limit (hours)":"Tidsgräns (timmar)","Until charging goal":"Till laddmålet","Manual charging":"Manuell laddning","Start manual charging":"Starta manuell laddning","Manual session active":"Manuell session aktiv","Session power limit (kW)":"Sessionsgräns (kW)","Session ends no later than":"Sessionen slutar senast","Highest safe power":"Högsta säkra effekt","Manually stopped. Select Auto to restore automatic charging.":"Manuellt stoppad. Välj Auto för att återställa automatisk laddning.","Configuration changed; reopen manual charging":"Konfigurationen har ändrats; öppna manuell laddning igen","Asset settings":"Fordonsinställningar","Charger settings":"Laddarinställningar","Charging settings":"Laddningsinställningar","Manual charging active":"Manuell laddning aktiv"}})) Object.assign(MC_TEXT[locale],entries);
 MC_REASONS.MANUAL_CHARGING_ACTIVE="Manual charging active";
+for(const [locale,label] of Object.entries({"nl":"Laadhistoriek","fr":"Historique de recharge","de":"Ladeverlauf","es":"Historial de carga","da":"Opladningshistorik","nb":"Ladehistorikk","sv":"Laddhistorik"}))MC_TEXT[locale]["Charging history"]=label;
 for(const [locale,entries] of Object.entries({"nl":{"Manual charging overrides the local strategy; safety limits remain active.":"Manueel laden overschrijft de lokale strategie; veiligheidslimieten blijven actief.","Stop charging before changing the manual session.":"Stop het laden voordat je de manuele sessie wijzigt."},"fr":{"Manual charging overrides the local strategy; safety limits remain active.":"La recharge manuelle remplace la stratégie locale ; les limites de sécurité restent actives.","Stop charging before changing the manual session.":"Arrêtez la recharge avant de modifier la session manuelle."},"de":{"Manual charging overrides the local strategy; safety limits remain active.":"Manuelles Laden übersteuert die lokale Strategie; Sicherheitsgrenzen bleiben aktiv.","Stop charging before changing the manual session.":"Laden stoppen, bevor die manuelle Sitzung geändert wird."},"es":{"Manual charging overrides the local strategy; safety limits remain active.":"La carga manual sustituye la estrategia local; los límites de seguridad siguen activos.","Stop charging before changing the manual session.":"Detenga la carga antes de cambiar la sesión manual."},"da":{"Manual charging overrides the local strategy; safety limits remain active.":"Manuel opladning tilsidesætter den lokale strategi; sikkerhedsgrænserne forbliver aktive.","Stop charging before changing the manual session.":"Stop opladningen, før den manuelle session ændres."},"nb":{"Manual charging overrides the local strategy; safety limits remain active.":"Manuell lading overstyrer lokal strategi; sikkerhetsgrensene forblir aktive.","Stop charging before changing the manual session.":"Stopp lading før den manuelle økten endres."},"sv":{"Manual charging overrides the local strategy; safety limits remain active.":"Manuell laddning åsidosätter lokal strategi; säkerhetsgränserna är fortsatt aktiva.","Stop charging before changing the manual session.":"Stoppa laddningen innan den manuella sessionen ändras."}})) Object.assign(MC_TEXT[locale],entries);
 
 // A schema-aligned read-only projection of the ONE persisted Config Entry.
@@ -2355,14 +2356,11 @@ class RobotixMultiChargeCard extends HTMLElement {
       const assignment=this.vehicleSummary(card,a,charger);
       this.goalAssessment(card,a,charger,folds);
       this.financialSummary(card,"asset",a.id,folds);
-      const running=charger&&d.active_sessions?.[charger.id];
-      if(running?.asset_id===a.id){
-        const sessionDetails=mcEl("div");this.sessionMetrics(sessionDetails,running,false);
-        this.disclosure(folds,"asset:"+a.id+":active-session","Active session",sessionDetails);
-      }
+
       if(a.temporary)card.append(mcEl("p","small",mcTr("Guest")+" · "+mcTime(a.expires_at,d.timezone)));
       this.assetDailyActions(card,a,charger,chargers,true,assignment);
       card.append(...Array.from(folds.children));
+      this.assetHistory(card,a,charger,chargers);
       if(this.compactOwner(charger,a))card.className+=" compact-owner";
       assetCards.append(card);
     }
@@ -2691,12 +2689,12 @@ class RobotixMultiChargeCard extends HTMLElement {
     });
     fold.append(summary,content);container.append(fold);
   }
-  ownerFacts(container,scope,record,primaryFields=[]){
+  ownerFacts(container,scope,record,primaryFields=[],showHeading=true){
     // Every accepted persisted field appears under the one owning Device.
     // Details are compact by default and fold independently by stable ID.
     const groups=MC_OWNER_GROUPS[scope]||[];
     const wrapper=mcEl("section","owner-inventory");
-    wrapper.append(mcEl("h4","",mcTr("Complete object settings & sources")));
+    if(showHeading)wrapper.append(mcEl("h4","",mcTr("Complete object settings & sources")));
     const covered=new Set();
     const renderField=(parent,field)=>{
       const label=MC_OWNER_NAMES[field]||field.replace(/_/g," ");
@@ -2707,7 +2705,7 @@ class RobotixMultiChargeCard extends HTMLElement {
           mcOwnerReadValue(record[field],field,this._data?.timezone)));
       line.append(info);
       const key=scope+":"+record.id+":"+field;
-      const nativePrimary=(scope==="controller"&&["max_parallel","mode","power_adjustment_interval_minutes","solar_source_kind","grid_power_direction"].includes(field)||scope==="charger"&&field==="asset")&&this.ownerEntity(scope,record.id,field);
+      const nativePrimary=(scope==="controller"&&(["name","max_parallel","mode","power_adjustment_interval_minutes","solar_source_kind","grid_power_direction"].includes(field)&&this.ownerEntity(scope,record.id,field)||primaryFields.includes(field)))||(scope==="charger"&&field==="asset"&&this.ownerEntity(scope,record.id,field));
       if(this.canEditSettings()&&!nativePrimary&&!["id","physical_commissioned","dedicated_asset_id"].includes(field)&&
           !(scope==="charger"&&primaryFields.includes(field))){
         const edit=mcButton(mcTr("Edit"),()=>{
@@ -3208,6 +3206,37 @@ class RobotixMultiChargeCard extends HTMLElement {
     }
   }
   }
+  assetHistory(container,a,charger,chargers){
+    const d=this._data;
+    const recent=(d.recent_completed_sessions||d.completed_sessions||[])
+      .filter(entry=>entry.asset_id===a.id&&entry.physical_stop_confirmed===true)
+      .slice(-3).reverse();
+    const historyPanel=mcEl("div","history-values");
+    const active=charger&&d.active_sessions?.[charger.id];
+    if(active?.asset_id===a.id){
+      const panel=mcEl("div");this.sessionMetrics(panel,active,false);
+      this.disclosure(historyPanel,"asset:"+a.id+":active-session","Active session",panel);
+    }
+    if(!recent.length)historyPanel.append(mcEl("p","muted small",
+      mcTr("No confirmed charging history")));
+    for(const receipt of recent){
+      const row=mcEl("div","owner-group");
+      mcPair(row,mcTr("Charger at session time"),
+        chargers.find(ch=>ch.id===receipt.charger_id)?.name||
+          mcTr("Unknown"));
+      if(receipt.charger_id&&!chargers.some(ch=>ch.id===receipt.charger_id)){
+        const technical=mcEl("div");mcPair(technical,mcTr("Stable charger ID"),receipt.charger_id);
+        this.disclosure(row,"asset:"+a.id+":historical-charger:"+receipt.ended_at,"Technical details",technical);
+      }
+      mcPair(row,mcTr("Completed"),mcTime(receipt.ended_at,d.timezone));
+      this.sessionMetrics(row,receipt,false);
+      mcPair(row,mcTr("Physical STOP confirmed"),mcTr("Yes"));
+      if(receipt.stop_reason)mcPair(row,mcTr("Session stop reason"),
+        mcReason(receipt.stop_reason));
+      historyPanel.append(row);
+    }
+    this.disclosure(container,"asset:"+a.id+":history","Charging history",historyPanel);
+  }
   assets(container){
     const d=this._data,assets=d.configuration.assets||[],chargers=d.configuration.chargers||[];
     this.title(container,mcTr("Chargeable Assets")+" ("+assets.length+")");
@@ -3354,32 +3383,8 @@ class RobotixMultiChargeCard extends HTMLElement {
           detail.append(row);
         }
         this.ownerFacts(detail,"asset",a);
-        const recent=(d.recent_completed_sessions||d.completed_sessions||[])
-          .filter(entry=>entry.asset_id===a.id&&entry.physical_stop_confirmed===true)
-          .slice(-3).reverse();
-        const historyPanel=mcEl("div","history-values");
-        if(!recent.length)historyPanel.append(mcEl("p","muted small",
-          mcTr("No confirmed charging history")));
-        for(const receipt of recent){
-          const row=mcEl("div","owner-group");
-          mcPair(row,mcTr("Charger at session time"),
-            chargers.find(ch=>ch.id===receipt.charger_id)?.name||
-              mcTr("Unknown"));
-          if(receipt.charger_id&&!chargers.some(ch=>ch.id===receipt.charger_id)){
-            const technical=mcEl("div");mcPair(technical,mcTr("Stable charger ID"),receipt.charger_id);
-            this.disclosure(row,"asset:"+a.id+":historical-charger:"+receipt.ended_at,"Technical details",technical);
-          }
-          mcPair(row,mcTr("Completed"),mcTime(receipt.ended_at,d.timezone));
-          this.sessionMetrics(row,receipt,false);
-          mcPair(row,mcTr("Physical STOP confirmed"),mcTr("Yes"));
-          if(receipt.stop_reason)mcPair(row,mcTr("Session stop reason"),
-            mcReason(receipt.stop_reason));
-          historyPanel.append(row);
-        }
-        this.disclosure(detail,"asset:"+a.id+":history",
-          "Vehicle charging history",historyPanel,
-          recent.length+" "+mcTr("configured fields"));
       }
+      this.assetHistory(card,a,charger,chargers);
       this.ownerDetails(card,"asset",a,detail);
       if(this.compactOwner(charger,a))card.className+=" compact-owner";
       assetCards.append(card);
@@ -3754,7 +3759,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     for(const c of chargers){
       const obs=observations[c.id]||{};
       const card=mcEl("div","card object-card topic-card");
-      const folds=mcEl("div");
+      const folds=mcEl("div"),historyContent=mcEl("div","history-values");
       card.setAttribute("data-mc-object","charger:"+c.id);
       if(this._open==="charger:"+c.id||this._editingField.startsWith("charger:"+c.id+":"))card.className+=" expanded";
       const head=mcEl("div","row");head.append(mcIconLabel(mcEl("h3","",c.name),c.name,c.kind==="on_off"?"power-socket-eu":"ev-station"),this.operationalIndicator(c));
@@ -3781,7 +3786,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       const stateDetails=mcEl("div");stateDetails.append(chip,stateGrid);
       const stateKey="charger:"+c.id+":states";
       if(["charger:"+c.id+":setup","charger:"+c.id+":control_owner"].includes(this._editingField))this._folds[stateKey]=true;
-      this.disclosure(folds,stateKey,"Technical details",stateDetails);
+
       if(this._settingsFeedback?.status==="confirmed"&&this._settingsFeedback.scope==="charger"&&
           this._settingsFeedback.targetId===c.id)this.feedback(card);
       if(states.reason&&states.charging_state!=="ready")
@@ -3814,7 +3819,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       }
       const session=(d.active_sessions||{})[c.id];
       if(session){
-        mcPair(card,"Active session",mcTime(session.started_at,d.timezone));
+        mcPair(historyContent,"Active session",mcTime(session.started_at,d.timezone));
         const sessionDetails=mcEl("div");this.sessionMetrics(sessionDetails,session,false);
         const intent=session.requested_budget_amount!=null?
           session.requested_budget_amount+" "+
@@ -3832,7 +3837,7 @@ class RobotixMultiChargeCard extends HTMLElement {
           mcPair(sessionDetails,mcTr("Budget measurement quality"),
             mcReason(session.budget_quality||"unknown"));
         }
-        this.disclosure(folds,"charger:"+c.id+":active-session","Active session",sessionDetails);
+        this.disclosure(historyContent,"charger:"+c.id+":active-session","Active session",sessionDetails);
       }
       // The owning native chooser already displays the assigned vehicle.
       const identity=(d.connection_identity||{})[c.id]||null;
@@ -3862,12 +3867,12 @@ class RobotixMultiChargeCard extends HTMLElement {
           row.append(mcEl("strong","",mcTime(earlier.ended_at,d.timezone)));
           this.sessionMetrics(row,earlier,false);historyPanel.append(row);
         }
-        this.disclosure(folds,"charger:"+c.id+":history",
+        this.disclosure(historyContent,"charger:"+c.id+":confirmed-history",
           "Last charging session",historyPanel,
           mcTime(latest.ended_at,d.timezone));
       }
       const observed=mcEl("div");this.observedChargerActivity(observed,c);
-      if(observed.children.length)this.disclosure(folds,"charger:"+c.id+":observations","Observed charging runs",observed);
+      if(observed.children.length)this.disclosure(historyContent,"charger:"+c.id+":observations","Observed charging runs",observed);
       const detailedActions=mcEl("div","topic-action-details");
       const powerLimits=mcEl("div","charger-limits");
       if(c.kind==="variable_current"){
@@ -3881,6 +3886,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       detailedActions.append(powerLimits);
       const detail=mcEl("div","details");
       if(this._open==="charger:"+c.id){
+        detail.append(detailedActions);
         detail.append(mcEl("h4","",mcTr("Physical Charger & verified sources")));
         mcPair(detail,"Control type",c.kind==="on_off"?"On/off":"Variable current");
         mcPair(detail,"Rated power",c.rated_power_kw+" kW");
@@ -3904,9 +3910,11 @@ class RobotixMultiChargeCard extends HTMLElement {
       card.append(block);
       this.manualChargingPanel(card,c);
       this.chargingCommandFeedback(card,c);
-      this.disclosure(card,"charger:"+c.id+":actions","Charging settings",detailedActions);
       card.append(...Array.from(folds.children));
+      if(!historyContent.children.length)historyContent.append(mcEl("p","muted small",mcTr("No confirmed charging history")));
+      this.disclosure(card,"charger:"+c.id+":history","Charging history",historyContent);
       this.ownerDetails(card,"charger",c,detail);
+      this.disclosure(card,stateKey,"Technical details",stateDetails);
       if(this.compactOwner(c))card.className+=" compact-owner";
       chargerCards.append(card);
     }
@@ -4030,6 +4038,7 @@ class RobotixMultiChargeCard extends HTMLElement {
             rename.append(mcEl("span","",mcTr("Site name")),mcEl("strong","",ctl.name),
               mcButton("Edit",()=>this.openNative("controller",ctl.id,"name")));
             detail.append(rename);
+            if(this._editingField==="controller:"+ctl.id+":name")this.dashboardEditField(detail,"controller",ctl,"name");
           }else mcPair(detail,"Site name",ctl.name);
           this.nativeNumberEditor(detail,"controller",ctl.id,"max_parallel",
             "Parallel chargers",ctl.max_parallel);
@@ -4037,11 +4046,7 @@ class RobotixMultiChargeCard extends HTMLElement {
             "Maximum group power",ctl.max_power_kw,"kW");
           this.nativeNumberEditor(detail,"controller",ctl.id,"power_adjustment_interval_minutes",
             "Power adjustment interval",ctl.power_adjustment_interval_minutes,"min");
-          this.ownerFacts(detail,"controller",ctl,[
-            "solar_power_entity","home_power_entity","grid_power_entity","solar_surplus_entity",
-            "current_price_entity","price_entity","export_price_entity","solar_entity",
-            "site_power_entity","binding_entity","phase_limits_a"
-          ]);
+
         }else if(title==="Charging strategy"){
           const options=mcEl("div","chips");
           for(const mode of this.canEditSettings()?MC_MODES:[]){
@@ -4171,6 +4176,12 @@ class RobotixMultiChargeCard extends HTMLElement {
       settingsGrid.append(group);
     }
     container.append(settingsGrid);
+    this.ownerFacts(expert,"controller",ctl,[
+            "solar_power_entity","home_power_entity","grid_power_entity","solar_surplus_entity",
+            "current_price_entity","price_entity","export_price_entity","solar_entity",
+            "site_power_entity","binding_entity","phase_limits_a"
+          ],false);
+    if(this._editingField.startsWith("controller:"+ctl.id+":")&&this._settingsOpen!=="Sources & bindings"&&this._settingsOpen!=="Safety & limits"&&!this._editingField.endsWith(":name"))this._folds["controller:expert"]=true;
     this.disclosure(container,"controller:expert","Complete object settings & sources",expert);
   }
 }
