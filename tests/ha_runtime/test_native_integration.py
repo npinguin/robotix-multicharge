@@ -2006,6 +2006,116 @@ async def test_installed_automatic_soc_recovers_external_stop_and_source_return(
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 
+@pytest.mark.asyncio
+async def test_installed_adjustable_consecutive_quarters_keep_one_physical_session(
+    hass: HomeAssistant, freezer,
+):
+    """Native time callback admits the next grant without repeated START/STOP."""
+    from datetime import datetime, timezone
+    from pytest_homeassistant.common import async_fire_time_changed
+
+    initial = datetime(2026, 11, 26, 8, 1, tzinfo=timezone.utc)
+    freezer.move_to(initial)
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    cfg = validate_configuration({
+        "controller": {"id": "site", "name": "Quarter continuity", "mode": "Automatic",
+                       "max_parallel": 1, "max_power_kw": 3.6},
+        "assets": [{"id": "car", "name": "Car", "kind": "car",
+                    "soc_entity": "sensor.cont_soc", "target_soc": 90,
+                    "capacity_kwh": 30, "charge_efficiency": 0.9}],
+        "chargers": [{"id": "drive", "name": "Drive", "kind": "variable_current",
+                      "asset": "car", "rated_power_kw": 3.6, "phase_count": 1,
+                      "voltage_v": 230, "min_current_a": 6, "max_current_a": 16,
+                      "current_step_a": 1, "control_owner": "multicharge",
+                      "physical_commissioned": True, "control_entity": "switch.cont_drive",
+                      "connected_entity": "binary_sensor.cont_cable",
+                      "power_entity": "sensor.cont_power", "energy_entity": "sensor.cont_meter",
+                      "current_control_entity": "number.cont_limit",
+                      "current_readback_entity": "sensor.cont_current"}],
+    })
+    number_attrs = {"unit_of_measurement": "A", "min": 6, "max": 16, "step": 1}
+    hass.states.async_set("switch.cont_drive", "off")
+    hass.states.async_set("binary_sensor.cont_cable", "on")
+    hass.states.async_set("sensor.cont_soc", "50", {"unit_of_measurement": "%"})
+    hass.states.async_set("sensor.cont_meter", "5", {"unit_of_measurement": "kWh"})
+    hass.states.async_set("number.cont_limit", "6", number_attrs)
+
+    def draw(amps):
+        hass.states.async_set("sensor.cont_power", str(amps*230), {"unit_of_measurement": "W"})
+        hass.states.async_set("sensor.cont_current", str(amps), {"unit_of_measurement": "A"})
+
+    draw(0)
+    commands = []
+
+    async def current(call):
+        amps = float(call.data["value"])
+        commands.append(("current", amps))
+        hass.states.async_set("number.cont_limit", str(amps), number_attrs)
+        if hass.states.get("switch.cont_drive").state == "on":
+            draw(amps)
+
+    async def start(call):
+        commands.append(("start", None))
+        hass.states.async_set("switch.cont_drive", "on")
+        draw(float(hass.states.get("number.cont_limit").state))
+
+    async def stop(call):
+        commands.append(("stop", None))
+        hass.states.async_set("switch.cont_drive", "off")
+        draw(0)
+
+    hass.services.async_register("number", "set_value", current)
+    hass.services.async_register("switch", "turn_on", start)
+    hass.services.async_register("switch", "turn_off", stop)
+    entry = MockConfigEntry(domain=DOMAIN, title="Quarter continuity",
+                            data={"source": "ui", "configuration": cfg}, unique_id=DOMAIN)
+    entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+    runtime = hass.data[DOMAIN][entry.entry_id]
+
+    first = initial.replace(minute=15)
+    freezer.move_to(first)
+    hass.states.async_set("binary_sensor.cont_cable", "on")
+    hass.states.async_set("sensor.cont_soc", "50", {"unit_of_measurement": "%"})
+    draw(0)
+    async_fire_time_changed(hass, first)
+    await hass.async_block_till_done()
+    assert hass.states.get("switch.cont_drive").state == "on", commands
+    session = runtime.executor.session_snapshot()["drive"]
+    assert [action for action, _ in commands if action != "current"] == ["start"]
+    assert runtime.executor.completed_sessions() == []
+
+    second = initial.replace(minute=30)
+    freezer.move_to(second)
+    # Provider changes and both native timers may arrive in the same event-loop
+    # turn; do not artificially advance the planner from a browser/source event.
+    hass.states.async_set("binary_sensor.cont_cable", "on")
+    hass.states.async_set("sensor.cont_soc", "51", {"unit_of_measurement": "%"})
+    hass.states.async_set("sensor.cont_meter", "5.3", {"unit_of_measurement": "kWh"})
+    draw(float(hass.states.get("number.cont_limit").state))
+    async_fire_time_changed(hass, second)
+    await hass.async_block_till_done()
+    assert hass.states.get("switch.cont_drive").state == "on", commands
+    assert runtime.executor.session_snapshot()["drive"]["started_at"] == session["started_at"]
+    assert [action for action, _ in commands if action != "current"] == ["start"]
+    assert runtime.executor.completed_sessions() == []
+    assert runtime.executor._accepted["drive"]["end"] == initial.replace(minute=45)
+
+    # Without the actual next grant, expiry must still stop: no grace/replay.
+    freezer.move_to(initial.replace(minute=45, second=1))
+    hass.states.async_set("sensor.cont_soc", "52", {"unit_of_measurement": "%"})
+    await hass.async_block_till_done()
+    assert hass.states.get("switch.cont_drive").state == "off"
+    assert [action for action, _ in commands if action != "current"] == ["start", "stop"]
+    assert not runtime.executor.session_snapshot()
+    assert len(runtime.executor.completed_sessions()) == 1
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
 @pytest.mark.parametrize("count", [0, 1, 4, 10])
 @pytest.mark.asyncio
 async def test_installed_scale_source_publication_and_reload(hass: HomeAssistant, count):
