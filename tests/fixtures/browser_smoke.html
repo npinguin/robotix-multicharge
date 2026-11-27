@@ -460,8 +460,8 @@ main { padding:8px; max-width:1400px; margin:auto; box-sizing:border-box; }
     return !action||(!fold||action.getBoundingClientRect().bottom<=fold.getBoundingClientRect().top+2)&&(!summary||summary.getBoundingClientRect().bottom<=action.getBoundingClientRect().top+2);
   });
   if(view==="asset"||view==="charger"){
-    const details=[...card.shadowRoot.querySelectorAll("button")].find(
-      b=>b.textContent==="Details");
+    const details=[...card.shadowRoot.querySelectorAll("details > summary")].find(
+      b=>b.textContent===(view==="asset"?"Asset settings":"Charger settings"));
     if(details)details.click();
   }
   let defaultChartHosts=0,foldedChartHosts=0,chartLifecycle=true;

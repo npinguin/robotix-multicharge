@@ -255,7 +255,7 @@ async function main(){
     callWS:async()=>owners};
   await new Promise(resolve=>setImmediate(resolve));
   vehicle._tab="Chargeable Assets";vehicle.render();
-  find(vehicle.shadowRoot,"button","Details").click();
+  find(vehicle.shadowRoot,"summary","Asset settings").click();
   const vehicleText=content(vehicle.shadowRoot);
   for(const label of ["Vehicle identity & lifetime","Goal & timing",
                       "Price & charging decisions","Battery & source references",
@@ -288,7 +288,7 @@ async function main(){
     callWS:async()=>owners};
   await new Promise(resolve=>setImmediate(resolve));
   evse._tab="Chargers";evse.render();
-  find(evse.shadowRoot,"button","Details").click();
+  find(evse.shadowRoot,"summary","Charger settings").click();
   const evseText=content(evse.shadowRoot);
   for(const label of ["Physical Charger & verified sources",
                       "Identity & ownership","Connection & meter sources",
@@ -323,7 +323,7 @@ async function main(){
   ro.hass={user:{is_admin:false},states:{},callWS:async()=>owners};
   await new Promise(resolve=>setImmediate(resolve));
   ro._tab="Chargers";ro.render();
-  find(ro.shadowRoot,"button","Details").click();
+  find(ro.shadowRoot,"summary","Charger settings").click();
   assert.ok(content(ro.shadowRoot).includes("Native Charger control switch"),
     "Read-only user can observe owning technical configuration");
   assert.equal(find(ro.shadowRoot,"a","Configure in Home Assistant"),undefined,
@@ -481,7 +481,7 @@ async function main(){
   };
   await new Promise(resolve=>setImmediate(resolve));
   scheduleCard._tab="Chargeable Assets";scheduleCard.render();
-  find(scheduleCard.shadowRoot,"button","Details").click();
+  find(scheduleCard.shadowRoot,"summary","Asset settings").click();
   // PARITY-07 native continuous Select on the same Asset and Config Entry.
   let pattern;
   visit(scheduleCard.shadowRoot,node=>{
@@ -993,7 +993,7 @@ async function main(){
     callWS:async()=>adjustableFixture};
   await new Promise(resolve=>setImmediate(resolve));
   find(adjustableCard.shadowRoot,"button","Chargers").click();
-  find(adjustableCard.shadowRoot,"button","Details").click();
+  find(adjustableCard.shadowRoot,"summary","Charger settings").click();
   const adjustableText=content(adjustableCard.shadowRoot);
   assert.ok(adjustableText.includes("Minimum charging power"));
   assert.ok(adjustableText.includes("Maximum charging power"));
@@ -1003,7 +1003,7 @@ async function main(){
   fixedCard.hass={user:{is_admin:true},states:{},callWS:async()=>fixture};
   await new Promise(resolve=>setImmediate(resolve));
   find(fixedCard.shadowRoot,"button","Chargers").click();
-  find(fixedCard.shadowRoot,"button","Details").click();
+  find(fixedCard.shadowRoot,"summary","Charger settings").click();
   assert.ok(content(fixedCard.shadowRoot).includes("On/off only"));
   // Power controls live directly in the Charger view and write ONLY the
   // MultiCharge-owned HA Number entity (never a provider Amp endpoint).
@@ -1621,7 +1621,7 @@ async function main(){
   find(card.shadowRoot,"button","Chargeable Assets").click();
   assert.ok(content(card.shadowRoot).includes("Family car"));
   assert.ok(content(card.shadowRoot).includes("20%"));
-  find(card.shadowRoot,"button","Details").click();
+  (find(card.shadowRoot,"summary","Asset settings")||find(card.shadowRoot,"summary","Charger settings")||find(card.shadowRoot,"button","Details")).click();
   assert.ok(content(card.shadowRoot).includes("Charging limit"),
     "Asset dashboard directly presents user 80% target");
   assert.ok(find(card.shadowRoot,"button","Schedule charging"),
@@ -1727,7 +1727,7 @@ async function main(){
   assert.ok(nativeCalls.some(c=>c.args.entity_id==="select.site_mode"&&
     c.args.option==="economy"),"native select owner receives strategy");
   card._tab="Chargeable Assets";card._open="";card.render();
-  find(card.shadowRoot,"button","Details").click();
+  (find(card.shadowRoot,"summary","Asset settings")||find(card.shadowRoot,"summary","Charger settings")||find(card.shadowRoot,"button","Details")).click();
   assert.ok(find(card.shadowRoot,"select"),"vehicle offers a native color choice");
   assert.ok(find(card.shadowRoot,"button","Apply"),
     "Vehicle target and energy settings are controlled inline by native HA Numbers");
@@ -1778,7 +1778,7 @@ async function main(){
   assert.equal(fixture.configuration.chargers[0].asset,"car",
     "Native Charger selection persists in the canonical object");
   card._tab="Chargers";card._open="";card.render();
-  find(card.shadowRoot,"button","Details").click();
+  (find(card.shadowRoot,"summary","Asset settings")||find(card.shadowRoot,"summary","Charger settings")||find(card.shadowRoot,"button","Details")).click();
   assert.ok(content(card.shadowRoot).includes("Plan color"));
   let chargerColor;
   visit(card.shadowRoot,x=>{
