@@ -1416,7 +1416,7 @@ class RobotixMultiChargeCard extends HTMLElement {
   }
   disconnectedCallback(){
     if(this._detached)return;
-    this._detached=true;this._viewEpoch++;
+    this._detached=true;this._viewEpoch++;this._historyPending=null;
     if(this._refreshTimer!==null)clearTimeout(this._refreshTimer);
     this._refreshTimer=null;this._refreshPending=false;
     const root=this.shadowRoot;
@@ -1444,7 +1444,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     else if(this._data && before?.locale?.language!==value?.locale?.language)this.passiveRender();
   }
   historyIdentity(data){
-    return data?JSON.stringify([data.start,data.end,data.configuration_revision,data.history_revision]):"";
+    return data?JSON.stringify([data.start,data.end,data.configuration_revision,data.history_revision,
+      Object.entries(data.active_sessions||{}).map(([uid,row])=>[uid,row.started_at,row.asset_id]).sort((a,b)=>a[0].localeCompare(b[0]))]):"";
   }
   mergeHistory(target,source){
     target.actual_slots=source.actual_slots;
@@ -2461,6 +2462,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     const colorBy=controller.plan_color_by||"vehicle";
     const forecastVisible=controller.show_indicative_forecast!==false;
     this.title(container,"Charging plan");
+    if(d.actual_history_quality==="HISTORY_LOADING")container.append(mcEl("p","muted small",mcTr("Measured history loading · live planning available")));
+    else if(d.history_snapshot_at)container.append(mcEl("p","muted small",mcTr("Measured history as of")+" · "+mcTime(d.history_snapshot_at,d.timezone)));
     if(!chargers.length){
       this.notice(container,"No charging points",false);
       this.configure(container);
@@ -3349,7 +3352,6 @@ class RobotixMultiChargeCard extends HTMLElement {
       card.append(...Array.from(folds.children));
       const detail=mcEl("div","details");
       if(this._open==="asset:"+a.id){
-        this.contextualField(detail,"asset",a,"priority","Charging priority");
         mcPair(detail,"Battery data",obs.soc?(obs.soc.quality+" · "+(a.soc_entity||"manual")):"Unknown");
         if(this.canEditSettings()&&this.ownerEntity("asset",a.id,"soc_entity")){
           const sourceEdit=mcEl("div","row");
@@ -3357,9 +3359,6 @@ class RobotixMultiChargeCard extends HTMLElement {
             mcButton(mcTr("Edit"),()=>this.openNative("asset",a.id,"soc_entity")));
           detail.append(sourceEdit);
         }
-        this.contextualField(detail,"asset",a,"requested_kwh","Requested energy","kWh");
-        this.contextualField(detail,"asset",a,"requested_duration_minutes","Duration","min");
-        this.contextualField(detail,"asset",a,"requested_budget_amount","Charging budget",a.requested_budget_currency||"EUR");
         if(charger&&a.requested_budget_amount!==undefined){
           const current=(d.active_sessions||{})[charger.id];
           if(current?.budget_quality==="qualified_effective_meter_increments"||
@@ -3376,19 +3375,19 @@ class RobotixMultiChargeCard extends HTMLElement {
           }else if(current?.requested_budget_amount!=null)
             mcPair(detail,mcTr("Budget progress"),mcTr("Unavailable"));
         }
-        const preferences=mcEl("div","owner-fields preference-grid");
+        const preferences=mcEl("div","configuration-rows preference-grid");
         for(const [field,label,unit] of [
           ["target_soc","Charging limit","%"],
           ["requested_kwh","Requested energy","kWh"],
           ["requested_duration_minutes","Requested charging duration","minutes"],
-          ["requested_budget_amount","Requested budget (€)","EUR"],
+          ["requested_budget_amount","Requested budget",a.requested_budget_currency||"EUR"],
           ["minimum_soc_pct","Minimum charge before price limits","%"],
           ["maximum_price_per_kwh","Price ceiling per kWh","currency/kWh"],
           ["low_price_trigger_per_kwh","Immediate low-price threshold","currency/kWh"],
           ["low_soc_trigger_pct","Immediate low-SoC threshold","%"],
           ["opportunistic_level_pct","Opportunistic percentage","%"],
           ["max_charge_kw","Maximum vehicle charging power","kW"],
-          ["priority","Priority",""],
+          ["priority","Charging priority",""],
           ["capacity_kwh","Battery capacity","kWh"],
           ["charge_efficiency","Charging efficiency",""]
         ])this.contextualField(preferences,"asset",a,field,label,unit);
