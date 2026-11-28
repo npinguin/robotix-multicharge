@@ -1222,6 +1222,9 @@ function mcAssetGoalText(a){
 function mcOwnerReadValue(value,field,timeZone){
   if(field==="control_owner")return mcTr(value==="multicharge"?"Active":"Inactive");
   if(value===undefined||value===null||value==="")return mcTr("Not configured");
+  if(field==="plan_label_mode")return mcTr(({vehicle:"Vehicle",charger:"Charger",both:"Vehicle + Charger"})[value]||value);
+  if(field==="plan_color_by")return mcTr(({vehicle:"Vehicle",charger:"Charger"})[value]||value);
+  if(field==="show_indicative_forecast")return mcTr(value?"Show (not reserved)":"Hide");
   if(typeof value==="boolean")return mcTr(value?"Yes":"No");
   if(Array.isArray(value))return value.length?value.join(", "):mcTr("Not configured");
   if(typeof value==="object"){
@@ -1777,7 +1780,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     else options=MC_EDIT_ENUM[field]||null;
     if(MC_EDIT_BOOLEAN.has(field))options=["true","false"];
     if(options){
-      const pairs=options.map(key=>[key,field==="control_owner"?(key==="multicharge"?mcTr("Active"):mcTr("Inactive")):key||mcTr("No vehicle")]);
+      const captions={plan_label_mode:{vehicle:"Vehicle",charger:"Charger",both:"Vehicle + Charger"},plan_color_by:{vehicle:"Vehicle",charger:"Charger"},show_indicative_forecast:{true:"Show (not reserved)",false:"Hide"},solar_source_kind:{none:"Not configured",intervals:"Qualified Solar intervals",grid_export:"Measured grid export",direct_surplus:"Measured solar surplus"},grid_power_direction:{import_positive:"Import is positive",export_positive:"Export is positive"}};
+      const pairs=options.map(key=>[key,field==="control_owner"?(key==="multicharge"?mcTr("Active"):mcTr("Inactive")):mcTr(captions[field]?.[key]||key||"No vehicle")]);
       if(prior!==undefined&&!pairs.some(x=>x[0]===String(prior)))
         pairs.unshift([String(prior),String(prior)]);
       const choice=this.field(container,MC_OWNER_NAMES[field]||field,
@@ -2397,7 +2401,13 @@ class RobotixMultiChargeCard extends HTMLElement {
     const configRows=mcEl("div","configuration-rows");
     configRows.append(mcEl("h4","","Charging configuration"));
     this.siteLimitRows(configRows,ctl);
+    this.contextualField(configRows,"controller",ctl,"mode","Charging strategy");
+    this.contextualField(configRows,"controller",ctl,"phase_limits_a","Electrical limits");
     technical.append(configRows);
+    const sourcesPanel=mcEl("div","configuration-rows");
+    for(const [field,label] of [["current_price_entity","Current import price source"],["price_entity","Future tariff interval source"],["solar_power_entity","Solar production sensor"],["home_power_entity","Home consumption sensor"],["grid_power_entity","Grid import/export sensor"],["solar_surplus_entity","Available solar surplus sensor"],["export_price_entity","Current export price source"],["solar_entity","Solar interval source"],["site_power_entity","Site capacity meter"],["binding_entity","Power envelope source"],["solar_source_kind","Solar strategy"],["grid_power_direction","Grid sensor sign"]])this.contextualField(sourcesPanel,"controller",ctl,field,label);
+    if(this._editingField.startsWith("controller:"+ctl.id+":")&&sourcesPanel.children.length)this._folds["site:energy"]=true;
+    this.disclosure(technical,"site:source-bindings","Sources & bindings",sourcesPanel);
     this.disclosure(site,"site:energy","Site energy & technical details",technical);
     container.append(site);
     this.feedback(container);
@@ -2497,32 +2507,10 @@ class RobotixMultiChargeCard extends HTMLElement {
       for(const [row,label] of visibleCosts)this.planCostLine(costs,row,label);
       container.append(costs);
     }
-    const selectors=mcEl("div","controls");
-    const option=(title,setting,value,variants)=>{
-      const wrap=mcEl("div","field");const label=mcEl("label","",title);
-      const select=mcEl("select");
-      select.setAttribute("aria-label",title);
-      for(const [id,caption] of variants){
-        const entry=mcEl("option","",caption);entry.value=id;
-        if(id===value)entry.selected=true;
-        select.append(entry);
-      }
-      select.value=value;
-      select.disabled=!this.canEditSettings()||this._settingsBusy||!this.ownerEntity("controller",controller.id,setting);
-      select.addEventListener("change",()=>{
-        const selected=setting==="show_indicative_forecast"?
-          select.value==="true":select.value;
-        this.nativeSelect("controller",controller.id,setting,
-          typeof selected==="boolean"?(selected?"on":"off"):selected);
-      });
-      wrap.append(label,select);selectors.append(wrap);
-    };
-    option("Show labels","plan_label_mode",labelMode,
-      [["vehicle","Vehicle"],["charger","Charger"],["both","Vehicle + Charger"]]);
-    option("Color by","plan_color_by",colorBy,
-      [["vehicle","Vehicle"],["charger","Charger"]]);
-    option("Indicative forecasting","show_indicative_forecast",
-      String(forecastVisible),[["true","Show (not reserved)"],["false","Hide"]]);
+    const selectors=mcEl("div","configuration-rows");
+    this.contextualField(selectors,"controller",{...controller,plan_label_mode:labelMode},"plan_label_mode","Show labels");
+    this.contextualField(selectors,"controller",{...controller,plan_color_by:colorBy},"plan_color_by","Color by");
+    this.contextualField(selectors,"controller",{...controller,show_indicative_forecast:forecastVisible},"show_indicative_forecast","Indicative forecasting");
     this.feedback(container);
     const rows=d.slots||[],forecast=forecastVisible?(d.forecast_slots||[]):[];
     const measured=d.actual_slots||[],assumptions=d.forecast_assumptions||{};
