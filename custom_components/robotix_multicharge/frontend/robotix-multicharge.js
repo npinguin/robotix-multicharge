@@ -1903,9 +1903,10 @@ class RobotixMultiChargeCard extends HTMLElement {
       this._settingsFeedback={status:"rejected",message:"Unavailable"};
       this.render();return;
     }
+    const preserveDraft=this._unsavedInput;
     this._settingsBusy=true;
     this._settingsFeedback={status:"requested",message:"Updating"};
-    this.render();
+    if(!preserveDraft)this.render();
     try{
       const expected=field==="mode"?MC_MODE_SELECT[option]||option:option;
       await this._hass.callService("select","select_option",{
@@ -1922,7 +1923,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       }
     }catch(error){
       this._settingsFeedback={status:"rejected",message:String(error?.message||"Selection rejected").slice(0,210)};
-    }finally{this._settingsBusy=false;this.render();}
+    }finally{this._settingsBusy=false;if(preserveDraft&&this._settingsFeedback?.status==="rejected")this.showEditError();else this.render();}
   }
   async nativeText(scope,uid,field,value){
     const entity=this.ownerEntity(scope,uid,field);
@@ -1944,7 +1945,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     }catch(error){
       this._settingsFeedback={status:"rejected",
         message:String(error?.message||"Window settings rejected")};
-    }finally{this._settingsBusy=false;this.render();}
+    }finally{this._settingsBusy=false;if(preserveDraft&&this._settingsFeedback?.status==="rejected")this.showEditError();else this.render();}
   }
   async nativeButton(scope,uid,field){
     const entity=this.ownerEntity(scope,uid,field);
@@ -2198,16 +2199,20 @@ class RobotixMultiChargeCard extends HTMLElement {
     this.render();
   }
   stageNativeEdit(container,inputs,save,enabled=true){
+    if(!enabled)return;
     // Native owner services remain canonical. A change is a draft, never a write.
     const revision=this._data?.configuration_revision;
     const initial=inputs.map(input=>input.value);
     const actions=mcEl("div","dashboard-edit-actions");
-    const submit=mcButton(mcTr("Save"),()=>{
+    actions.setAttribute("data-native-edit-for",inputs.map(input=>input.getAttribute("id")).join(" "));
+    const submit=mcButton(mcTr("Save"),async()=>{
       if(revision!==this._data?.configuration_revision){
         this._settingsFeedback={status:"rejected",message:"Settings changed; refresh and retry"};
         this.showEditError(container);return;
       }
-      return save();
+      if(this._settingsBusy)return;
+      submit.disabled=true;
+      try{await save();}finally{if(this._settingsFeedback?.status==="rejected")submit.disabled=false;}
     });
     const cancel=mcButton(mcTr("Cancel"),()=>this.render());
     submit.disabled=true;cancel.disabled=true;
