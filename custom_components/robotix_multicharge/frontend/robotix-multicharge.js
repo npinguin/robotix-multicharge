@@ -1356,8 +1356,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     const focused=this.shadowRoot?.activeElement;
     const tab=this._tab;
     const scopedEdit=Boolean(this._editingField&&(
-      ["Settings","Overview"].includes(tab)&&this._editingField.startsWith("controller:")||
-      tab==="Chargeable Assets"&&this._editingField.startsWith("asset:")||
+      ["Settings","Overview","Charging Plan"].includes(tab)&&this._editingField.startsWith("controller:")||
+      ["Overview","Chargeable Assets","Charging Plan"].includes(tab)&&this._editingField.startsWith("asset:")||
       tab==="Chargers"&&this._editingField.startsWith("charger:")));
     return Boolean(this._unsavedInput||scopedEdit||this._yamlEditorOpen||
       (this._manualEditor&&["Overview","Chargeable Assets","Chargers"].includes(tab))||
@@ -1366,6 +1366,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       tab==="Chargeable Assets"&&(
         this._assetEditor||this._assignmentEditor||
         this._goalEditor||this._scheduleEditor||this._windowsOpen)||
+      tab==="Charging Plan"&&(this._goalEditor||this._scheduleEditor)||
       tab==="Chargers"&&this._createCharger||
       focused&&(focused.isContentEditable||
         ["INPUT","SELECT","TEXTAREA"].includes(
@@ -1754,7 +1755,10 @@ class RobotixMultiChargeCard extends HTMLElement {
     const fieldInput=this.field(container,MC_OWNER_NAMES[field]||field,
       prior===undefined||prior===null?"":prior,type);
     if(type==="number"){
-      fieldInput.setAttribute("step",Number.isInteger(prior)&&prior!==null?"1":"any");
+      const native=this._hass?.states?.[this.ownerEntity(scope,record.id,field)]?.attributes||{};
+      const integerFields=new Set(["max_parallel","power_adjustment_interval_minutes","requested_duration_minutes","priority","phase_count"]);
+      fieldInput.setAttribute("step",String(native.step??(integerFields.has(field)?1:"any")));
+      for(const bound of ["min","max"])if(native[bound]!=null&&Number.isFinite(Number(native[bound])))fieldInput.setAttribute(bound,String(native[bound]));
       fieldInput.setAttribute("inputmode","decimal");
     }
     if(MC_EDIT_SOURCE_DOMAINS[field]){
@@ -1792,22 +1796,24 @@ class RobotixMultiChargeCard extends HTMLElement {
   contextualField(container,scope,record,field,label,unit=""){
     const key=scope+":"+record.id+":"+field;
     const row=mcEl("div","owner-field"),info=mcEl("div","owner-field-info");
-    info.append(mcEl("div","owner-field-label",mcTr(label)),mcEl("div","owner-field-value",record[field]==null?mcTr("Not configured"):String(record[field])+(unit?" "+unit:"")));
+    info.append(mcEl("div","owner-field-label",mcTr(label)),mcEl("div","owner-field-value",unit&&record[field]!=null?String(record[field])+" "+unit:mcOwnerReadValue(record[field],field,this._data?.timezone)));
     row.append(info);
     if(this.canEditSettings()){
       const edit=mcButton(mcTr("Edit"),()=>{this._editingField=this._editingField===key?"":key;this.render();});
       edit.setAttribute("aria-label",mcTr("Edit")+" "+mcTr(label));row.append(edit);
     }
     container.append(row);
-    if(this.canEditSettings()&&this._editingField===key)this.dashboardEditField(container,scope,record,field);
+    if(this.canEditSettings()&&this._editingField===key)this.dashboardEditField(container,scope,record,field,unit,label);
   }
   siteLimitRows(container,ctl){
     this.contextualField(container,"controller",ctl,"max_power_kw","Maximum group power","kW");
     this.contextualField(container,"controller",ctl,"max_parallel","Maximum parallel chargers");
     this.contextualField(container,"controller",ctl,"power_adjustment_interval_minutes","Power adjustment interval","min");
   }
-  dashboardEditField(container,scope,record,field){
+  dashboardEditField(container,scope,record,field,unit="",label=""){
     const body=mcEl("div","dashboard-field-edit");
+    body.setAttribute("data-edit-field",scope+":"+record.id+":"+field);
+    if(unit)body.append(mcEl("p","muted small",mcTr(label||MC_OWNER_NAMES[field]||field)+" ("+unit+")"));
     let read=this.dashboardFieldControl(body,scope,record,field);
     const actions=mcEl("div","dashboard-edit-actions");
     const submit=mcButton(mcTr("Save"),async()=>{
@@ -2311,11 +2317,14 @@ class RobotixMultiChargeCard extends HTMLElement {
         "Spot price":"Current price";
     const powers=chargers.map(x=>(observations[x.id]||{}).power_kw);
     const complete=powers.length>0&&powers.every(x=>x&&x.quality==="ok"&&typeof x.value==="number");
-    const active=powers.filter(x=>x&&x.quality==="ok"&&x.value>0).length;
+    const active=chargers.filter(x=>d.charger_states?.[x.id]?.charging_session==="charging").length;
+    const connected=chargers.filter(x=>d.charger_states?.[x.id]?.connection_state==="asset_connected").length;
     const activated=chargers.filter(x=>d.charger_states?.[x.id]?.activation==="active").length;
     const metrics=mcEl("div","grid");
     for(const [key,value,source] of [
-      ["Active chargers",String(activated)],
+      ["Managed chargers",String(activated)],
+      ["Connected chargers",String(connected)],
+      ["Charging now",String(active)],
       ["Actual power",complete?(powers.reduce((sum,x)=>sum+x.value,0).toFixed(2)+" kW"):"Unknown"],
       [priceKind,priceLabel],
       ["Solar production",mcValue(sources.solar_power," kW"),sources.solar_power],
@@ -2342,7 +2351,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     }
     const site=mcEl("section","card charging-site-overview");
     const primary=mcEl("div","grid site-metrics"),technical=mcEl("div"),live=mcEl("div","grid"),folds=mcEl("div");
-    Array.from(metrics.children).forEach((cell,index)=>{if(index!==0)([1,2].includes(index)?primary:live).append(cell);});
+    Array.from(metrics.children).forEach((cell,index)=>(index<5?primary:live).append(cell));
     technical.append(live);
     site.append(mcEl("h3","",mcTr("Charging site")),primary);
     this.financialSummary(primary,"controller","site",folds);
@@ -2351,7 +2360,6 @@ class RobotixMultiChargeCard extends HTMLElement {
     const ctl=c.controller||{};
     const configRows=mcEl("div","configuration-rows");
     configRows.append(mcEl("h4","","Charging configuration"));
-    mcPair(configRows,"Managed chargers",String(activated));
     this.siteLimitRows(configRows,ctl);
     technical.append(configRows);
     this.disclosure(site,"site:energy","Site energy & technical details",technical);
@@ -2535,11 +2543,12 @@ class RobotixMultiChargeCard extends HTMLElement {
         source.value?(verified?mcTr("Connected"):
           mcTr("Connected")+" · "+mcTr("Vehicle unknown")):
         mcTr("Disconnected"):mcTr("Connection unknown");
-      const fullName=charger.name+" · "+mcTr(vehicleLabel);
+      const fullName=labelMode==="charger"?charger.name:labelMode==="vehicle"?mcTr(vehicleLabel):charger.name+" · "+mcTr(vehicleLabel);
       const color=mcPlanOwnerColor(d,pastOnly?historicalAssetId:charger.asset,charger.id);
       const lhs=mcEl("div","plan-key");
       const swatch=mcEl("span","plan-swatch");swatch.style.background=color;
       lhs.append(swatch,mcEl("strong","",fullName));
+      if(labelMode==="vehicle")lhs.append(mcEl("span","muted small",charger.name));
       if(!pastOnly)lhs.append(this.operationalIndicator(charger,selected||null));
       label.append(lhs,mcEl("span","muted small",plugged));card.append(label);
       const readback=(d.observations||{}).assets?.[selected?.id]||{};
@@ -2556,7 +2565,16 @@ class RobotixMultiChargeCard extends HTMLElement {
         (next?" · "+mcTr("Next charge")+" "+
           mcTime(next.start,d.timezone)+" · "+next.proposed_power_kw+" kW":""));
       const hasGoal=!pastOnly&&selected&&d.goal_assessments?.[charger.id]?.asset_id===selected.id;
-      if(!pastOnly&&selected){this.vehicleSummary(card,selected,charger);this.goalAssessment(card,selected,charger);}
+      if(!pastOnly&&selected){
+        this.vehicleSummary(card,selected,charger);this.goalAssessment(card,selected,charger);
+        if(this.canEditSettings()){
+          const actions=mcEl("div","topic-actions planning-controls");
+          actions.append(mcButton("Set charging goal",()=>{this._goalEditor=this._goalEditor===selected.id?"":selected.id;this._scheduleEditor="";this.render();}),mcButton("Schedule charging",()=>{this._scheduleEditor=this._scheduleEditor===selected.id?"":selected.id;this._goalEditor="";this.render();}));
+          card.append(actions);
+          if(this._goalEditor===selected.id)this.assetGoalEditor(card,selected);
+          if(this._scheduleEditor===selected.id)this.nativeRepeatEditor(card,selected);
+        }
+      }
       else if(pastOnly)card.append(summary);
       if(typeof shortfall==="number"&&shortfall>0&&!d.goal_assessments?.[charger.id])
         card.append(mcEl("p","plan-caution",mcTr("Shortfall")+" · "+
@@ -3296,7 +3314,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       card.append(...Array.from(folds.children));
       const detail=mcEl("div","details");
       if(this._open==="asset:"+a.id){
-        mcPair(detail,"Charging priority",a.priority===undefined?"Not set":a.priority);
+        this.contextualField(detail,"asset",a,"priority","Charging priority");
         mcPair(detail,"Battery data",obs.soc?(obs.soc.quality+" · "+(a.soc_entity||"manual")):"Unknown");
         if(this.canEditSettings()&&this.ownerEntity("asset",a.id,"soc_entity")){
           const sourceEdit=mcEl("div","row");
@@ -3304,11 +3322,9 @@ class RobotixMultiChargeCard extends HTMLElement {
             mcButton(mcTr("Edit"),()=>this.openNative("asset",a.id,"soc_entity")));
           detail.append(sourceEdit);
         }
-        mcPair(detail,"Requested energy",a.requested_kwh===undefined?"Not set":a.requested_kwh+" kWh");
-        mcPair(detail,"Duration",a.requested_duration_minutes===undefined?"Not set":a.requested_duration_minutes+" min");
-        mcPair(detail,mcTr("Charging budget"),
-          a.requested_budget_amount===undefined?mcTr("Not set"):
-          a.requested_budget_amount+" "+(a.requested_budget_currency||"EUR"));
+        this.contextualField(detail,"asset",a,"requested_kwh","Requested energy","kWh");
+        this.contextualField(detail,"asset",a,"requested_duration_minutes","Duration","min");
+        this.contextualField(detail,"asset",a,"requested_budget_amount","Charging budget",a.requested_budget_currency||"EUR");
         if(charger&&a.requested_budget_amount!==undefined){
           const current=(d.active_sessions||{})[charger.id];
           if(current?.budget_quality==="qualified_effective_meter_increments"||
@@ -3340,7 +3356,8 @@ class RobotixMultiChargeCard extends HTMLElement {
           ["priority","Priority",""],
           ["capacity_kwh","Battery capacity","kWh"],
           ["charge_efficiency","Charging efficiency",""]
-        ])this.nativeNumberEditor(preferences,"asset",a.id,field,label,a[field],unit);
+        ])this.contextualField(preferences,"asset",a,field,label,unit);
+        if(this._editingField.startsWith("asset:"+a.id+":")&&["target_soc","requested_kwh","requested_duration_minutes","requested_budget_amount","minimum_soc_pct","maximum_price_per_kwh","low_price_trigger_per_kwh","low_soc_trigger_pct","opportunistic_level_pct","max_charge_kw","priority","capacity_kwh","charge_efficiency"].includes(this._editingField.split(":").at(-1)))this._folds["asset:"+a.id+":preferences"]=true;
         this.disclosure(detail,"asset:"+a.id+":preferences",
           "Charging preferences",preferences);
         const deadline=mcEl("div","row");
@@ -4020,8 +4037,11 @@ class RobotixMultiChargeCard extends HTMLElement {
         for(const [field,label] of [["min_charging_power_kw","Minimum charging power"],["max_charging_power_kw","Maximum charging power"],["set_charging_power_kw","Set charging power"]]){
           const session=d.active_sessions?.[c.id];
           const kw=field==="set_charging_power_kw"?(session?.target_current_a!=null&&c.voltage_v&&c.phase_count?session.target_current_a*c.voltage_v*c.phase_count/1000:null):c[field];
-          this.nativeNumberEditor(powerLimits,"charger",c.id,field,label,kw,"kW");
-          if(!this.canEditSettings()||!this.ownerEntity("charger",c.id,field))mcPair(powerLimits,mcTr(label),kw==null?mcTr("Not set"):Number(kw).toFixed(2)+" kW");
+          if(field==="set_charging_power_kw"){
+            // Live setpoint is a guarded native command, not persisted configuration.
+            this.nativeNumberEditor(powerLimits,"charger",c.id,field,label,kw,"kW");
+            if(!this.canEditSettings()||!this.ownerEntity("charger",c.id,field))mcPair(powerLimits,mcTr(label),kw==null?mcTr("Not set"):Number(kw).toFixed(2)+" kW");
+          }else this.contextualField(powerLimits,"charger",c,field,label,"kW");
         }
       }else mcPair(powerLimits,mcTr("Charging power control"),mcTr("On/off only"));
       detailedActions.append(powerLimits);
@@ -4029,9 +4049,9 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(this._open==="charger:"+c.id){
         detail.append(detailedActions);
         detail.append(mcEl("h4","",mcTr("Physical Charger & verified sources")));
-        mcPair(detail,"Control type",c.kind==="on_off"?"On/off":"Variable current");
-        mcPair(detail,"Rated power",c.rated_power_kw+" kW");
-        mcPair(detail,"Phases",c.phase_count||"Unverified");
+        this.contextualField(detail,"charger",c,"kind","Control type");
+        this.contextualField(detail,"charger",c,"rated_power_kw","Rated power","kW");
+        this.contextualField(detail,"charger",c,"phase_count","Phases");
         const bounds=d.charger_setup?.[c.id]?.effective_current||c;
         mcPair(detail,"Current range",bounds.min_current_a!=null&&bounds.max_current_a!=null?
           bounds.min_current_a+"–"+bounds.max_current_a+" A":"Unknown");
@@ -4271,8 +4291,7 @@ class RobotixMultiChargeCard extends HTMLElement {
             this._folds[advancedKey]=true;
           this.disclosure(detail,advancedKey,"Advanced source bindings",advancedSources);
         }else if(title==="Safety & limits"){
-          mcPair(detail,"Maximum group kW",
-            ctl.max_power_kw===undefined?"Unknown":ctl.max_power_kw+" kW");
+          this.contextualField(detail,"controller",ctl,"max_power_kw","Maximum group kW","kW");
           const phaseValues=Object.entries(ctl.phase_limits_a||{});
           mcPair(detail,"Electrical limits",phaseValues.length?
             phaseValues.map(([id,amps])=>id+": "+amps+" A").join(" · "):
