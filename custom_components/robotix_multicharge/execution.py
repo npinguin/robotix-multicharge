@@ -712,7 +712,7 @@ class NativeSwitchExecutor:
         })
         self.session_history_revision += 1
 
-    def _close_unknown_interruption(self, uid, observed_at, reason):
+    def _close_unknown_interruption(self, uid, observed_at, reason, *, decision=None):
         """Retain the original intent with UNKNOWN progress after verified STOP.
 
         This receipt is not an attributable physical session interval. Its
@@ -737,7 +737,7 @@ class NativeSwitchExecutor:
             "duration_minutes": None, "actual_energy_kwh": None,
             "energy_quality": "unknown", "meter_entity": row["sources"]["energy_entity"],
             "meter_observed_at": None, "cost": None, "currency": None,
-            "cost_quality": "unknown", "stop_reason": reason,
+            "cost_quality": "unknown", "stop_reason": reason, "physical_stop_decision": decision,
             "physical_stop_confirmed": False, "switch_stop_confirmed": False,
             "continuity_quality": "unknown", "recovery_stop_confirmed": True,
             "budget_accrued_cost": None, "budget_cost_quality": "unknown",
@@ -981,7 +981,7 @@ class NativeSwitchExecutor:
                         if asset_id == session.get("asset_id") and evidence:
                             self._completed[asset_id] = intent
             elif uid in self._interrupted_sessions:
-                self._close_unknown_interruption(uid, observed_at, reason)
+                self._close_unknown_interruption(uid, observed_at, reason, decision=stop_decision)
             elif (reason in ("ALREADY_PHYSICALLY_STOPPED", "INDEPENDENT_POWER_READBACK")
                     and observed_at is not None and measured_kw is not None):
                 charger = next((c for c in self.runtime.configuration["chargers"]
@@ -2489,7 +2489,7 @@ class NativeSwitchExecutor:
                     if charger["kind"] == "variable_current":
                         target = slot.current_a
                         if target is None:
-                            await self.execute(uid, "stop")
+                            await self.execute(uid, "stop", stop_decision="QUARTER_CURRENT_NOT_QUALIFIED")
                             continue
                         previous = session.get("target_current_a", 0)
                         # A lower new-quarter grant is binding and cannot wait.
@@ -2503,11 +2503,11 @@ class NativeSwitchExecutor:
                                 continue
                     # Still-owned physical session and verified slot continuity.
                     if not self._accept_slot(charger, slot, assessment.plan.revision):
-                        await self.execute(uid, "stop")
+                        await self.execute(uid, "stop", stop_decision="QUARTER_ADMISSION_FAILED")
                         continue
                     if not await self.runtime.persist_control_state():
                         self._persistence_verified = False
-                        await self.execute(uid, "stop")
+                        await self.execute(uid, "stop", stop_decision="QUARTER_CHECKPOINT_NOT_PERSISTED")
                     continue
                 if slot is None:
                     continue
@@ -2538,14 +2538,14 @@ class NativeSwitchExecutor:
                 )
                 if result["status"] == "confirmed":
                     if not self._accept_slot(charger, slot, assessment.plan.revision):
-                        await self.execute(uid, "stop")
+                        await self.execute(uid, "stop", stop_decision="QUARTER_ADMISSION_FAILED")
                         continue
                     if self._last_power_adjustment_tick is None:
                         self._last_power_adjustment_tick = monotonic()
                 if not await self.runtime.persist_control_state():
                     self._persistence_verified = False
                     if result["status"] == "confirmed":
-                        await self.execute(uid, "stop")
+                        await self.execute(uid, "stop", stop_decision="QUARTER_CHECKPOINT_NOT_PERSISTED")
         finally:
             self._grants.clear()
             self._grant_configuration = None
@@ -2799,7 +2799,8 @@ class NativeSwitchExecutor:
                     if (power.quality == "ok" or (c["kind"] == "on_off"
                             and (not c.get("power_entity")
                                  or session.get("duration_without_connection")))):
-                        await self.execute(uid, "stop")
+                        await self.execute(uid, "stop", stop_decision=(
+                            "SWITCH_OFF_WITH_MEASURED_DRAW" if contradictory else "NATIVE_EXTERNAL_STOP_RECONCILIATION"))
             for configured in active:
                 charger = self.effective_charger(configured)
                 uid = charger["id"]
@@ -2872,7 +2873,7 @@ class NativeSwitchExecutor:
                 # An idle output with no owned operation to reconcile need
                 # not prove an unrelated meter to permit unload.
                 continue
-            outcome = await self.execute(charger["id"], "stop")
+            outcome = await self.execute(charger["id"], "stop", stop_decision="INTEGRATION_UNLOAD")
             if outcome["status"] != "confirmed":
                 _LOGGER.error("Unconfirmed STOP blocks unload for %s: %s",
                               charger["id"], outcome["reason"])
