@@ -1,7 +1,7 @@
 /* Robotix MultiCharge native Home Assistant card: one backend, five honest views. */
 // Isolate classic-script and module registrations across loaded releases.
 (function(){
-const MC_FRONTEND_VERSION="0.1.28";
+const MC_FRONTEND_VERSION="0.1.29";
 const MC_ELEMENT_SUFFIX="-v"+MC_FRONTEND_VERSION.replace(/\./g,"-");
 const MC_CARD_TAG="robotix-multicharge-card"+MC_ELEMENT_SUFFIX;
 const MC_PANEL_TAG="robotix-multicharge-panel"+MC_ELEMENT_SUFFIX;
@@ -265,7 +265,7 @@ const MC_STYLE = [
   ".tabs button[aria-selected=true]{color:var(--primary-color,#1976d2);border-bottom-color:var(--primary-color,#1976d2);background:transparent;font-weight:650}button.active{background:var(--primary-color,#1976d2);color:var(--text-primary-color,#fff);border-color:var(--primary-color,#1976d2)}",
   "button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid var(--primary-color,#1976d2);outline-offset:2px}",
   ".grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}",
-  ".card{border:1px solid var(--divider-color,#e1e4e8);border-radius:10px;padding:14px;min-width:0;margin:8px 0}.settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px}.settings-card{margin:0;min-height:0}.settings-card.expanded{grid-column:1/-1}.schedule-days{gap:4px}.schedule-days button{min-width:0;padding:7px 9px}.settings-heading{min-width:0;flex:1}.settings-heading p{margin-top:5px}.settings-card .row{align-items:flex-start}.config-code{white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;border:1px solid var(--divider-color,#e1e4e8);border-radius:8px;background:var(--secondary-background-color,#f7f8fa);font-size:12px;line-height:1.5}",
+  ".card{border:1px solid var(--divider-color,#e1e4e8);border-radius:10px;padding:14px;min-width:0;margin:8px 0}.settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px}.settings-card{margin:0;min-height:0}.settings-card.expanded{min-width:0}.schedule-days{gap:4px}.schedule-days button{min-width:0;padding:7px 9px}.settings-heading{min-width:0;flex:1}.settings-heading p{margin-top:5px}.settings-card .row{align-items:flex-start}.config-code{white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;border:1px solid var(--divider-color,#e1e4e8);border-radius:8px;background:var(--secondary-background-color,#f7f8fa);font-size:12px;line-height:1.5}",
   ".mc-icon{--mdc-icon-size:20px;display:inline-block;vertical-align:middle;margin-right:6px;flex:none;color:var(--primary-color,#1976d2)}.mc-icon.good{color:var(--success-color,#278355)}.mc-icon.warn{color:var(--warning-color,#b57418)}.mc-icon.bad{color:var(--error-color,#d43b38)}.mc-icon.quiet{color:var(--secondary-text-color,#65717e)}.mc-icon.solar{color:var(--warning-color,#b57418)}button .mc-icon{--mdc-icon-size:18px;color:inherit}.tabs .mc-icon{color:inherit}.metric .mc-icon{--mdc-icon-size:24px}.soc-track{height:8px;border-radius:6px;background:var(--divider-color,#ddd);overflow:hidden;margin:7px 0}.soc-fill{height:100%;background:var(--primary-color,#1976d2);border-radius:6px}.message[role=alert]{color:var(--error-color,#d43b38);white-space:pre-wrap;overflow-wrap:anywhere}",
   ".metric{background:var(--secondary-background-color,#f6f8fa);border:1px solid var(--divider-color,#e1e4e8);border-radius:8px;padding:10px;min-width:0}",
   ".row{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}",
@@ -279,7 +279,7 @@ const MC_STYLE = [
   ".legend{display:flex;flex-wrap:wrap;gap:8px;font-size:12px;color:var(--secondary-text-color,#65717e)}.legend-toggle{font-size:12px;border:0;padding:4px;min-height:30px;background:transparent;color:inherit}.legend-toggle[aria-pressed=false]{opacity:.5;text-decoration:line-through}",
   ".dot{display:inline-block;width:11px;height:11px;margin-right:5px;border-radius:2px}",
   ".plan-lane{margin:10px 0;border:1px solid var(--divider-color,#d8dde3);border-radius:11px;padding:11px}",
-  ".object-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:10px;margin:9px 0;align-items:stretch}.object-grid>.card{margin:0;min-width:0;display:flex;flex-direction:column}.object-grid>.expanded{grid-column:1/-1}.charger-state-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;padding:8px 0}.charger-power{padding:8px 0;border-bottom:1px solid var(--divider-color,#ddd)}@media(min-width:800px){.charger-state-grid{grid-template-columns:repeat(auto-fit,minmax(105px,1fr))}}.setup-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:0 12px}.setup-fields .field{min-width:0}.setup-fields>p{grid-column:1/-1}.goal-track,.goal-ticks{box-sizing:border-box}.session-summary{margin:8px 0;padding:8px 0;border-top:1px solid var(--divider-color,#ddd)}.session-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:7px;margin:7px 0}",
+  ".object-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:10px;margin:9px 0;align-items:stretch}.object-grid>.card{margin:0;min-width:0;display:flex;flex-direction:column}.object-grid>.expanded{min-width:0}.charger-state-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;padding:8px 0}.charger-power{padding:8px 0;border-bottom:1px solid var(--divider-color,#ddd)}@media(min-width:800px){.charger-state-grid{grid-template-columns:repeat(auto-fit,minmax(105px,1fr))}}.setup-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:0 12px}.setup-fields .field{min-width:0}.setup-fields>p{grid-column:1/-1}.goal-track,.goal-ticks{box-sizing:border-box}.session-summary{margin:8px 0;padding:8px 0;border-top:1px solid var(--divider-color,#ddd)}.session-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:7px;margin:7px 0}",
   ".plan-lane svg{display:block;min-width:680px;width:100%;height:auto}",
   ".plan-lane .chart{margin-top:5px}",
   ".owner-inventory{margin-top:14px;border-top:1px solid var(--divider-color,#bbb);padding-top:12px}.owner-inventory>h4{font-size:15px;margin:0 0 9px}.owner-group{margin:7px 0 12px;padding:8px 10px;border:1px solid var(--divider-color,#ccc);border-radius:8px;min-width:0}.owner-group h4{font-size:13px;margin:0 0 8px}.owner-group .pair{word-break:break-word}.owner-configure{margin-top:8px}.owner-configure a{display:inline-block;margin-top:4px}.owner-hint{font-size:12px}.owner-inventory .row{flex-wrap:wrap}",
@@ -296,7 +296,7 @@ const MC_STYLE = [
   // keyboard-accessible foldable rows, never a simultaneous 82-field form.
   ".object-card{margin:9px 0;padding:14px 16px;border-radius:12px;box-shadow:0 1px 2px #00000009}.object-card>.row:first-child{padding-bottom:7px;border-bottom:1px solid var(--divider-color,#e5e7eb)}.object-card h3{font-size:15px;letter-spacing:-.01em}.object-card>.pair{padding:4px 0}.object-card .plan-key{margin:7px 0}",
   ".topic-card>.topic-actions{margin-top:auto}.topic-card>.overview-actions,.topic-card>.controls,.topic-actions,.site-actions{display:flex;flex-wrap:wrap;gap:6px;width:100%;box-sizing:border-box}.topic-card>.overview-actions>button,.topic-card>.controls>button,.topic-actions>button,.site-actions>button{flex:1 1 112px;min-width:0;min-height:40px;justify-content:center;text-align:center;white-space:normal;line-height:1.2}.topic-card .operational-indicator{font-size:14px;font-weight:650;white-space:normal}.topic-card .operational-indicator:before{width:10px;height:10px}.topic-card>.row:first-child{min-height:32px}.topic-card .financial-headline{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:8px 0}.financial-headline>.metric{padding:8px;background:transparent}.financial-headline .value{font-size:19px}.site-metrics{grid-template-columns:repeat(4,minmax(0,1fr))}.site-metrics>.financial-headline{display:contents}.site-mode-label{width:100%;margin:4px 0;font-weight:600}.settings-card .native-number{display:grid;grid-template-columns:minmax(0,1fr) minmax(120px,240px);align-items:center;gap:10px}.native-number>.row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px}.native-number>.row>button{white-space:nowrap}.native-number>.row>input{min-width:0}.topic-card>.topic-actions+details{margin-top:9px}@media(max-width:600px){.site-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.settings-card .native-number{grid-template-columns:1fr}.topic-card>.topic-actions>button,.topic-actions>button,.site-actions>button{flex-basis:100px}}",
-  ".topic-card{padding:14px;gap:7px}.topic-card>p{margin:0}.topic-card>.row:first-child{align-items:flex-start;gap:8px}.topic-card>.row:first-child h3{flex:1;min-width:0;font-size:17px;overflow-wrap:anywhere}.topic-card .operational-indicator{max-width:50%;text-align:right}.control-label{margin:0!important}.topic-card .topic-quick{margin-top:auto;display:grid;gap:6px}.topic-actions.charge-controls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.topic-actions.planning-controls{display:flex;flex-wrap:wrap;gap:6px}.topic-actions.planning-controls>button{flex:1 1 110px}.topic-actions.charge-controls>button{width:100%;min-height:42px;padding:6px}.topic-card .object-disclosure{margin:0;border-radius:7px}.topic-card .object-disclosure>summary{padding:9px 10px}.topic-card .financial-headline{margin:0}.topic-card .financial-headline .metric{padding:5px 0}.topic-card .vehicle-summary{margin:0}.topic-card .goal-outcome{margin:0}.topic-card .manual-summary,.manual-editor{border:1px solid var(--divider-color,#ddd);border-radius:8px;padding:10px}.topic-card .quick-assignment{margin:0}.topic-card .charger-power{min-height:30px}.topic-card .financial-headline .value{line-height:1.2}.topic-card .financial-headline .metric{min-height:65px}.topic-card:has(>details[open]){grid-column:1/-1}.topic-card .charge-controls button.active{font-weight:650}.compact-owner.topic-card{padding:14px}",
+  ".topic-card{padding:14px;gap:7px}.topic-card>p{margin:0}.topic-card>.row:first-child{align-items:flex-start;gap:8px}.topic-card>.row:first-child h3{flex:1;min-width:0;font-size:17px;overflow-wrap:anywhere}.topic-card .operational-indicator{max-width:50%;text-align:right}.control-label{margin:0!important}.topic-card .topic-quick{margin-top:auto;display:grid;gap:6px}.topic-actions.charge-controls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.topic-actions.planning-controls{display:flex;flex-wrap:wrap;gap:6px}.topic-actions.planning-controls>button{flex:1 1 110px}.topic-actions.charge-controls>button{width:100%;min-height:42px;padding:6px}.topic-card .object-disclosure{margin:0;border-radius:7px}.topic-card .object-disclosure>summary{padding:9px 10px}.topic-card .financial-headline{margin:0}.topic-card .financial-headline .metric{padding:5px 0}.topic-card .vehicle-summary{margin:0}.topic-card .goal-outcome{margin:0}.topic-card .manual-summary,.manual-editor{border:1px solid var(--divider-color,#ddd);border-radius:8px;padding:10px}.topic-card .quick-assignment{margin:0}.topic-card .charger-power{min-height:30px}.topic-card .financial-headline .value{line-height:1.2}.topic-card .financial-headline .metric{min-height:65px}.topic-card:has(>details[open]){min-width:0}.object-grid:has(>.expanded),.object-grid:has(>.topic-card>details[open]){align-items:start}.settings-grid:has(>.expanded){align-items:start}.topic-card>*,.settings-card>*{min-width:0;max-width:100%;box-sizing:border-box}.topic-card .pair,.settings-card .pair,.owner-field-value{overflow-wrap:anywhere}.topic-card .session-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.configuration-rows{display:grid;gap:4px;margin:10px 0}.configuration-rows .owner-field{min-width:0}.topic-card .dashboard-field-edit{min-width:0;max-width:100%}.topic-card .charge-controls button.active{font-weight:650}.compact-owner.topic-card{padding:14px}",
   ".vehicle-state>button{min-height:27px;padding:3px 7px;font-size:11px;margin-top:4px}.topic-card .plan-link>button{min-height:32px;font-size:12px}.topic-card .topic-actions.planning-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.topic-card .topic-actions.planning-controls>button{width:100%;min-height:40px}.topic-card .topic-quick{margin-top:auto}.topic-card .vehicle-state{max-width:52%}.topic-card .vehicle-target{flex-wrap:wrap}.topic-card .control-note{line-height:1.35}",
   ".topic-card>.row:first-child{align-items:center}.topic-card>.owner-group>summary{font-size:13px}.topic-card .details{margin:0}.topic-card .native-number,.settings-card .native-number{display:grid;grid-template-columns:minmax(0,1fr) minmax(110px,175px);align-items:center;gap:8px}.topic-card .native-number .row,.settings-card .native-number .row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px}.topic-card .native-number input,.settings-card .native-number input{width:100%;box-sizing:border-box}.topic-card .operational-indicator{font-size:13px}.topic-card .goal-outcome p{margin:3px 0}.topic-card .financial-headline .metric{min-height:64px}.topic-card .goal-outcome{padding:5px 0}.topic-card.compact-owner .vehicle-soc{font-size:26px}.topic-card .manual-editor .topic-actions>button{flex:1 1 100px}.owner-group>summary .operational-indicator{margin-left:8px}.settings-grid{align-items:stretch}.settings-card .row{gap:8px}.settings-card .row>span:nth-child(2){flex:1;min-width:0;text-align:right;overflow-wrap:anywhere}@media(max-width:600px){.topic-card .native-number,.settings-card .native-number{grid-template-columns:minmax(0,1fr) minmax(90px,135px)}.topic-card .operational-indicator{font-size:12px}}",
   ".compact-owner{padding:10px 12px}.compact-owner .vehicle-summary{margin:4px 0}.compact-owner .vehicle-soc{font-size:20px}.compact-owner .vehicle-deadline{font-size:12px}.compact-owner .goal-outcome{margin:3px 0;padding-top:3px}.compact-owner .object-disclosure{margin:3px 0}.compact-owner .overview-actions{margin:4px 0}.compact-owner .financial-headline{margin:3px 0}",
@@ -1355,7 +1355,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     const focused=this.shadowRoot?.activeElement;
     const tab=this._tab;
     const scopedEdit=Boolean(this._editingField&&(
-      tab==="Settings"&&this._editingField.startsWith("controller:")||
+      ["Settings","Overview"].includes(tab)&&this._editingField.startsWith("controller:")||
       tab==="Chargeable Assets"&&this._editingField.startsWith("asset:")||
       tab==="Chargers"&&this._editingField.startsWith("charger:")));
     return Boolean(this._unsavedInput||scopedEdit||this._yamlEditorOpen||
@@ -1787,6 +1787,23 @@ class RobotixMultiChargeCard extends HTMLElement {
       return /currency$/.test(field)?value.toUpperCase():value;
     };
     read.setValue=value=>{fieldInput.value=String(value??"");};return read;
+  }
+  contextualField(container,scope,record,field,label,unit=""){
+    const key=scope+":"+record.id+":"+field;
+    const row=mcEl("div","owner-field"),info=mcEl("div","owner-field-info");
+    info.append(mcEl("div","owner-field-label",mcTr(label)),mcEl("div","owner-field-value",record[field]==null?mcTr("Not configured"):String(record[field])+(unit?" "+unit:"")));
+    row.append(info);
+    if(this.canEditSettings()){
+      const edit=mcButton(mcTr("Edit"),()=>{this._editingField=this._editingField===key?"":key;this.render();});
+      edit.setAttribute("aria-label",mcTr("Edit")+" "+mcTr(label));row.append(edit);
+    }
+    container.append(row);
+    if(this.canEditSettings()&&this._editingField===key)this.dashboardEditField(container,scope,record,field);
+  }
+  siteLimitRows(container,ctl){
+    this.contextualField(container,"controller",ctl,"max_power_kw","Maximum group power","kW");
+    this.contextualField(container,"controller",ctl,"max_parallel","Maximum parallel chargers");
+    this.contextualField(container,"controller",ctl,"power_adjustment_interval_minutes","Power adjustment interval","min");
   }
   dashboardEditField(container,scope,record,field){
     const body=mcEl("div","dashboard-field-edit");
@@ -2323,16 +2340,19 @@ class RobotixMultiChargeCard extends HTMLElement {
       chips.append(button);
     }
     const site=mcEl("section","card charging-site-overview");
-    const primary=mcEl("div","grid site-metrics"),technical=mcEl("div","grid"),folds=mcEl("div");
-    Array.from(metrics.children).forEach((cell,index)=>([1,2].includes(index)?primary:technical).append(cell));
+    const primary=mcEl("div","grid site-metrics"),technical=mcEl("div"),live=mcEl("div","grid"),folds=mcEl("div");
+    Array.from(metrics.children).forEach((cell,index)=>{if(index!==0)([1,2].includes(index)?primary:live).append(cell);});
+    technical.append(live);
     site.append(mcEl("h3","",mcTr("Charging site")),primary);
     this.financialSummary(primary,"controller","site",folds);
     site.append(chips);
     site.append(...Array.from(folds.children));
     const ctl=c.controller||{};
-    mcPair(technical,"Maximum group power",ctl.max_power_kw==null?mcTr("Unknown"):ctl.max_power_kw+" kW");
-    mcPair(technical,"Parallel chargers",ctl.max_parallel??mcTr("Unknown"));
-    mcPair(technical,"Power adjustment interval",ctl.power_adjustment_interval_minutes==null?mcTr("Unknown"):ctl.power_adjustment_interval_minutes+" min");
+    const configRows=mcEl("div","configuration-rows");
+    configRows.append(mcEl("h4","","Charging configuration"));
+    mcPair(configRows,"Managed chargers",String(activated));
+    this.siteLimitRows(configRows,ctl);
+    technical.append(configRows);
     this.disclosure(site,"site:energy","Site energy & technical details",technical);
     container.append(site);
     this.feedback(container);
@@ -2511,11 +2531,10 @@ class RobotixMultiChargeCard extends HTMLElement {
       const identity=(d.connection_identity||{})[charger.id];
       const verified=selected&&identity?.asset_id===selected.id;
       const plugged=source&&source.quality==="ok"?
-        source.value?(verified?mcTr("Connected")+" · "+selected.name:
+        source.value?(verified?mcTr("Connected"):
           mcTr("Connected")+" · "+mcTr("Vehicle unknown")):
         mcTr("Disconnected"):mcTr("Connection unknown");
-      const fullName=!selected&&!pastOnly?charger.name+" · "+mcTr("No vehicle selected"):
-        labelMode==="vehicle"?vehicleLabel:labelMode==="charger"?charger.name:vehicleLabel+" · "+charger.name;
+      const fullName=charger.name+" · "+mcTr(vehicleLabel);
       const color=mcPlanOwnerColor(d,pastOnly?historicalAssetId:charger.asset,charger.id);
       const lhs=mcEl("div","plan-key");
       const swatch=mcEl("span","plan-swatch");swatch.style.background=color;
@@ -2762,7 +2781,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     if(asset&&(this._focusAsset===asset.id||this._goalEditor===asset.id||this._scheduleEditor===asset.id||this._assignmentEditor===asset.id||this._batteryEditor===asset.id))return false;
     const owner=(asset?"asset:":"charger:")+(asset?.id||charger?.id);
     if(this._open===owner||this._editingField.startsWith(owner+":"))return false;
-    return !charger||state?.connection_state==="no_asset_connected"||projection?.status==="ready";
+    return !charger||state?.connection_state==="no_asset_connected"||projection?.status==="ready"||(!asset&&!charger.asset&&power?.quality==="ok"&&power.value===0);
   }
   operationalIndicator(charger,asset=null){
     const state=this._data.charger_states?.[charger?.id];
@@ -3021,9 +3040,6 @@ class RobotixMultiChargeCard extends HTMLElement {
     const block=mcEl("div","topic-quick");
     const controls=mcEl("div","topic-actions charge-controls");
     if(charger&&this.canManage())this.chargingQuickActions(controls,charger);
-    else if(this.canManage())for(const label of ["Start charging","Stop charging","Auto"]){
-      const disabled=mcButton(label,()=>{});disabled.disabled=true;disabled.title=mcTr("No charger assigned");controls.append(disabled);
-    }
     if(controls.children.length)block.append(controls);
     const planning=mcEl("div","topic-actions planning-controls");
     if(this.canEditSettings()){
@@ -3273,7 +3289,8 @@ class RobotixMultiChargeCard extends HTMLElement {
       const assignment=this.vehicleSummary(card,a,charger);
       this.goalAssessment(card,a,charger,folds);
       this.financialSummary(card,"asset",a.id,folds);
-      card.append(mcEl("p","muted small",mcTr("Effective charging power")+" · "+mcValue(obs.effective_power_kw," kW")));
+      const chargerPower=d.observations?.chargers?.[charger?.id]?.power_kw;
+      if(charger)card.append(mcEl("p","muted small",chargerPower?.quality==="ok"&&chargerPower.value===0?mcTr("Not charging"):mcTr("Effective charging power")+" · "+mcValue(obs.effective_power_kw," kW")));
       this.assetDailyActions(card,a,charger,chargers,false,assignment);
       card.append(...Array.from(folds.children));
       const detail=mcEl("div","details");
@@ -4046,12 +4063,7 @@ class RobotixMultiChargeCard extends HTMLElement {
             detail.append(rename);
             if(this._editingField==="controller:"+ctl.id+":name")this.dashboardEditField(detail,"controller",ctl,"name");
           }else mcPair(detail,"Site name",ctl.name);
-          this.nativeNumberEditor(detail,"controller",ctl.id,"max_parallel",
-            "Parallel chargers",ctl.max_parallel);
-          this.nativeNumberEditor(detail,"controller",ctl.id,"max_power_kw",
-            "Maximum group power",ctl.max_power_kw,"kW");
-          this.nativeNumberEditor(detail,"controller",ctl.id,"power_adjustment_interval_minutes",
-            "Power adjustment interval",ctl.power_adjustment_interval_minutes,"min");
+          this.siteLimitRows(detail,ctl);
 
         }else if(title==="Charging strategy"){
           const options=mcEl("div","chips");
