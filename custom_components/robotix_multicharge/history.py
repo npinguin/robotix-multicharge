@@ -1542,8 +1542,11 @@ async def read_actual_history(hass, configuration, start, end, *,
     if first >= now:
         return await reply([], "FUTURE_ONLY", historical)
     if not include_quarters:
-        # Finance consumes the same native samples, not the chart projection.
-        return await reply([], "QUARTERS_NOT_REQUESTED", historical)
+        # Session-only reads never calculate unused chart rows. Keep raw
+        # absence explicit, distinct from retained aggregate statistics.
+        quality = ("SESSION_HISTORY" if any(row.states for row in historical.values())
+                   else "NO_RECORDER_SAMPLES") if include_retired_chargers else "QUARTERS_NOT_REQUESTED"
+        return await reply([], quality, historical)
     # The same bounded Recorder evidence feeds both measured and exact
     # energy-reconciled quarters, off the HA event loop.
     result = await hass.async_add_executor_job(
