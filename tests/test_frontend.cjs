@@ -1750,8 +1750,19 @@ async function main(){
   card._tab="Chargeable Assets";card._open="";card.render();
   (find(card.shadowRoot,"summary","Asset settings")||find(card.shadowRoot,"summary","Charger settings")||find(card.shadowRoot,"button","Details")).click();
   assert.ok(find(card.shadowRoot,"select"),"vehicle offers a native color choice");
-  assert.ok(find(card.shadowRoot,"button","Apply"),
-    "Vehicle target and energy settings are controlled inline by native HA Numbers");
+  let priorityEdit;
+  visit(card.shadowRoot,node=>{
+    if(node.tag==="button"&&node.attributes["aria-label"]==="Edit Charging priority")priorityEdit=node;
+  });
+  assert.ok(priorityEdit,"Vehicle preferences expose an immediately contextual edit");
+  priorityEdit.click();
+  let typedPriority;
+  visit(card.shadowRoot,node=>{
+    if(node.attributes["data-edit-field"]==="asset:car:priority")typedPriority=node;
+  });
+  assert.ok(typedPriority&&find(typedPriority,"button","Save")&&find(typedPriority,"button","Cancel"),
+    "Vehicle preference shares revision-checked Save/Cancel");
+  find(typedPriority,"button","Cancel").click();
   assert.ok(find(card.shadowRoot,"button","Set charging deadline"),
     "Vehicle Ready By opens its native HA DateTime entity from the dashboard");
   let colorSelect;
