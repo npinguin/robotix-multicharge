@@ -461,6 +461,14 @@ async function main(){
     const amount=cardField(novice.shadowRoot,"Amount");
     assert.ok(amount);
     amount.value=String(value);amount.events.input();
+    const goalRevision=novice._data.configuration_revision;
+    novice._data.configuration_revision="concurrent-goal";
+    find(novice.shadowRoot,"button","Save charging goal").click();
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(writes.filter(x=>x.type==="robotix_multicharge/update_settings").length,0);
+    assert.equal(novice._settingsFeedback.status,"rejected");
+    assert.equal(cardField(novice.shadowRoot,"Amount").value,String(value));
+    novice._data.configuration_revision=goalRevision;
     find(novice.shadowRoot,"button","Save charging goal").click();
     await new Promise(resolve=>setImmediate(resolve));
     const saves=writes.filter(x=>x.type==="robotix_multicharge/update_settings");
@@ -597,6 +605,13 @@ async function main(){
   monday.value="07:00";monday.events.change();
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(!scheduleCalls.some(x=>x.type==="robotix_multicharge/update_settings"),"weekday remains a draft before Save");
+  const scheduleRevision=scheduleCard._data.configuration_revision;
+  scheduleCard._data.configuration_revision="concurrent-schedule";
+  find(scheduleCard.shadowRoot,"button","Save schedule").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(scheduleCalls.filter(x=>x.type==="robotix_multicharge/update_settings").length,0);
+  assert.equal(scheduleCard._settingsFeedback.status,"rejected");
+  scheduleCard._data.configuration_revision=scheduleRevision;
   find(scheduleCard.shadowRoot,"button","Save schedule").click();
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(scheduleCalls.some(x=>x.type==="robotix_multicharge/update_settings"&&x.changes.ready_by_weekdays.mon==="07:00"&&x.changes.ready_by_weekdays.wed==="08:30"),"one atomic schedule Save preserves other weekdays");
@@ -695,6 +710,14 @@ async function main(){
   choice.events.change();
   const assignButton=find(assignCard.shadowRoot,"button","Assign selected charger");
   assert.equal(assignButton.disabled,false);
+  const assignmentRevision=assignCard._data.configuration_revision;
+  assignCard._data.configuration_revision="concurrent-assignment";
+  assignButton.click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(assignmentWS.filter(x=>x.type==="robotix_multicharge/update_settings").length,0);
+  assert.equal(assignCard._settingsFeedback.status,"rejected");
+  assert.equal(choice.value,"patio");
+  assignCard._data.configuration_revision=assignmentRevision;
   assignButton.click();
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(assignmentWS.some(x=>
@@ -923,6 +946,14 @@ async function main(){
   const eff=cardField(batteryCard.shadowRoot,"Charging efficiency (%)");
   assert.ok(cap&&eff);
   cap.value="20";eff.value="90";cap.events.input();eff.events.input();
+  const batteryRevision=batteryCard._data.configuration_revision;
+  batteryCard._data.configuration_revision="concurrent-battery";
+  find(batteryCard.shadowRoot,"button","Save battery data").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(batteryWrites.length,0);
+  assert.equal(batteryCard._settingsFeedback.status,"rejected");
+  assert.equal(cap.value,"20");assert.equal(eff.value,"90");
+  batteryCard._data.configuration_revision=batteryRevision;
   find(batteryCard.shadowRoot,"button","Save battery data").click();
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(batteryWrites.length,1);

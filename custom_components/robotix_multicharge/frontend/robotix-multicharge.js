@@ -1641,10 +1641,14 @@ class RobotixMultiChargeCard extends HTMLElement {
       };
     }finally{this._commandBusy=false;this.render();}
   }
-  async saveSettings(scope,targetId,changes,action,structural=false){
+  async saveSettings(scope,targetId,changes,action,structural=false,expectedRevision=this._data?.configuration_revision,errorTarget=null){
     if(this._settingsBusy||this._pendingSettings||!this._hass||!this._data||!this.canEditSettings())return;
     const preserveDraft=this.editingInProgress();
-    if(!this._data.configuration_revision){
+    if(expectedRevision!==this._data.configuration_revision){
+      this._settingsFeedback={status:"rejected",message:"Settings changed; refresh and retry"};
+      this.showEditError(errorTarget);return false;
+    }
+    if(!expectedRevision){
       this._settingsFeedback={status:"rejected",message:"Unavailable"};
       if(preserveDraft)this.showEditError();else this.render();
       return;
@@ -1658,7 +1662,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         type:"robotix_multicharge/update_settings",
         scope,target_id:targetId,changes,action:action||"save",
         structural,
-        expected_revision:this._data.configuration_revision
+        expected_revision:expectedRevision
       });
       if(receipt.status!=="accepted_unconfirmed"||!receipt.expected_revision)
         throw new Error("Settings change was not admitted");
@@ -1699,7 +1703,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     }finally{
       this._settingsBusy=false;
       if(this._pendingSettings){if(this._loading)this._refreshPending=true;else await this.load();}
-      if(preserveDraft&&(!admitted||this._pendingSettings))this.showEditError();
+      if(preserveDraft&&(!admitted||this._pendingSettings))this.showEditError(errorTarget);
       else this.render();
     }
   }
@@ -2062,7 +2066,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         asset.ready_by_repeat==="specific_days"?"specific_days":asset.ready_by?"once":"none",
       date:anchor?anchor.year+"-"+anchor.month+"-"+anchor.day:today.year+"-"+today.month+"-"+today.day,
       clock:anchor?anchor.hour+":"+anchor.minute:savedTimes[0]||"",
-      days:savedDays,overrides:new Set(savedTimes).size>1
+      days:savedDays,overrides:new Set(savedTimes).size>1,revision:this._data?.configuration_revision
     };
     const remember=()=>{this._calendarDrafts[asset.id]=draft;this._unsavedInput=true;};
     container.append(mcEl("h4","specific-day-calendar",mcTr("Charging days")));
@@ -2145,7 +2149,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         changes.ready_by_repeat=draft.mode==="daily"?"daily":"none";
         changes.ready_by_local=(draft.mode==="daily"?localToday:draft.date)+"T"+draft.clock+":00";
       }
-      const accepted=await this.saveSettings("asset",asset.id,changes);
+      const accepted=await this.saveSettings("asset",asset.id,changes,"save",false,draft.revision,container);
       if(accepted&&this._settingsFeedback?.status==="confirmed"){
         delete this._calendarDrafts[asset.id];this._scheduleEditor="";this.render();
       }
@@ -3013,14 +3017,15 @@ class RobotixMultiChargeCard extends HTMLElement {
   }
   batteryEditor(container,asset){
     const draft=this._batteryDrafts[asset.id]||{
-      capacity:asset.capacity_kwh??"",efficiency:asset.charge_efficiency==null?"":asset.charge_efficiency*100
+      capacity:asset.capacity_kwh??"",efficiency:asset.charge_efficiency==null?"":asset.charge_efficiency*100,
+      revision:this._data?.configuration_revision
     };
     const form=mcEl("div","goal-controls");
     const capacity=this.field(form,mcTr("Usable battery capacity (kWh)"),draft.capacity,"number");
     const efficiency=this.field(form,mcTr("Charging efficiency (%)"),draft.efficiency,"number");
     capacity.setAttribute("min","0.01");capacity.setAttribute("step","0.01");
     efficiency.setAttribute("min","0.01");efficiency.setAttribute("max","100");efficiency.setAttribute("step","0.1");
-    const remember=()=>{this._batteryDrafts[asset.id]={capacity:capacity.value,efficiency:efficiency.value};this._unsavedInput=true;};
+    const remember=()=>{this._batteryDrafts[asset.id]={capacity:capacity.value,efficiency:efficiency.value,revision:draft.revision};this._unsavedInput=true;};
     capacity.addEventListener("input",remember);efficiency.addEventListener("input",remember);
     container.append(form,mcEl("p","muted small",mcTr("Use the vehicle's usable battery capacity and your charging efficiency estimate. No value is assumed.")));
     const actions=mcEl("div","controls");
@@ -3030,7 +3035,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(!capacity.value.trim()||!efficiency.value.trim()||!Number.isFinite(kwh)||kwh<=0||!Number.isFinite(pct)||pct<=0||pct>100){
         this._settingsFeedback={status:"rejected",message:"Enter a positive capacity and efficiency between 0 and 100%"};this.showEditError(container);return;
       }
-      const accepted=await this.saveSettings("asset",asset.id,{capacity_kwh:kwh,charge_efficiency:pct/100});
+      const accepted=await this.saveSettings("asset",asset.id,{capacity_kwh:kwh,charge_efficiency:pct/100},"save",false,draft.revision,container);
       if(accepted&&this._settingsFeedback?.status==="confirmed"){
         delete this._batteryDrafts[asset.id];this._batteryEditor="";this.render();
       }
@@ -3047,7 +3052,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       kind==="duration"?asset.requested_duration_minutes:
       kind==="energy"?asset.requested_kwh:asset.target_soc;
     const stored=this._goalDrafts[asset.id];
-    const draft=stored||{mode:kind,value:original===undefined?"":String(original)};
+    const draft=stored||{mode:kind,value:original===undefined?"":String(original),revision:this._data?.configuration_revision};
     if(!this.canEditSettings())return;
     const form=mcEl("section","quick-goal");
     form.append(mcEl("h4","",mcTr("Set charging goal")));
@@ -3065,11 +3070,11 @@ class RobotixMultiChargeCard extends HTMLElement {
     goal.disabled=this._settingsBusy;
     amount.disabled=this._settingsBusy;
     goal.addEventListener("change",()=>{
-      this._goalDrafts[asset.id]={mode:goal.value,value:""};
+      this._goalDrafts[asset.id]={mode:goal.value,value:"",revision:draft.revision};
       this.render();
     });
     amount.addEventListener("input",()=>{
-      this._goalDrafts[asset.id]={mode:goal.value,value:amount.value};
+      this._goalDrafts[asset.id]={mode:goal.value,value:amount.value,revision:draft.revision};
     });
     const action=mcButton(mcTr("Save charging goal"),()=>{
       const number=Number(amount.value);
@@ -3093,7 +3098,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         changes.requested_budget_currency="EUR";
       }
       void (async()=>{
-        const accepted=await this.saveSettings("asset",asset.id,changes,"save");
+        const accepted=await this.saveSettings("asset",asset.id,changes,"save",false,draft.revision,form);
         if(accepted&&this._settingsFeedback?.status==="confirmed"){
           delete this._goalDrafts[asset.id];this._goalEditor="";this.render();
         }
@@ -3263,6 +3268,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       // field. Do not silently replace a different assigned Vehicle.
       const candidates=chargers.filter(c=>!c.asset||c.asset===a.id);
       const editor=mcEl("div","details assignment-editor");
+      const revision=this._data?.configuration_revision;
       editor.append(mcEl("p","muted small",
         "Idle-only reassignment. Stop charging separately before moving a vehicle."));
       if(candidates.length){
@@ -3276,7 +3282,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         chooser.value=charger?.id||candidates[0].id;
         const apply=mcButton(mcTr("Assign selected charger"),()=>{
           if(!chooser.value||chooser.value===charger?.id)return;
-          this.saveSettings("charger",chooser.value,{asset:a.id},"save");
+          this.saveSettings("charger",chooser.value,{asset:a.id},"save",false,revision,editor);
         });
         apply.disabled=this._settingsBusy||
           !chooser.value||chooser.value===charger?.id;
@@ -3288,7 +3294,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       }else editor.append(mcEl("p","muted small","No free charger"));
       if(charger){
         const detach=mcButton(mcTr("Unassign charger"),()=>
-          this.saveSettings("charger",charger.id,{asset:null},"save"));
+          this.saveSettings("charger",charger.id,{asset:null},"save",false,revision,editor));
         detach.disabled=this._settingsBusy;
         editor.append(detach);
       }
