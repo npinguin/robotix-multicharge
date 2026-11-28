@@ -163,6 +163,35 @@ function content(node){
   let text="";visit(node,x=>{if(x.textContent)text+=x.textContent+"\n";});return text;
 }
 async function main(){
+  // A slow Recorder request must not hold live controls, command readback
+  // or configuration refresh behind history. Reject obsolete enrichments.
+  const slowHistoryCard=new Card();
+  let liveRevision=1, historyResolve, historyCalls=0;
+  const snapshot=()=>({...JSON.parse(JSON.stringify(fixture)),
+    configuration_revision:"history-scope",history_revision:liveRevision,
+    actual_history_quality:"NOT_REQUESTED",actual_slots:[],observed_sessions:[],
+    snapshot_at:new Date().toISOString()});
+  slowHistoryCard._hass={user:{is_admin:true},states:{},callWS:async message=>{
+    if(message.include_history){
+      historyCalls++;
+      const old=snapshot();
+      return new Promise(resolve=>{historyResolve=()=>resolve({...old,
+        actual_history_quality:"MEASURED",actual_slots:[{marker:"old"}]});});
+    }
+    return snapshot();
+  }};
+  await slowHistoryCard.load();
+  assert.equal(historyCalls,1);
+  assert.equal(slowHistoryCard._loading,false,"Live request completed independently of Recorder");
+  assert.equal(slowHistoryCard._data.actual_history_quality,"HISTORY_LOADING");
+  liveRevision=2;
+  await slowHistoryCard.load();
+  assert.equal(slowHistoryCard._data.history_revision,2,"New receipt revision delivered while old history is pending");
+  historyResolve();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(slowHistoryCard._data.history_revision,2);
+  assert.ok(!slowHistoryCard._data.actual_slots.some(x=>x.marker==="old"),"Obsolete history cannot overwrite current snapshot");
+  slowHistoryCard.disconnectedCallback();
   // UX-OWNER-01 one canonical object, complete settings and no second store.
   const owners=JSON.parse(JSON.stringify(fixture));
   Object.assign(owners.configuration.controller,{
