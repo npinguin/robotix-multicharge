@@ -296,7 +296,7 @@ const MC_STYLE = [
   // keyboard-accessible foldable rows, never a simultaneous 82-field form.
   ".object-card{margin:9px 0;padding:14px 16px;border-radius:12px;box-shadow:0 1px 2px #00000009}.object-card>.row:first-child{padding-bottom:7px;border-bottom:1px solid var(--divider-color,#e5e7eb)}.object-card h3{font-size:15px;letter-spacing:-.01em}.object-card>.pair{padding:4px 0}.object-card .plan-key{margin:7px 0}",
   ".topic-card>.topic-actions{margin-top:auto}.topic-card>.overview-actions,.topic-card>.controls,.topic-actions,.site-actions{display:flex;flex-wrap:wrap;gap:6px;width:100%;box-sizing:border-box}.topic-card>.overview-actions>button,.topic-card>.controls>button,.topic-actions>button,.site-actions>button{flex:1 1 112px;min-width:0;min-height:40px;justify-content:center;text-align:center;white-space:normal;line-height:1.2}.topic-card .operational-indicator{font-size:14px;font-weight:650;white-space:normal}.topic-card .operational-indicator:before{width:10px;height:10px}.topic-card>.row:first-child{min-height:32px}.topic-card .financial-headline{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:8px 0}.financial-headline>.metric{padding:8px;background:transparent}.financial-headline .value{font-size:19px}.site-metrics{grid-template-columns:repeat(4,minmax(0,1fr))}.site-metrics>.financial-headline{display:contents}.site-mode-label{width:100%;margin:4px 0;font-weight:600}.settings-card .native-number{display:grid;grid-template-columns:minmax(0,1fr) minmax(120px,240px);align-items:center;gap:10px}.native-number>.row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px}.native-number>.row>button{white-space:nowrap}.native-number>.row>input{min-width:0}.topic-card>.topic-actions+details{margin-top:9px}@media(max-width:600px){.site-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.settings-card .native-number{grid-template-columns:1fr}.topic-card>.topic-actions>button,.topic-actions>button,.site-actions>button{flex-basis:100px}}",
-  ".topic-card{padding:14px;gap:7px}.topic-card>p{margin:0}.topic-card>.row:first-child{align-items:flex-start;gap:8px}.topic-card>.row:first-child h3{flex:1;min-width:0;font-size:17px;overflow-wrap:anywhere}.topic-card .operational-indicator{max-width:50%;text-align:right}.control-label{margin:0!important}.topic-card .topic-quick{margin-top:auto;display:grid;gap:6px}.topic-actions.charge-controls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.topic-actions.planning-controls{display:flex;flex-wrap:wrap;gap:6px}.topic-actions.planning-controls>button{flex:1 1 110px}.topic-actions.charge-controls>button{width:100%;min-height:42px;padding:6px}.topic-card .object-disclosure{margin:0;border-radius:7px}.topic-card .object-disclosure>summary{padding:9px 10px}.topic-card .financial-headline{margin:0}.topic-card .financial-headline .metric{padding:5px 0}.topic-card .vehicle-summary{margin:0}.topic-card .goal-outcome{margin:0}.topic-card .manual-summary,.manual-editor{border:1px solid var(--divider-color,#ddd);border-radius:8px;padding:10px}.topic-card .quick-assignment{margin:0}.topic-card .charger-power{min-height:30px}.topic-card .financial-headline .value{line-height:1.2}.topic-card .financial-headline .metric{min-height:65px}.topic-card:has(>details[open]){min-width:0}.object-grid:has(>.expanded),.object-grid:has(>.topic-card>details[open]){align-items:start}.settings-grid:has(>.expanded){align-items:start}.topic-card>*,.settings-card>*{min-width:0;max-width:100%;box-sizing:border-box}.topic-card .pair,.settings-card .pair,.owner-field-value{overflow-wrap:anywhere}.topic-card .session-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.configuration-rows{display:grid;gap:4px;margin:10px 0}.configuration-rows .owner-field{min-width:0}.topic-card .dashboard-field-edit{min-width:0;max-width:100%}.topic-card .charge-controls button.active{font-weight:650}.compact-owner.topic-card{padding:14px}",
+  ".topic-card{padding:14px;gap:7px}.topic-card>p{margin:0}.topic-card>.row:first-child{align-items:flex-start;gap:8px}.topic-card>.row:first-child h3{flex:1;min-width:0;font-size:17px;overflow-wrap:anywhere}.topic-card .operational-indicator{max-width:50%;text-align:right}.control-label{margin:0!important}.topic-card .topic-quick{margin-top:auto;display:grid;gap:6px}.topic-actions.charge-controls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.topic-actions.planning-controls{display:flex;flex-wrap:wrap;gap:6px}.topic-actions.planning-controls>button{flex:1 1 110px}.topic-actions.charge-controls>button{width:100%;min-height:42px;padding:6px}.topic-card .object-disclosure{margin:0;border-radius:7px}.topic-card .object-disclosure>summary{padding:9px 10px}.topic-card .financial-headline{margin:0}.topic-card .financial-headline .metric{padding:5px 0}.topic-card .vehicle-summary{margin:0}.topic-card .goal-outcome{margin:0}.topic-card .manual-summary,.manual-editor{border:1px solid var(--divider-color,#ddd);border-radius:8px;padding:10px}.topic-card .quick-assignment{margin:0}.topic-card .charger-power{min-height:30px}.topic-card .financial-headline .value{line-height:1.2}.topic-card .financial-headline .metric{min-height:65px}.topic-card:has(>details[open]){min-width:0}.object-grid:has(>.expanded),.object-grid:has(>.topic-card>details[open]){align-items:start}.settings-grid:has(>.expanded){align-items:start}.topic-card>*,.settings-card>*{min-width:0;max-width:100%;box-sizing:border-box}.topic-card .pair,.settings-card .pair,.owner-field-value{overflow-wrap:anywhere}.topic-card .session-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.finance-period-row,.finance-group-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px;padding:8px 0;align-items:center;border-bottom:1px solid var(--divider-color,#ddd);overflow-wrap:anywhere}.finance-period-note{grid-column:1/-1}.finance-group-row>button{min-width:0;white-space:normal}.finance-session-controls{flex-wrap:wrap}.finance-session-controls>.field{flex:1;min-width:0}.configuration-rows{display:grid;gap:4px;margin:10px 0}.configuration-rows .owner-field{min-width:0}.topic-card .dashboard-field-edit{min-width:0;max-width:100%}.topic-card .charge-controls button.active{font-weight:650}.compact-owner.topic-card{padding:14px}",
   ".vehicle-state>button{min-height:27px;padding:3px 7px;font-size:11px;margin-top:4px}.topic-card .plan-link>button{min-height:32px;font-size:12px}.topic-card .topic-actions.planning-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.topic-card .topic-actions.planning-controls>button{width:100%;min-height:40px}.topic-card .topic-quick{margin-top:auto}.topic-card .vehicle-state{max-width:52%}.topic-card .vehicle-target{flex-wrap:wrap}.topic-card .control-note{line-height:1.35}",
   ".topic-card>.row:first-child{align-items:center}.topic-card>.owner-group>summary{font-size:13px}.topic-card .details{margin:0}.topic-card .native-number,.settings-card .native-number{display:grid;grid-template-columns:minmax(0,1fr) minmax(110px,175px);align-items:center;gap:8px}.topic-card .native-number .row,.settings-card .native-number .row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px}.topic-card .native-number input,.settings-card .native-number input{width:100%;box-sizing:border-box}.topic-card .operational-indicator{font-size:13px}.topic-card .goal-outcome p{margin:3px 0}.topic-card .financial-headline .metric{min-height:64px}.topic-card .goal-outcome{padding:5px 0}.topic-card.compact-owner .vehicle-soc{font-size:26px}.topic-card .manual-editor .topic-actions>button{flex:1 1 100px}.owner-group>summary .operational-indicator{margin-left:8px}.settings-grid{align-items:stretch}.settings-card .row{gap:8px}.settings-card .row>span:nth-child(2){flex:1;min-width:0;text-align:right;overflow-wrap:anywhere}@media(max-width:600px){.topic-card .native-number,.settings-card .native-number{grid-template-columns:minmax(0,1fr) minmax(90px,135px)}.topic-card .operational-indicator{font-size:12px}}",
   ".compact-owner{padding:10px 12px}.compact-owner .vehicle-summary{margin:4px 0}.compact-owner .vehicle-soc{font-size:20px}.compact-owner .vehicle-deadline{font-size:12px}.compact-owner .goal-outcome{margin:3px 0;padding-top:3px}.compact-owner .object-disclosure{margin:3px 0}.compact-owner .overview-actions{margin:4px 0}.compact-owner .financial-headline{margin:3px 0}",
@@ -1260,6 +1260,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._noEntry=false;
     this._open="";
     this._folds={}; // disclosure-only UI state; never configuration or charging truth
+    this._financeViews={}; // per-owner resident period/group selection and bounded read-only evidence
     this._settingsOpen="";
     this._data=null;
     this._error="";
@@ -3579,6 +3580,132 @@ class RobotixMultiChargeCard extends HTMLElement {
     return formatted+(partial?" · "+mcTr("Partial coverage"):"")+(basis?" · "+mcTr(basis):"")+
       (row?.basis&&row.basis!=="effective"?" · "+mcTr("reference price, not an invoice"):"");
   }
+  financeEnergy(row){
+    return Number.isFinite(row?.observed_energy_kwh)&&row.observed_seconds>0?
+      row.observed_energy_kwh.toFixed(2)+" kWh":"—";
+  }
+  financeAmount(row){
+    const value=row?.cost??row?.covered_cost;
+    return Number.isFinite(value)&&/^[A-Z]{3}$/.test(row?.currency||"")?
+      (row.basis!=="effective"?"≈ ":"")+new Intl.NumberFormat(undefined,{style:"currency",currency:row.currency}).format(value):"—";
+  }
+  financeDate(value){
+    const parsed=new Date(value);
+    if(!Number.isFinite(parsed.getTime()))return "";
+    const parts=Object.fromEntries(new Intl.DateTimeFormat("en-CA",{timeZone:this._data.timezone||"UTC",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(parsed).map(p=>[p.type,p.value]));
+    return parts.year+"-"+parts.month+"-"+parts.day;
+  }
+  financePeriodRow(container,label,row){
+    const line=mcEl("div","finance-period-row");
+    line.append(mcEl("strong","",mcTr(label)),mcEl("span","",this.financeEnergy(row)),mcEl("strong","",this.financeAmount(row)));
+    const note=mcEl("div","finance-period-note muted small");
+    const pieces=[];
+    if(Number.isFinite(row?.average_price_per_kwh)&&row.currency)
+      pieces.push(mcTr("Average charging price")+" "+row.average_price_per_kwh.toFixed(4)+" "+row.currency+"/kWh");
+    if(Number.isFinite(row?.covered_energy_kwh))pieces.push(mcTr("Priced energy")+" "+row.covered_energy_kwh.toFixed(2)+" kWh");
+    if(row?.days_expected>0)pieces.push(row.days_available+"/"+row.days_expected+" "+mcTr("Days checked"));
+    if(row?.cost==null||row?.expected_seconds>row?.observed_seconds+0.001)pieces.push(mcTr("Partial coverage"));
+    if(row?.basis)pieces.push(mcTr(({effective:"Effective price",spot:"Spot price",variable_reference:"Variable reference price"})[row.basis]||row.basis));
+    note.textContent=pieces.join(" · ")||mcTr("Unknown");
+    line.append(note);container.append(line);
+  }
+  async loadFinanceDay(view,day){
+    const generation=(view.generation||0)+1;
+    view.generation=generation;view.loading=true;view.error="";view.history=null;
+    this.render();
+    try{
+      const response=await this._hass.callWS({type:"robotix_multicharge/get_plan",history_date:day,include_history:true});
+      if(view.generation!==generation)return;
+      if(response.configuration_revision!==this._data?.configuration_revision)throw Error("Configuration changed; refresh and retry");
+      view.history=response;
+    }catch(error){
+      if(view.generation===generation)view.error=String(error?.message||"History unavailable");
+    }finally{
+      if(view.generation===generation){view.loading=false;this.passiveRender();}
+    }
+  }
+  financeSessions(container,view,kind,id,period){
+    const d=this._data;
+    const range=d.period_costs?.[kind]?.[id]?.[period]||d.period_costs?.controller?.site?.[period];
+    if(!range)return;
+    const min=this.financeDate(range.start),max=this.financeDate(d.period_costs?.controller?.site?.today?.start||range.end);
+    const day=view.day&&view.day>=min&&view.day<=max?view.day:max;
+    const controls=mcEl("div","row finance-session-controls");
+    const date=this.field(controls,"Session date",day,"date");
+    date.setAttribute("min",min);date.setAttribute("max",max);
+    const load=mcButton(view.loading?"Loading":"Show sessions",()=>{
+      if(date.value>=min&&date.value<=max){view.day=date.value;void this.loadFinanceDay(view,date.value);}
+    });
+    load.disabled=!!view.loading;controls.append(load);container.append(controls);
+    if(view.error)container.append(mcEl("p","plan-caution",view.error));
+    if(!view.history||view.day!==day)return;
+    const history=view.history;
+    if(history.configuration_revision!==d.configuration_revision){
+      container.append(mcEl("p","plan-caution","Configuration changed; reload session details"));return;
+    }
+    const first=Date.parse(history.start),last=Date.parse(history.end);
+    const group=view.group||"asset",owner=view.owner||"";
+    const matches=(row,observed)=>Date.parse(row.started_at)<last&&Date.parse(row.ended_at||history.snapshot_at)>first&&
+      (kind==="controller"||kind==="asset"&&row.asset_id===id||kind==="charger"&&row.charger_id===id)&&
+      (!owner||(group==="asset"?observed?!row.asset_id&&owner==="unattributed":owner==="unattributed"?!row.asset_id:row.asset_id===owner:row.charger_id===owner));
+    const rows=[...(history.completed_sessions||[]).filter(row=>matches(row,false)).map(row=>({row,observed:false})),
+      ...(history.observed_sessions||[]).filter(row=>matches(row,true)).map(row=>({row,observed:true})),
+      ...Object.values(history.active_sessions||{}).filter(row=>matches(row,false)).map(row=>({row,observed:false}))];
+    rows.sort((a,b)=>String(b.row.started_at).localeCompare(String(a.row.started_at)));
+    container.append(mcEl("p","muted small","Session evidence for selected day · full sessions may cross day boundaries · "+mcReason(history.actual_history_quality)));
+    if(!rows.length){container.append(mcEl("p","muted small","No retained session evidence for selected day"));return;}
+    const name=(kind,uid)=>uid?(d.configuration[kind==="asset"?"assets":"chargers"]||[]).find(row=>row.id===uid)?.name||uid:mcTr("Vehicle unknown");
+    for(const {row,observed} of rows){
+      const detail=mcEl("div");
+      mcPair(detail,"Charger",name("charger",row.charger_id));mcPair(detail,"Vehicle",name("asset",row.asset_id));
+      mcPair(detail,"Start",mcTime(row.started_at,d.timezone));mcPair(detail,"End",row.ended_at?mcTime(row.ended_at,d.timezone):mcTr("Active"));
+      this.sessionMetrics(detail,row,observed);
+      if(row.physical_stop_decision)mcPair(detail,"STOP decision",mcReason(row.physical_stop_decision));
+      if(row.stop_reason)mcPair(detail,"STOP confirmation",mcReason(row.stop_reason));
+      const key="finance:session:"+kind+":"+id+":"+row.charger_id+":"+row.started_at+":"+(row.ended_at||"active");
+      this.disclosure(container,key,mcTime(row.started_at,d.timezone)+" · "+name("charger",row.charger_id)+" · "+name("asset",row.asset_id),detail);
+    }
+  }
+  financeDrilldown(container,kind,id,periods){
+    const key=kind+":"+id;
+    const view=this._financeViews[key]||(this._financeViews[key]={period:"today",group:"asset",owner:""});
+    const rangeButtons=mcEl("div","chips");
+    for(const [period,label] of [["today","Today"],["month","This month"],["year","This year"]]){
+      const button=mcButton(label,()=>{view.period=period;view.owner="";view.day="";view.history=null;view.generation=(view.generation||0)+1;view.loading=false;this.render();});
+      if(view.period===period)button.className="active";rangeButtons.append(button);
+    }
+    container.append(rangeButtons);
+    const total=periods[view.period];
+    if(!total)return;
+    if(kind==="controller"){
+      const groupButtons=mcEl("div","chips");
+      for(const [value,label] of [["asset","By vehicle"],["charger","By charger"]]){
+        const button=mcButton(label,()=>{view.group=value;view.owner="";this.render();});
+        if(view.group===value)button.className="active";groupButtons.append(button);
+      }
+      container.append(groupButtons);
+      const owners=this._data.period_costs?.[view.group]||{};
+      const configured=this._data.configuration?.[view.group==="asset"?"assets":"chargers"]||[];
+      for(const [uid,rows] of Object.entries(owners)){
+        const row=rows[view.period];
+        if(!row||!(row.observed_seconds>0)||row.observed_energy_kwh===0&&row.covered_cost==null)continue;
+        const label=configured.find(x=>x.id===uid)?.name||uid;
+        const group=mcEl("div","finance-group-row");
+        const button=mcButton(label,()=>{view.owner=view.owner===uid?"":uid;this.render();});
+        group.append(button,mcEl("span","",this.financeEnergy(row)),mcEl("strong","",this.financeAmount(row)));container.append(group);
+      }
+      const remaining=this._data.period_reconciliation?.[view.period]?.[view.group];
+      if(remaining&&(remaining.energy_kwh!==0||remaining.covered_cost!==0)){
+        const line=mcEl("div","finance-group-row");
+        const label=remaining.quality==="unattributed_energy"?"Vehicle unknown / unreconciled":"Unreconciled";
+        line.append(mcEl("span","",mcTr(label)),mcEl("span","",Number.isFinite(remaining.energy_kwh)?remaining.energy_kwh.toFixed(2)+" kWh":"—"),mcEl("strong","",this.financeAmount(remaining)));
+        container.append(line);
+      }
+      this.financePeriodRow(container,"Site total",total);
+      if(view.owner)container.append(mcEl("p","small",mcTr("Selected group")+" · "+(configured.find(x=>x.id===view.owner)?.name||view.owner)));
+    }
+    this.financeSessions(container,view,kind,id,view.period);
+  }
   financialSummary(container,kind,id,detailsTarget=container){
     const periods=this._data.period_costs?.[kind]?.[id]||{};
     const sessions=this._data.session_costs?.[kind]?.[id]||{};
@@ -3587,18 +3714,9 @@ class RobotixMultiChargeCard extends HTMLElement {
     for(const [period,label] of [["today","Charging cost today"],["month","Charging cost this month"],["year","Charging cost this year"]]){
       const row=periods[period];
       if(!row)continue;
-      const partial=row.cost==null&&row.covered_cost!=null;
-      mcPair(details,mcTr(label),this.formatCost(row));
-      if(Number.isFinite(row.observed_energy_kwh)&&row.observed_seconds>0)
-        mcPair(details,mcTr("Observed charging energy"),row.observed_energy_kwh.toFixed(2)+" kWh");
-      if(row.average_price_per_kwh!=null&&row.currency)
-        details.append(mcEl("p","muted small",mcTr("Average charging price")+" · "+
-          row.average_price_per_kwh.toFixed(4)+" "+row.currency+"/kWh · "+
-          Number(row.covered_energy_kwh).toFixed(2)+" kWh"+(partial?" · "+mcTr("Partial coverage"):"")));
-      if(row.cost==null&&row.days_expected>0)
-        details.append(mcEl("p","muted small",String(row.days_available)+"/"+
-          String(row.days_expected)+" "+mcTr("Days checked")));
+      this.financePeriodRow(details,label,row);
     }
+    if(Object.keys(periods).length)this.financeDrilldown(details,kind,id,periods);
     for(const [phase,label] of [["active","Active session cost"],["last","Last session cost"]]){
       const session=sessions[phase];
       if(!session)continue;
