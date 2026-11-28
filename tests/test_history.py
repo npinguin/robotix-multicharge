@@ -27,6 +27,26 @@ def recorded(at, value, units="W"):
 
 
 class NativeMeasuredHistoryTests(unittest.TestCase):
+    def test_session_drilldown_reuses_qualified_priced_denominator(self):
+        receipt = {"charger_id": "retired_drive", "asset_id": "retired_car",
+                   "started_at": (NOW-timedelta(hours=1)).isoformat(),
+                   "ended_at": NOW.isoformat(), "physical_stop_confirmed": True,
+                   "actual_energy_kwh": 5, "estimated_covered_cost": -0.6,
+                   "estimated_covered_energy_kwh": 3, "estimated_cost_currency": "EUR",
+                   "estimated_cost_basis": "spot"}
+        row = mod.session_financial_evidence(receipt, "last")
+        self.assertEqual(row["asset_id"], "retired_car")
+        self.assertEqual(row["charger_id"], "retired_drive")
+        self.assertIsNone(row["cost"])
+        self.assertEqual(row["covered_cost"], -0.6)
+        self.assertEqual(row["energy_kwh"], 3)
+        self.assertAlmostEqual(row["average_price_per_kwh"], -0.2)
+        self.assertEqual(row["quality"], "partial_observation")
+        summary = mod.session_costs([receipt], {}, [], {}, {})
+        self.assertEqual(summary["asset"]["retired_car"]["last"], row)
+        receipt["physical_stop_confirmed"] = False
+        self.assertIsNone(mod.session_financial_evidence(receipt, "last")["asset_id"])
+
     def test_period_reconciliation_is_same_snapshot_and_signed(self):
         def row(energy, amount, basis="variable_reference", unpriced=0):
             return {"observed_seconds": 3600, "observed_energy_kwh": energy,
