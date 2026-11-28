@@ -3698,6 +3698,19 @@ class RobotixMultiChargeCard extends HTMLElement {
       ...Object.entries(history.active_sessions||{}).map(([uid,row])=>({...row,charger_id:uid})).filter(row=>matches(row,false)).map(row=>({row,observed:false}))];
     rows.sort((a,b)=>String(b.row.started_at).localeCompare(String(a.row.started_at)));
     container.append(mcEl("p","muted small",mcTr("Sessions overlapping the selected date. Full session amounts may include other dates; do not sum as a period total.")));
+    const dayFinance=history.day_finance;
+    if(dayFinance&&!view.unattributed){
+      const dimension=kind==="controller"&&owner?group:kind;
+      const ownerId=kind==="controller"&&owner?owner:id;
+      const total=dayFinance.groups?.[dimension]?.[ownerId]?.today;
+      if(total)this.financePeriodRow(container,"Selected date · observed total",total);
+      const remaining=dayFinance.session_reconciliation?.[dimension]?.[ownerId];
+      if(remaining){
+        const residual=mcEl("div","finance-group-row");
+        residual.append(mcEl("span","",mcTr("Not allocated to a unique session")),mcEl("span","",Number.isFinite(remaining.energy_kwh)?remaining.energy_kwh.toFixed(3)+" kWh":"—"),mcEl("strong","",this.financeAmount(remaining)));
+        container.append(residual);
+      }
+    }
     const raw=history.actual_history_quality;
     if(!["SESSION_HISTORY","QUARTERS_NOT_REQUESTED","MEASURED"].includes(raw))container.append(mcEl("p","plan-caution",mcTr("Raw session history coverage")+" · "+mcReason(raw)+" · "+mcTr("Period totals may remain available from retained statistics.")));
     if(!rows.length){container.append(mcEl("p","muted small","No retained session evidence for selected day"));return;}
@@ -3715,6 +3728,9 @@ class RobotixMultiChargeCard extends HTMLElement {
         mcPair(detail,"Average charging price",Number.isFinite(valuation.average_price_per_kwh)&&valuation.currency?valuation.average_price_per_kwh.toFixed(4)+" "+valuation.currency+"/kWh":mcTr("Unknown"));
         mcPair(detail,"Valuation quality",mcReason(valuation.quality));
       }
+      const contribution=kind==="asset"||kind==="controller"&&owner&&group==="asset"?row.asset_day_contribution:row.day_contribution;
+      if(contribution)this.financePeriodRow(detail,"Contribution on selected date",contribution);
+      else if(dayFinance)detail.append(mcEl("p","muted small",mcTr("No uniquely qualified contribution on selected date")));
       if(row.physical_stop_decision)mcPair(detail,"STOP decision",mcReason(row.physical_stop_decision));
       if(row.stop_reason)mcPair(detail,"STOP confirmation",mcReason(row.stop_reason));
       const key="finance:session:"+kind+":"+id+":"+row.charger_id+":"+row.started_at+":"+(row.ended_at||"active");
