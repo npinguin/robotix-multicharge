@@ -726,6 +726,55 @@ def _receipt_view_metrics(historical, bindings, selected, first, last, now,
     return result
 
 
+def session_financial_evidence(row, phase, observed_only=False):
+    """One owner-qualified cost and priced-energy projection for all session views."""
+    uid = row["charger_id"]
+    asset = (None if observed_only or (phase == "last"
+             and row.get("physical_stop_confirmed") is not True)
+             else row.get("asset_id"))
+    evidence = row
+    verified = (not observed_only and phase == "last"
+                and row.get("physical_stop_confirmed") is True
+                and row.get("cost_quality") == "qualified_effective_tariff")
+    if verified:
+        cost, currency, basis = row.get("cost"), row.get("currency"), "effective"
+        energy = row.get("actual_energy_kwh")
+        quality = "qualified_effective_tariff"
+    else:
+        cost = evidence.get("estimated_cost")
+        currency = evidence.get("estimated_cost_currency")
+        basis = evidence.get("estimated_cost_basis")
+        energy = evidence.get("observed_energy_kwh")
+        if cost is None:
+            cost = evidence.get("estimated_variable_cost")
+            currency = evidence.get("estimated_variable_cost_currency")
+            basis = "effective" if cost is not None else None
+            energy = evidence.get("estimated_variable_cost_energy_kwh")
+        quality = "reference_estimate"
+        if cost is None and evidence.get("estimated_covered_cost") is not None:
+            cost = evidence["estimated_covered_cost"]
+            energy = evidence.get("estimated_covered_energy_kwh")
+            currency = evidence.get("estimated_cost_currency")
+            basis = evidence.get("estimated_cost_basis")
+            quality = "partial_observation"
+        if observed_only and not row.get("complete_observed_window"):
+            quality = "partial_observation"
+    if (type(cost) not in (int, float) or not isfinite(cost)
+            or not currency or not basis):
+        cost, currency, basis, quality = None, None, None, "unknown"
+    projection = {
+        "charger_id": uid, "asset_id": asset,
+        "started_at": row["started_at"], "ended_at": row.get("ended_at"),
+        "cost": None if quality == "partial_observation" else cost,
+        "covered_cost": cost, "currency": currency, "basis": basis,
+        "quality": quality, "energy_kwh": energy,
+        "average_price_per_kwh": (
+            round(cost/energy, 6) if cost is not None
+            and type(energy) in (int, float) and isfinite(energy) and energy > 0 else None),
+    }
+    return projection
+
+
 def session_costs(receipts, active_sessions, observed, estimates, metrics):
     """Select the current/last cost evidence on each existing logical owner.
 
@@ -737,50 +786,12 @@ def session_costs(receipts, active_sessions, observed, estimates, metrics):
 
     def add(row, phase, observed_only=False):
         uid = row["charger_id"]
-        asset = (None if observed_only or (phase == "last"
-                 and row.get("physical_stop_confirmed") is not True)
-                 else row.get("asset_id"))
         key = (uid, row["started_at"], row.get("ended_at"))
-        evidence = {**row, **metrics.get(key, {}), **estimates.get(key, {})}
-        verified = (not observed_only and phase == "last"
-                    and row.get("physical_stop_confirmed") is True
-                    and row.get("cost_quality") == "qualified_effective_tariff")
-        if verified:
-            cost, currency, basis = row.get("cost"), row.get("currency"), "effective"
-            energy = row.get("actual_energy_kwh")
-            quality = "qualified_effective_tariff"
-        else:
-            cost = evidence.get("estimated_cost")
-            currency = evidence.get("estimated_cost_currency")
-            basis = evidence.get("estimated_cost_basis")
-            energy = evidence.get("observed_energy_kwh")
-            if cost is None:
-                cost = evidence.get("estimated_variable_cost")
-                currency = evidence.get("estimated_variable_cost_currency")
-                basis = "effective" if cost is not None else None
-                energy = evidence.get("estimated_variable_cost_energy_kwh")
-            quality = "reference_estimate"
-            if cost is None and evidence.get("estimated_covered_cost") is not None:
-                cost = evidence["estimated_covered_cost"]
-                energy = evidence.get("estimated_covered_energy_kwh")
-                currency = evidence.get("estimated_cost_currency")
-                basis = evidence.get("estimated_cost_basis")
-                quality = "partial_observation"
-            if observed_only and not row.get("complete_observed_window"):
-                quality = "partial_observation"
-        if (type(cost) not in (int, float) or not isfinite(cost)
-                or not currency or not basis):
-            cost, currency, basis, quality = None, None, None, "unknown"
-        projection = {
-            "charger_id": uid, "asset_id": asset,
-            "started_at": row["started_at"], "ended_at": row.get("ended_at"),
-            "cost": None if quality == "partial_observation" else cost,
-            "covered_cost": cost, "currency": currency, "basis": basis,
-            "quality": quality, "energy_kwh": energy,
-            "average_price_per_kwh": (
-                round(cost/energy, 6) if cost is not None
-                and type(energy) in (int, float) and isfinite(energy) and energy > 0 else None),
-        }
+        projection = session_financial_evidence(
+            {**row, **metrics.get(key, {}), **estimates.get(key, {})},
+            phase, observed_only,
+        )
+        asset = projection["asset_id"]
         if phase == "active":
             groups["controller"]["site"][phase].append(projection)
         groups["charger"].setdefault(uid, {"active": [], "last": []})[phase].append(projection)
@@ -1364,7 +1375,7 @@ async def read_actual_history(hass, configuration, start, end, *,
                               include_observed_sessions=False, active_sessions=None,
                               tariff_entity=None, energy_bindings=None, tariff_bindings=None,
                               financial_days=None, as_of=None, include_quarters=True,
-                              read_samples=None):
+                              read_samples=None, include_retired_chargers=False):
     """Query native Recorder once; background finance need not build graph rows."""
     now = as_of or datetime.now(timezone.utc)
     first, last = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
@@ -1386,7 +1397,7 @@ async def read_actual_history(hass, configuration, start, end, *,
     if charger_id is not None and charger_id in bindings and not selected:
         selected = [charger_id]
 
-    if financial_days is not None:
+    if financial_days is not None or (include_retired_chargers and charger_id is None):
         selected = sorted(set(selected) | set(bindings))
 
     # Avoid scanning years of irrelevant receipts in each measured quarter
