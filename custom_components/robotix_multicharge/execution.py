@@ -644,7 +644,7 @@ class NativeSwitchExecutor:
             rows.reverse()
         return rows
 
-    def _archive_session(self, charger_id, finished_at, reason, *, recovered_session=None):
+    def _archive_session(self, charger_id, finished_at, reason, *, recovered_session=None, decision=None):
         """Only a physically confirmed STOP may produce a completed receipt."""
         session = recovered_session if recovered_session is not None else self._sessions.get(charger_id)
         if session is None:
@@ -695,7 +695,8 @@ class NativeSwitchExecutor:
             "meter_entity": source, "meter_observed_at": meter_at,
             "cost": cost, "currency": currency,
             "cost_quality": "qualified_effective_tariff" if cost is not None else "unknown",
-            "stop_reason": reason, "physical_stop_confirmed": reason != "NATIVE_SWITCH_STATE",
+            "stop_reason": reason, "physical_stop_decision": decision,
+            "physical_stop_confirmed": reason != "NATIVE_SWITCH_STATE",
             "switch_stop_confirmed": True,
             "budget_accrued_cost": (
                 session.get("budget_cost")
@@ -928,7 +929,7 @@ class NativeSwitchExecutor:
 
     def _publish(self, uid, request_id, action, status, reason, requested_at,
                  *, observed_at=None, measured_kw=None, service_sent=False,
-                 recovered_session=None, completion=None):
+                 recovered_session=None, completion=None, stop_decision=None):
         result = {
             "charger_id": uid,
             "request_id": request_id,
@@ -939,6 +940,7 @@ class NativeSwitchExecutor:
             "readback_at": observed_at.isoformat() if observed_at else None,
             "measured_power_kw": measured_kw,
             "service_sent": service_sent,
+            **({"physical_stop_decision": stop_decision} if stop_decision else {}),
         }
         self._outcomes[uid] = result
         if status == "execution_unknown":
@@ -947,7 +949,8 @@ class NativeSwitchExecutor:
             # A verified STOP closes the physical lock. Unknown progress
             # remains associated with the original finite intent in history.
             session = recovered_session if recovered_session is not None else self._sessions.get(uid)
-            self._archive_session(uid, observed_at, reason, recovered_session=recovered_session)
+            self._archive_session(uid, observed_at, reason, recovered_session=recovered_session,
+                                  decision=stop_decision)
             if session is not None:
                 receipt = self._session_history[-1] if self._session_history else None
                 hold_key = session.get("asset_id") or f"charger:{uid}"
@@ -2438,13 +2441,15 @@ class NativeSwitchExecutor:
                     # Never adopt an unconfirmed session after restart.
                     session = self._sessions.get(uid)
                     if session is None or uid not in self._accepted:
-                        await self.execute(uid, "stop")
+                        await self.execute(uid, "stop", stop_decision="QUARTER_SESSION_UNOWNED")
                         continue
                     now = datetime.now(timezone.utc)
-                    if (slot is None or slot.asset_uid != session["asset_id"]
-                            or not self._grant_is_current(slot, now)
-                            or self._session_stop_reason(charger, now)):
-                        await self.execute(uid, "stop")
+                    decision = ("QUARTER_NO_RESERVATION" if slot is None else
+                                "QUARTER_ASSET_CHANGED" if slot.asset_uid != session["asset_id"] else
+                                "QUARTER_GRANT_INVALID" if not self._grant_is_current(slot, now) else
+                                self._session_stop_reason(charger, now))
+                    if decision:
+                        await self.execute(uid, "stop", stop_decision=decision)
                         continue
                     if charger["kind"] == "variable_current":
                         target = slot.current_a
@@ -2654,7 +2659,8 @@ class NativeSwitchExecutor:
                     )
         completion = ((completed_asset, completed_intent, session_reason)
                       if completed_asset is not None and completed_intent is not None else None)
-        outcome = await self.execute(uid, "manual_stop" if self._sessions.get(uid, {}).get("resident_override") else "stop", completion=completion)
+        outcome = await self.execute(uid, "manual_stop" if self._sessions.get(uid, {}).get("resident_override") else "stop", completion=completion,
+                                     stop_decision=session_reason or "PROTECTIVE_LIMIT_OR_EVIDENCE")
         if outcome["status"] != "confirmed":
             _LOGGER.error("Protective charger STOP not physically confirmed: %s %s",
                           uid, outcome["reason"])
@@ -2862,7 +2868,7 @@ class NativeSwitchExecutor:
     async def execute(self, charger_id, action, *, context=None,
                       request_id=None, readback_seconds=READBACK_SECONDS,
                       current_a=None, plan_slot=None, manual_request=None,
-                      active_regulation=False, completion=None):
+                      active_regulation=False, completion=None, stop_decision=None):
         """Deduplicate caller-supplied identities before any physical side effect."""
         if action not in ("start", "stop", "set_current", "pause", "resume", "manual_start", "manual_stop", "auto"):
             raise ValueError("unsupported physical action")
@@ -2874,7 +2880,7 @@ class NativeSwitchExecutor:
         kwargs = dict(context=context, readback_seconds=readback_seconds,
                       current_a=current_a, plan_slot=plan_slot,
                       manual_request=deepcopy(manual_request),
-                      active_regulation=active_regulation, completion=completion)
+                      active_regulation=active_regulation, completion=completion, stop_decision=stop_decision)
         if request_id is None:
             return await self._execute_once(charger_id, action, uuid4().hex, **kwargs)
         identity = (charger_id, action, current_a, kwargs["manual_request"])
@@ -2900,12 +2906,15 @@ class NativeSwitchExecutor:
 
     async def _execute_once(self, charger_id, action, request_id, *, context,
                             readback_seconds, current_a, plan_slot, manual_request,
-                            active_regulation, completion):
+                            active_regulation, completion, stop_decision):
         """Perform one native action; success requires fresh independent readback."""
         started = perf_counter()
         resident_start = action == "manual_start"
         resident_stop = action == "manual_stop"
         return_auto = action == "auto"
+        if stop_decision is None:
+            stop_decision = {"manual_stop": "RESIDENT_STOP", "pause": "PAUSE_REQUEST",
+                             "auto": "RETURN_TO_AUTO", "stop": "STOP_REQUEST"}.get(action)
         if resident_start:
             action = "start"
             manual_request = {**(manual_request or {}), "_resident": True}
@@ -2945,7 +2954,7 @@ class NativeSwitchExecutor:
             def result(status, reason, **extras):
                 recorded = self._publish(charger_id, request_id, action, status,
                                          reason, at, recovered_session=recovered_session,
-                                         completion=completion, **extras)
+                                         completion=completion, stop_decision=stop_decision if action in ("stop", "pause") else None, **extras)
                 self.runtime._record_performance("command_" + action + "_outcome", started)
                 return recorded
             if active_regulation and (action != "set_current" or not self._regulating
