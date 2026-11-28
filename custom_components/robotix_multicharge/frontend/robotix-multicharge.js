@@ -2183,8 +2183,8 @@ class RobotixMultiChargeCard extends HTMLElement {
       };
       for(const fieldNode of [enabled,start,end]){
         fieldNode.disabled=this._settingsBusy;
-        fieldNode.addEventListener("change",save);
       }
+      this.stageNativeEdit(panel,[enabled,start,end],save,!this._settingsBusy);
     }
     container.append(panel);
   }
@@ -2197,15 +2197,35 @@ class RobotixMultiChargeCard extends HTMLElement {
     if(group)this._folds[scope+":"+uid+":"+group[0]]=true;
     this.render();
   }
+  stageNativeEdit(container,inputs,save,enabled=true){
+    // Native owner services remain canonical. A change is a draft, never a write.
+    const revision=this._data?.configuration_revision;
+    const initial=inputs.map(input=>input.value);
+    const actions=mcEl("div","dashboard-edit-actions");
+    const submit=mcButton(mcTr("Save"),()=>{
+      if(revision!==this._data?.configuration_revision){
+        this._settingsFeedback={status:"rejected",message:"Settings changed; refresh and retry"};
+        this.showEditError(container);return;
+      }
+      return save();
+    });
+    const cancel=mcButton(mcTr("Cancel"),()=>this.render());
+    submit.disabled=true;cancel.disabled=true;
+    for(const input of inputs)input.addEventListener("change",()=>{
+      const changed=inputs.some((node,i)=>node.value!==initial[i]);
+      this._unsavedInput=changed;submit.disabled=!enabled||!changed;cancel.disabled=!changed;
+    });
+    actions.append(submit,cancel);container.append(actions);
+  }
   ownerColorControl(container,scope,row){
     const palette=this._data?.plan_palette||{};
     const entity=this.ownerEntity(scope,row.id,"plan_color");
     const options=Object.keys(palette).map(key=>[key,mcTr(key)]);
     const pick=this.field(container,"Plan color",row.plan_color,null,options);
     pick.disabled=!this.canEditSettings()||!entity||this._settingsBusy;
-    pick.addEventListener("change",()=>this.nativeSelect(
+    this.stageNativeEdit(container,[pick],()=>this.nativeSelect(
       scope,row.id,"plan_color",pick.value
-    ));
+    ),!pick.disabled);
     return pick;
   }
   field(container,title,value,type,choices){
@@ -2719,15 +2739,12 @@ class RobotixMultiChargeCard extends HTMLElement {
     }
     select.value=options.includes(current)?current:"none";
     select.disabled=!this.canEditSettings()||!entity||this._settingsBusy;
-    select.addEventListener("change",()=>{
-      const next=select.value;
-      if(next!==current)void this.nativeSelect("charger",charger.id,"asset",next);
-    });
     const wrap=mcEl("div","quick-assignment");
     const label=mcEl("label","",mcTr("Selected vehicle"));
     const id="mc-vehicle-"+charger.id.replace(/[^a-z0-9_-]/gi,"-");
     select.setAttribute("id",id);label.setAttribute("for",id);
     wrap.append(label,select);
+    if(this.canEditSettings()&&entity)this.stageNativeEdit(wrap,[select],()=>this.nativeSelect("charger",charger.id,"asset",select.value),!select.disabled);
     if(!entity)wrap.append(mcEl("span","muted small",
       mcTr("Native vehicle selection unavailable")));
     container.append(wrap);
@@ -3393,7 +3410,7 @@ class RobotixMultiChargeCard extends HTMLElement {
             (a.maintain_soc_until_ready_by??d.asset_policy_defaults?.maintain_soc_until_ready_by)?"on":"off",null,
             [["on",mcTr("On")],["off",mcTr("Off")]]);
           maintain.disabled=this._settingsBusy;
-          maintain.addEventListener("change",()=>void this.nativeSelect("asset",a.id,"maintain_soc_until_ready_by",maintain.value));
+          this.stageNativeEdit(detail,[maintain],()=>this.nativeSelect("asset",a.id,"maintain_soc_until_ready_by",maintain.value),!maintain.disabled);
         }
         // Schedule has one resident editor; native owner fields remain in Details.
         // Native upstream price/SoC policy remains Asset-owned and one
@@ -3417,9 +3434,7 @@ class RobotixMultiChargeCard extends HTMLElement {
               ["type2",mcTr("Type 2 — tomorrow price")],
             ]);
           strategy.disabled=this._settingsBusy;
-          strategy.addEventListener("change",()=>
-            void this.nativeSelect("asset",a.id,"opportunistic_kind",
-                                   strategy.value));
+          this.stageNativeEdit(detail,[strategy],()=>this.nativeSelect("asset",a.id,"opportunistic_kind",strategy.value),!strategy.disabled);
         }
         if(this.canEditSettings()&&this.ownerEntity("asset",a.id,"continuous_charging")){
           detail.append(mcEl("h4","",mcTr("Continuity and price strategy")));
@@ -3430,9 +3445,7 @@ class RobotixMultiChargeCard extends HTMLElement {
               ["continuous",mcTr("One continuous charge")],
             ]);
           continuity.disabled=this._settingsBusy;
-          continuity.addEventListener("change",()=>
-            void this.nativeSelect("asset",a.id,
-                                  "continuous_charging",continuity.value));
+          this.stageNativeEdit(detail,[continuity],()=>this.nativeSelect("asset",a.id,"continuous_charging",continuity.value),!continuity.disabled);
         }
         if(this.canEditSettings())this.ownerColorControl(detail,"asset",a);
         for(const [field,label] of [
@@ -4299,7 +4312,7 @@ class RobotixMultiChargeCard extends HTMLElement {
                 ctl.grid_power_direction||"import_positive";
               const select=this.field(detail,mcTr(caption),value,null,choices);
               select.disabled=this._settingsBusy;
-              select.addEventListener("change",()=>{
+              this.stageNativeEdit(detail,[select],()=>{
                 if(field==="solar_source_kind"&&
                   (select.value==="intervals"&&!ctl.solar_entity||
                    select.value==="grid_export"&&!ctl.grid_power_entity||
@@ -4308,8 +4321,8 @@ class RobotixMultiChargeCard extends HTMLElement {
                     message:mcTr("Select the required native meter before enabling this Solar mode")};
                   this.render();return;
                 }
-                void this.nativeSelect("controller",ctl.id,field,select.value);
-              });
+                return this.nativeSelect("controller",ctl.id,field,select.value);
+              },!select.disabled);
             }
           }
           const advancedSources=mcEl("div","owner-fields");
