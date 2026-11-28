@@ -1,15 +1,15 @@
 {
-  "status": "AUTHORIZED_FOR_TEST",
+  "status": "PENDING_AUTHORIZATION",
   "distribution": "open_source_community",
-  "expected_tag": "v0.1.28",
+  "expected_tag": "v0.1.29",
   "precompile": false,
-  "qualification_scope": "Complete field audit correction: version-specific native sidebar upgrade, approved resident UX regression, bounded Recorder history work and consecutive-quarter charging continuity regression. Exact candidate qualification required.",
-  "limitations": "HACS TEST only. Real site browser/physical readback, latency and unattended operation remain separate; not STABLE. Retain native HA backup and database with matching v0.1.27 code; confirm STOP before rollback, retain upgraded backup separately and restore prior checkpoint with matching code. No code-only downgrade or live-state merging.",
+  "qualification_scope": "Full approved 28 November field batch: async multi-EVSE continuity, STOP decision traceability, history performance, reconciled period/group/session finance, stable layout, contextual editing and remaining resident UX. Complete exact candidate qualification required.",
+  "limitations": "HACS TEST only after explicit version authorization. Physical field acceptance, Safari/iPad, performance and unattended operation remain separate; not STABLE. Retain native HA backup/database and matching v0.1.28 code; confirm STOP before rollback and restore matching checkpoint; no code-only downgrade or live-state merge.",
   "rollback_evidence": {
-    "tag": "v0.1.27",
-    "source_sha": "d288be70a46c4e97e18cd008bced88b94655fbbf",
-    "artifact": "robotix_multicharge-0.1.27.zip",
-    "sha256": "200431589bd6e8b1dc3fe8101045dec81211131f1442f4acb654436c4e1b368b",
+    "tag": "v0.1.28",
+    "source_sha": "7a0fe5dd8dfa1d55e01e80ea4435252266671f43",
+    "artifact": "robotix_multicharge-0.1.28.zip",
+    "sha256": "73b02c443ddc51a8fcab8b5bf1357bccc1ec0e420fdbc4182da5dc6cb1e9d784",
     "scope": "Exact predecessor/candidate native HA Core archive/startup restore, configuration and Store checkpoint readback and receipt preservation; no code-only downgrade or live-state merging."
   }
 }
