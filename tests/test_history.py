@@ -27,6 +27,40 @@ def recorded(at, value, units="W"):
 
 
 class NativeMeasuredHistoryTests(unittest.TestCase):
+    def test_day_session_portions_reconcile_crossing_and_external_energy(self):
+        first = NOW-timedelta(minutes=30)
+        mid = first+timedelta(minutes=15)
+        cfg = {"chargers": [{"id": "drive"}, {"id": "external"}],
+               "assets": [{"id": "car"}]}
+        bindings = {"drive": [{"start": None, "entity": "sensor.drive"}],
+                    "external": [{"start": None, "entity": "sensor.external"}]}
+        states = {"sensor.drive": [recorded(first, 4000), recorded(mid, 0)],
+                  "sensor.external": [recorded(first, 0), recorded(mid, 2000)]}
+        receipt = {"charger_id": "drive", "asset_id": "car",
+                   "started_at": (first-timedelta(hours=2)).isoformat(),
+                   "ended_at": mid.isoformat(), "physical_stop_confirmed": True}
+        observed = {"charger_id": "external", "asset_id": None,
+                    "started_at": mid.isoformat(), "ended_at": NOW.isoformat()}
+        quotes = [self._price(first, NOW, -0.2, basis="spot")]
+        result = mod.session_day_partition(states, bindings, cfg, first, NOW,
+                                           quotes, [receipt], {}, [observed], {})
+        site = result["groups"]["controller"]["site"]["today"]
+        self.assertAlmostEqual(site["observed_energy_kwh"], 1.5)
+        self.assertAlmostEqual(site["covered_cost"], -0.3)
+        key = ("drive", receipt["started_at"], receipt["ended_at"])
+        portion = result["session_portions"][key]
+        self.assertAlmostEqual(portion["physical"]["observed_energy_kwh"], 1.0)
+        self.assertAlmostEqual(portion["asset"]["observed_energy_kwh"], 1.0)
+        self.assertAlmostEqual(portion["physical"]["average_price_per_kwh"], -0.2)
+        self.assertEqual(result["session_reconciliation"]["controller"]["site"]["energy_kwh"], 0)
+        self.assertEqual(result["session_reconciliation"]["controller"]["site"]["covered_cost"], 0)
+        # Ambiguous duplicate receipts may not silently allocate physical energy.
+        duplicate = {**receipt, "started_at": (first-timedelta(hours=1)).isoformat()}
+        ambiguous = mod.session_day_partition(states, bindings, cfg, first, NOW,
+                                              quotes, [receipt, duplicate], {}, [observed], {})
+        self.assertAlmostEqual(ambiguous["session_reconciliation"]["charger"]["drive"]["energy_kwh"], 1.0)
+        self.assertAlmostEqual(ambiguous["session_reconciliation"]["charger"]["drive"]["covered_cost"], -0.2)
+
     def test_session_drilldown_reuses_qualified_priced_denominator(self):
         receipt = {"charger_id": "retired_drive", "asset_id": "retired_car",
                    "started_at": (NOW-timedelta(hours=1)).isoformat(),
