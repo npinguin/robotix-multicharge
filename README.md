@@ -8,7 +8,7 @@
 
 Robotix MultiCharge is an open-source Home Assistant integration being built to coordinate charging for electric cars, e-bikes and other compatible rechargeable assets. The goal: make smart use of electricity prices, solar energy, available power and charging deadlines—without locking you to a vehicle, charger or energy provider.
 
-> **HACS TEST v0.1.25 is the published baseline. v0.1.26 is the development candidate, not STABLE.**
+> **HACS TEST v0.1.28 is the published baseline. v0.1.29 is the development candidate, not STABLE.**
 >
 > The current development batch strengthens autonomous reconciliation of physical switch/current/power, vehicle waiting, source and Store recovery, and preserves native control and measured history. It removes redundant planning/history work and bounds diagnostic samples, reuses the existing five views, and retains a single planner/executor/Config Entry. Persistent competing autonomous controllers are unsupported. See [PR #30](https://github.com/npinguin/robotix-multicharge/pull/30) and [Issue #1](https://github.com/npinguin/robotix-multicharge/issues/1) for qualification evidence and blockers. Install only immutable published [HACS releases](https://github.com/npinguin/robotix-multicharge/releases).
 
@@ -35,7 +35,7 @@ One existing **Details** disclosure on each object also shows **every persisted 
 
 **Input stability:** Every native and in-dashboard Controller, Charger, Asset, Guest, schedule, YAML textarea and activation field stays open while the user focuses or enters data. Background Home Assistant sensor updates, the source-refresh coalescer and delayed get_plan responses continue updating observations without replacing the active form, erasing unsubmitted input or dismissing an iPad keyboard. There is **no inactivity-based editor timeout**. Only explicit Save, Cancel, navigation or Refresh may repaint the user's open form; rejected Save preserves the typed value and shows an in-place error. This is covered by automated source/browser regressions; actual Wessels Safari acceptance is separate.
 
-**Release distinction:** source, isolated-HA and Chromium tests do not establish actual Safari/iPad behavior, real provider readings or physical STOP. Publishing TEST requires exact-dev, merged-main and artifact qualification. For v0.1.23, use the matching v0.1.22 checkpoint backup for rollback, not a code-only downgrade. v0.1.21 also has incompatible configuration and history limits. The approved TEST recovery path is to take and retain a native HA backup before upgrade, verify owned outputs stopped before rollback, take a separate backup of the upgraded state, and restore the pre-upgrade HA backup and its matching immutable integration. This restores the prior checkpoint, not all intervening changes. Reinstalling the newer version and restoring its separate backup is the forward recovery route; never combine Store files or activate two writers. The exact artifact gate exercises the native HA Core backup archive and startup restore in isolation. Site backup/restore and physical STOP must still be verified on the installation. The owner approved this checkpoint-based TEST rollback on 25 November 2026.
+**Release distinction:** source, isolated-HA and Chromium tests do not establish actual Safari/iPad behavior, real provider readings or physical STOP. Publishing TEST requires exact-dev, merged-main and artifact qualification. For v0.1.29, use the matching v0.1.28 checkpoint backup for rollback, not a code-only downgrade. The approved TEST recovery path is to take and retain a native HA backup before upgrade, verify owned outputs stopped before rollback, take a separate backup of the upgraded state, and restore the pre-upgrade HA backup and its matching immutable integration. This restores the prior checkpoint, not all intervening changes. Reinstalling the newer version and restoring its separate backup is the forward recovery route; never combine Store files or activate two writers. The exact artifact gate exercises the native HA Core backup archive and startup restore in isolation. Site backup/restore and physical STOP must still be verified on the installation. The owner approved this checkpoint-based TEST rollback on 25 November 2026.
 
 ### Beginner-first UX and combined charging graph (dev)
 
@@ -127,7 +127,7 @@ no other charging integration is required, inspected or managed.
 Robotix MultiCharge is a **single MIT-licensed community integration**. It installs
 from source; no precompiled runtime, paid Robotix services or separate mirror.
 
-For v0.1.23 HACS TEST (v0.1.22 **with the matching pre-upgrade HA backup** is the rollback), after its GitHub prerelease is available, open HACS in Home Assistant and add
+For the v0.1.29 HACS TEST candidate (v0.1.28 **with the matching pre-upgrade HA backup** is the rollback), only after the authorized GitHub prerelease is available, open HACS in Home Assistant and add
 `https://github.com/npinguin/robotix-multicharge` as a **custom Integration
 repository**, enable prerelease/beta versions where applicable, and install
 the published TEST prerelease. Restart Home Assistant and use the MultiCharge dashboard to configure all objects; do not create a second integration entry.
