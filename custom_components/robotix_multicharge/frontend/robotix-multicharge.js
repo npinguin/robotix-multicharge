@@ -1853,10 +1853,15 @@ class RobotixMultiChargeCard extends HTMLElement {
   dashboardEditField(container,scope,record,field,unit="",label=""){
     const body=mcEl("div","dashboard-field-edit");
     body.setAttribute("data-edit-field",scope+":"+record.id+":"+field);
+    const revision=this._data?.configuration_revision;
     if(unit)body.append(mcEl("p","muted small",mcTr(label||MC_OWNER_NAMES[field]||field)+" ("+unit+")"));
     let read=this.dashboardFieldControl(body,scope,record,field);
     const actions=mcEl("div","dashboard-edit-actions");
     const submit=mcButton(mcTr("Save"),async()=>{
+      if(!revision||revision!==this._data?.configuration_revision){
+        this._settingsFeedback={status:"rejected",message:"Settings changed; refresh and retry"};
+        this.showEditError(body);return;
+      }
       let value;
       try{value=read();}catch(e){
         this._settingsFeedback={status:"rejected",message:String(e.message)};
@@ -2798,20 +2803,18 @@ class RobotixMultiChargeCard extends HTMLElement {
           mcOwnerReadValue(record[field],field,this._data?.timezone)));
       line.append(info);
       const key=scope+":"+record.id+":"+field;
-      const nativePrimary=(scope==="controller"&&(["name","max_parallel","mode","power_adjustment_interval_minutes","solar_source_kind","grid_power_direction"].includes(field)&&this.ownerEntity(scope,record.id,field)||primaryFields.includes(field)))||(scope==="charger"&&field==="asset"&&this.ownerEntity(scope,record.id,field));
-      if(this.canEditSettings()&&!nativePrimary&&!["id","physical_commissioned","dedicated_asset_id"].includes(field)&&
-          !(scope==="charger"&&primaryFields.includes(field))){
+      // Primary controls already have an owning editor in this view. Keep
+      // expert values visible but do not mount a second editable form.
+      const nativePrimary=primaryFields.includes(field)||(scope==="controller"&&["name","mode","solar_source_kind","grid_power_direction"].includes(field)&&this.ownerEntity(scope,record.id,field))||(scope==="charger"&&field==="asset"&&this.ownerEntity(scope,record.id,field));
+      if(this.canEditSettings()&&!nativePrimary&&!["id","physical_commissioned","dedicated_asset_id"].includes(field)){
         const edit=mcButton(mcTr("Edit"),()=>{
-          if(primaryFields.includes(field)){
-            this._settingsOpen=field==="phase_limits_a"?"Safety & limits":"Sources & bindings";
-          }
           this._editingField=this._editingField===key?"":key;this.render();
         });
         edit.setAttribute("aria-label",mcTr("Edit")+" "+mcTr(label)+" · "+record.name);
         line.append(edit);
       }
       parent.append(line);
-      if(this.canEditSettings()&&!nativePrimary&&this._editingField===key&&!primaryFields.includes(field))
+      if(this.canEditSettings()&&!nativePrimary&&this._editingField===key)
         this.dashboardEditField(parent,scope,record,field);
     };
     const fold=(title,fields,key)=>{
@@ -3387,7 +3390,7 @@ class RobotixMultiChargeCard extends HTMLElement {
             mcPair(detail,mcTr("Budget progress"),mcTr("Unavailable"));
         }
         const preferences=mcEl("div","configuration-rows preference-grid");
-        for(const [field,label,unit] of [
+        const preferenceFields=[
           ["target_soc","Charging limit","%"],
           ["requested_kwh","Requested energy","kWh"],
           ["requested_duration_minutes","Requested charging duration","minutes"],
@@ -3401,8 +3404,9 @@ class RobotixMultiChargeCard extends HTMLElement {
           ["priority","Charging priority",""],
           ["capacity_kwh","Battery capacity","kWh"],
           ["charge_efficiency","Charging efficiency",""]
-        ])this.contextualField(preferences,"asset",a,field,label,unit);
-        if(this._editingField.startsWith("asset:"+a.id+":")&&["target_soc","requested_kwh","requested_duration_minutes","requested_budget_amount","minimum_soc_pct","maximum_price_per_kwh","low_price_trigger_per_kwh","low_soc_trigger_pct","opportunistic_level_pct","max_charge_kw","priority","capacity_kwh","charge_efficiency"].includes(this._editingField.split(":").at(-1)))this._folds["asset:"+a.id+":preferences"]=true;
+        ];
+        for(const [field,label,unit] of preferenceFields)this.contextualField(preferences,"asset",a,field,label,unit);
+        if(this._editingField.startsWith("asset:"+a.id+":")&&preferenceFields.some(([field])=>field===this._editingField.split(":").at(-1)))this._folds["asset:"+a.id+":preferences"]=true;
         this.disclosure(detail,"asset:"+a.id+":preferences",
           "Charging preferences",preferences);
         const deadline=mcEl("div","row");
@@ -3464,7 +3468,8 @@ class RobotixMultiChargeCard extends HTMLElement {
             ()=>this.openNative("asset",a.id,field)));
           detail.append(row);
         }
-        this.ownerFacts(detail,"asset",a);
+        this.ownerFacts(detail,"asset",a,[...preferenceFields.map(([field])=>field),
+          ...["maintain_soc_until_ready_by","opportunistic_kind","continuous_charging","plan_color"].filter(field=>this.ownerEntity("asset",a.id,field))]);
       }
       this.assetHistory(card,a,charger,chargers);
       this.ownerDetails(card,"asset",a,detail);
@@ -4133,7 +4138,9 @@ class RobotixMultiChargeCard extends HTMLElement {
         if(actual.reason)mcPair(detail,"Reason",mcReason(actual.reason));
         if(actual.readback_at)mcPair(detail,"Measured confirmation",mcTime(actual.readback_at,d.timezone));
         if(this.canEditSettings())this.ownerColorControl(detail,"charger",c);
-        this.ownerFacts(detail,"charger",c,["control_owner","min_charging_power_kw","max_charging_power_kw","set_charging_power_kw"]);
+        this.ownerFacts(detail,"charger",c,["control_owner","kind","rated_power_kw","phase_count",
+          ...(c.kind==="variable_current"?["min_charging_power_kw","max_charging_power_kw","set_charging_power_kw"]:[]),
+          ...["plan_color"].filter(field=>this.ownerEntity("charger",c.id,field))]);
       }
 
       const block=mcEl("div","topic-quick");
@@ -4406,7 +4413,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     this.ownerFacts(expert,"controller",ctl,[
             "solar_power_entity","home_power_entity","grid_power_entity","solar_surplus_entity",
             "current_price_entity","price_entity","export_price_entity","solar_entity",
-            "site_power_entity","binding_entity","phase_limits_a"
+            "site_power_entity","binding_entity","phase_limits_a",
+            "max_power_kw","max_parallel","power_adjustment_interval_minutes"
           ],false);
     if(this._editingField.startsWith("controller:"+ctl.id+":")&&this._settingsOpen!=="Sources & bindings"&&this._settingsOpen!=="Safety & limits"&&!this._editingField.endsWith(":name"))this._folds["controller:expert"]=true;
     this.disclosure(container,"controller:expert","Complete object settings & sources",expert);

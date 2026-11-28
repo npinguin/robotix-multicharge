@@ -1800,12 +1800,26 @@ async function main(){
   });
   assert.ok(priorityEdit,"Vehicle preferences expose an immediately contextual edit");
   priorityEdit.click();
-  let typedPriority;
+  const priorityEditors=[];
   visit(card.shadowRoot,node=>{
-    if(node.attributes["data-edit-field"]==="asset:car:priority")typedPriority=node;
+    if(node.attributes["data-edit-field"]==="asset:car:priority")priorityEditors.push(node);
   });
+  assert.equal(priorityEditors.length,1,"Primary preference must not mount a duplicate expert editor");
+  const typedPriority=priorityEditors[0];
   assert.ok(typedPriority&&find(typedPriority,"button","Save")&&find(typedPriority,"button","Cancel"),
     "Vehicle preference shares revision-checked Save/Cancel");
+  const priorRevision=card._data.configuration_revision;
+  const priorWS=card._hass.callWS;
+  let staleWrites=0;
+  card._hass.callWS=async request=>{if(request.type==="robotix_multicharge/update_settings")staleWrites++;return priorWS(request);};
+  card._data.configuration_revision="concurrent-edit";
+  find(typedPriority,"button","Save").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(staleWrites,0,"An open typed form must not silently overwrite a newer configuration");
+  assert.equal(card._settingsFeedback.status,"rejected");
+  assert.ok(content(typedPriority).includes("Settings changed; refresh and retry"));
+  card._data.configuration_revision=priorRevision;
+  card._hass.callWS=priorWS;
   find(typedPriority,"button","Cancel").click();
   assert.ok(find(card.shadowRoot,"button","Set charging deadline"),
     "Vehicle Ready By opens its native HA DateTime entity from the dashboard");
