@@ -1274,7 +1274,8 @@ def session_day_partition(historical, bindings, configuration, first, last, quot
     Full-session meter/receipt totals remain separately available.
     """
     partition = {}
-    for row in [*receipts, *active_sessions.values(), *observed]:
+    for row in [*(row for row in receipts if row.get("physical_stop_confirmed") is True),
+                *active_sessions.values(), *observed]:
         if row.get("physical_stop_confirmed") is False:
             continue  # recovery interval is not a confirmed physical session
         uid = row.get("charger_id")
