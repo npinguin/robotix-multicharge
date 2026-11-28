@@ -31,6 +31,7 @@ from .cost_archive import (
 )
 from .history import (
     civil_cost_days, civil_period_costs, daily_costs, planned_costs, read_actual_history,
+    period_cost_reconciliation,
     reconcile_power_bindings, reconcile_tariff_bindings, session_costs, read_recorder_samples,
 )
 
@@ -1630,6 +1631,7 @@ class MultiChargeRuntime:
                 if self.configuration["controller"].get("show_indicative_forecast", True) else None,
             "session_costs": self.session_costs,
             "period_costs": self.period_costs,
+            "period_reconciliation": period_cost_reconciliation(self.period_costs),
             "live": self.live_state(),
             "configuration_revision": configuration_revision(self.configuration),
             "controller_id": self.configuration["controller"]["id"],
