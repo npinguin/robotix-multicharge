@@ -96,6 +96,7 @@ def charger_setup_projection(hass, registry, runtime, charger):
     vol.Optional("start"): str,
     vol.Optional("end"): str,
     vol.Optional("day"): vol.In(("today", "tomorrow", "both")),
+    vol.Optional("history_date"): str,
     vol.Optional("charger_id"): str,
     vol.Optional("asset_id"): str,
     vol.Optional("include_history", default=True): bool,
@@ -122,7 +123,17 @@ async def websocket_get_plan(
         connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND, reason)
         return
     try:
-        if "day" in msg:
+        if "history_date" in msg:
+            if any(key in msg for key in ("day", "start", "end")):
+                raise ValueError("history date and plan interval are mutually exclusive")
+            local_tz = ZoneInfo(hass.config.time_zone)
+            chosen = datetime.strptime(msg["history_date"], "%Y-%m-%d").date()
+            today = datetime.now(local_tz).date()
+            if chosen.isoformat() != msg["history_date"] or not today.replace(month=1, day=1) <= chosen <= today:
+                raise ValueError("history date outside current financial year")
+            start = datetime.combine(chosen, time.min, local_tz)
+            end = datetime.combine(chosen + timedelta(days=1), time.min, local_tz)
+        elif "day" in msg:
             if "start" in msg or "end" in msg:
                 raise ValueError("day and explicit interval are mutually exclusive")
             local_tz = ZoneInfo(hass.config.time_zone)
