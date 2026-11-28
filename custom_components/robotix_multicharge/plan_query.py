@@ -332,7 +332,8 @@ async def websocket_get_plan(
             def attach_portion(receipt):
                 portion = portions.get((receipt["charger_id"], receipt["started_at"], receipt.get("ended_at")))
                 if portion is not None:
-                    receipt["day_contribution"] = portion
+                    receipt["day_contribution"] = portion["physical"]
+                    receipt["asset_day_contribution"] = portion["asset"]
             # Full native receipt interval and qualified pricing denominator;
             # date selects overlap, never prorates a crossing session.
             for receipt in result["completed_sessions"]:
