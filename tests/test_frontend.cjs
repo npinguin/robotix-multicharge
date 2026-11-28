@@ -1303,13 +1303,14 @@ async function main(){
   // Every form family uses the same source-safe repaint path, including
   // always-visible native Number fields and new Guest/Charger forms.
   typingCard._settingsOpen="Charging site";
+  typingCard._editingField="controller:site:max_parallel";
   typingCard.render();
   let nativeNumberInput;
   visit(typingCard.shadowRoot,node=>{
-    if(node.tag==="input"&&node.attributes["aria-label"]==="Parallel chargers")
+    if(node.tag==="input"&&node.attributes.type==="number"&&node.value===String(typingCard._data.configuration.controller.max_parallel))
       nativeNumberInput=node;
   });
-  assert.ok(nativeNumberInput,"Native site number exists without a popup");
+  assert.ok(nativeNumberInput,"Contextual site number editor exists in owning view");
   nativeNumberInput.value="9";
   typingCard.shadowRoot.activeElement=nativeNumberInput;
   const numberNodes=typingCard.shadowRoot.children;
