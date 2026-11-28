@@ -27,6 +27,24 @@ def recorded(at, value, units="W"):
 
 
 class NativeMeasuredHistoryTests(unittest.TestCase):
+    def test_period_reconciliation_is_same_snapshot_and_signed(self):
+        def row(energy, amount, basis="variable_reference", unpriced=0):
+            return {"observed_seconds": 3600, "observed_energy_kwh": energy,
+                    "covered_cost": amount, "covered_energy_kwh": energy-unpriced,
+                    "unpriced_energy_kwh": unpriced, "currency": "EUR", "basis": basis}
+        periods = {"controller": {"site": {"today": row(5, -2)}},
+                   "charger": {"drive": {"today": row(5, -2)}},
+                   "asset": {"car": {"today": row(4, -1.5)}}}
+        result = mod.period_cost_reconciliation(periods)["today"]
+        self.assertEqual(result["charger"]["energy_kwh"], 0)
+        self.assertEqual(result["charger"]["covered_cost"], 0)
+        self.assertEqual(result["asset"]["energy_kwh"], 1)
+        self.assertEqual(result["asset"]["covered_cost"], -0.5)
+        periods["asset"]["car"]["today"]["basis"] = "effective"
+        self.assertIsNone(mod.period_cost_reconciliation(periods)["today"]["asset"]["covered_cost"])
+        periods["controller"]["site"]["today"]["observed_seconds"] = 0
+        self.assertIsNone(mod.period_cost_reconciliation(periods)["today"]["charger"]["energy_kwh"])
+
     def test_recorder_indexes_normalize_once_and_keep_exact_gaps(self):
         from bisect import bisect_right
         from unittest.mock import patch
