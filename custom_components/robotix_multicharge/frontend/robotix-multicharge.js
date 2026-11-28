@@ -1293,6 +1293,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._watchedIds=[];
     this._historyFetchedAt=0;
     this._historyKey="";
+    this._historyPending=null;
     this._queryScope="";
     this._snapshotDay=null;
     this._pendingNative=null;
@@ -1442,6 +1443,58 @@ class RobotixMultiChargeCard extends HTMLElement {
     else if(!this._loading&&(!this._last||Date.now()-this._last>60000))this.load();
     else if(this._data && before?.locale?.language!==value?.locale?.language)this.passiveRender();
   }
+  historyIdentity(data){
+    return data?JSON.stringify([data.start,data.end,data.configuration_revision,data.history_revision]):"";
+  }
+  mergeHistory(target,source){
+    target.actual_slots=source.actual_slots;
+    target.actual_history_quality=source.actual_history_quality;
+    target.history_snapshot_at=source.history_snapshot_at||source.snapshot_at;
+    target.observed_sessions=source.observed_sessions;
+    const key=r=>r.charger_id+"|"+r.started_at+"|"+r.ended_at;
+    const prior=new Map([...(source.completed_sessions||[]),...(source.recent_completed_sessions||[])].map(r=>[key(r),r]));
+    const fields=["estimated_variable_cost","estimated_variable_cost_currency","estimated_variable_cost_quality",
+      "estimated_cost","estimated_cost_currency","estimated_cost_basis","estimated_covered_cost","estimated_covered_energy_kwh","estimated_variable_cost_energy_kwh","observed_energy_kwh",
+      "elapsed_minutes","average_power_kw","peak_power_kw"];
+    for(const row of [...(target.completed_sessions||[]),...(target.recent_completed_sessions||[])]){
+      const earlier=prior.get(key(row));
+      if(earlier)for(const k of fields)if(earlier[k]!==undefined)row[k]=earlier[k];
+    }
+    for(const [uid,row] of Object.entries(target.active_sessions||{})){
+      const earlier=source.active_sessions?.[uid];
+      if(earlier?.started_at===row.started_at)
+        for(const k of fields)if(earlier[k]!==undefined)row[k]=earlier[k];
+    }
+  }
+  requestHistory(cmd,key,epoch){
+    if(this._historyPending||this._detached||!this._data)return;
+    const identity=this.historyIdentity(this._data);
+    const token={identity,key,epoch};
+    this._historyPending=token;
+    const started=Date.now();
+    void (async()=>{
+      try{
+        const history=await this._hass.callWS({...cmd,include_history:true});
+        if(this._detached||this._viewEpoch!==epoch||this._historyPending!==token||
+           this.historyIdentity(this._data)!==identity||this.historyIdentity(history)!==identity||
+           this._snapshotDay+"|"+this._queryScope!==key)return;
+        this.mergeHistory(this._data,history);
+        this._historyKey=key;this._historyFetchedAt=Date.now();
+        this._historyLastDuration=Date.now()-started;
+      }catch(error){
+        if(!this._detached&&this._viewEpoch===epoch&&this.historyIdentity(this._data)===identity){
+          if(!this._data.history_snapshot_at)this._data.actual_history_quality="HISTORY_READ_FAILED";
+          this._historyKey=key;this._historyFetchedAt=Date.now();
+        }
+      }finally{
+        if(this._historyPending===token)this._historyPending=null;
+        if(!this._detached){
+          this.passiveRender();
+          if(this._snapshotDay+"|"+this._queryScope!==key||this.historyIdentity(this._data)!==identity)this.scheduleSourceRefresh();
+        }
+      }
+    })();
+  }
   async load(){
     if(!this._hass||this._loading||this._detached)return;
     this._loading=true;if(!this._data)this.passiveRender();
@@ -1453,10 +1506,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       const historyKey=requestedDay+"|"+queryFilter;
       const wantsHistory=["Overview","Charging Plan","Chargeable Assets","Chargers"].includes(this._tab);
       const beforeData=this._data;
-      const cmd={type:"robotix_multicharge/get_plan",day:requestedDay,
-        include_history:wantsHistory&&(!beforeData||this._historyKey!==historyKey||
-          Date.now()-this._historyFetchedAt>=30000||
-          beforeData.actual_history_quality==="NOT_REQUESTED")};
+      const cmd={type:"robotix_multicharge/get_plan",day:requestedDay,include_history:false};
       if(queryFilter.startsWith("charger:"))cmd.charger_id=queryFilter.slice(8);
       if(queryFilter.startsWith("asset:"))cmd.asset_id=queryFilter.slice(6);
       const nextData=await this._hass.callWS(cmd);
@@ -1476,30 +1526,14 @@ class RobotixMultiChargeCard extends HTMLElement {
       }else if(!this.validViewFilter(this._filter,nextData.configuration)){
         this._filter="";this.rememberViewPreferences();this._refreshPending=true;
       }
-      if(cmd.include_history){
+      if(beforeData&&this._historyKey===historyKey&&this.historyIdentity(beforeData)===this.historyIdentity(nextData)&&
+          !["NOT_REQUESTED","HISTORY_LOADING"].includes(beforeData.actual_history_quality)&&nextData.actual_history_quality==="NOT_REQUESTED"){
+        this.mergeHistory(nextData,beforeData);
+      }else if(wantsHistory&&nextData.actual_history_quality==="NOT_REQUESTED"){
+        this._historyFetchedAt=0;
+        nextData.actual_history_quality="HISTORY_LOADING";
+      }else if(wantsHistory){
         this._historyKey=historyKey;this._historyFetchedAt=Date.now();
-      }else if(beforeData&&this._historyKey===historyKey&&
-        beforeData.start===nextData.start&&beforeData.end===nextData.end&&
-        beforeData.configuration_revision===nextData.configuration_revision){
-        nextData.actual_slots=beforeData.actual_slots;
-        nextData.actual_history_quality=beforeData.actual_history_quality;
-        nextData.observed_sessions=beforeData.observed_sessions;
-        const key=r=>r.charger_id+"|"+r.started_at+"|"+r.ended_at;
-        const prior=new Map([...(beforeData.completed_sessions||[]),...(beforeData.recent_completed_sessions||[])].map(r=>[key(r),r]));
-        const fields=["estimated_variable_cost","estimated_variable_cost_currency","estimated_variable_cost_quality",
-          "estimated_cost","estimated_cost_currency","estimated_cost_basis","observed_energy_kwh",
-          "elapsed_minutes","average_power_kw","peak_power_kw"];
-        for(const row of [...(nextData.completed_sessions||[]),...(nextData.recent_completed_sessions||[])]){
-          const earlier=prior.get(key(row));
-          if(earlier)for(const k of fields)if(earlier[k]!==undefined)row[k]=earlier[k];
-        }
-        for(const [uid,row] of Object.entries(nextData.active_sessions||{})){
-          const earlier=beforeData.active_sessions?.[uid];
-          if(earlier?.started_at===row.started_at)
-            for(const k of fields)if(earlier[k]!==undefined)row[k]=earlier[k];
-        }
-      }else if(wantsHistory&&!cmd.include_history){
-        this._historyFetchedAt=0;this._refreshPending=true;
       }
       if(this._data?.configuration_revision&&
          this._data.configuration_revision!==nextData.configuration_revision){
@@ -1515,6 +1549,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       this._data=nextData;
       this._queryScope=queryFilter;
       this._snapshotDay=requestedDay;
+      if(wantsHistory&&(nextData.actual_history_quality==="HISTORY_LOADING"||this._historyKey!==historyKey||Date.now()-this._historyFetchedAt>=30000))this.requestHistory(cmd,historyKey,epoch);
       if(this._yamlCommittedRevision&&
          this._data.configuration_revision===this._yamlCommittedRevision){
         this._yamlEditorOpen=false;
