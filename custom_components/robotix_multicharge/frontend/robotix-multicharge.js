@@ -1929,6 +1929,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     const entity=this.ownerEntity(scope,uid,field);
     if(!this.canEditSettings()||!entity||!this._hass?.callService||this._settingsBusy)
       return;
+    const preserveDraft=this._unsavedInput;
     this._settingsBusy=true;
     this._settingsFeedback={status:"requested",message:"Updating"};
     try{
