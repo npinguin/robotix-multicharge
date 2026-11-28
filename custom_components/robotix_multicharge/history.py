@@ -1138,6 +1138,7 @@ def daily_costs(historical, bindings, configuration, first, last, quotes,
         # counted at site/charger level. Never split a meter increment or
         # choose between overlapping session claims.
         session_bucket = None
+        asset_bucket = None
         if session_partition is not None:
             matches = [row for row in session_partition.get(uid, ())
                        if row["first"] < b and row["last"] > a]
@@ -1145,11 +1146,16 @@ def daily_costs(historical, bindings, configuration, first, last, quotes,
                     and b <= matches[0]["last"]):
                 session_bucket = matches[0]["bucket"]
                 session_bucket["observed_seconds"] += (b-a).total_seconds()
+                if asset is not None and asset == matches[0]["asset_id"]:
+                    asset_bucket = matches[0]["asset_bucket"]
+                    asset_bucket["observed_seconds"] += (b-a).total_seconds()
         if energy == 0:
             return  # verified zero has no tariff requirement
         targets = [bucket]
         if session_bucket is not None:
             targets.append(session_bucket)
+        if asset_bucket is not None:
+            targets.append(asset_bucket)
         if asset is not None:
             targets.append(groups["asset"].setdefault(asset, _cost_bucket()))
         else:
@@ -1281,8 +1287,11 @@ def session_day_partition(historical, bindings, configuration, first, last, quot
             continue
         bucket = _cost_bucket()
         bucket["expected_seconds"] = (b-a).total_seconds()
+        asset_bucket = _cost_bucket()
+        asset_bucket["expected_seconds"] = (b-a).total_seconds()
         partition.setdefault(uid, []).append({
             "first": a, "last": b, "bucket": bucket,
+            "asset_id": row.get("asset_id"), "asset_bucket": asset_bucket,
             "key": (uid, row["started_at"], row.get("ended_at")),
         })
     raw = daily_costs(historical, bindings, configuration, first, last, quotes,
@@ -1291,21 +1300,27 @@ def session_day_partition(historical, bindings, configuration, first, last, quot
     day = first.isoformat()[:10]
     bounds = {day: (first, last)}
     groups = civil_period_costs(bounds, {day: raw})
+    def summarize(bucket):
+        scope = {"controller": {"site": bucket}, "charger": {}, "asset": {}}
+        return civil_period_costs(bounds, {day: scope})["controller"]["site"]["today"]
     details = {}
+    by_charger, by_asset, all_portions = {}, {}, []
     for uid, rows in partition.items():
         for row in rows:
-            bucket = row["bucket"]
-            scope = {"controller": {"site": bucket}, "charger": {}, "asset": {}}
-            details[row["key"]] = civil_period_costs(bounds, {day: scope})["controller"]["site"]["today"]
-    # The residual is physical energy not allocated to one unique interval;
-    # it must remain visible rather than inventing a historical session.
-    residual = {}
-    for uid, periods in groups["charger"].items():
-        total = periods["today"]
-        assigned = sum(details[row["key"]]["observed_energy_kwh"] for row in partition.get(uid, ()))
-        remainder = round(total["observed_energy_kwh"]-assigned, 6)
-        residual[uid] = remainder if total["observed_seconds"] > 0 else None
-    return {"groups": groups, "session_portions": details, "unallocated_energy_kwh": residual}
+            portion = summarize(row["bucket"])
+            asset_portion = summarize(row["asset_bucket"]) if row["asset_id"] is not None else None
+            details[row["key"]] = {"physical": portion, "asset": asset_portion}
+            by_charger.setdefault(uid, []).append(portion)
+            all_portions.append(portion)
+            if asset_portion is not None:
+                by_asset.setdefault(row["asset_id"], []).append(asset_portion)
+    # Same native partition, exact signed covered subtotal, no prorating.
+    residual = {"controller": {"site": _cost_remainder(groups["controller"]["site"]["today"], all_portions)},
+                "charger": {}, "asset": {}}
+    for kind, mapped in (("charger", by_charger), ("asset", by_asset)):
+        for uid, periods in groups[kind].items():
+            residual[kind][uid] = _cost_remainder(periods["today"], mapped.get(uid, ()))
+    return {"groups": groups, "session_portions": details, "session_reconciliation": residual}
 
 
 def civil_period_costs(days, available):
@@ -1377,48 +1392,43 @@ def civil_period_costs(days, available):
     return result
 
 
-def period_cost_reconciliation(period_costs):
-    """Same-snapshot site reconciliation, never a second financial ledger.
+def _cost_remainder(total, rows, *, unattributed=False):
+    """Compare only observed and compatibly valued pieces of one partition."""
+    known = [row for row in rows if row.get("observed_seconds", 0) > 0]
+    if total.get("observed_seconds", 0) <= 0:
+        return {"energy_kwh": None, "covered_cost": None, "quality": "history_pending"}
+    energy = total["observed_energy_kwh"]-sum(r["observed_energy_kwh"] for r in known)
+    if abs(energy) < 0.00001:
+        energy = 0.0
+    signature = (total.get("currency"), total.get("basis"))
+    valued = [r for r in known if r.get("covered_cost") is not None]
+    compatible = (total.get("covered_cost") is not None and signature[0]
+                  and all((r.get("currency"), r.get("basis")) == signature
+                          or r.get("covered_energy_kwh") == 0 for r in valued)
+                  and all(r.get("covered_cost") is not None
+                          or abs(r["observed_energy_kwh"]-r["unpriced_energy_kwh"]) < 0.00001
+                          for r in known))
+    remainder = total["covered_cost"]-sum(r["covered_cost"] for r in valued) if compatible else None
+    if remainder is not None and abs(remainder) < 0.00001:
+        remainder = 0.0
+    return {"energy_kwh": round(energy, 6),
+            "covered_cost": round(remainder, 6) if remainder is not None else None,
+            "currency": signature[0] if compatible else None,
+            "basis": signature[1] if compatible else None,
+            "quality": ("reconciled_observed_energy" if energy == 0 else
+                        "unattributed_energy" if unattributed and energy > 0 else
+                        "unreconciled_observed_energy")}
 
-    Grouping dimensions are alternatives. Only compatible covered valuations
-    may be subtracted; negative tariffs remain signed and gaps remain gaps.
-    The remainder is not assigned to a current vehicle or charging session.
-    """
+
+def period_cost_reconciliation(period_costs):
+    """Same-snapshot site reconciliation; owner dimensions are alternatives."""
     result = {}
     for period, site in period_costs.get("controller", {}).get("site", {}).items():
         result[period] = {}
         for kind in ("asset", "charger"):
             rows = [periods[period] for periods in period_costs.get(kind, {}).values()
                     if period in periods]
-            known = [row for row in rows if row.get("observed_seconds", 0) > 0]
-            if site.get("observed_seconds", 0) <= 0:
-                result[period][kind] = {"energy_kwh": None, "covered_cost": None,
-                                        "quality": "history_pending"}
-                continue
-            energy = site["observed_energy_kwh"]-sum(r["observed_energy_kwh"] for r in known)
-            if abs(energy) < 0.00001:
-                energy = 0.0
-            signature = (site.get("currency"), site.get("basis"))
-            valued = [r for r in known if r.get("covered_cost") is not None]
-            compatible = (site.get("covered_cost") is not None and signature[0]
-                          and all((r.get("currency"), r.get("basis")) == signature
-                                  or r.get("covered_energy_kwh") == 0
-                                  for r in valued)
-                          and all(r.get("covered_cost") is not None
-                                  or abs(r["observed_energy_kwh"]-r["unpriced_energy_kwh"]) < 0.00001
-                                  for r in known))
-            remainder = site["covered_cost"]-sum(r["covered_cost"] for r in valued) if compatible else None
-            if remainder is not None and abs(remainder) < 0.00001:
-                remainder = 0.0
-            result[period][kind] = {
-                "energy_kwh": round(energy, 6),
-                "covered_cost": round(remainder, 6) if remainder is not None else None,
-                "currency": signature[0] if compatible else None,
-                "basis": signature[1] if compatible else None,
-                "quality": ("reconciled_observed_energy" if energy == 0 else
-                            "unattributed_energy" if kind == "asset" and energy > 0 else
-                            "unreconciled_observed_energy"),
-            }
+            result[period][kind] = _cost_remainder(site, rows, unattributed=kind == "asset")
     return result
 
 
