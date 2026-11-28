@@ -1871,7 +1871,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         this._settingsFeedback={status:"rejected",message:String(e.message)};
         this.showEditError(body);return;
       }
-      const ok=await this.saveSettings(scope,record.id,{[field]:value},"save",true);
+      const ok=await this.saveSettings(scope,record.id,{[field]:value},"save",true,revision,body);
       if(ok&&this._settingsFeedback?.status==="confirmed"){this._editingField="";this.render();}
     });
     submit.disabled=this._settingsBusy||Boolean(this._pendingSettings);
@@ -1885,11 +1885,12 @@ class RobotixMultiChargeCard extends HTMLElement {
     const key=scope+":"+record.id;
     const box=mcEl("div","dashboard-danger");
     if(this._confirmDelete===key){
+      const revision=this._data?.configuration_revision;
       box.append(mcEl("span","muted small",
         mcTr("Confirm removal")+" · "+record.name+
         " · "+mcTr("Native history is retained")));
       box.append(mcButton(mcTr("Confirm removal"),async()=>{
-        const ok=await this.saveSettings(scope,record.id,{},"delete",true);
+        const ok=await this.saveSettings(scope,record.id,{},"delete",true,revision,box);
         if(ok){this._confirmDelete="";this._open="";this.render();}
       }));
       box.append(mcButton(mcTr("Cancel"),()=>{
@@ -1975,16 +1976,17 @@ class RobotixMultiChargeCard extends HTMLElement {
       this._settingsFeedback={status:"rejected",message:"Unavailable"};
     }finally{this._settingsBusy=false;this.render();}
   }
-  async nativeNumber(scope,uid,field,value){
+  async nativeNumber(scope,uid,field,value,errorTarget=null){
     const entity=this.ownerEntity(scope,uid,field);
     if(!this.canEditSettings()||this._settingsBusy||!entity||
        typeof this._hass?.callService!=="function"||!Number.isFinite(value)){
       this._settingsFeedback={status:"rejected",message:"Unsupported number value"};
-      this.render();return;
+      this.showEditError(errorTarget);return;
     }
     this._settingsBusy=true;
     this._settingsFeedback={status:"requested",message:"Applying"};
-    this.render();
+    const preserveDraft=this._unsavedInput;
+    if(!preserveDraft)this.render();
     try{
       await this._hass.callService("number","set_value",{
         entity_id:entity,value
@@ -2007,7 +2009,9 @@ class RobotixMultiChargeCard extends HTMLElement {
         error?.message||"Number rejected by Home Assistant"
       )};
     }finally{
-      this._settingsBusy=false;this.render();
+      this._settingsBusy=false;
+      if(preserveDraft&&this._settingsFeedback?.status==="rejected")this.showEditError(errorTarget);
+      else this.render();
     }
   }
   nativeNumberEditor(container,scope,uid,field,label,fallback,unit=""){
@@ -2034,16 +2038,22 @@ class RobotixMultiChargeCard extends HTMLElement {
     if(Number.isFinite(Number(attr.max))&&attr.max!==undefined)
       input.setAttribute("max",String(attr.max));
     input.setAttribute("step",String(attr.step||0.01));
-    const apply=mcButton(mcTr("Apply"),()=>{
+    input.disabled=this._settingsBusy||native?.state==="unavailable";
+    control.append(input);row.append(labelNode,control);
+    const sessionStart=this._data?.active_sessions?.[uid]?.started_at;
+    this.stageNativeEdit(row,[input],async()=>{
       const value=Number(input.value);
-      if(!input.value.trim()||!Number.isFinite(value)){
-        this._settingsFeedback={status:"rejected",message:"Number required"};
-        this.render();return;
+      if(!input.value.trim()||!Number.isFinite(value)||
+         (attr.min!=null&&value<Number(attr.min))||(attr.max!=null&&value>Number(attr.max))){
+        this._settingsFeedback={status:"rejected",message:"Number outside allowed range"};
+        this.showEditError(row);return;
       }
-      void this.nativeNumber(scope,uid,field,value);
-    });
-    apply.disabled=this._settingsBusy||native?.state==="unavailable";
-    control.append(input,apply);row.append(labelNode,control);
+      if(field==="set_charging_power_kw"&&sessionStart!==this._data?.active_sessions?.[uid]?.started_at){
+        this._settingsFeedback={status:"rejected",message:"Charging session changed; refresh and retry"};
+        this.showEditError(row);return;
+      }
+      await this.nativeNumber(scope,uid,field,value,row);
+    },!input.disabled);
     container.append(row);
   }
   nativeRepeatEditor(container,asset){
@@ -3487,6 +3497,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     const d=this._data;
     if(this.canEditSettings()&&this._assetEditor==="new"){
       const form=mcEl("form","card dashboard-create");form.append(mcEl("h3","","Add a chargeable asset"));
+      const revision=d.configuration_revision;
       const name=this.field(form,"Asset name","","text");
       const kind=this.field(form,"Asset type","car",null,[
         ["car",mcTr("Car")],["bicycle",mcTr("Bicycle")],
@@ -3542,7 +3553,7 @@ class RobotixMultiChargeCard extends HTMLElement {
           // timezone cannot silently reinterpret a household wall clock.
           changes.expires_at=new Date(Date.now()+Number(expiry.value)*3600000).toISOString();
         }
-        this.saveSettings("asset",id,changes,"create");
+        this.saveSettings("asset",id,changes,"create",false,revision,form);
       }));
       form.append(mcButton(mcTr("Cancel"),()=>{this._assetEditor="";this.render();}));
       container.append(form);
@@ -3551,6 +3562,7 @@ class RobotixMultiChargeCard extends HTMLElement {
   dashboardChargerCreate(container){
     if(!this.canEditSettings())return;
     const box=mcEl("section","card dashboard-create");
+    const revision=this._data.configuration_revision;
     box.append(mcEl("h3","",mcTr("Add charger")+" · "+
       mcTr("configured entirely in MultiCharge")));
     box.append(mcEl("p","muted small",
@@ -3631,7 +3643,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         this._settingsFeedback={status:"rejected",message:String(error.message)};
         this.showEditError(box);return;
       }
-      await this.saveSettings("charger",uid,changes,"create",true);
+      await this.saveSettings("charger",uid,changes,"create",true,revision,box);
     });
     save.disabled=this._settingsBusy;
     actions.append(save,mcButton(mcTr("Cancel"),()=>{
@@ -3941,6 +3953,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       return;
     }
     const panel=mcEl("div","dashboard-field-edit");
+    const revision=this._data.configuration_revision;
     panel.append(mcEl("h4","","Charger setup"));
     panel.append(mcEl("p","muted small",setup.device_matched?
       "Native device matched. Review proposed sources and limits before Save.":
@@ -3975,7 +3988,7 @@ class RobotixMultiChargeCard extends HTMLElement {
           if((charger[field]??null)!==value)changes[field]=value;
         }
         if(!Object.keys(changes).length){this._editingField="";this.render();return;}
-        await this.saveSettings("charger",charger.id,changes,"save",true);
+        await this.saveSettings("charger",charger.id,changes,"save",true,revision,panel);
       }catch(error){
         this._settingsFeedback={status:"rejected",message:String(error.message)};
         this.showEditError(panel);

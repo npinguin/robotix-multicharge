@@ -254,9 +254,15 @@ if(new URLSearchParams(location.search).has("upgrade_tag")){
     const prefilled=editor.getBoundingClientRect().height>0&&[...editor.querySelectorAll("input")].some(x=>x.value==="sensor.native_power");
     const progressive=editor.querySelector("details")?.open===false;
     const noWrite=writes===0;
+    const originalRevision=card._data.configuration_revision;
+    card._data.configuration_revision="concurrent-setup";
+    btn("Save charger setup",editor).click();
+    await new Promise(resolve=>setTimeout(resolve,20));
+    const staleSetup=writes===0&&root.querySelector(".dashboard-field-edit")===editor&&editor.textContent.includes("Settings changed; refresh and retry")&&[...editor.querySelectorAll("input")].some(x=>x.value==="sensor.native_power");
+    card._data.configuration_revision=originalRevision;
     btn("Save charger setup",editor).click();
     await new Promise(resolve=>setTimeout(resolve,150));
-    const reviewed=writes===1&&c.power_entity==="sensor.native_power"&&c.max_current_a===16&&
+    const reviewed=staleSetup&&writes===1&&c.power_entity==="sensor.native_power"&&c.max_current_a===16&&
       !root.querySelector(".dashboard-field-edit");
     btn("Change activation").click();
     const activation=root.querySelector(".dashboard-field-edit");

@@ -908,6 +908,14 @@ async function main(){
   formField(guestCard,"Temporary guest").value="yes";
   guestGoal.value="budget";guestAmount.value="10";
   guestFreeCharger.value="guest_charger";
+  const guestRevision=guestCard._data.configuration_revision;
+  guestCard._data.configuration_revision="concurrent-create";
+  find(guestCard.shadowRoot,"button","Create asset").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(guestWS.filter(x=>x.type==="robotix_multicharge/update_settings").length,0);
+  assert.equal(guestCard._settingsFeedback.status,"rejected");
+  assert.equal(guestName.value,"Visitor");
+  guestCard._data.configuration_revision=guestRevision;
   find(guestCard.shadowRoot,"button","Create asset").click();
   await new Promise(resolve=>setImmediate(resolve));
   const create=guestWS.find(x=>
@@ -1104,17 +1112,35 @@ async function main(){
   adjustableCard._hass.callService=async(domain,service,payload)=>{
     chargeNative.push({domain,service,payload});
   };
-  let powerInput, powerApply;
-  visit(adjustableCard.shadowRoot,node=>{
-    if(node.tag==="div"&&node.children?.some(child=>
-      child.tag==="input"&&child.attributes["aria-label"]==="Set charging power")){
-      powerInput=node.children.find(child=>child.tag==="input");
-      powerApply=node.children.find(child=>child.tag==="button");
-    }
-  });
-  assert.ok(powerInput&&powerApply,"Set power is directly editable in Charger dashboard");
-  powerInput.value="2.30";
-  powerApply.click();
+  function powerEditor(){
+    let input,actions;
+    visit(adjustableCard.shadowRoot,node=>{
+      if(node.tag==="input"&&node.attributes["aria-label"]==="Set charging power")input=node;
+    });
+    assert.ok(input,"Set power is directly editable in Charger dashboard");
+    visit(adjustableCard.shadowRoot,node=>{
+      if((node.attributes["data-native-edit-for"]||"").split(" ").includes(input.attributes.id))actions=node;
+    });
+    assert.ok(actions,"Setpoint uses existing staged native editor");
+    return {input,save:find(actions,"button","Save"),cancel:find(actions,"button","Cancel")};
+  }
+  let power=powerEditor();
+  assert.ok(power.save.disabled&&power.cancel.disabled);
+  power.input.value="2.30";power.input.events.change();
+  assert.equal(chargeNative.length,0,"Draft must not send a physical command");
+  power.cancel.click();
+  assert.equal(chargeNative.length,0,"Cancel must not send a physical command");
+  power=powerEditor();power.input.value="2.30";
+  power.input.events.change();
+  const priorSessions=adjustableCard._data.active_sessions;
+  adjustableCard._data.active_sessions={drive:{started_at:"new-session"}};
+  power.save.click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(chargeNative.length,0,"Stale physical-session draft must not reach native Number");
+  assert.equal(adjustableCard._settingsFeedback.status,"rejected");
+  assert.equal(power.input.value,"2.30");
+  adjustableCard._data.active_sessions=priorSessions;
+  power.save.click();
   await new Promise(resolve=>setImmediate(resolve));
   assert.deepEqual(chargeNative[0],{
     domain:"number",service:"set_value",
