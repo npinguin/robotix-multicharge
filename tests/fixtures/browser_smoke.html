@@ -123,6 +123,8 @@ if(new URLSearchParams(location.search).has("upgrade_tag")){
     data.period_costs={controller:{site:periods},asset:{[assets[0].id]:periods},charger:{[chargers[0].id]:periods}};
     data.period_reconciliation={today:{asset:{energy_kwh:0,covered_cost:0},charger:{energy_kwh:0,covered_cost:0}}};
   }
+  const metricsMode=args.get("metrics")==="1", initialStarted=performance.now();
+  let firstLiveMs=null;
   card.hass={user:{is_admin:role==="admin"},language:"en",states:{},
     callWS:async request=>{
       requests.push(request);
@@ -132,9 +134,16 @@ if(new URLSearchParams(location.search).has("upgrade_tag")){
           financial:{asset_id:"retired_guest",cost:null,covered_cost:0.6,currency:"EUR",basis:"spot",quality:"partial_observation",energy_kwh:2,average_price_per_kwh:0.3}
         }]};
       }
+      if(metricsMode&&request.type==="robotix_multicharge/get_plan"){
+        if(request.include_history)await new Promise(resolve=>setTimeout(resolve,250));
+        else return {...data,actual_slots:[],observed_sessions:[],actual_history_quality:"NOT_REQUESTED"};
+      }
       return data;
     },callService:async()=>{}};
-  await new Promise(resolve=>setTimeout(resolve,400));
+  for(let elapsed=0;elapsed<400;elapsed+=10){
+    if(firstLiveMs===null&&card._data)firstLiveMs=performance.now()-initialStarted;
+    await new Promise(resolve=>setTimeout(resolve,10));
+  }
   if(!card._data)throw Error("real browser failed to receive backend sample");
   card._tab=view==="asset"?"Chargeable Assets":
             view==="charger"?"Chargers":
@@ -149,7 +158,7 @@ if(new URLSearchParams(location.search).has("upgrade_tag")){
       render:!!root.querySelector(".root"),viewport:innerWidth,documentWidth:document.documentElement.scrollWidth,
       tabs:[...root.querySelectorAll(".tabs button")].map(b=>b.textContent),
       apexHosts:hosts.length,apexLive:hosts.filter(h=>h.querySelector(".apexcharts-svg")).length,
-      domElements:root.querySelectorAll("*").length,renderMs,
+      domElements:root.querySelectorAll("*").length,renderMs,firstLiveMs,
       planRequests:requests.filter(r=>r.type==="robotix_multicharge/get_plan").length,
       historyRequests:requests.filter(r=>r.type==="robotix_multicharge/get_plan"&&r.include_history).length
     });return;
