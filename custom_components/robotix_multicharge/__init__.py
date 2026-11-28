@@ -5,6 +5,7 @@ Native source/planning lifecycle and a physically guarded single charging writer
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from time import perf_counter
 from datetime import datetime as utc_datetime, timedelta, timezone
@@ -204,6 +205,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             at = utc_datetime.now(timezone.utc)
             current_quarter = at.replace(minute=(at.minute // 15) * 15,
                                          second=0, microsecond=0)
+            if (quarter is None and full_refresh and any(
+                    row["end"] <= at for row in runtime.executor._accepted.values())):
+                # A source/minute callback can enter reconciliation just before
+                # the native quarter callback in the same ready queue. Give
+                # that already scheduled callback one event-loop turn, not a
+                # timed grace period or source-triggered execution authority.
+                # If no valid native event arrives, supervise normally and STOP.
+                await asyncio.sleep(0)
+                at = utc_datetime.now(timezone.utc)
+                current_quarter = at.replace(minute=(at.minute // 15) * 15,
+                                             second=0, microsecond=0)
+                quarter, pending_quarter = pending_quarter, None
             if quarter is not None and quarter == current_quarter:
                 # Only the native quarter event grants execution. Minute and
                 # source refreshes are serialized in the same existing task.
