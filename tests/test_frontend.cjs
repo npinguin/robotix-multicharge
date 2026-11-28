@@ -1575,14 +1575,16 @@ async function main(){
   assert.ok(content(card.shadowRoot).includes("Measured power unavailable"));
   assert.ok(!content(card.shadowRoot).includes("3.6 kW actually charged"),
             "future proposal must never be presented as real charging");
-  const selects=[];
-  visit(card.shadowRoot,x=>{
-    if(x.tag==="select")selects.push(x.attributes["aria-label"]);
-  });
-  assert.ok(selects.includes("Show labels"),"Label choice must be configurable");
-  assert.ok(selects.includes("Color by"),"Color dimension must be configurable");
-  assert.ok(selects.includes("Indicative forecasting"),
-            "Forecast visibility is explicitly configurable");
+  for(const [label,field] of [["Show labels","plan_label_mode"],["Color by","plan_color_by"],["Indicative forecasting","show_indicative_forecast"]]){
+    let edit;
+    visit(card.shadowRoot,x=>{if(x.tag==="button"&&x.attributes["aria-label"]==="Edit "+label)edit=x;});
+    assert.ok(edit,label+" has contextual edit");
+    edit.click();
+    let panel;
+    visit(card.shadowRoot,x=>{if(x.attributes["data-edit-field"]==="controller:site:"+field)panel=x;});
+    assert.ok(panel&&find(panel,"select")&&find(panel,"button","Save")&&find(panel,"button","Cancel"),label+" uses typed Save/Cancel");
+    find(panel,"button","Cancel").click();
+  }
   fixture.forecast_assumptions={
     drive:{asset_id:"car",charger_id:"drive",
            assumption:"IF_CONNECTED_NOW",assumed_connection_at:fixture.start}
