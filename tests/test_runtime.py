@@ -922,10 +922,16 @@ class CostArchiveRetryTests(unittest.IsolatedAsyncioTestCase):
             rt._recorder_completed[key] = (0, {"sensor.power": [1]})
             await rt._read_recorder_samples(first, end, entities)
             self.assertEqual(reader.await_count, 2)
+            rt.executor.session_history_revision += 1
+            await rt._read_recorder_samples(first, end, entities)
+            self.assertEqual(reader.await_count, 3)
+            rt.configuration["controller"]["name"] = "Changed"
+            await rt._read_recorder_samples(first, end, entities)
+            self.assertEqual(reader.await_count, 4)
             now = datetime.now(timezone.utc)
             await rt._read_recorder_samples(first, now, entities)
             await rt._read_recorder_samples(first, now, entities)
-            self.assertEqual(reader.await_count, 4)
+            self.assertEqual(reader.await_count, 6)
 
     async def test_civil_timezone_change_invalidates_cached_days_not_pending_utc_writes(self):
         from unittest.mock import AsyncMock, patch
