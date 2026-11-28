@@ -276,13 +276,14 @@ async def websocket_get_plan(
 
         snapshot_at = datetime.now(timezone.utc)
         result["snapshot_at"] = snapshot_at.isoformat()
+        day_partition = None
         if msg.get("include_history", True):
             history_end = min(end.astimezone(timezone.utc), snapshot_at)
             history_start = min(start.astimezone(timezone.utc), history_end-timedelta(hours=48))
             receipts = runtime.executor.completed_sessions(
                 start=history_start, end=history_end, charger_id=msg.get("charger_id"),
             )
-            actual, quality, estimates, observed_sessions, session_metrics = await runtime.read_history(
+            history_result = await runtime.read_history(
                 result["configuration"], start, end,
                 charger_id=msg.get("charger_id"), asset_id=msg.get("asset_id"),
                 session_receipts=receipts,
@@ -293,7 +294,11 @@ async def websocket_get_plan(
                 tariff_entity=forecast_tariff_source(result["configuration"]["controller"]),
                 as_of=snapshot_at, include_retired_chargers="history_date" in msg,
                 include_quarters="history_date" not in msg,
+                include_session_partition="history_date" in msg,
             )
+            actual, quality, estimates, observed_sessions, session_metrics = history_result[:5]
+            if "history_date" in msg:
+                day_partition = history_result[5]
         else:
             actual, quality, estimates, observed_sessions, session_metrics = [], "NOT_REQUESTED", {}, [], {}
         if (runtime.configuration != cfg or not runtime.active
@@ -322,17 +327,26 @@ async def websocket_get_plan(
             for receipt in recent
         ]
         if "history_date" in msg:
+            portions = day_partition.pop("session_portions") if day_partition else {}
+            result["day_finance"] = day_partition
+            def attach_portion(receipt):
+                portion = portions.get((receipt["charger_id"], receipt["started_at"], receipt.get("ended_at")))
+                if portion is not None:
+                    receipt["day_contribution"] = portion
             # Full native receipt interval and qualified pricing denominator;
             # date selects overlap, never prorates a crossing session.
             for receipt in result["completed_sessions"]:
                 receipt["financial"] = session_financial_evidence(receipt, "last")
+                attach_portion(receipt)
             for uid, receipt in result["active_sessions"].items():
                 receipt["charger_id"] = uid
                 receipt["financial"] = session_financial_evidence(receipt, "active")
+                attach_portion(receipt)
             for receipt in observed_sessions:
                 receipt["financial"] = session_financial_evidence(
                     receipt, "active" if receipt.get("ongoing") else "last", True,
                 )
+                attach_portion(receipt)
         result["actual_slots"] = actual
         result["actual_history_quality"] = quality
 
