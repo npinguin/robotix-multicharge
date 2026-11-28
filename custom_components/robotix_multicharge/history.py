@@ -1092,7 +1092,7 @@ def reconciled_quarter_history(historical, bindings, energy_bindings, selected,
 
 def daily_costs(historical, bindings, configuration, first, last, quotes,
                 receipts=(), active_sessions=None, *, energy_bindings=None,
-                selected_chargers=None):
+                selected_chargers=None, session_partition=None):
     """Project one civil day from native power and the original tariff intervals.
 
     Every physical span is counted once at Charger/Site, then attributed to
@@ -1133,10 +1133,22 @@ def daily_costs(historical, bindings, configuration, first, last, quotes,
     meter_cache = {}
     power_cache = {}
 
-    def record_energy(bucket, energy, price, asset):
+    def record_energy(bucket, energy, price, asset, uid, a, b):
+        # Optional, ephemeral drilldown uses the VERY SAME physical pieces
+        # counted at site/charger level. Never split a meter increment or
+        # choose between overlapping session claims.
+        session_bucket = None
+        if session_partition is not None:
+            matches = [row for row in session_partition.get(uid, ())
+                       if row["first"] <= a and b <= row["last"]]
+            if len(matches) == 1:
+                session_bucket = matches[0]["bucket"]
+                session_bucket["observed_seconds"] += (b-a).total_seconds()
         if energy == 0:
             return  # verified zero has no tariff requirement
         targets = [bucket]
+        if session_bucket is not None:
+            targets.append(session_bucket)
         if asset is not None:
             targets.append(groups["asset"].setdefault(asset, _cost_bucket()))
         else:
@@ -1157,7 +1169,9 @@ def daily_costs(historical, bindings, configuration, first, last, quotes,
         epochs = bindings.get(uid, ()) or ({"start": None, "entity": None},)
         attribution = sessions.get(uid, ())
         owner_edges = sorted({edge for a, b, _ in attribution for edge in (a, b)
-                              if first < edge < last})
+                              if first < edge < last} | {edge
+                              for row in (session_partition or {}).get(uid, ())
+                              for edge in (row["first"], row["last"]) if first < edge < last})
         for i, epoch in enumerate(epochs):
             start = max(first, datetime.fromisoformat(epoch["start"])) if epoch["start"] else first
             end = min(last, datetime.fromisoformat(epochs[i+1]["start"])) if i+1 < len(epochs) else last
@@ -1188,7 +1202,7 @@ def daily_costs(historical, bindings, configuration, first, last, quotes,
             block_edges = sorted({edge for a, b, *_ in blocks for edge in (a, b)})
             for a, b, energy, price, asset in blocks:
                 bucket["observed_seconds"] += (b-a).total_seconds()
-                record_energy(bucket, energy, price, asset)
+                record_energy(bucket, energy, price, asset, uid, a, b)
             for left, right, power in spans[index:]:
                 if left >= end:
                     break
@@ -1213,15 +1227,13 @@ def daily_costs(historical, bindings, configuration, first, last, quotes,
                     if block_index >= 0 and blocks[block_index][1] >= y:
                         continue  # this exact native meter increment was already counted
                     bucket["observed_seconds"] += (y-x).total_seconds()
-                    if power == 0:
-                        continue  # proven idle does not require a tariff
                     energy = power*(y-x).total_seconds()/3600
                     matching = [asset for since, until, asset in attribution
                                 if since <= x and until >= y]
                     asset = matching[0] if len(matching) == 1 else None
                     price_index = bisect_right(price_edges, x)-1
                     price = price_spans[price_index][2] if price_index >= 0 else None
-                    record_energy(bucket, energy, price, asset)
+                    record_energy(bucket, energy, price, asset, uid, x, y)
         _add_cost_bucket(groups["controller"]["site"], bucket)
     # Asset attribution completeness depends on all site observations, not
     # only the periods where an asset could already be identified.
@@ -1242,6 +1254,53 @@ def daily_costs(historical, bindings, configuration, first, last, quotes,
                         and bucket["observed_energy_kwh"] == 0):
                     bucket["valuations"][key] = [0.0, 0.0]
     return groups
+
+
+def session_day_partition(historical, bindings, configuration, first, last, quotes,
+                          receipts, active_sessions, observed, energy_bindings):
+    """One raw-day projection and session portions with explicit residuals.
+
+    Historic aggregate archives do not fabricate raw session details. Each
+    counted physical segment belongs to at most one non-overlapping session.
+    Full-session meter/receipt totals remain separately available.
+    """
+    partition = {}
+    for row in [*receipts, *active_sessions.values(), *observed]:
+        uid = row.get("charger_id")
+        try:
+            a = max(first, datetime.fromisoformat(row["started_at"]))
+            b = min(last, datetime.fromisoformat(row["ended_at"])) if row.get("ended_at") else last
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        if not uid or a >= b:
+            continue
+        bucket = _cost_bucket()
+        bucket["expected_seconds"] = (b-a).total_seconds()
+        partition.setdefault(uid, []).append({
+            "first": a, "last": b, "bucket": bucket,
+            "key": (uid, row["started_at"], row.get("ended_at")),
+        })
+    raw = daily_costs(historical, bindings, configuration, first, last, quotes,
+                      receipts, active_sessions, energy_bindings=energy_bindings,
+                      session_partition=partition)
+    day = first.isoformat()[:10]
+    bounds = {day: (first, last)}
+    groups = civil_period_costs(bounds, {day: raw})
+    details = {}
+    for uid, rows in partition.items():
+        for row in rows:
+            bucket = row["bucket"]
+            scope = {"controller": {"site": bucket}, "charger": {}, "asset": {}}
+            details[row["key"]] = civil_period_costs(bounds, {day: scope})["controller"]["site"]["today"]
+    # The residual is physical energy not allocated to one unique interval;
+    # it must remain visible rather than inventing a historical session.
+    residual = {}
+    for uid, periods in groups["charger"].items():
+        total = periods["today"]
+        assigned = sum(details[row["key"]]["observed_energy_kwh"] for row in partition.get(uid, ()))
+        remainder = round(total["observed_energy_kwh"]-assigned, 6)
+        residual[uid] = remainder if total["observed_seconds"] > 0 else None
+    return {"groups": groups, "session_portions": details, "unallocated_energy_kwh": residual}
 
 
 def civil_period_costs(days, available):
@@ -1375,7 +1434,7 @@ async def read_actual_history(hass, configuration, start, end, *,
                               include_observed_sessions=False, active_sessions=None,
                               tariff_entity=None, energy_bindings=None, tariff_bindings=None,
                               financial_days=None, as_of=None, include_quarters=True,
-                              read_samples=None, include_retired_chargers=False):
+                              read_samples=None, include_retired_chargers=False, include_session_partition=False):
     """Query native Recorder once; background finance need not build graph rows."""
     now = as_of or datetime.now(timezone.utc)
     first, last = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
@@ -1480,11 +1539,17 @@ async def read_actual_history(hass, configuration, start, end, *,
                 historical, bindings, selected, history_first, history_end, now,
                 session_receipts, active_sessions, quotes, asset_id, energy_bindings,
             )
-            return (rows, quality, valued, observed, metrics)
+            result = (rows, quality, valued, observed, metrics)
+            if include_session_partition:
+                result += (session_day_partition(historical, bindings, configuration, first, history_end, quotes,
+                            session_receipts, active_sessions, observed, energy_bindings),)
+            return result
 
         if historical is None:
             result = ((rows, quality, {}, [], {}) if include_observed_sessions
                       else (rows, quality, {}))
+            if include_session_partition:
+                result += (None,)
         else:
             result = await hass.async_add_executor_job(project_sessions)
         return (*result, day_projection) if financial_days is not None else result
