@@ -127,6 +127,7 @@ class MultiChargeRuntime:
         self._performance = {}
         self._recorder_inflight = {}
         self._recorder_completed = {}
+        self._recorder_cache_identity = None
         self.active = True
 
     def _record_performance(self, operation, started):
@@ -157,6 +158,10 @@ class MultiChargeRuntime:
         """
         key = (first, end, tuple(sorted(set(entities))))
         historical = end <= datetime.now(timezone.utc) - timedelta(minutes=2)
+        identity = (configuration_revision(self.configuration), self.executor.session_history_revision)
+        if self._recorder_cache_identity != identity:
+            self._recorder_completed.clear()
+            self._recorder_cache_identity = identity
         now = monotonic()
         for cached_key, (expires, _) in list(self._recorder_completed.items()):
             if expires <= now:
@@ -173,6 +178,8 @@ class MultiChargeRuntime:
                 try:
                     rows = await read_recorder_samples(self.hass, *key)
                     if (historical and self.active and isinstance(rows, dict)
+                            and identity == self._recorder_cache_identity
+                            and identity == (configuration_revision(self.configuration), self.executor.session_history_revision)
                             and sum(len(v) for v in rows.values()) <= 20000):
                         while len(self._recorder_completed) >= 4:
                             self._recorder_completed.pop(next(iter(self._recorder_completed)))
@@ -617,6 +624,7 @@ class MultiChargeRuntime:
         for task in self._recorder_inflight.values():
             task.cancel()
         self._recorder_inflight.clear()
+        self._recorder_completed.clear()
         self.executor.detach()
         for unsubscribe in self._unsubscribers:
             unsubscribe()
@@ -1653,6 +1661,7 @@ class MultiChargeRuntime:
             "session_costs": self.session_costs,
             "period_costs": self.period_costs,
             "period_reconciliation": period_cost_reconciliation(self.period_costs),
+            "history_revision": self.executor.session_history_revision,
             "live": self.live_state(),
             "configuration_revision": configuration_revision(self.configuration),
             "controller_id": self.configuration["controller"]["id"],
