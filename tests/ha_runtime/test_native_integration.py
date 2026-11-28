@@ -2006,11 +2006,13 @@ async def test_installed_automatic_soc_recovers_external_stop_and_source_return(
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 
+@pytest.mark.parametrize("source_first", [False, True])
 @pytest.mark.asyncio
 async def test_installed_adjustable_consecutive_quarters_keep_one_physical_session(
-    hass: HomeAssistant, freezer,
+    hass: HomeAssistant, freezer, monkeypatch, source_first,
 ):
     """Native time callback admits the next grant without repeated START/STOP."""
+    import asyncio
     from datetime import datetime, timezone
     from pytest_homeassistant.common import async_fire_time_changed
 
@@ -2067,6 +2069,18 @@ async def test_installed_adjustable_consecutive_quarters_keep_one_physical_sessi
         hass.states.async_set("switch.cont_drive", "off")
         draw(0)
 
+    quarter_callbacks = []
+    if source_first:
+        # Capture only this module's native registration; deliberately deliver
+        # the already-registered callback after the source task has been queued.
+        # Never synthesize a second execution path in production.
+        import custom_components.robotix_multicharge as integration
+        def capture_quarter(_hass, callback, **kwargs):
+            assert kwargs["minute"] == [0, 15, 30, 45]
+            quarter_callbacks.append(callback)
+            return lambda: None
+        monkeypatch.setattr(integration, "async_track_time_change", capture_quarter)
+
     entry = MockConfigEntry(domain=DOMAIN, title="Quarter continuity",
                             data={"source": "ui", "configuration": cfg}, unique_id=DOMAIN)
     entry.add_to_hass(hass)
@@ -2085,7 +2099,10 @@ async def test_installed_adjustable_consecutive_quarters_keep_one_physical_sessi
     hass.states.async_set("binary_sensor.cont_cable", "on")
     hass.states.async_set("sensor.cont_soc", "50", {"unit_of_measurement": "%"})
     draw(0)
-    async_fire_time_changed(hass, first)
+    if source_first:
+        quarter_callbacks[0](first)
+    else:
+        async_fire_time_changed(hass, first)
     await hass.async_block_till_done()
     assert hass.states.get("switch.cont_drive").state == "on", commands
     session = runtime.executor.session_snapshot()["drive"]
@@ -2100,7 +2117,11 @@ async def test_installed_adjustable_consecutive_quarters_keep_one_physical_sessi
     hass.states.async_set("sensor.cont_soc", "51", {"unit_of_measurement": "%"})
     hass.states.async_set("sensor.cont_meter", "5.3", {"unit_of_measurement": "kWh"})
     draw(float(hass.states.get("number.cont_limit").state))
-    async_fire_time_changed(hass, second)
+    if source_first:
+        await asyncio.sleep(0)
+        quarter_callbacks[0](second)
+    else:
+        async_fire_time_changed(hass, second)
     await hass.async_block_till_done()
     assert hass.states.get("switch.cont_drive").state == "on", commands
     assert runtime.executor.session_snapshot()["drive"]["started_at"] == session["started_at"]
@@ -2115,7 +2136,10 @@ async def test_installed_adjustable_consecutive_quarters_keep_one_physical_sessi
     third = initial.replace(minute=45)
     freezer.move_to(third)
     hass.states.async_set("sensor.cont_soc", "90", {"unit_of_measurement": "%"})
-    async_fire_time_changed(hass, third)
+    if source_first:
+        quarter_callbacks[0](third)
+    else:
+        async_fire_time_changed(hass, third)
     await hass.async_block_till_done()
     assert hass.states.get("switch.cont_drive").state == "off", (
         commands, runtime.executor._accepted, runtime.executor.session_snapshot()
