@@ -1714,8 +1714,8 @@ async function main(){
   card._settingsOpen="Safety & limits";card.render();
   assert.ok(content(card.shadowRoot).includes("Electrical limits"),
     "Safety Settings show the configured electrical limits");
-  assert.ok(find(card.shadowRoot,"button","Apply"),
-    "Site power limits are directly editable through Controller native Numbers");
+  assert.ok(find(card.shadowRoot,"button","Edit"),
+    "Site power limits are directly editable through the shared contextual editor");
   card._settingsOpen="Sources & bindings";card.render();
   assert.ok(content(card.shadowRoot).includes("Future tariff intervals"),
     "Source bindings disclose actual future tariff source selection");
