@@ -115,6 +115,19 @@ assert.ok(nativePanel.shadowRoot.children.includes(nativePanel._content),
   "sidebar has standalone rendered content");
 
 assert.equal(window.customCards.filter(c=>c.type==="robotix-multicharge-card").length,1);
+function saveNativeDraft(card,input,calls){
+  const before=calls.length;
+  input.events.change();
+  assert.equal(calls.length,before,"Changing configuration choice must not write before Save");
+  let actions;
+  visit(card.shadowRoot,node=>{
+    if((node.attributes["data-native-edit-for"]||"").split(" ").includes(input.attributes.id))actions=node;
+  });
+  assert.ok(actions,"Native owner has contextual Save/Cancel");
+  const save=find(actions,"button","Save");
+  assert.ok(save&&!save.disabled);
+  save.click();
+}
 const fixture={
   controller_id:"site",timezone:"Europe/Brussels",start:"2026-11-22T00:00:00+01:00",
   end:"2026-11-23T00:00:00+01:00",status:"proposed",
@@ -285,7 +298,7 @@ async function main(){
   }
   const sourceType=ownerField(site.shadowRoot,"Solar source type (native)");
   assert.ok(sourceType,"native solar source model editable on Site");
-  sourceType.value="direct_surplus";sourceType.events.change();
+  sourceType.value="direct_surplus";saveNativeDraft(site,sourceType,siteCommands);
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(siteCommands.some(x=>x.domain==="select"&&
     x.args.entity_id==="select.site_solar_kind"&&
@@ -293,7 +306,7 @@ async function main(){
     "Controller-native source mode uses owning HA service");
   const meterSign=ownerField(site.shadowRoot,"Grid meter direction (native)");
   assert.ok(meterSign);
-  meterSign.value="export_positive";meterSign.events.change();
+  meterSign.value="export_positive";saveNativeDraft(site,meterSign,siteCommands);
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(siteCommands.some(x=>x.domain==="select"&&
     x.args.entity_id==="select.site_meter_sign"&&
@@ -539,7 +552,7 @@ async function main(){
   });
   assert.ok(pattern,"continuity is editable on the normal Asset card");
   assert.deepEqual(pattern.children.map(x=>x.value),["flexible","continuous"]);
-  pattern.value="continuous";pattern.events.change();
+  pattern.value="continuous";saveNativeDraft(scheduleCard,pattern,scheduleCalls);
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(scheduleCalls.some(x=>x.domain==="select"&&
     x.args.entity_id==="select.car_continuity"&&x.args.option==="continuous"),
@@ -559,7 +572,7 @@ async function main(){
       opportunity=node.children[1];
   });
   assert.ok(opportunity);
-  opportunity.value="type1";opportunity.events.change();
+  opportunity.value="type1";saveNativeDraft(scheduleCard,opportunity,scheduleCalls);
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(scheduleCalls.some(call=>call.domain==="select"&&
     call.args.entity_id==="select.car_opportunity"&&
@@ -597,7 +610,7 @@ async function main(){
       String(node.attributes.id||"").startsWith("multicharge-monday-start-hour-"))startHour=node;
   });
   assert.ok(startHour,"native time input exists for Monday");
-  startHour.value="23:00";startHour.events.change();
+  startHour.value="23:00";saveNativeDraft(scheduleCard,startHour,scheduleCalls);
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(scheduleCalls.some(x=>x.domain==="text"&&
     x.args.entity_id==="text.car_window_mon"&&x.args.value==="23:00-06:00"),
@@ -1802,7 +1815,7 @@ async function main(){
   });
   assert.ok(colorSelect,"vehicle plan color shown on Vehicle");
   colorSelect.value="blue";
-  colorSelect.events.change();
+  saveNativeDraft(card,colorSelect,nativeCalls);
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(nativeCalls.some(c=>c.args.entity_id==="select.car_color"&&
     c.args.option==="blue"),"vehicle palette is changed through its own HA entity");
@@ -1815,7 +1828,7 @@ async function main(){
   assert.equal(quicks.length,1,
     "Charger chosen vehicle must be editable without opening Details");
   assert.equal(quicks[0].value,"Family car");
-  quicks[0].value="none";quicks[0].events.change();
+  quicks[0].value="none";saveNativeDraft(card,quicks[0],nativeCalls);
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(nativeCalls.some(x=>x.args.entity_id==="select.drive_vehicle"&&
     x.args.option==="none"),
@@ -1836,7 +1849,7 @@ async function main(){
   visit(card.shadowRoot,node=>{
     if(node.tag==="select"&&node.attributes?.["data-quick-assignment"]==="drive")nativeQuick.push(node);
   });
-  nativeQuick[0].value="Family car";nativeQuick[0].events.change();
+  nativeQuick[0].value="Family car";saveNativeDraft(card,nativeQuick[0],nativeCalls);
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(fixture.configuration.chargers[0].asset,"car",
     "Native Charger selection persists in the canonical object");
@@ -1852,7 +1865,7 @@ async function main(){
   assert.ok(content(card.shadowRoot).includes("Selected vehicle"),
     "Charger shows its selected vehicle on its own detail view");
   chargerColor.value="pink";
-  chargerColor.events.change();
+  saveNativeDraft(card,chargerColor,nativeCalls);
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(nativeCalls.some(c=>c.args.entity_id==="select.drive_color"&&
     c.args.option==="pink"),"charger color is a native owner setting");
