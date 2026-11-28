@@ -3604,7 +3604,7 @@ class RobotixMultiChargeCard extends HTMLElement {
   financeAmount(row){
     const value=row?.cost??row?.covered_cost;
     return Number.isFinite(value)&&/^[A-Z]{3}$/.test(row?.currency||"")?
-      (row.basis!=="effective"?"≈ ":"")+new Intl.NumberFormat(undefined,{style:"currency",currency:row.currency}).format(value):"—";
+      (row.basis!=="effective"?"≈ ":"")+new Intl.NumberFormat(undefined,{style:"currency",currency:row.currency}).format(value)+(row.cost==null?" · "+mcTr("Partial coverage"):""):"—";
   }
   financeDate(value){
     const parsed=new Date(value);
@@ -3612,9 +3612,11 @@ class RobotixMultiChargeCard extends HTMLElement {
     const parts=Object.fromEntries(new Intl.DateTimeFormat("en-CA",{timeZone:this._data.timezone||"UTC",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(parsed).map(p=>[p.type,p.value]));
     return parts.year+"-"+parts.month+"-"+parts.day;
   }
-  financePeriodRow(container,label,row){
+  financePeriodRow(container,label,row,onSelect=null,selected=false){
     const line=mcEl("div","finance-period-row");
-    line.append(mcEl("strong","",mcTr(label)),mcEl("span","",this.financeEnergy(row)),mcEl("strong","",this.financeAmount(row)));
+    const heading=onSelect?mcButton(label,onSelect,selected?"active":""):mcEl("strong","",mcTr(label));
+    if(onSelect)heading.setAttribute("aria-pressed",String(selected));
+    line.append(heading,mcEl("span","",this.financeEnergy(row)),mcEl("strong","",this.financeAmount(row)));
     const note=mcEl("div","finance-period-note muted small");
     const pieces=[];
     if(Number.isFinite(row?.average_price_per_kwh)&&row.currency)
@@ -3622,6 +3624,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     if(Number.isFinite(row?.covered_energy_kwh))pieces.push(mcTr("Priced energy")+" "+row.covered_energy_kwh.toFixed(2)+" kWh");
     if(row?.days_expected>0)pieces.push(row.days_available+"/"+row.days_expected+" "+mcTr("Days checked"));
     if(row?.cost==null||row?.expected_seconds>row?.observed_seconds+0.001)pieces.push(mcTr("Partial coverage"));
+    if(Number.isFinite(row?.unpriced_energy_kwh)&&row.unpriced_energy_kwh>0)pieces.push(mcTr("Unpriced energy")+" "+row.unpriced_energy_kwh.toFixed(2)+" kWh");
+    if(row?.quality==="mixed_price_basis_or_currency")pieces.push(mcTr("Mixed price basis or currency"));
     if(row?.basis)pieces.push(mcTr(({effective:"Effective price",spot:"Spot price",variable_reference:"Variable reference price"})[row.basis]||row.basis));
     note.textContent=pieces.join(" · ")||mcTr("Unknown");
     line.append(note);container.append(line);
@@ -3662,25 +3666,37 @@ class RobotixMultiChargeCard extends HTMLElement {
     }
     const first=Date.parse(history.start),last=Date.parse(history.end);
     const group=view.group||"asset",owner=view.owner||"";
+    const attributedAsset=(row,observed)=>row.financial?row.financial.asset_id:observed||row.ended_at&&row.physical_stop_confirmed!==true?null:row.asset_id;
     const matches=(row,observed)=>Date.parse(row.started_at)<last&&Date.parse(row.ended_at||history.snapshot_at)>first&&
-      (kind==="controller"||kind==="asset"&&row.asset_id===id||kind==="charger"&&row.charger_id===id)&&
-      (!owner||(group==="asset"?observed?!row.asset_id&&owner==="unattributed":owner==="unattributed"?!row.asset_id:row.asset_id===owner:row.charger_id===owner));
+      (kind==="controller"||kind==="asset"&&attributedAsset(row,observed)===id||kind==="charger"&&row.charger_id===id)&&
+      (!view.unattributed||!attributedAsset(row,observed))&&
+      (!owner||(group==="asset"?attributedAsset(row,observed)===owner:row.charger_id===owner));
     const rows=[...(history.completed_sessions||[]).filter(row=>matches(row,false)).map(row=>({row,observed:false})),
       ...(history.observed_sessions||[]).filter(row=>matches(row,true)).map(row=>({row,observed:true})),
-      ...Object.values(history.active_sessions||{}).filter(row=>matches(row,false)).map(row=>({row,observed:false}))];
+      ...Object.entries(history.active_sessions||{}).map(([uid,row])=>({...row,charger_id:uid})).filter(row=>matches(row,false)).map(row=>({row,observed:false}))];
     rows.sort((a,b)=>String(b.row.started_at).localeCompare(String(a.row.started_at)));
-    container.append(mcEl("p","muted small","Session evidence for selected day · full sessions may cross day boundaries · "+mcReason(history.actual_history_quality)));
+    container.append(mcEl("p","muted small",mcTr("Sessions overlapping the selected date. Full session amounts may include other dates; do not sum as a period total.")));
+    const raw=history.actual_history_quality;
+    if(!["SESSION_HISTORY","QUARTERS_NOT_REQUESTED","MEASURED"].includes(raw))container.append(mcEl("p","plan-caution",mcTr("Raw session history coverage")+" · "+mcReason(raw)+" · "+mcTr("Period totals may remain available from retained statistics.")));
     if(!rows.length){container.append(mcEl("p","muted small","No retained session evidence for selected day"));return;}
     const name=(kind,uid)=>uid?(d.configuration[kind==="asset"?"assets":"chargers"]||[]).find(row=>row.id===uid)?.name||uid:mcTr("Vehicle unknown");
     for(const {row,observed} of rows){
       const detail=mcEl("div");
-      mcPair(detail,"Charger",name("charger",row.charger_id));mcPair(detail,"Vehicle",name("asset",row.asset_id));
+      mcPair(detail,"Charger",name("charger",row.charger_id));mcPair(detail,"Vehicle",name("asset",attributedAsset(row,observed)));
+      if(row.asset_id&&attributedAsset(row,observed)!==row.asset_id)mcPair(detail,"Original recorded vehicle (unconfirmed)",name("asset",row.asset_id));
       mcPair(detail,"Start",mcTime(row.started_at,d.timezone));mcPair(detail,"End",row.ended_at?mcTime(row.ended_at,d.timezone):mcTr("Active"));
       this.sessionMetrics(detail,row,observed);
+      const valuation=row.financial;
+      if(valuation){
+        mcPair(detail,"Charging cost",this.formatCost(valuation));
+        mcPair(detail,"Priced energy",Number.isFinite(valuation.energy_kwh)&&valuation.covered_cost!=null?valuation.energy_kwh.toFixed(3)+" kWh":mcTr("Unknown"));
+        mcPair(detail,"Average charging price",Number.isFinite(valuation.average_price_per_kwh)&&valuation.currency?valuation.average_price_per_kwh.toFixed(4)+" "+valuation.currency+"/kWh":mcTr("Unknown"));
+        mcPair(detail,"Valuation quality",mcReason(valuation.quality));
+      }
       if(row.physical_stop_decision)mcPair(detail,"STOP decision",mcReason(row.physical_stop_decision));
       if(row.stop_reason)mcPair(detail,"STOP confirmation",mcReason(row.stop_reason));
       const key="finance:session:"+kind+":"+id+":"+row.charger_id+":"+row.started_at+":"+(row.ended_at||"active");
-      this.disclosure(container,key,mcTime(row.started_at,d.timezone)+" · "+name("charger",row.charger_id)+" · "+name("asset",row.asset_id),detail);
+      this.disclosure(container,key,mcTime(row.started_at,d.timezone)+" · "+name("charger",row.charger_id)+" · "+name("asset",attributedAsset(row,observed)),detail);
     }
   }
   financeDrilldown(container,kind,id,periods){
@@ -3688,7 +3704,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     const view=this._financeViews[key]||(this._financeViews[key]={period:"today",group:"asset",owner:""});
     const rangeButtons=mcEl("div","chips");
     for(const [period,label] of [["today","Today"],["month","This month"],["year","This year"]]){
-      const button=mcButton(label,()=>{view.period=period;view.owner="";view.day="";view.history=null;view.generation=(view.generation||0)+1;view.loading=false;this.render();});
+      const button=mcButton(label,()=>{view.period=period;view.owner="";view.unattributed=false;view.day="";view.history=null;view.generation=(view.generation||0)+1;view.loading=false;this.render();});
       if(view.period===period)button.className="active";rangeButtons.append(button);
     }
     container.append(rangeButtons);
@@ -3697,7 +3713,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     if(kind==="controller"){
       const groupButtons=mcEl("div","chips");
       for(const [value,label] of [["asset","By vehicle"],["charger","By charger"]]){
-        const button=mcButton(label,()=>{view.group=value;view.owner="";this.render();});
+        const button=mcButton(label,()=>{view.group=value;view.owner="";view.unattributed=false;this.render();});
         if(view.group===value)button.className="active";groupButtons.append(button);
       }
       container.append(groupButtons);
@@ -3707,19 +3723,18 @@ class RobotixMultiChargeCard extends HTMLElement {
         const row=rows[view.period];
         if(!row||!(row.observed_seconds>0)||row.observed_energy_kwh===0&&row.covered_cost==null)continue;
         const label=configured.find(x=>x.id===uid)?.name||uid;
-        const group=mcEl("div","finance-group-row");
-        const button=mcButton(label,()=>{view.owner=view.owner===uid?"":uid;this.render();});
-        group.append(button,mcEl("span","",this.financeEnergy(row)),mcEl("strong","",this.financeAmount(row)));container.append(group);
+        this.financePeriodRow(container,label,row,()=>{view.owner=view.owner===uid?"":uid;view.unattributed=false;this.render();},view.owner===uid);
       }
       const remaining=this._data.period_reconciliation?.[view.period]?.[view.group];
       if(remaining&&(remaining.energy_kwh!==0||remaining.covered_cost!==0)){
         const line=mcEl("div","finance-group-row");
         const label=remaining.quality==="unattributed_energy"?"Vehicle unknown / unreconciled":"Unreconciled";
-        line.append(mcEl("span","",mcTr(label)),mcEl("span","",Number.isFinite(remaining.energy_kwh)?remaining.energy_kwh.toFixed(2)+" kWh":"—"),mcEl("strong","",this.financeAmount(remaining)));
+        const heading=view.group==="asset"&&remaining.energy_kwh>0?mcButton(mcTr(label),()=>{view.unattributed=!view.unattributed;view.owner="";this.render();},view.unattributed?"active":""):mcEl("span","",mcTr(label));
+        line.append(heading,mcEl("span","",Number.isFinite(remaining.energy_kwh)?remaining.energy_kwh.toFixed(3)+" kWh":"—"),mcEl("strong","",this.financeAmount(remaining)));
         container.append(line);
       }
       this.financePeriodRow(container,"Site total",total);
-      if(view.owner)container.append(mcEl("p","small",mcTr("Selected group")+" · "+(configured.find(x=>x.id===view.owner)?.name||view.owner)));
+      if(view.owner||view.unattributed)container.append(mcEl("p","small",mcTr("Selected group")+" · "+(view.unattributed?mcTr("Vehicle unknown"):configured.find(x=>x.id===view.owner)?.name||view.owner)));
     }
     this.financeSessions(container,view,kind,id,view.period);
   }
