@@ -31,6 +31,7 @@ from .cost_archive import (
 )
 from .history import (
     civil_cost_days, civil_period_costs, daily_costs, planned_costs, read_actual_history,
+    period_cost_reconciliation,
     reconcile_power_bindings, reconcile_tariff_bindings, session_costs, read_recorder_samples,
 )
 
@@ -125,6 +126,8 @@ class MultiChargeRuntime:
         # Bounded, nonpersistent timings; diagnostic export only.
         self._performance = {}
         self._recorder_inflight = {}
+        self._recorder_completed = {}
+        self._recorder_cache_identity = None
         self.active = True
 
     def _record_performance(self, operation, started):
@@ -148,14 +151,40 @@ class MultiChargeRuntime:
         return result
 
     async def _read_recorder_samples(self, first, end, entities):
-        """Share only identical running Recorder calls; never cache past data."""
+        """Share exact Recorder reads; briefly reuse bounded completed history only.
+
+        Current/recent evidence always uses Recorder. Cached rows are raw,
+        read-only history, not charging authority or a financial ledger.
+        """
         key = (first, end, tuple(sorted(set(entities))))
+        historical = end <= datetime.now(timezone.utc) - timedelta(minutes=2)
+        identity = (configuration_revision(self.configuration), self.executor.session_history_revision)
+        if self._recorder_cache_identity != identity:
+            self._recorder_completed.clear()
+            self._recorder_cache_identity = identity
+        now = monotonic()
+        for cached_key, (expires, _) in list(self._recorder_completed.items()):
+            if expires <= now:
+                self._recorder_completed.pop(cached_key, None)
+        if historical and key in self._recorder_completed:
+            started = perf_counter()
+            rows = self._recorder_completed[key][1]
+            self._record_performance("recorder_completed_cache_hit", started)
+            return rows
         task = self._recorder_inflight.get(key)
         if task is None or task.done():
             async def query():
                 started = perf_counter()
                 try:
-                    return await read_recorder_samples(self.hass, *key)
+                    rows = await read_recorder_samples(self.hass, *key)
+                    if (historical and self.active and isinstance(rows, dict)
+                            and identity == self._recorder_cache_identity
+                            and identity == (configuration_revision(self.configuration), self.executor.session_history_revision)
+                            and sum(len(v) for v in rows.values()) <= 20000):
+                        while len(self._recorder_completed) >= 4:
+                            self._recorder_completed.pop(next(iter(self._recorder_completed)))
+                        self._recorder_completed[key] = (monotonic()+60, rows)
+                    return rows
                 finally:
                     self._record_performance("recorder_query", started)
 
@@ -595,6 +624,7 @@ class MultiChargeRuntime:
         for task in self._recorder_inflight.values():
             task.cancel()
         self._recorder_inflight.clear()
+        self._recorder_completed.clear()
         self.executor.detach()
         for unsubscribe in self._unsubscribers:
             unsubscribe()
@@ -1630,6 +1660,8 @@ class MultiChargeRuntime:
                 if self.configuration["controller"].get("show_indicative_forecast", True) else None,
             "session_costs": self.session_costs,
             "period_costs": self.period_costs,
+            "period_reconciliation": period_cost_reconciliation(self.period_costs),
+            "history_revision": self.executor.session_history_revision,
             "live": self.live_state(),
             "configuration_revision": configuration_revision(self.configuration),
             "controller_id": self.configuration["controller"]["id"],

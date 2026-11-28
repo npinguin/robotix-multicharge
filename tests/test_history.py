@@ -27,6 +27,78 @@ def recorded(at, value, units="W"):
 
 
 class NativeMeasuredHistoryTests(unittest.TestCase):
+    def test_day_session_portions_reconcile_crossing_and_external_energy(self):
+        first = NOW-timedelta(minutes=30)
+        mid = first+timedelta(minutes=15)
+        cfg = {"chargers": [{"id": "drive"}, {"id": "external"}],
+               "assets": [{"id": "car"}]}
+        bindings = {"drive": [{"start": None, "entity": "sensor.drive"}],
+                    "external": [{"start": None, "entity": "sensor.external"}]}
+        states = {"sensor.drive": [recorded(first, 4000), recorded(mid, 0)],
+                  "sensor.external": [recorded(first, 0), recorded(mid, 2000)]}
+        receipt = {"charger_id": "drive", "asset_id": "car",
+                   "started_at": (first-timedelta(hours=2)).isoformat(),
+                   "ended_at": mid.isoformat(), "physical_stop_confirmed": True}
+        observed = {"charger_id": "external", "asset_id": None,
+                    "started_at": mid.isoformat(), "ended_at": NOW.isoformat()}
+        quotes = [self._price(first, NOW, -0.2, basis="spot")]
+        result = mod.session_day_partition(states, bindings, cfg, first, NOW,
+                                           quotes, [receipt], {}, [observed], {})
+        site = result["groups"]["controller"]["site"]["today"]
+        self.assertAlmostEqual(site["observed_energy_kwh"], 1.5)
+        self.assertAlmostEqual(site["covered_cost"], -0.3)
+        key = ("drive", receipt["started_at"], receipt["ended_at"])
+        portion = result["session_portions"][key]
+        self.assertAlmostEqual(portion["physical"]["observed_energy_kwh"], 1.0)
+        self.assertAlmostEqual(portion["asset"]["observed_energy_kwh"], 1.0)
+        self.assertAlmostEqual(portion["physical"]["average_price_per_kwh"], -0.2)
+        self.assertEqual(result["session_reconciliation"]["controller"]["site"]["energy_kwh"], 0)
+        self.assertEqual(result["session_reconciliation"]["controller"]["site"]["covered_cost"], 0)
+        # Ambiguous duplicate receipts may not silently allocate physical energy.
+        duplicate = {**receipt, "started_at": (first-timedelta(hours=1)).isoformat()}
+        ambiguous = mod.session_day_partition(states, bindings, cfg, first, NOW,
+                                              quotes, [receipt, duplicate], {}, [observed], {})
+        self.assertAlmostEqual(ambiguous["session_reconciliation"]["charger"]["drive"]["energy_kwh"], 1.0)
+        self.assertAlmostEqual(ambiguous["session_reconciliation"]["charger"]["drive"]["covered_cost"], -0.2)
+
+    def test_session_drilldown_reuses_qualified_priced_denominator(self):
+        receipt = {"charger_id": "retired_drive", "asset_id": "retired_car",
+                   "started_at": (NOW-timedelta(hours=1)).isoformat(),
+                   "ended_at": NOW.isoformat(), "physical_stop_confirmed": True,
+                   "actual_energy_kwh": 5, "estimated_covered_cost": -0.6,
+                   "estimated_covered_energy_kwh": 3, "estimated_cost_currency": "EUR",
+                   "estimated_cost_basis": "spot"}
+        row = mod.session_financial_evidence(receipt, "last")
+        self.assertEqual(row["asset_id"], "retired_car")
+        self.assertEqual(row["charger_id"], "retired_drive")
+        self.assertIsNone(row["cost"])
+        self.assertEqual(row["covered_cost"], -0.6)
+        self.assertEqual(row["energy_kwh"], 3)
+        self.assertAlmostEqual(row["average_price_per_kwh"], -0.2)
+        self.assertEqual(row["quality"], "partial_observation")
+        summary = mod.session_costs([receipt], {}, [], {}, {})
+        self.assertEqual(summary["asset"]["retired_car"]["last"], row)
+        receipt["physical_stop_confirmed"] = False
+        self.assertIsNone(mod.session_financial_evidence(receipt, "last")["asset_id"])
+
+    def test_period_reconciliation_is_same_snapshot_and_signed(self):
+        def row(energy, amount, basis="variable_reference", unpriced=0):
+            return {"observed_seconds": 3600, "observed_energy_kwh": energy,
+                    "covered_cost": amount, "covered_energy_kwh": energy-unpriced,
+                    "unpriced_energy_kwh": unpriced, "currency": "EUR", "basis": basis}
+        periods = {"controller": {"site": {"today": row(5, -2)}},
+                   "charger": {"drive": {"today": row(5, -2)}},
+                   "asset": {"car": {"today": row(4, -1.5)}}}
+        result = mod.period_cost_reconciliation(periods)["today"]
+        self.assertEqual(result["charger"]["energy_kwh"], 0)
+        self.assertEqual(result["charger"]["covered_cost"], 0)
+        self.assertEqual(result["asset"]["energy_kwh"], 1)
+        self.assertEqual(result["asset"]["covered_cost"], -0.5)
+        periods["asset"]["car"]["today"]["basis"] = "effective"
+        self.assertIsNone(mod.period_cost_reconciliation(periods)["today"]["asset"]["covered_cost"])
+        periods["controller"]["site"]["today"]["observed_seconds"] = 0
+        self.assertIsNone(mod.period_cost_reconciliation(periods)["today"]["charger"]["energy_kwh"])
+
     def test_recorder_indexes_normalize_once_and_keep_exact_gaps(self):
         from bisect import bisect_right
         from unittest.mock import patch

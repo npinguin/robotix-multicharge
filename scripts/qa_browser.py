@@ -147,7 +147,7 @@ def run_case(chrome: str, base_url: str, size: int, count: int, role: str, view:
         print(f"BROWSER PASS {label}: direct YAML Save/readback, "
               "350ms refresh and explicit Cancel")
         return
-    if view in ("overview", "asset", "charger") and not all(row.get(key) is True for key in ("equalCardRows", "balancedActions", "orderedActions")):
+    if view in ("overview", "asset", "charger") and not all(row.get(key) is True for key in ("equalCardRows", "balancedActions", "orderedActions", "stableFoldWidth")):
         raise AssertionError(f"{label}: topic card geometry or action hierarchy failed: {row}")
     if view in ("asset", "charger"):
         if row["cards"] != count:
@@ -220,6 +220,10 @@ def compare_frontend_metrics(prior, candidate, work, prior_tag, candidate_tag):
         # requires strictly fewer hosts when a data-bearing lane is collapsed.
         assert new["apexHosts"] <= old["apexHosts"], (old, new)
         assert new["historyRequests"] <= old["historyRequests"], (old, new)
+        # Both artifacts see the same 250ms simulated Recorder response.
+        # This is a controlled browser-path comparison, not site latency.
+        assert new["firstLiveMs"] is not None and old["firstLiveMs"] is not None, (old, new)
+        assert new["firstLiveMs"] + 100 < old["firstLiveMs"], (old, new)
         print("Exact predecessor/candidate Chromium chart host and query comparison PASS")
         run_case(chrome, base + "/ux-candidate", 1024, 2, "admin", "manual", False,
                  upgrade_tag=candidate_tag)

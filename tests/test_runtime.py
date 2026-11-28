@@ -903,6 +903,36 @@ class RuntimeTests(unittest.TestCase):
 
 
 class CostArchiveRetryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_completed_history_cache_expires_and_never_reuses_current_evidence(self):
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+        from multicharge_runtime_test import runtime as module
+        rt = _ProductionRuntime(None, sample())
+        rt.hass = SimpleNamespace(async_create_task=asyncio.create_task)
+        end = datetime.now(timezone.utc) - timedelta(days=1)
+        first = end - timedelta(hours=1)
+        entities = ["sensor.power"]
+        with patch.object(module, "read_recorder_samples",
+                          new=AsyncMock(return_value={"sensor.power": [1]})) as reader:
+            await rt._read_recorder_samples(first, end, entities)
+            await rt._read_recorder_samples(first, end, entities)
+            self.assertEqual(reader.await_count, 1)
+            self.assertEqual(rt.performance_snapshot()["recorder_completed_cache_hit"]["count"], 1)
+            key = (first, end, tuple(entities))
+            rt._recorder_completed[key] = (0, {"sensor.power": [1]})
+            await rt._read_recorder_samples(first, end, entities)
+            self.assertEqual(reader.await_count, 2)
+            rt.executor.session_history_revision += 1
+            await rt._read_recorder_samples(first, end, entities)
+            self.assertEqual(reader.await_count, 3)
+            rt.configuration["controller"]["name"] = "Changed"
+            await rt._read_recorder_samples(first, end, entities)
+            self.assertEqual(reader.await_count, 4)
+            now = datetime.now(timezone.utc)
+            await rt._read_recorder_samples(first, now, entities)
+            await rt._read_recorder_samples(first, now, entities)
+            self.assertEqual(reader.await_count, 6)
+
     async def test_civil_timezone_change_invalidates_cached_days_not_pending_utc_writes(self):
         from unittest.mock import AsyncMock, patch
         from multicharge_runtime_test import runtime as module

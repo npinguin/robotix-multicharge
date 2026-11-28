@@ -726,6 +726,55 @@ def _receipt_view_metrics(historical, bindings, selected, first, last, now,
     return result
 
 
+def session_financial_evidence(row, phase, observed_only=False):
+    """One owner-qualified cost and priced-energy projection for all session views."""
+    uid = row["charger_id"]
+    asset = (None if observed_only or (phase == "last"
+             and row.get("physical_stop_confirmed") is not True)
+             else row.get("asset_id"))
+    evidence = row
+    verified = (not observed_only and phase == "last"
+                and row.get("physical_stop_confirmed") is True
+                and row.get("cost_quality") == "qualified_effective_tariff")
+    if verified:
+        cost, currency, basis = row.get("cost"), row.get("currency"), "effective"
+        energy = row.get("actual_energy_kwh")
+        quality = "qualified_effective_tariff"
+    else:
+        cost = evidence.get("estimated_cost")
+        currency = evidence.get("estimated_cost_currency")
+        basis = evidence.get("estimated_cost_basis")
+        energy = evidence.get("observed_energy_kwh")
+        if cost is None:
+            cost = evidence.get("estimated_variable_cost")
+            currency = evidence.get("estimated_variable_cost_currency")
+            basis = "effective" if cost is not None else None
+            energy = evidence.get("estimated_variable_cost_energy_kwh")
+        quality = "reference_estimate"
+        if cost is None and evidence.get("estimated_covered_cost") is not None:
+            cost = evidence["estimated_covered_cost"]
+            energy = evidence.get("estimated_covered_energy_kwh")
+            currency = evidence.get("estimated_cost_currency")
+            basis = evidence.get("estimated_cost_basis")
+            quality = "partial_observation"
+        if observed_only and not row.get("complete_observed_window"):
+            quality = "partial_observation"
+    if (type(cost) not in (int, float) or not isfinite(cost)
+            or not currency or not basis):
+        cost, currency, basis, quality = None, None, None, "unknown"
+    projection = {
+        "charger_id": uid, "asset_id": asset,
+        "started_at": row["started_at"], "ended_at": row.get("ended_at"),
+        "cost": None if quality == "partial_observation" else cost,
+        "covered_cost": cost, "currency": currency, "basis": basis,
+        "quality": quality, "energy_kwh": energy,
+        "average_price_per_kwh": (
+            round(cost/energy, 6) if cost is not None
+            and type(energy) in (int, float) and isfinite(energy) and energy > 0 else None),
+    }
+    return projection
+
+
 def session_costs(receipts, active_sessions, observed, estimates, metrics):
     """Select the current/last cost evidence on each existing logical owner.
 
@@ -737,50 +786,12 @@ def session_costs(receipts, active_sessions, observed, estimates, metrics):
 
     def add(row, phase, observed_only=False):
         uid = row["charger_id"]
-        asset = (None if observed_only or (phase == "last"
-                 and row.get("physical_stop_confirmed") is not True)
-                 else row.get("asset_id"))
         key = (uid, row["started_at"], row.get("ended_at"))
-        evidence = {**row, **metrics.get(key, {}), **estimates.get(key, {})}
-        verified = (not observed_only and phase == "last"
-                    and row.get("physical_stop_confirmed") is True
-                    and row.get("cost_quality") == "qualified_effective_tariff")
-        if verified:
-            cost, currency, basis = row.get("cost"), row.get("currency"), "effective"
-            energy = row.get("actual_energy_kwh")
-            quality = "qualified_effective_tariff"
-        else:
-            cost = evidence.get("estimated_cost")
-            currency = evidence.get("estimated_cost_currency")
-            basis = evidence.get("estimated_cost_basis")
-            energy = evidence.get("observed_energy_kwh")
-            if cost is None:
-                cost = evidence.get("estimated_variable_cost")
-                currency = evidence.get("estimated_variable_cost_currency")
-                basis = "effective" if cost is not None else None
-                energy = evidence.get("estimated_variable_cost_energy_kwh")
-            quality = "reference_estimate"
-            if cost is None and evidence.get("estimated_covered_cost") is not None:
-                cost = evidence["estimated_covered_cost"]
-                energy = evidence.get("estimated_covered_energy_kwh")
-                currency = evidence.get("estimated_cost_currency")
-                basis = evidence.get("estimated_cost_basis")
-                quality = "partial_observation"
-            if observed_only and not row.get("complete_observed_window"):
-                quality = "partial_observation"
-        if (type(cost) not in (int, float) or not isfinite(cost)
-                or not currency or not basis):
-            cost, currency, basis, quality = None, None, None, "unknown"
-        projection = {
-            "charger_id": uid, "asset_id": asset,
-            "started_at": row["started_at"], "ended_at": row.get("ended_at"),
-            "cost": None if quality == "partial_observation" else cost,
-            "covered_cost": cost, "currency": currency, "basis": basis,
-            "quality": quality, "energy_kwh": energy,
-            "average_price_per_kwh": (
-                round(cost/energy, 6) if cost is not None
-                and type(energy) in (int, float) and isfinite(energy) and energy > 0 else None),
-        }
+        projection = session_financial_evidence(
+            {**row, **metrics.get(key, {}), **estimates.get(key, {})},
+            phase, observed_only,
+        )
+        asset = projection["asset_id"]
         if phase == "active":
             groups["controller"]["site"][phase].append(projection)
         groups["charger"].setdefault(uid, {"active": [], "last": []})[phase].append(projection)
@@ -1081,7 +1092,7 @@ def reconciled_quarter_history(historical, bindings, energy_bindings, selected,
 
 def daily_costs(historical, bindings, configuration, first, last, quotes,
                 receipts=(), active_sessions=None, *, energy_bindings=None,
-                selected_chargers=None):
+                selected_chargers=None, session_partition=None):
     """Project one civil day from native power and the original tariff intervals.
 
     Every physical span is counted once at Charger/Site, then attributed to
@@ -1122,10 +1133,29 @@ def daily_costs(historical, bindings, configuration, first, last, quotes,
     meter_cache = {}
     power_cache = {}
 
-    def record_energy(bucket, energy, price, asset):
+    def record_energy(bucket, energy, price, asset, uid, a, b):
+        # Optional, ephemeral drilldown uses the VERY SAME physical pieces
+        # counted at site/charger level. Never split a meter increment or
+        # choose between overlapping session claims.
+        session_bucket = None
+        asset_bucket = None
+        if session_partition is not None:
+            matches = [row for row in session_partition.get(uid, ())
+                       if row["first"] < b and row["last"] > a]
+            if (len(matches) == 1 and matches[0]["first"] <= a
+                    and b <= matches[0]["last"]):
+                session_bucket = matches[0]["bucket"]
+                session_bucket["observed_seconds"] += (b-a).total_seconds()
+                if asset is not None and asset == matches[0]["asset_id"]:
+                    asset_bucket = matches[0]["asset_bucket"]
+                    asset_bucket["observed_seconds"] += (b-a).total_seconds()
         if energy == 0:
             return  # verified zero has no tariff requirement
         targets = [bucket]
+        if session_bucket is not None:
+            targets.append(session_bucket)
+        if asset_bucket is not None:
+            targets.append(asset_bucket)
         if asset is not None:
             targets.append(groups["asset"].setdefault(asset, _cost_bucket()))
         else:
@@ -1146,7 +1176,9 @@ def daily_costs(historical, bindings, configuration, first, last, quotes,
         epochs = bindings.get(uid, ()) or ({"start": None, "entity": None},)
         attribution = sessions.get(uid, ())
         owner_edges = sorted({edge for a, b, _ in attribution for edge in (a, b)
-                              if first < edge < last})
+                              if first < edge < last} | {edge
+                              for row in (session_partition or {}).get(uid, ())
+                              for edge in (row["first"], row["last"]) if first < edge < last})
         for i, epoch in enumerate(epochs):
             start = max(first, datetime.fromisoformat(epoch["start"])) if epoch["start"] else first
             end = min(last, datetime.fromisoformat(epochs[i+1]["start"])) if i+1 < len(epochs) else last
@@ -1177,7 +1209,7 @@ def daily_costs(historical, bindings, configuration, first, last, quotes,
             block_edges = sorted({edge for a, b, *_ in blocks for edge in (a, b)})
             for a, b, energy, price, asset in blocks:
                 bucket["observed_seconds"] += (b-a).total_seconds()
-                record_energy(bucket, energy, price, asset)
+                record_energy(bucket, energy, price, asset, uid, a, b)
             for left, right, power in spans[index:]:
                 if left >= end:
                     break
@@ -1202,7 +1234,7 @@ def daily_costs(historical, bindings, configuration, first, last, quotes,
                     if block_index >= 0 and blocks[block_index][1] >= y:
                         continue  # this exact native meter increment was already counted
                     bucket["observed_seconds"] += (y-x).total_seconds()
-                    if power == 0:
+                    if power == 0 and session_partition is None:
                         continue  # proven idle does not require a tariff
                     energy = power*(y-x).total_seconds()/3600
                     matching = [asset for since, until, asset in attribution
@@ -1210,7 +1242,7 @@ def daily_costs(historical, bindings, configuration, first, last, quotes,
                     asset = matching[0] if len(matching) == 1 else None
                     price_index = bisect_right(price_edges, x)-1
                     price = price_spans[price_index][2] if price_index >= 0 else None
-                    record_energy(bucket, energy, price, asset)
+                    record_energy(bucket, energy, price, asset, uid, x, y)
         _add_cost_bucket(groups["controller"]["site"], bucket)
     # Asset attribution completeness depends on all site observations, not
     # only the periods where an asset could already be identified.
@@ -1231,6 +1263,65 @@ def daily_costs(historical, bindings, configuration, first, last, quotes,
                         and bucket["observed_energy_kwh"] == 0):
                     bucket["valuations"][key] = [0.0, 0.0]
     return groups
+
+
+def session_day_partition(historical, bindings, configuration, first, last, quotes,
+                          receipts, active_sessions, observed, energy_bindings):
+    """One raw-day projection and session portions with explicit residuals.
+
+    Historic aggregate archives do not fabricate raw session details. Each
+    counted physical segment belongs to at most one non-overlapping session.
+    Full-session meter/receipt totals remain separately available.
+    """
+    partition = {}
+    for row in [*(row for row in receipts if row.get("physical_stop_confirmed") is True),
+                *active_sessions.values(), *observed]:
+        if row.get("physical_stop_confirmed") is False:
+            continue  # recovery interval is not a confirmed physical session
+        uid = row.get("charger_id")
+        try:
+            a = max(first, datetime.fromisoformat(row["started_at"]))
+            b = min(last, datetime.fromisoformat(row["ended_at"])) if row.get("ended_at") else last
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        if not uid or a >= b:
+            continue
+        bucket = _cost_bucket()
+        bucket["expected_seconds"] = (b-a).total_seconds()
+        asset_bucket = _cost_bucket()
+        asset_bucket["expected_seconds"] = (b-a).total_seconds()
+        partition.setdefault(uid, []).append({
+            "first": a, "last": b, "bucket": bucket,
+            "asset_id": row.get("asset_id"), "asset_bucket": asset_bucket,
+            "key": (uid, row["started_at"], row.get("ended_at")),
+        })
+    raw = daily_costs(historical, bindings, configuration, first, last, quotes,
+                      receipts, active_sessions, energy_bindings=energy_bindings,
+                      session_partition=partition)
+    day = first.isoformat()[:10]
+    bounds = {day: (first, last)}
+    groups = civil_period_costs(bounds, {day: raw})
+    def summarize(bucket):
+        scope = {"controller": {"site": bucket}, "charger": {}, "asset": {}}
+        return civil_period_costs(bounds, {day: scope})["controller"]["site"]["today"]
+    details = {}
+    by_charger, by_asset, all_portions = {}, {}, []
+    for uid, rows in partition.items():
+        for row in rows:
+            portion = summarize(row["bucket"])
+            asset_portion = summarize(row["asset_bucket"]) if row["asset_id"] is not None else None
+            details[row["key"]] = {"physical": portion, "asset": asset_portion}
+            by_charger.setdefault(uid, []).append(portion)
+            all_portions.append(portion)
+            if asset_portion is not None:
+                by_asset.setdefault(row["asset_id"], []).append(asset_portion)
+    # Same native partition, exact signed covered subtotal, no prorating.
+    residual = {"controller": {"site": _cost_remainder(groups["controller"]["site"]["today"], all_portions)},
+                "charger": {}, "asset": {}}
+    for kind, mapped in (("charger", by_charger), ("asset", by_asset)):
+        for uid, periods in groups[kind].items():
+            residual[kind][uid] = _cost_remainder(periods["today"], mapped.get(uid, ()))
+    return {"groups": groups, "session_portions": details, "session_reconciliation": residual}
 
 
 def civil_period_costs(days, available):
@@ -1302,6 +1393,46 @@ def civil_period_costs(days, available):
     return result
 
 
+def _cost_remainder(total, rows, *, unattributed=False):
+    """Compare only observed and compatibly valued pieces of one partition."""
+    known = [row for row in rows if row.get("observed_seconds", 0) > 0]
+    if total.get("observed_seconds", 0) <= 0:
+        return {"energy_kwh": None, "covered_cost": None, "quality": "history_pending"}
+    energy = total["observed_energy_kwh"]-sum(r["observed_energy_kwh"] for r in known)
+    if abs(energy) < 0.00001:
+        energy = 0.0
+    signature = (total.get("currency"), total.get("basis"))
+    valued = [r for r in known if r.get("covered_cost") is not None]
+    compatible = (total.get("covered_cost") is not None and signature[0]
+                  and all((r.get("currency"), r.get("basis")) == signature
+                          or r.get("covered_energy_kwh") == 0 for r in valued)
+                  and all(r.get("covered_cost") is not None
+                          or abs(r["observed_energy_kwh"]-r["unpriced_energy_kwh"]) < 0.00001
+                          for r in known))
+    remainder = total["covered_cost"]-sum(r["covered_cost"] for r in valued) if compatible else None
+    if remainder is not None and abs(remainder) < 0.00001:
+        remainder = 0.0
+    return {"energy_kwh": round(energy, 6),
+            "covered_cost": round(remainder, 6) if remainder is not None else None,
+            "currency": signature[0] if compatible else None,
+            "basis": signature[1] if compatible else None,
+            "quality": ("reconciled_observed_energy" if energy == 0 else
+                        "unattributed_energy" if unattributed and energy > 0 else
+                        "unreconciled_observed_energy")}
+
+
+def period_cost_reconciliation(period_costs):
+    """Same-snapshot site reconciliation; owner dimensions are alternatives."""
+    result = {}
+    for period, site in period_costs.get("controller", {}).get("site", {}).items():
+        result[period] = {}
+        for kind in ("asset", "charger"):
+            rows = [periods[period] for periods in period_costs.get(kind, {}).values()
+                    if period in periods]
+            result[period][kind] = _cost_remainder(site, rows, unattributed=kind == "asset")
+    return result
+
+
 async def read_recorder_samples(hass, first, end, entities):
     """Exact native Recorder range, without a second history authority."""
     from homeassistant.components.recorder import get_instance, history
@@ -1319,7 +1450,7 @@ async def read_actual_history(hass, configuration, start, end, *,
                               include_observed_sessions=False, active_sessions=None,
                               tariff_entity=None, energy_bindings=None, tariff_bindings=None,
                               financial_days=None, as_of=None, include_quarters=True,
-                              read_samples=None):
+                              read_samples=None, include_retired_chargers=False, include_session_partition=False):
     """Query native Recorder once; background finance need not build graph rows."""
     now = as_of or datetime.now(timezone.utc)
     first, last = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
@@ -1341,7 +1472,7 @@ async def read_actual_history(hass, configuration, start, end, *,
     if charger_id is not None and charger_id in bindings and not selected:
         selected = [charger_id]
 
-    if financial_days is not None:
+    if financial_days is not None or (include_retired_chargers and charger_id is None):
         selected = sorted(set(selected) | set(bindings))
 
     # Avoid scanning years of irrelevant receipts in each measured quarter
@@ -1424,11 +1555,17 @@ async def read_actual_history(hass, configuration, start, end, *,
                 historical, bindings, selected, history_first, history_end, now,
                 session_receipts, active_sessions, quotes, asset_id, energy_bindings,
             )
-            return (rows, quality, valued, observed, metrics)
+            result = (rows, quality, valued, observed, metrics)
+            if include_session_partition:
+                result += (session_day_partition(historical, bindings, configuration, first, history_end, quotes,
+                            session_receipts, active_sessions, observed, energy_bindings),)
+            return result
 
         if historical is None:
             result = ((rows, quality, {}, [], {}) if include_observed_sessions
                       else (rows, quality, {}))
+            if include_session_partition:
+                result += (None,)
         else:
             result = await hass.async_add_executor_job(project_sessions)
         return (*result, day_projection) if financial_days is not None else result
@@ -1486,8 +1623,11 @@ async def read_actual_history(hass, configuration, start, end, *,
     if first >= now:
         return await reply([], "FUTURE_ONLY", historical)
     if not include_quarters:
-        # Finance consumes the same native samples, not the chart projection.
-        return await reply([], "QUARTERS_NOT_REQUESTED", historical)
+        # Session-only reads never calculate unused chart rows. Keep raw
+        # absence explicit, distinct from retained aggregate statistics.
+        quality = ("SESSION_HISTORY" if any(row.states for row in historical.values())
+                   else "NO_RECORDER_SAMPLES") if include_retired_chargers else "QUARTERS_NOT_REQUESTED"
+        return await reply([], quality, historical)
     # The same bounded Recorder evidence feeds both measured and exact
     # energy-reconciled quarters, off the HA event loop.
     result = await hass.async_add_executor_job(

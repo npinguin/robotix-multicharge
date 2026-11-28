@@ -1,7 +1,7 @@
 /* Robotix MultiCharge native Home Assistant card: one backend, five honest views. */
 // Isolate classic-script and module registrations across loaded releases.
 (function(){
-const MC_FRONTEND_VERSION="0.1.28";
+const MC_FRONTEND_VERSION="0.1.29";
 const MC_ELEMENT_SUFFIX="-v"+MC_FRONTEND_VERSION.replace(/\./g,"-");
 const MC_CARD_TAG="robotix-multicharge-card"+MC_ELEMENT_SUFFIX;
 const MC_PANEL_TAG="robotix-multicharge-panel"+MC_ELEMENT_SUFFIX;
@@ -265,7 +265,7 @@ const MC_STYLE = [
   ".tabs button[aria-selected=true]{color:var(--primary-color,#1976d2);border-bottom-color:var(--primary-color,#1976d2);background:transparent;font-weight:650}button.active{background:var(--primary-color,#1976d2);color:var(--text-primary-color,#fff);border-color:var(--primary-color,#1976d2)}",
   "button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid var(--primary-color,#1976d2);outline-offset:2px}",
   ".grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}",
-  ".card{border:1px solid var(--divider-color,#e1e4e8);border-radius:10px;padding:14px;min-width:0;margin:8px 0}.settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px}.settings-card{margin:0;min-height:0}.settings-card.expanded{grid-column:1/-1}.schedule-days{gap:4px}.schedule-days button{min-width:0;padding:7px 9px}.settings-heading{min-width:0;flex:1}.settings-heading p{margin-top:5px}.settings-card .row{align-items:flex-start}.config-code{white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;border:1px solid var(--divider-color,#e1e4e8);border-radius:8px;background:var(--secondary-background-color,#f7f8fa);font-size:12px;line-height:1.5}",
+  ".card{border:1px solid var(--divider-color,#e1e4e8);border-radius:10px;padding:14px;min-width:0;margin:8px 0}.settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px}.settings-card{margin:0;min-height:0}.settings-card.expanded{min-width:0}.schedule-days{gap:4px}.schedule-days button{min-width:0;padding:7px 9px}.settings-heading{min-width:0;flex:1}.settings-heading p{margin-top:5px}.settings-card .row{align-items:flex-start}.config-code{white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;border:1px solid var(--divider-color,#e1e4e8);border-radius:8px;background:var(--secondary-background-color,#f7f8fa);font-size:12px;line-height:1.5}",
   ".mc-icon{--mdc-icon-size:20px;display:inline-block;vertical-align:middle;margin-right:6px;flex:none;color:var(--primary-color,#1976d2)}.mc-icon.good{color:var(--success-color,#278355)}.mc-icon.warn{color:var(--warning-color,#b57418)}.mc-icon.bad{color:var(--error-color,#d43b38)}.mc-icon.quiet{color:var(--secondary-text-color,#65717e)}.mc-icon.solar{color:var(--warning-color,#b57418)}button .mc-icon{--mdc-icon-size:18px;color:inherit}.tabs .mc-icon{color:inherit}.metric .mc-icon{--mdc-icon-size:24px}.soc-track{height:8px;border-radius:6px;background:var(--divider-color,#ddd);overflow:hidden;margin:7px 0}.soc-fill{height:100%;background:var(--primary-color,#1976d2);border-radius:6px}.message[role=alert]{color:var(--error-color,#d43b38);white-space:pre-wrap;overflow-wrap:anywhere}",
   ".metric{background:var(--secondary-background-color,#f6f8fa);border:1px solid var(--divider-color,#e1e4e8);border-radius:8px;padding:10px;min-width:0}",
   ".row{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}",
@@ -279,7 +279,7 @@ const MC_STYLE = [
   ".legend{display:flex;flex-wrap:wrap;gap:8px;font-size:12px;color:var(--secondary-text-color,#65717e)}.legend-toggle{font-size:12px;border:0;padding:4px;min-height:30px;background:transparent;color:inherit}.legend-toggle[aria-pressed=false]{opacity:.5;text-decoration:line-through}",
   ".dot{display:inline-block;width:11px;height:11px;margin-right:5px;border-radius:2px}",
   ".plan-lane{margin:10px 0;border:1px solid var(--divider-color,#d8dde3);border-radius:11px;padding:11px}",
-  ".object-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:10px;margin:9px 0;align-items:stretch}.object-grid>.card{margin:0;min-width:0;display:flex;flex-direction:column}.object-grid>.expanded{grid-column:1/-1}.charger-state-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;padding:8px 0}.charger-power{padding:8px 0;border-bottom:1px solid var(--divider-color,#ddd)}@media(min-width:800px){.charger-state-grid{grid-template-columns:repeat(auto-fit,minmax(105px,1fr))}}.setup-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:0 12px}.setup-fields .field{min-width:0}.setup-fields>p{grid-column:1/-1}.goal-track,.goal-ticks{box-sizing:border-box}.session-summary{margin:8px 0;padding:8px 0;border-top:1px solid var(--divider-color,#ddd)}.session-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:7px;margin:7px 0}",
+  ".object-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:10px;margin:9px 0;align-items:stretch}.object-grid>.card{margin:0;min-width:0;display:flex;flex-direction:column}.object-grid>.expanded{min-width:0}.charger-state-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;padding:8px 0}.charger-power{padding:8px 0;border-bottom:1px solid var(--divider-color,#ddd)}@media(min-width:800px){.charger-state-grid{grid-template-columns:repeat(auto-fit,minmax(105px,1fr))}}.setup-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:0 12px}.setup-fields .field{min-width:0}.setup-fields>p{grid-column:1/-1}.goal-track,.goal-ticks{box-sizing:border-box}.session-summary{margin:8px 0;padding:8px 0;border-top:1px solid var(--divider-color,#ddd)}.session-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:7px;margin:7px 0}",
   ".plan-lane svg{display:block;min-width:680px;width:100%;height:auto}",
   ".plan-lane .chart{margin-top:5px}",
   ".owner-inventory{margin-top:14px;border-top:1px solid var(--divider-color,#bbb);padding-top:12px}.owner-inventory>h4{font-size:15px;margin:0 0 9px}.owner-group{margin:7px 0 12px;padding:8px 10px;border:1px solid var(--divider-color,#ccc);border-radius:8px;min-width:0}.owner-group h4{font-size:13px;margin:0 0 8px}.owner-group .pair{word-break:break-word}.owner-configure{margin-top:8px}.owner-configure a{display:inline-block;margin-top:4px}.owner-hint{font-size:12px}.owner-inventory .row{flex-wrap:wrap}",
@@ -296,7 +296,7 @@ const MC_STYLE = [
   // keyboard-accessible foldable rows, never a simultaneous 82-field form.
   ".object-card{margin:9px 0;padding:14px 16px;border-radius:12px;box-shadow:0 1px 2px #00000009}.object-card>.row:first-child{padding-bottom:7px;border-bottom:1px solid var(--divider-color,#e5e7eb)}.object-card h3{font-size:15px;letter-spacing:-.01em}.object-card>.pair{padding:4px 0}.object-card .plan-key{margin:7px 0}",
   ".topic-card>.topic-actions{margin-top:auto}.topic-card>.overview-actions,.topic-card>.controls,.topic-actions,.site-actions{display:flex;flex-wrap:wrap;gap:6px;width:100%;box-sizing:border-box}.topic-card>.overview-actions>button,.topic-card>.controls>button,.topic-actions>button,.site-actions>button{flex:1 1 112px;min-width:0;min-height:40px;justify-content:center;text-align:center;white-space:normal;line-height:1.2}.topic-card .operational-indicator{font-size:14px;font-weight:650;white-space:normal}.topic-card .operational-indicator:before{width:10px;height:10px}.topic-card>.row:first-child{min-height:32px}.topic-card .financial-headline{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:8px 0}.financial-headline>.metric{padding:8px;background:transparent}.financial-headline .value{font-size:19px}.site-metrics{grid-template-columns:repeat(4,minmax(0,1fr))}.site-metrics>.financial-headline{display:contents}.site-mode-label{width:100%;margin:4px 0;font-weight:600}.settings-card .native-number{display:grid;grid-template-columns:minmax(0,1fr) minmax(120px,240px);align-items:center;gap:10px}.native-number>.row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px}.native-number>.row>button{white-space:nowrap}.native-number>.row>input{min-width:0}.topic-card>.topic-actions+details{margin-top:9px}@media(max-width:600px){.site-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.settings-card .native-number{grid-template-columns:1fr}.topic-card>.topic-actions>button,.topic-actions>button,.site-actions>button{flex-basis:100px}}",
-  ".topic-card{padding:14px;gap:7px}.topic-card>p{margin:0}.topic-card>.row:first-child{align-items:flex-start;gap:8px}.topic-card>.row:first-child h3{flex:1;min-width:0;font-size:17px;overflow-wrap:anywhere}.topic-card .operational-indicator{max-width:50%;text-align:right}.control-label{margin:0!important}.topic-card .topic-quick{margin-top:auto;display:grid;gap:6px}.topic-actions.charge-controls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.topic-actions.planning-controls{display:flex;flex-wrap:wrap;gap:6px}.topic-actions.planning-controls>button{flex:1 1 110px}.topic-actions.charge-controls>button{width:100%;min-height:42px;padding:6px}.topic-card .object-disclosure{margin:0;border-radius:7px}.topic-card .object-disclosure>summary{padding:9px 10px}.topic-card .financial-headline{margin:0}.topic-card .financial-headline .metric{padding:5px 0}.topic-card .vehicle-summary{margin:0}.topic-card .goal-outcome{margin:0}.topic-card .manual-summary,.manual-editor{border:1px solid var(--divider-color,#ddd);border-radius:8px;padding:10px}.topic-card .quick-assignment{margin:0}.topic-card .charger-power{min-height:30px}.topic-card .financial-headline .value{line-height:1.2}.topic-card .financial-headline .metric{min-height:65px}.topic-card:has(>details[open]){grid-column:1/-1}.topic-card .charge-controls button.active{font-weight:650}.compact-owner.topic-card{padding:14px}",
+  ".topic-card{padding:14px;gap:7px}.topic-card>p{margin:0}.topic-card>.row:first-child{align-items:flex-start;gap:8px}.topic-card>.row:first-child h3{flex:1;min-width:0;font-size:17px;overflow-wrap:anywhere}.topic-card .operational-indicator{max-width:50%;text-align:right}.control-label{margin:0!important}.topic-card .topic-quick{margin-top:auto;display:grid;gap:6px}.topic-actions.charge-controls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.topic-actions.planning-controls{display:flex;flex-wrap:wrap;gap:6px}.topic-actions.planning-controls>button{flex:1 1 110px}.topic-actions.charge-controls>button{width:100%;min-height:42px;padding:6px}.topic-card .object-disclosure{margin:0;border-radius:7px}.topic-card .object-disclosure>summary{padding:9px 10px}.topic-card .financial-headline{margin:0}.topic-card .financial-headline .metric{padding:5px 0}.topic-card .vehicle-summary{margin:0}.topic-card .goal-outcome{margin:0}.topic-card .manual-summary,.manual-editor{border:1px solid var(--divider-color,#ddd);border-radius:8px;padding:10px}.topic-card .quick-assignment{margin:0}.topic-card .charger-power{min-height:30px}.topic-card .financial-headline .value{line-height:1.2}.topic-card .financial-headline .metric{min-height:65px}.topic-card:has(>details[open]){min-width:0}.object-grid:has(>.expanded),.object-grid:has(>.topic-card>details[open]){align-items:start}.settings-grid:has(>.expanded){align-items:start}.topic-card>*,.settings-card>*{min-width:0;max-width:100%;box-sizing:border-box}.topic-card .pair,.settings-card .pair,.owner-field-value{overflow-wrap:anywhere}.topic-card .session-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.finance-period-row,.finance-group-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px;padding:8px 0;align-items:center;border-bottom:1px solid var(--divider-color,#ddd);overflow-wrap:anywhere}.finance-period-note{grid-column:1/-1}.finance-group-row>button{min-width:0;white-space:normal}.finance-session-controls{flex-wrap:wrap}.finance-session-controls>.field{flex:1;min-width:0}.configuration-rows{display:grid;gap:4px;margin:10px 0}.configuration-rows .owner-field{min-width:0}.topic-card .dashboard-field-edit{min-width:0;max-width:100%}.topic-card .charge-controls button.active{font-weight:650}.compact-owner.topic-card{padding:14px}",
   ".vehicle-state>button{min-height:27px;padding:3px 7px;font-size:11px;margin-top:4px}.topic-card .plan-link>button{min-height:32px;font-size:12px}.topic-card .topic-actions.planning-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.topic-card .topic-actions.planning-controls>button{width:100%;min-height:40px}.topic-card .topic-quick{margin-top:auto}.topic-card .vehicle-state{max-width:52%}.topic-card .vehicle-target{flex-wrap:wrap}.topic-card .control-note{line-height:1.35}",
   ".topic-card>.row:first-child{align-items:center}.topic-card>.owner-group>summary{font-size:13px}.topic-card .details{margin:0}.topic-card .native-number,.settings-card .native-number{display:grid;grid-template-columns:minmax(0,1fr) minmax(110px,175px);align-items:center;gap:8px}.topic-card .native-number .row,.settings-card .native-number .row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px}.topic-card .native-number input,.settings-card .native-number input{width:100%;box-sizing:border-box}.topic-card .operational-indicator{font-size:13px}.topic-card .goal-outcome p{margin:3px 0}.topic-card .financial-headline .metric{min-height:64px}.topic-card .goal-outcome{padding:5px 0}.topic-card.compact-owner .vehicle-soc{font-size:26px}.topic-card .manual-editor .topic-actions>button{flex:1 1 100px}.owner-group>summary .operational-indicator{margin-left:8px}.settings-grid{align-items:stretch}.settings-card .row{gap:8px}.settings-card .row>span:nth-child(2){flex:1;min-width:0;text-align:right;overflow-wrap:anywhere}@media(max-width:600px){.topic-card .native-number,.settings-card .native-number{grid-template-columns:minmax(0,1fr) minmax(90px,135px)}.topic-card .operational-indicator{font-size:12px}}",
   ".compact-owner{padding:10px 12px}.compact-owner .vehicle-summary{margin:4px 0}.compact-owner .vehicle-soc{font-size:20px}.compact-owner .vehicle-deadline{font-size:12px}.compact-owner .goal-outcome{margin:3px 0;padding-top:3px}.compact-owner .object-disclosure{margin:3px 0}.compact-owner .overview-actions{margin:4px 0}.compact-owner .financial-headline{margin:3px 0}",
@@ -1222,6 +1222,9 @@ function mcAssetGoalText(a){
 function mcOwnerReadValue(value,field,timeZone){
   if(field==="control_owner")return mcTr(value==="multicharge"?"Active":"Inactive");
   if(value===undefined||value===null||value==="")return mcTr("Not configured");
+  if(field==="plan_label_mode")return mcTr(({vehicle:"Vehicle",charger:"Charger",both:"Vehicle + Charger"})[value]||value);
+  if(field==="plan_color_by")return mcTr(({vehicle:"Vehicle",charger:"Charger"})[value]||value);
+  if(field==="show_indicative_forecast")return mcTr(value?"Show (not reserved)":"Hide");
   if(typeof value==="boolean")return mcTr(value?"Yes":"No");
   if(Array.isArray(value))return value.length?value.join(", "):mcTr("Not configured");
   if(typeof value==="object"){
@@ -1260,6 +1263,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._noEntry=false;
     this._open="";
     this._folds={}; // disclosure-only UI state; never configuration or charging truth
+    this._financeViews={}; // per-owner resident period/group selection and bounded read-only evidence
     this._settingsOpen="";
     this._data=null;
     this._error="";
@@ -1292,6 +1296,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     this._watchedIds=[];
     this._historyFetchedAt=0;
     this._historyKey="";
+    this._historyPending=null;
     this._queryScope="";
     this._snapshotDay=null;
     this._pendingNative=null;
@@ -1355,8 +1360,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     const focused=this.shadowRoot?.activeElement;
     const tab=this._tab;
     const scopedEdit=Boolean(this._editingField&&(
-      tab==="Settings"&&this._editingField.startsWith("controller:")||
-      tab==="Chargeable Assets"&&this._editingField.startsWith("asset:")||
+      ["Settings","Overview","Charging Plan"].includes(tab)&&this._editingField.startsWith("controller:")||
+      ["Overview","Chargeable Assets","Charging Plan"].includes(tab)&&this._editingField.startsWith("asset:")||
       tab==="Chargers"&&this._editingField.startsWith("charger:")));
     return Boolean(this._unsavedInput||scopedEdit||this._yamlEditorOpen||
       (this._manualEditor&&["Overview","Chargeable Assets","Chargers"].includes(tab))||
@@ -1365,6 +1370,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       tab==="Chargeable Assets"&&(
         this._assetEditor||this._assignmentEditor||
         this._goalEditor||this._scheduleEditor||this._windowsOpen)||
+      tab==="Charging Plan"&&(this._goalEditor||this._scheduleEditor)||
       tab==="Chargers"&&this._createCharger||
       focused&&(focused.isContentEditable||
         ["INPUT","SELECT","TEXTAREA"].includes(
@@ -1413,7 +1419,7 @@ class RobotixMultiChargeCard extends HTMLElement {
   }
   disconnectedCallback(){
     if(this._detached)return;
-    this._detached=true;this._viewEpoch++;
+    this._detached=true;this._viewEpoch++;this._historyPending=null;
     if(this._refreshTimer!==null)clearTimeout(this._refreshTimer);
     this._refreshTimer=null;this._refreshPending=false;
     const root=this.shadowRoot;
@@ -1440,6 +1446,59 @@ class RobotixMultiChargeCard extends HTMLElement {
     else if(!this._loading&&(!this._last||Date.now()-this._last>60000))this.load();
     else if(this._data && before?.locale?.language!==value?.locale?.language)this.passiveRender();
   }
+  historyIdentity(data){
+    return data?JSON.stringify([data.start,data.end,data.configuration_revision,data.history_revision,
+      Object.entries(data.active_sessions||{}).map(([uid,row])=>[uid,row.started_at,row.asset_id]).sort((a,b)=>a[0].localeCompare(b[0]))]):"";
+  }
+  mergeHistory(target,source){
+    target.actual_slots=source.actual_slots;
+    target.actual_history_quality=source.actual_history_quality;
+    target.history_snapshot_at=source.history_snapshot_at||source.snapshot_at;
+    target.observed_sessions=source.observed_sessions;
+    const key=r=>r.charger_id+"|"+r.started_at+"|"+r.ended_at;
+    const prior=new Map([...(source.completed_sessions||[]),...(source.recent_completed_sessions||[])].map(r=>[key(r),r]));
+    const fields=["estimated_variable_cost","estimated_variable_cost_currency","estimated_variable_cost_quality",
+      "estimated_cost","estimated_cost_currency","estimated_cost_basis","estimated_covered_cost","estimated_covered_energy_kwh","estimated_variable_cost_energy_kwh","observed_energy_kwh",
+      "elapsed_minutes","average_power_kw","peak_power_kw"];
+    for(const row of [...(target.completed_sessions||[]),...(target.recent_completed_sessions||[])]){
+      const earlier=prior.get(key(row));
+      if(earlier)for(const k of fields)if(earlier[k]!==undefined)row[k]=earlier[k];
+    }
+    for(const [uid,row] of Object.entries(target.active_sessions||{})){
+      const earlier=source.active_sessions?.[uid];
+      if(earlier?.started_at===row.started_at)
+        for(const k of fields)if(earlier[k]!==undefined)row[k]=earlier[k];
+    }
+  }
+  requestHistory(cmd,key,epoch){
+    if(this._historyPending||this._detached||!this._data)return;
+    const identity=this.historyIdentity(this._data);
+    const token={identity,key,epoch};
+    this._historyPending=token;
+    const started=Date.now();
+    void (async()=>{
+      try{
+        const history=await this._hass.callWS({...cmd,include_history:true});
+        if(this._detached||this._viewEpoch!==epoch||this._historyPending!==token||
+           this.historyIdentity(this._data)!==identity||this.historyIdentity(history)!==identity||
+           this._snapshotDay+"|"+this._queryScope!==key)return;
+        this.mergeHistory(this._data,history);
+        this._historyKey=key;this._historyFetchedAt=Date.now();
+        this._historyLastDuration=Date.now()-started;
+      }catch(error){
+        if(!this._detached&&this._viewEpoch===epoch&&this.historyIdentity(this._data)===identity){
+          if(!this._data.history_snapshot_at)this._data.actual_history_quality="HISTORY_READ_FAILED";
+          this._historyKey=key;this._historyFetchedAt=Date.now();
+        }
+      }finally{
+        if(this._historyPending===token)this._historyPending=null;
+        if(!this._detached){
+          this.passiveRender();
+          if(this._snapshotDay+"|"+this._queryScope!==key||this.historyIdentity(this._data)!==identity)this.scheduleSourceRefresh();
+        }
+      }
+    })();
+  }
   async load(){
     if(!this._hass||this._loading||this._detached)return;
     this._loading=true;if(!this._data)this.passiveRender();
@@ -1451,10 +1510,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       const historyKey=requestedDay+"|"+queryFilter;
       const wantsHistory=["Overview","Charging Plan","Chargeable Assets","Chargers"].includes(this._tab);
       const beforeData=this._data;
-      const cmd={type:"robotix_multicharge/get_plan",day:requestedDay,
-        include_history:wantsHistory&&(!beforeData||this._historyKey!==historyKey||
-          Date.now()-this._historyFetchedAt>=30000||
-          beforeData.actual_history_quality==="NOT_REQUESTED")};
+      const cmd={type:"robotix_multicharge/get_plan",day:requestedDay,include_history:false};
       if(queryFilter.startsWith("charger:"))cmd.charger_id=queryFilter.slice(8);
       if(queryFilter.startsWith("asset:"))cmd.asset_id=queryFilter.slice(6);
       const nextData=await this._hass.callWS(cmd);
@@ -1474,30 +1530,14 @@ class RobotixMultiChargeCard extends HTMLElement {
       }else if(!this.validViewFilter(this._filter,nextData.configuration)){
         this._filter="";this.rememberViewPreferences();this._refreshPending=true;
       }
-      if(cmd.include_history){
+      if(beforeData&&this._historyKey===historyKey&&this.historyIdentity(beforeData)===this.historyIdentity(nextData)&&
+          !["NOT_REQUESTED","HISTORY_LOADING"].includes(beforeData.actual_history_quality)&&nextData.actual_history_quality==="NOT_REQUESTED"){
+        this.mergeHistory(nextData,beforeData);
+      }else if(wantsHistory&&nextData.actual_history_quality==="NOT_REQUESTED"){
+        this._historyFetchedAt=0;
+        nextData.actual_history_quality="HISTORY_LOADING";
+      }else if(wantsHistory){
         this._historyKey=historyKey;this._historyFetchedAt=Date.now();
-      }else if(beforeData&&this._historyKey===historyKey&&
-        beforeData.start===nextData.start&&beforeData.end===nextData.end&&
-        beforeData.configuration_revision===nextData.configuration_revision){
-        nextData.actual_slots=beforeData.actual_slots;
-        nextData.actual_history_quality=beforeData.actual_history_quality;
-        nextData.observed_sessions=beforeData.observed_sessions;
-        const key=r=>r.charger_id+"|"+r.started_at+"|"+r.ended_at;
-        const prior=new Map([...(beforeData.completed_sessions||[]),...(beforeData.recent_completed_sessions||[])].map(r=>[key(r),r]));
-        const fields=["estimated_variable_cost","estimated_variable_cost_currency","estimated_variable_cost_quality",
-          "estimated_cost","estimated_cost_currency","estimated_cost_basis","observed_energy_kwh",
-          "elapsed_minutes","average_power_kw","peak_power_kw"];
-        for(const row of [...(nextData.completed_sessions||[]),...(nextData.recent_completed_sessions||[])]){
-          const earlier=prior.get(key(row));
-          if(earlier)for(const k of fields)if(earlier[k]!==undefined)row[k]=earlier[k];
-        }
-        for(const [uid,row] of Object.entries(nextData.active_sessions||{})){
-          const earlier=beforeData.active_sessions?.[uid];
-          if(earlier?.started_at===row.started_at)
-            for(const k of fields)if(earlier[k]!==undefined)row[k]=earlier[k];
-        }
-      }else if(wantsHistory&&!cmd.include_history){
-        this._historyFetchedAt=0;this._refreshPending=true;
       }
       if(this._data?.configuration_revision&&
          this._data.configuration_revision!==nextData.configuration_revision){
@@ -1513,6 +1553,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       this._data=nextData;
       this._queryScope=queryFilter;
       this._snapshotDay=requestedDay;
+      if(wantsHistory&&(nextData.actual_history_quality==="HISTORY_LOADING"||this._historyKey!==historyKey||Date.now()-this._historyFetchedAt>=30000))this.requestHistory(cmd,historyKey,epoch);
       if(this._yamlCommittedRevision&&
          this._data.configuration_revision===this._yamlCommittedRevision){
         this._yamlEditorOpen=false;
@@ -1600,10 +1641,14 @@ class RobotixMultiChargeCard extends HTMLElement {
       };
     }finally{this._commandBusy=false;this.render();}
   }
-  async saveSettings(scope,targetId,changes,action,structural=false){
+  async saveSettings(scope,targetId,changes,action,structural=false,expectedRevision=this._data?.configuration_revision,errorTarget=null){
     if(this._settingsBusy||this._pendingSettings||!this._hass||!this._data||!this.canEditSettings())return;
     const preserveDraft=this.editingInProgress();
-    if(!this._data.configuration_revision){
+    if(expectedRevision!==this._data.configuration_revision){
+      this._settingsFeedback={status:"rejected",message:"Settings changed; refresh and retry"};
+      this.showEditError(errorTarget);return false;
+    }
+    if(!expectedRevision){
       this._settingsFeedback={status:"rejected",message:"Unavailable"};
       if(preserveDraft)this.showEditError();else this.render();
       return;
@@ -1617,7 +1662,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         type:"robotix_multicharge/update_settings",
         scope,target_id:targetId,changes,action:action||"save",
         structural,
-        expected_revision:this._data.configuration_revision
+        expected_revision:expectedRevision
       });
       if(receipt.status!=="accepted_unconfirmed"||!receipt.expected_revision)
         throw new Error("Settings change was not admitted");
@@ -1658,7 +1703,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     }finally{
       this._settingsBusy=false;
       if(this._pendingSettings){if(this._loading)this._refreshPending=true;else await this.load();}
-      if(preserveDraft&&(!admitted||this._pendingSettings))this.showEditError();
+      if(preserveDraft&&(!admitted||this._pendingSettings))this.showEditError(errorTarget);
       else this.render();
     }
   }
@@ -1739,7 +1784,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     else options=MC_EDIT_ENUM[field]||null;
     if(MC_EDIT_BOOLEAN.has(field))options=["true","false"];
     if(options){
-      const pairs=options.map(key=>[key,field==="control_owner"?(key==="multicharge"?mcTr("Active"):mcTr("Inactive")):key||mcTr("No vehicle")]);
+      const captions={plan_label_mode:{vehicle:"Vehicle",charger:"Charger",both:"Vehicle + Charger"},plan_color_by:{vehicle:"Vehicle",charger:"Charger"},show_indicative_forecast:{true:"Show (not reserved)",false:"Hide"},solar_source_kind:{none:"Not configured",intervals:"Qualified Solar intervals",grid_export:"Measured grid export",direct_surplus:"Measured solar surplus"},grid_power_direction:{import_positive:"Import is positive",export_positive:"Export is positive"}};
+      const pairs=options.map(key=>[key,field==="control_owner"?(key==="multicharge"?mcTr("Active"):mcTr("Inactive")):mcTr(captions[field]?.[key]||key||"No vehicle")]);
       if(prior!==undefined&&!pairs.some(x=>x[0]===String(prior)))
         pairs.unshift([String(prior),String(prior)]);
       const choice=this.field(container,MC_OWNER_NAMES[field]||field,
@@ -1753,7 +1799,10 @@ class RobotixMultiChargeCard extends HTMLElement {
     const fieldInput=this.field(container,MC_OWNER_NAMES[field]||field,
       prior===undefined||prior===null?"":prior,type);
     if(type==="number"){
-      fieldInput.setAttribute("step",Number.isInteger(prior)&&prior!==null?"1":"any");
+      const native=this._hass?.states?.[this.ownerEntity(scope,record.id,field)]?.attributes||{};
+      const integerFields=new Set(["max_parallel","power_adjustment_interval_minutes","requested_duration_minutes","priority","phase_count"]);
+      fieldInput.setAttribute("step",String(native.step??(integerFields.has(field)?1:"any")));
+      for(const bound of ["min","max"])if(native[bound]!=null&&Number.isFinite(Number(native[bound])))fieldInput.setAttribute(bound,String(native[bound]));
       fieldInput.setAttribute("inputmode","decimal");
     }
     if(MC_EDIT_SOURCE_DOMAINS[field]){
@@ -1788,17 +1837,41 @@ class RobotixMultiChargeCard extends HTMLElement {
     };
     read.setValue=value=>{fieldInput.value=String(value??"");};return read;
   }
-  dashboardEditField(container,scope,record,field){
+  contextualField(container,scope,record,field,label,unit=""){
+    const key=scope+":"+record.id+":"+field;
+    const row=mcEl("div","owner-field"),info=mcEl("div","owner-field-info");
+    info.append(mcEl("div","owner-field-label",mcTr(label)),mcEl("div","owner-field-value",unit&&record[field]!=null?String(record[field])+" "+unit:mcOwnerReadValue(record[field],field,this._data?.timezone)));
+    row.append(info);
+    if(this.canEditSettings()){
+      const edit=mcButton(mcTr("Edit"),()=>{this._editingField=this._editingField===key?"":key;this.render();});
+      edit.setAttribute("aria-label",mcTr("Edit")+" "+mcTr(label));row.append(edit);
+    }
+    container.append(row);
+    if(this.canEditSettings()&&this._editingField===key)this.dashboardEditField(container,scope,record,field,unit,label);
+  }
+  siteLimitRows(container,ctl){
+    this.contextualField(container,"controller",ctl,"max_power_kw","Maximum group power","kW");
+    this.contextualField(container,"controller",ctl,"max_parallel","Maximum parallel chargers");
+    this.contextualField(container,"controller",ctl,"power_adjustment_interval_minutes","Power adjustment interval","min");
+  }
+  dashboardEditField(container,scope,record,field,unit="",label=""){
     const body=mcEl("div","dashboard-field-edit");
+    body.setAttribute("data-edit-field",scope+":"+record.id+":"+field);
+    const revision=this._data?.configuration_revision;
+    if(unit)body.append(mcEl("p","muted small",mcTr(label||MC_OWNER_NAMES[field]||field)+" ("+unit+")"));
     let read=this.dashboardFieldControl(body,scope,record,field);
     const actions=mcEl("div","dashboard-edit-actions");
     const submit=mcButton(mcTr("Save"),async()=>{
+      if(!revision||revision!==this._data?.configuration_revision){
+        this._settingsFeedback={status:"rejected",message:"Settings changed; refresh and retry"};
+        this.showEditError(body);return;
+      }
       let value;
       try{value=read();}catch(e){
         this._settingsFeedback={status:"rejected",message:String(e.message)};
         this.showEditError(body);return;
       }
-      const ok=await this.saveSettings(scope,record.id,{[field]:value},"save",true);
+      const ok=await this.saveSettings(scope,record.id,{[field]:value},"save",true,revision,body);
       if(ok&&this._settingsFeedback?.status==="confirmed"){this._editingField="";this.render();}
     });
     submit.disabled=this._settingsBusy||Boolean(this._pendingSettings);
@@ -1812,11 +1885,12 @@ class RobotixMultiChargeCard extends HTMLElement {
     const key=scope+":"+record.id;
     const box=mcEl("div","dashboard-danger");
     if(this._confirmDelete===key){
+      const revision=this._data?.configuration_revision;
       box.append(mcEl("span","muted small",
         mcTr("Confirm removal")+" · "+record.name+
         " · "+mcTr("Native history is retained")));
       box.append(mcButton(mcTr("Confirm removal"),async()=>{
-        const ok=await this.saveSettings(scope,record.id,{},"delete",true);
+        const ok=await this.saveSettings(scope,record.id,{},"delete",true,revision,box);
         if(ok){this._confirmDelete="";this._open="";this.render();}
       }));
       box.append(mcButton(mcTr("Cancel"),()=>{
@@ -1839,9 +1913,10 @@ class RobotixMultiChargeCard extends HTMLElement {
       this._settingsFeedback={status:"rejected",message:"Unavailable"};
       this.render();return;
     }
+    const preserveDraft=this._unsavedInput;
     this._settingsBusy=true;
     this._settingsFeedback={status:"requested",message:"Updating"};
-    this.render();
+    if(!preserveDraft)this.render();
     try{
       const expected=field==="mode"?MC_MODE_SELECT[option]||option:option;
       await this._hass.callService("select","select_option",{
@@ -1858,12 +1933,13 @@ class RobotixMultiChargeCard extends HTMLElement {
       }
     }catch(error){
       this._settingsFeedback={status:"rejected",message:String(error?.message||"Selection rejected").slice(0,210)};
-    }finally{this._settingsBusy=false;this.render();}
+    }finally{this._settingsBusy=false;if(preserveDraft&&this._settingsFeedback?.status==="rejected")this.showEditError();else this.render();}
   }
   async nativeText(scope,uid,field,value){
     const entity=this.ownerEntity(scope,uid,field);
     if(!this.canEditSettings()||!entity||!this._hass?.callService||this._settingsBusy)
       return;
+    const preserveDraft=this._unsavedInput;
     this._settingsBusy=true;
     this._settingsFeedback={status:"requested",message:"Updating"};
     try{
@@ -1880,7 +1956,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     }catch(error){
       this._settingsFeedback={status:"rejected",
         message:String(error?.message||"Window settings rejected")};
-    }finally{this._settingsBusy=false;this.render();}
+    }finally{this._settingsBusy=false;if(preserveDraft&&this._settingsFeedback?.status==="rejected")this.showEditError();else this.render();}
   }
   async nativeButton(scope,uid,field){
     const entity=this.ownerEntity(scope,uid,field);
@@ -1900,16 +1976,17 @@ class RobotixMultiChargeCard extends HTMLElement {
       this._settingsFeedback={status:"rejected",message:"Unavailable"};
     }finally{this._settingsBusy=false;this.render();}
   }
-  async nativeNumber(scope,uid,field,value){
+  async nativeNumber(scope,uid,field,value,errorTarget=null){
     const entity=this.ownerEntity(scope,uid,field);
     if(!this.canEditSettings()||this._settingsBusy||!entity||
        typeof this._hass?.callService!=="function"||!Number.isFinite(value)){
       this._settingsFeedback={status:"rejected",message:"Unsupported number value"};
-      this.render();return;
+      this.showEditError(errorTarget);return;
     }
     this._settingsBusy=true;
     this._settingsFeedback={status:"requested",message:"Applying"};
-    this.render();
+    const preserveDraft=this._unsavedInput;
+    if(!preserveDraft)this.render();
     try{
       await this._hass.callService("number","set_value",{
         entity_id:entity,value
@@ -1932,7 +2009,9 @@ class RobotixMultiChargeCard extends HTMLElement {
         error?.message||"Number rejected by Home Assistant"
       )};
     }finally{
-      this._settingsBusy=false;this.render();
+      this._settingsBusy=false;
+      if(preserveDraft&&this._settingsFeedback?.status==="rejected")this.showEditError(errorTarget);
+      else this.render();
     }
   }
   nativeNumberEditor(container,scope,uid,field,label,fallback,unit=""){
@@ -1959,16 +2038,22 @@ class RobotixMultiChargeCard extends HTMLElement {
     if(Number.isFinite(Number(attr.max))&&attr.max!==undefined)
       input.setAttribute("max",String(attr.max));
     input.setAttribute("step",String(attr.step||0.01));
-    const apply=mcButton(mcTr("Apply"),()=>{
+    input.disabled=this._settingsBusy||native?.state==="unavailable";
+    control.append(input);row.append(labelNode,control);
+    const sessionStart=this._data?.active_sessions?.[uid]?.started_at;
+    this.stageNativeEdit(row,[input],async()=>{
       const value=Number(input.value);
-      if(!input.value.trim()||!Number.isFinite(value)){
-        this._settingsFeedback={status:"rejected",message:"Number required"};
-        this.render();return;
+      if(!input.value.trim()||!Number.isFinite(value)||
+         (attr.min!=null&&value<Number(attr.min))||(attr.max!=null&&value>Number(attr.max))){
+        this._settingsFeedback={status:"rejected",message:"Number outside allowed range"};
+        this.showEditError(row);return;
       }
-      void this.nativeNumber(scope,uid,field,value);
-    });
-    apply.disabled=this._settingsBusy||native?.state==="unavailable";
-    control.append(input,apply);row.append(labelNode,control);
+      if(field==="set_charging_power_kw"&&sessionStart!==this._data?.active_sessions?.[uid]?.started_at){
+        this._settingsFeedback={status:"rejected",message:"Charging session changed; refresh and retry"};
+        this.showEditError(row);return;
+      }
+      await this.nativeNumber(scope,uid,field,value,row);
+    },!input.disabled);
     container.append(row);
   }
   nativeRepeatEditor(container,asset){
@@ -1991,7 +2076,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         asset.ready_by_repeat==="specific_days"?"specific_days":asset.ready_by?"once":"none",
       date:anchor?anchor.year+"-"+anchor.month+"-"+anchor.day:today.year+"-"+today.month+"-"+today.day,
       clock:anchor?anchor.hour+":"+anchor.minute:savedTimes[0]||"",
-      days:savedDays,overrides:new Set(savedTimes).size>1
+      days:savedDays,overrides:new Set(savedTimes).size>1,revision:this._data?.configuration_revision
     };
     const remember=()=>{this._calendarDrafts[asset.id]=draft;this._unsavedInput=true;};
     container.append(mcEl("h4","specific-day-calendar",mcTr("Charging days")));
@@ -2074,7 +2159,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         changes.ready_by_repeat=draft.mode==="daily"?"daily":"none";
         changes.ready_by_local=(draft.mode==="daily"?localToday:draft.date)+"T"+draft.clock+":00";
       }
-      const accepted=await this.saveSettings("asset",asset.id,changes);
+      const accepted=await this.saveSettings("asset",asset.id,changes,"save",false,draft.revision,container);
       if(accepted&&this._settingsFeedback?.status==="confirmed"){
         delete this._calendarDrafts[asset.id];this._scheduleEditor="";this.render();
       }
@@ -2119,8 +2204,8 @@ class RobotixMultiChargeCard extends HTMLElement {
       };
       for(const fieldNode of [enabled,start,end]){
         fieldNode.disabled=this._settingsBusy;
-        fieldNode.addEventListener("change",save);
       }
+      this.stageNativeEdit(panel,[enabled,start,end],save,!this._settingsBusy);
     }
     container.append(panel);
   }
@@ -2133,15 +2218,39 @@ class RobotixMultiChargeCard extends HTMLElement {
     if(group)this._folds[scope+":"+uid+":"+group[0]]=true;
     this.render();
   }
+  stageNativeEdit(container,inputs,save,enabled=true){
+    if(!enabled)return;
+    // Native owner services remain canonical. A change is a draft, never a write.
+    const revision=this._data?.configuration_revision;
+    const initial=inputs.map(input=>input.value);
+    const actions=mcEl("div","dashboard-edit-actions");
+    actions.setAttribute("data-native-edit-for",inputs.map(input=>input.getAttribute("id")).join(" "));
+    const submit=mcButton(mcTr("Save"),async()=>{
+      if(revision!==this._data?.configuration_revision){
+        this._settingsFeedback={status:"rejected",message:"Settings changed; refresh and retry"};
+        this.showEditError(container);return;
+      }
+      if(this._settingsBusy)return;
+      submit.disabled=true;
+      try{await save();}finally{if(this._settingsFeedback?.status==="rejected")submit.disabled=false;}
+    });
+    const cancel=mcButton(mcTr("Cancel"),()=>this.render());
+    submit.disabled=true;cancel.disabled=true;
+    for(const input of inputs)input.addEventListener("change",()=>{
+      const changed=inputs.some((node,i)=>node.value!==initial[i]);
+      this._unsavedInput=changed;submit.disabled=!enabled||!changed;cancel.disabled=!changed;
+    });
+    actions.append(submit,cancel);container.append(actions);
+  }
   ownerColorControl(container,scope,row){
     const palette=this._data?.plan_palette||{};
     const entity=this.ownerEntity(scope,row.id,"plan_color");
     const options=Object.keys(palette).map(key=>[key,mcTr(key)]);
     const pick=this.field(container,"Plan color",row.plan_color,null,options);
     pick.disabled=!this.canEditSettings()||!entity||this._settingsBusy;
-    pick.addEventListener("change",()=>this.nativeSelect(
+    this.stageNativeEdit(container,[pick],()=>this.nativeSelect(
       scope,row.id,"plan_color",pick.value
-    ));
+    ),!pick.disabled);
     return pick;
   }
   field(container,title,value,type,choices){
@@ -2293,11 +2402,14 @@ class RobotixMultiChargeCard extends HTMLElement {
         "Spot price":"Current price";
     const powers=chargers.map(x=>(observations[x.id]||{}).power_kw);
     const complete=powers.length>0&&powers.every(x=>x&&x.quality==="ok"&&typeof x.value==="number");
-    const active=powers.filter(x=>x&&x.quality==="ok"&&x.value>0).length;
+    const active=chargers.filter(x=>d.charger_states?.[x.id]?.charging_session==="charging").length;
+    const connected=chargers.filter(x=>d.charger_states?.[x.id]?.connection_state==="asset_connected").length;
     const activated=chargers.filter(x=>d.charger_states?.[x.id]?.activation==="active").length;
     const metrics=mcEl("div","grid");
     for(const [key,value,source] of [
-      ["Active chargers",String(activated)],
+      ["Managed chargers",String(activated)],
+      ["Connected chargers",String(connected)],
+      ["Charging now",String(active)],
       ["Actual power",complete?(powers.reduce((sum,x)=>sum+x.value,0).toFixed(2)+" kW"):"Unknown"],
       [priceKind,priceLabel],
       ["Solar production",mcValue(sources.solar_power," kW"),sources.solar_power],
@@ -2323,16 +2435,24 @@ class RobotixMultiChargeCard extends HTMLElement {
       chips.append(button);
     }
     const site=mcEl("section","card charging-site-overview");
-    const primary=mcEl("div","grid site-metrics"),technical=mcEl("div","grid"),folds=mcEl("div");
-    Array.from(metrics.children).forEach((cell,index)=>([1,2].includes(index)?primary:technical).append(cell));
+    const primary=mcEl("div","grid site-metrics"),technical=mcEl("div"),live=mcEl("div","grid"),folds=mcEl("div");
+    Array.from(metrics.children).forEach((cell,index)=>(index<5?primary:live).append(cell));
+    technical.append(live);
     site.append(mcEl("h3","",mcTr("Charging site")),primary);
     this.financialSummary(primary,"controller","site",folds);
     site.append(chips);
     site.append(...Array.from(folds.children));
     const ctl=c.controller||{};
-    mcPair(technical,"Maximum group power",ctl.max_power_kw==null?mcTr("Unknown"):ctl.max_power_kw+" kW");
-    mcPair(technical,"Parallel chargers",ctl.max_parallel??mcTr("Unknown"));
-    mcPair(technical,"Power adjustment interval",ctl.power_adjustment_interval_minutes==null?mcTr("Unknown"):ctl.power_adjustment_interval_minutes+" min");
+    const configRows=mcEl("div","configuration-rows");
+    configRows.append(mcEl("h4","","Charging configuration"));
+    this.siteLimitRows(configRows,ctl);
+    this.contextualField(configRows,"controller",ctl,"mode","Charging strategy");
+    this.contextualField(configRows,"controller",ctl,"phase_limits_a","Electrical limits");
+    technical.append(configRows);
+    const sourcesPanel=mcEl("div","configuration-rows");
+    for(const [field,label] of [["current_price_entity","Current import price source"],["price_entity","Future tariff interval source"],["solar_power_entity","Solar production sensor"],["home_power_entity","Home consumption sensor"],["grid_power_entity","Grid import/export sensor"],["solar_surplus_entity","Available solar surplus sensor"],["export_price_entity","Current export price source"],["solar_entity","Solar interval source"],["site_power_entity","Site capacity meter"],["binding_entity","Power envelope source"],["solar_source_kind","Solar strategy"],["grid_power_direction","Grid sensor sign"]])this.contextualField(sourcesPanel,"controller",ctl,field,label);
+    if(this._editingField.startsWith("controller:"+ctl.id+":")&&sourcesPanel.children.length)this._folds["site:energy"]=true;
+    this.disclosure(technical,"site:source-bindings","Sources & bindings",sourcesPanel);
     this.disclosure(site,"site:energy","Site energy & technical details",technical);
     container.append(site);
     this.feedback(container);
@@ -2397,6 +2517,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     const colorBy=controller.plan_color_by||"vehicle";
     const forecastVisible=controller.show_indicative_forecast!==false;
     this.title(container,"Charging plan");
+    if(d.actual_history_quality==="HISTORY_LOADING")container.append(mcEl("p","muted small",mcTr("Measured history loading · live planning available")));
+    else if(d.history_snapshot_at)container.append(mcEl("p","muted small",mcTr("Measured history as of")+" · "+mcTime(d.history_snapshot_at,d.timezone)));
     if(!chargers.length){
       this.notice(container,"No charging points",false);
       this.configure(container);
@@ -2430,32 +2552,10 @@ class RobotixMultiChargeCard extends HTMLElement {
       for(const [row,label] of visibleCosts)this.planCostLine(costs,row,label);
       container.append(costs);
     }
-    const selectors=mcEl("div","controls");
-    const option=(title,setting,value,variants)=>{
-      const wrap=mcEl("div","field");const label=mcEl("label","",title);
-      const select=mcEl("select");
-      select.setAttribute("aria-label",title);
-      for(const [id,caption] of variants){
-        const entry=mcEl("option","",caption);entry.value=id;
-        if(id===value)entry.selected=true;
-        select.append(entry);
-      }
-      select.value=value;
-      select.disabled=!this.canEditSettings()||this._settingsBusy||!this.ownerEntity("controller",controller.id,setting);
-      select.addEventListener("change",()=>{
-        const selected=setting==="show_indicative_forecast"?
-          select.value==="true":select.value;
-        this.nativeSelect("controller",controller.id,setting,
-          typeof selected==="boolean"?(selected?"on":"off"):selected);
-      });
-      wrap.append(label,select);selectors.append(wrap);
-    };
-    option("Show labels","plan_label_mode",labelMode,
-      [["vehicle","Vehicle"],["charger","Charger"],["both","Vehicle + Charger"]]);
-    option("Color by","plan_color_by",colorBy,
-      [["vehicle","Vehicle"],["charger","Charger"]]);
-    option("Indicative forecasting","show_indicative_forecast",
-      String(forecastVisible),[["true","Show (not reserved)"],["false","Hide"]]);
+    const selectors=mcEl("div","configuration-rows");
+    this.contextualField(selectors,"controller",{...controller,plan_label_mode:labelMode},"plan_label_mode","Show labels");
+    this.contextualField(selectors,"controller",{...controller,plan_color_by:colorBy},"plan_color_by","Color by");
+    this.contextualField(selectors,"controller",{...controller,show_indicative_forecast:forecastVisible},"show_indicative_forecast","Indicative forecasting");
     this.feedback(container);
     const rows=d.slots||[],forecast=forecastVisible?(d.forecast_slots||[]):[];
     const measured=d.actual_slots||[],assumptions=d.forecast_assumptions||{};
@@ -2511,15 +2611,15 @@ class RobotixMultiChargeCard extends HTMLElement {
       const identity=(d.connection_identity||{})[charger.id];
       const verified=selected&&identity?.asset_id===selected.id;
       const plugged=source&&source.quality==="ok"?
-        source.value?(verified?mcTr("Connected")+" · "+selected.name:
+        source.value?(verified?mcTr("Connected"):
           mcTr("Connected")+" · "+mcTr("Vehicle unknown")):
         mcTr("Disconnected"):mcTr("Connection unknown");
-      const fullName=!selected&&!pastOnly?charger.name+" · "+mcTr("No vehicle selected"):
-        labelMode==="vehicle"?vehicleLabel:labelMode==="charger"?charger.name:vehicleLabel+" · "+charger.name;
+      const fullName=labelMode==="charger"?charger.name:labelMode==="vehicle"?mcTr(vehicleLabel):charger.name+" · "+mcTr(vehicleLabel);
       const color=mcPlanOwnerColor(d,pastOnly?historicalAssetId:charger.asset,charger.id);
       const lhs=mcEl("div","plan-key");
       const swatch=mcEl("span","plan-swatch");swatch.style.background=color;
       lhs.append(swatch,mcEl("strong","",fullName));
+      if(labelMode==="vehicle")lhs.append(mcEl("span","muted small",charger.name));
       if(!pastOnly)lhs.append(this.operationalIndicator(charger,selected||null));
       label.append(lhs,mcEl("span","muted small",plugged));card.append(label);
       const readback=(d.observations||{}).assets?.[selected?.id]||{};
@@ -2536,7 +2636,16 @@ class RobotixMultiChargeCard extends HTMLElement {
         (next?" · "+mcTr("Next charge")+" "+
           mcTime(next.start,d.timezone)+" · "+next.proposed_power_kw+" kW":""));
       const hasGoal=!pastOnly&&selected&&d.goal_assessments?.[charger.id]?.asset_id===selected.id;
-      if(!pastOnly&&selected){this.vehicleSummary(card,selected,charger);this.goalAssessment(card,selected,charger);}
+      if(!pastOnly&&selected){
+        this.vehicleSummary(card,selected,charger);this.goalAssessment(card,selected,charger);
+        if(this.canEditSettings()){
+          const actions=mcEl("div","topic-actions planning-controls");
+          actions.append(mcButton("Set charging goal",()=>{this._goalEditor=this._goalEditor===selected.id?"":selected.id;this._scheduleEditor="";this.render();}),mcButton("Schedule charging",()=>{this._scheduleEditor=this._scheduleEditor===selected.id?"":selected.id;this._goalEditor="";this.render();}));
+          card.append(actions);
+          if(this._goalEditor===selected.id)this.assetGoalEditor(card,selected);
+          if(this._scheduleEditor===selected.id)this.nativeRepeatEditor(card,selected);
+        }
+      }
       else if(pastOnly)card.append(summary);
       if(typeof shortfall==="number"&&shortfall>0&&!d.goal_assessments?.[charger.id])
         card.append(mcEl("p","plan-caution",mcTr("Shortfall")+" · "+
@@ -2655,15 +2764,12 @@ class RobotixMultiChargeCard extends HTMLElement {
     }
     select.value=options.includes(current)?current:"none";
     select.disabled=!this.canEditSettings()||!entity||this._settingsBusy;
-    select.addEventListener("change",()=>{
-      const next=select.value;
-      if(next!==current)void this.nativeSelect("charger",charger.id,"asset",next);
-    });
     const wrap=mcEl("div","quick-assignment");
     const label=mcEl("label","",mcTr("Selected vehicle"));
     const id="mc-vehicle-"+charger.id.replace(/[^a-z0-9_-]/gi,"-");
     select.setAttribute("id",id);label.setAttribute("for",id);
     wrap.append(label,select);
+    if(this.canEditSettings()&&entity)this.stageNativeEdit(wrap,[select],()=>this.nativeSelect("charger",charger.id,"asset",select.value),!select.disabled);
     if(!entity)wrap.append(mcEl("span","muted small",
       mcTr("Native vehicle selection unavailable")));
     container.append(wrap);
@@ -2711,20 +2817,18 @@ class RobotixMultiChargeCard extends HTMLElement {
           mcOwnerReadValue(record[field],field,this._data?.timezone)));
       line.append(info);
       const key=scope+":"+record.id+":"+field;
-      const nativePrimary=(scope==="controller"&&(["name","max_parallel","mode","power_adjustment_interval_minutes","solar_source_kind","grid_power_direction"].includes(field)&&this.ownerEntity(scope,record.id,field)||primaryFields.includes(field)))||(scope==="charger"&&field==="asset"&&this.ownerEntity(scope,record.id,field));
-      if(this.canEditSettings()&&!nativePrimary&&!["id","physical_commissioned","dedicated_asset_id"].includes(field)&&
-          !(scope==="charger"&&primaryFields.includes(field))){
+      // Primary controls already have an owning editor in this view. Keep
+      // expert values visible but do not mount a second editable form.
+      const nativePrimary=primaryFields.includes(field)||(scope==="controller"&&["name","mode","solar_source_kind","grid_power_direction"].includes(field)&&this.ownerEntity(scope,record.id,field))||(scope==="charger"&&field==="asset"&&this.ownerEntity(scope,record.id,field));
+      if(this.canEditSettings()&&!nativePrimary&&!["id","physical_commissioned","dedicated_asset_id"].includes(field)){
         const edit=mcButton(mcTr("Edit"),()=>{
-          if(primaryFields.includes(field)){
-            this._settingsOpen=field==="phase_limits_a"?"Safety & limits":"Sources & bindings";
-          }
           this._editingField=this._editingField===key?"":key;this.render();
         });
         edit.setAttribute("aria-label",mcTr("Edit")+" "+mcTr(label)+" · "+record.name);
         line.append(edit);
       }
       parent.append(line);
-      if(this.canEditSettings()&&!nativePrimary&&this._editingField===key&&!primaryFields.includes(field))
+      if(this.canEditSettings()&&!nativePrimary&&this._editingField===key)
         this.dashboardEditField(parent,scope,record,field);
     };
     const fold=(title,fields,key)=>{
@@ -2762,7 +2866,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     if(asset&&(this._focusAsset===asset.id||this._goalEditor===asset.id||this._scheduleEditor===asset.id||this._assignmentEditor===asset.id||this._batteryEditor===asset.id))return false;
     const owner=(asset?"asset:":"charger:")+(asset?.id||charger?.id);
     if(this._open===owner||this._editingField.startsWith(owner+":"))return false;
-    return !charger||state?.connection_state==="no_asset_connected"||projection?.status==="ready";
+    return !charger||state?.connection_state==="no_asset_connected"||projection?.status==="ready"||(!asset&&!charger.asset&&power?.quality==="ok"&&power.value===0);
   }
   operationalIndicator(charger,asset=null){
     const state=this._data.charger_states?.[charger?.id];
@@ -2923,14 +3027,15 @@ class RobotixMultiChargeCard extends HTMLElement {
   }
   batteryEditor(container,asset){
     const draft=this._batteryDrafts[asset.id]||{
-      capacity:asset.capacity_kwh??"",efficiency:asset.charge_efficiency==null?"":asset.charge_efficiency*100
+      capacity:asset.capacity_kwh??"",efficiency:asset.charge_efficiency==null?"":asset.charge_efficiency*100,
+      revision:this._data?.configuration_revision
     };
     const form=mcEl("div","goal-controls");
     const capacity=this.field(form,mcTr("Usable battery capacity (kWh)"),draft.capacity,"number");
     const efficiency=this.field(form,mcTr("Charging efficiency (%)"),draft.efficiency,"number");
     capacity.setAttribute("min","0.01");capacity.setAttribute("step","0.01");
     efficiency.setAttribute("min","0.01");efficiency.setAttribute("max","100");efficiency.setAttribute("step","0.1");
-    const remember=()=>{this._batteryDrafts[asset.id]={capacity:capacity.value,efficiency:efficiency.value};this._unsavedInput=true;};
+    const remember=()=>{this._batteryDrafts[asset.id]={capacity:capacity.value,efficiency:efficiency.value,revision:draft.revision};this._unsavedInput=true;};
     capacity.addEventListener("input",remember);efficiency.addEventListener("input",remember);
     container.append(form,mcEl("p","muted small",mcTr("Use the vehicle's usable battery capacity and your charging efficiency estimate. No value is assumed.")));
     const actions=mcEl("div","controls");
@@ -2940,7 +3045,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(!capacity.value.trim()||!efficiency.value.trim()||!Number.isFinite(kwh)||kwh<=0||!Number.isFinite(pct)||pct<=0||pct>100){
         this._settingsFeedback={status:"rejected",message:"Enter a positive capacity and efficiency between 0 and 100%"};this.showEditError(container);return;
       }
-      const accepted=await this.saveSettings("asset",asset.id,{capacity_kwh:kwh,charge_efficiency:pct/100});
+      const accepted=await this.saveSettings("asset",asset.id,{capacity_kwh:kwh,charge_efficiency:pct/100},"save",false,draft.revision,container);
       if(accepted&&this._settingsFeedback?.status==="confirmed"){
         delete this._batteryDrafts[asset.id];this._batteryEditor="";this.render();
       }
@@ -2957,7 +3062,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       kind==="duration"?asset.requested_duration_minutes:
       kind==="energy"?asset.requested_kwh:asset.target_soc;
     const stored=this._goalDrafts[asset.id];
-    const draft=stored||{mode:kind,value:original===undefined?"":String(original)};
+    const draft=stored||{mode:kind,value:original===undefined?"":String(original),revision:this._data?.configuration_revision};
     if(!this.canEditSettings())return;
     const form=mcEl("section","quick-goal");
     form.append(mcEl("h4","",mcTr("Set charging goal")));
@@ -2975,11 +3080,11 @@ class RobotixMultiChargeCard extends HTMLElement {
     goal.disabled=this._settingsBusy;
     amount.disabled=this._settingsBusy;
     goal.addEventListener("change",()=>{
-      this._goalDrafts[asset.id]={mode:goal.value,value:""};
+      this._goalDrafts[asset.id]={mode:goal.value,value:"",revision:draft.revision};
       this.render();
     });
     amount.addEventListener("input",()=>{
-      this._goalDrafts[asset.id]={mode:goal.value,value:amount.value};
+      this._goalDrafts[asset.id]={mode:goal.value,value:amount.value,revision:draft.revision};
     });
     const action=mcButton(mcTr("Save charging goal"),()=>{
       const number=Number(amount.value);
@@ -3003,7 +3108,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         changes.requested_budget_currency="EUR";
       }
       void (async()=>{
-        const accepted=await this.saveSettings("asset",asset.id,changes,"save");
+        const accepted=await this.saveSettings("asset",asset.id,changes,"save",false,draft.revision,form);
         if(accepted&&this._settingsFeedback?.status==="confirmed"){
           delete this._goalDrafts[asset.id];this._goalEditor="";this.render();
         }
@@ -3021,9 +3126,6 @@ class RobotixMultiChargeCard extends HTMLElement {
     const block=mcEl("div","topic-quick");
     const controls=mcEl("div","topic-actions charge-controls");
     if(charger&&this.canManage())this.chargingQuickActions(controls,charger);
-    else if(this.canManage())for(const label of ["Start charging","Stop charging","Auto"]){
-      const disabled=mcButton(label,()=>{});disabled.disabled=true;disabled.title=mcTr("No charger assigned");controls.append(disabled);
-    }
     if(controls.children.length)block.append(controls);
     const planning=mcEl("div","topic-actions planning-controls");
     if(this.canEditSettings()){
@@ -3176,6 +3278,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       // field. Do not silently replace a different assigned Vehicle.
       const candidates=chargers.filter(c=>!c.asset||c.asset===a.id);
       const editor=mcEl("div","details assignment-editor");
+      const revision=this._data?.configuration_revision;
       editor.append(mcEl("p","muted small",
         "Idle-only reassignment. Stop charging separately before moving a vehicle."));
       if(candidates.length){
@@ -3189,7 +3292,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         chooser.value=charger?.id||candidates[0].id;
         const apply=mcButton(mcTr("Assign selected charger"),()=>{
           if(!chooser.value||chooser.value===charger?.id)return;
-          this.saveSettings("charger",chooser.value,{asset:a.id},"save");
+          this.saveSettings("charger",chooser.value,{asset:a.id},"save",false,revision,editor);
         });
         apply.disabled=this._settingsBusy||
           !chooser.value||chooser.value===charger?.id;
@@ -3201,7 +3304,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       }else editor.append(mcEl("p","muted small","No free charger"));
       if(charger){
         const detach=mcButton(mcTr("Unassign charger"),()=>
-          this.saveSettings("charger",charger.id,{asset:null},"save"));
+          this.saveSettings("charger",charger.id,{asset:null},"save",false,revision,editor));
         detach.disabled=this._settingsBusy;
         editor.append(detach);
       }
@@ -3273,12 +3376,12 @@ class RobotixMultiChargeCard extends HTMLElement {
       const assignment=this.vehicleSummary(card,a,charger);
       this.goalAssessment(card,a,charger,folds);
       this.financialSummary(card,"asset",a.id,folds);
-      card.append(mcEl("p","muted small",mcTr("Effective charging power")+" · "+mcValue(obs.effective_power_kw," kW")));
+      const chargerPower=d.observations?.chargers?.[charger?.id]?.power_kw;
+      if(charger)card.append(mcEl("p","muted small",chargerPower?.quality==="ok"&&chargerPower.value===0?mcTr("Not charging"):mcTr("Effective charging power")+" · "+mcValue(obs.effective_power_kw," kW")));
       this.assetDailyActions(card,a,charger,chargers,false,assignment);
       card.append(...Array.from(folds.children));
       const detail=mcEl("div","details");
       if(this._open==="asset:"+a.id){
-        mcPair(detail,"Charging priority",a.priority===undefined?"Not set":a.priority);
         mcPair(detail,"Battery data",obs.soc?(obs.soc.quality+" · "+(a.soc_entity||"manual")):"Unknown");
         if(this.canEditSettings()&&this.ownerEntity("asset",a.id,"soc_entity")){
           const sourceEdit=mcEl("div","row");
@@ -3286,11 +3389,6 @@ class RobotixMultiChargeCard extends HTMLElement {
             mcButton(mcTr("Edit"),()=>this.openNative("asset",a.id,"soc_entity")));
           detail.append(sourceEdit);
         }
-        mcPair(detail,"Requested energy",a.requested_kwh===undefined?"Not set":a.requested_kwh+" kWh");
-        mcPair(detail,"Duration",a.requested_duration_minutes===undefined?"Not set":a.requested_duration_minutes+" min");
-        mcPair(detail,mcTr("Charging budget"),
-          a.requested_budget_amount===undefined?mcTr("Not set"):
-          a.requested_budget_amount+" "+(a.requested_budget_currency||"EUR"));
         if(charger&&a.requested_budget_amount!==undefined){
           const current=(d.active_sessions||{})[charger.id];
           if(current?.budget_quality==="qualified_effective_meter_increments"||
@@ -3307,22 +3405,24 @@ class RobotixMultiChargeCard extends HTMLElement {
           }else if(current?.requested_budget_amount!=null)
             mcPair(detail,mcTr("Budget progress"),mcTr("Unavailable"));
         }
-        const preferences=mcEl("div","owner-fields preference-grid");
-        for(const [field,label,unit] of [
+        const preferences=mcEl("div","configuration-rows preference-grid");
+        const preferenceFields=[
           ["target_soc","Charging limit","%"],
           ["requested_kwh","Requested energy","kWh"],
           ["requested_duration_minutes","Requested charging duration","minutes"],
-          ["requested_budget_amount","Requested budget (€)","EUR"],
+          ["requested_budget_amount","Requested budget",a.requested_budget_currency||"EUR"],
           ["minimum_soc_pct","Minimum charge before price limits","%"],
           ["maximum_price_per_kwh","Price ceiling per kWh","currency/kWh"],
           ["low_price_trigger_per_kwh","Immediate low-price threshold","currency/kWh"],
           ["low_soc_trigger_pct","Immediate low-SoC threshold","%"],
           ["opportunistic_level_pct","Opportunistic percentage","%"],
           ["max_charge_kw","Maximum vehicle charging power","kW"],
-          ["priority","Priority",""],
+          ["priority","Charging priority",""],
           ["capacity_kwh","Battery capacity","kWh"],
           ["charge_efficiency","Charging efficiency",""]
-        ])this.nativeNumberEditor(preferences,"asset",a.id,field,label,a[field],unit);
+        ];
+        for(const [field,label,unit] of preferenceFields)this.contextualField(preferences,"asset",a,field,label,unit);
+        if(this._editingField.startsWith("asset:"+a.id+":")&&preferenceFields.some(([field])=>field===this._editingField.split(":").at(-1)))this._folds["asset:"+a.id+":preferences"]=true;
         this.disclosure(detail,"asset:"+a.id+":preferences",
           "Charging preferences",preferences);
         const deadline=mcEl("div","row");
@@ -3336,7 +3436,7 @@ class RobotixMultiChargeCard extends HTMLElement {
             (a.maintain_soc_until_ready_by??d.asset_policy_defaults?.maintain_soc_until_ready_by)?"on":"off",null,
             [["on",mcTr("On")],["off",mcTr("Off")]]);
           maintain.disabled=this._settingsBusy;
-          maintain.addEventListener("change",()=>void this.nativeSelect("asset",a.id,"maintain_soc_until_ready_by",maintain.value));
+          this.stageNativeEdit(detail,[maintain],()=>this.nativeSelect("asset",a.id,"maintain_soc_until_ready_by",maintain.value),!maintain.disabled);
         }
         // Schedule has one resident editor; native owner fields remain in Details.
         // Native upstream price/SoC policy remains Asset-owned and one
@@ -3360,9 +3460,7 @@ class RobotixMultiChargeCard extends HTMLElement {
               ["type2",mcTr("Type 2 — tomorrow price")],
             ]);
           strategy.disabled=this._settingsBusy;
-          strategy.addEventListener("change",()=>
-            void this.nativeSelect("asset",a.id,"opportunistic_kind",
-                                   strategy.value));
+          this.stageNativeEdit(detail,[strategy],()=>this.nativeSelect("asset",a.id,"opportunistic_kind",strategy.value),!strategy.disabled);
         }
         if(this.canEditSettings()&&this.ownerEntity("asset",a.id,"continuous_charging")){
           detail.append(mcEl("h4","",mcTr("Continuity and price strategy")));
@@ -3373,9 +3471,7 @@ class RobotixMultiChargeCard extends HTMLElement {
               ["continuous",mcTr("One continuous charge")],
             ]);
           continuity.disabled=this._settingsBusy;
-          continuity.addEventListener("change",()=>
-            void this.nativeSelect("asset",a.id,
-                                  "continuous_charging",continuity.value));
+          this.stageNativeEdit(detail,[continuity],()=>this.nativeSelect("asset",a.id,"continuous_charging",continuity.value),!continuity.disabled);
         }
         if(this.canEditSettings())this.ownerColorControl(detail,"asset",a);
         for(const [field,label] of [
@@ -3388,7 +3484,8 @@ class RobotixMultiChargeCard extends HTMLElement {
             ()=>this.openNative("asset",a.id,field)));
           detail.append(row);
         }
-        this.ownerFacts(detail,"asset",a);
+        this.ownerFacts(detail,"asset",a,[...preferenceFields.map(([field])=>field),
+          ...["maintain_soc_until_ready_by","opportunistic_kind","continuous_charging","plan_color"].filter(field=>this.ownerEntity("asset",a.id,field))]);
       }
       this.assetHistory(card,a,charger,chargers);
       this.ownerDetails(card,"asset",a,detail);
@@ -3400,6 +3497,7 @@ class RobotixMultiChargeCard extends HTMLElement {
     const d=this._data;
     if(this.canEditSettings()&&this._assetEditor==="new"){
       const form=mcEl("form","card dashboard-create");form.append(mcEl("h3","","Add a chargeable asset"));
+      const revision=d.configuration_revision;
       const name=this.field(form,"Asset name","","text");
       const kind=this.field(form,"Asset type","car",null,[
         ["car",mcTr("Car")],["bicycle",mcTr("Bicycle")],
@@ -3455,7 +3553,7 @@ class RobotixMultiChargeCard extends HTMLElement {
           // timezone cannot silently reinterpret a household wall clock.
           changes.expires_at=new Date(Date.now()+Number(expiry.value)*3600000).toISOString();
         }
-        this.saveSettings("asset",id,changes,"create");
+        this.saveSettings("asset",id,changes,"create",false,revision,form);
       }));
       form.append(mcButton(mcTr("Cancel"),()=>{this._assetEditor="";this.render();}));
       container.append(form);
@@ -3464,6 +3562,7 @@ class RobotixMultiChargeCard extends HTMLElement {
   dashboardChargerCreate(container){
     if(!this.canEditSettings())return;
     const box=mcEl("section","card dashboard-create");
+    const revision=this._data.configuration_revision;
     box.append(mcEl("h3","",mcTr("Add charger")+" · "+
       mcTr("configured entirely in MultiCharge")));
     box.append(mcEl("p","muted small",
@@ -3544,7 +3643,7 @@ class RobotixMultiChargeCard extends HTMLElement {
         this._settingsFeedback={status:"rejected",message:String(error.message)};
         this.showEditError(box);return;
       }
-      await this.saveSettings("charger",uid,changes,"create",true);
+      await this.saveSettings("charger",uid,changes,"create",true,revision,box);
     });
     save.disabled=this._settingsBusy;
     actions.append(save,mcButton(mcTr("Cancel"),()=>{
@@ -3562,6 +3661,163 @@ class RobotixMultiChargeCard extends HTMLElement {
     return formatted+(partial?" · "+mcTr("Partial coverage"):"")+(basis?" · "+mcTr(basis):"")+
       (row?.basis&&row.basis!=="effective"?" · "+mcTr("reference price, not an invoice"):"");
   }
+  financeEnergy(row){
+    return Number.isFinite(row?.observed_energy_kwh)&&row.observed_seconds>0?
+      row.observed_energy_kwh.toFixed(2)+" kWh":"—";
+  }
+  financeAmount(row){
+    const value=row?.cost??row?.covered_cost;
+    return Number.isFinite(value)&&/^[A-Z]{3}$/.test(row?.currency||"")?
+      (row.basis!=="effective"?"≈ ":"")+new Intl.NumberFormat(undefined,{style:"currency",currency:row.currency}).format(value)+(row.cost==null?" · "+mcTr("Partial coverage"):""):"—";
+  }
+  financeDate(value){
+    const parsed=new Date(value);
+    if(!Number.isFinite(parsed.getTime()))return "";
+    const parts=Object.fromEntries(new Intl.DateTimeFormat("en-CA",{timeZone:this._data.timezone||"UTC",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(parsed).map(p=>[p.type,p.value]));
+    return parts.year+"-"+parts.month+"-"+parts.day;
+  }
+  financePeriodRow(container,label,row,onSelect=null,selected=false){
+    const line=mcEl("div","finance-period-row");
+    const heading=onSelect?mcButton(label,onSelect,selected?"active":""):mcEl("strong","",mcTr(label));
+    if(onSelect)heading.setAttribute("aria-pressed",String(selected));
+    line.append(heading,mcEl("span","",this.financeEnergy(row)),mcEl("strong","",this.financeAmount(row)));
+    const note=mcEl("div","finance-period-note muted small");
+    const pieces=[];
+    if(Number.isFinite(row?.average_price_per_kwh)&&row.currency)
+      pieces.push(mcTr("Average charging price")+" "+row.average_price_per_kwh.toFixed(4)+" "+row.currency+"/kWh");
+    if(Number.isFinite(row?.covered_energy_kwh))pieces.push(mcTr("Priced energy")+" "+row.covered_energy_kwh.toFixed(2)+" kWh");
+    if(row?.days_expected>0)pieces.push(row.days_available+"/"+row.days_expected+" "+mcTr("Days checked"));
+    if(row?.cost==null||row?.expected_seconds>row?.observed_seconds+0.001)pieces.push(mcTr("Partial coverage"));
+    if(Number.isFinite(row?.unpriced_energy_kwh)&&row.unpriced_energy_kwh>0)pieces.push(mcTr("Unpriced energy")+" "+row.unpriced_energy_kwh.toFixed(2)+" kWh");
+    if(row?.quality==="mixed_price_basis_or_currency")pieces.push(mcTr("Mixed price basis or currency"));
+    if(row?.basis)pieces.push(mcTr(({effective:"Effective price",spot:"Spot price",variable_reference:"Variable reference price"})[row.basis]||row.basis));
+    note.textContent=pieces.join(" · ")||mcTr("Unknown");
+    line.append(note);container.append(line);
+  }
+  async loadFinanceDay(view,day){
+    const generation=(view.generation||0)+1;
+    view.generation=generation;view.loading=true;view.error="";view.history=null;
+    this.render();
+    try{
+      const response=await this._hass.callWS({type:"robotix_multicharge/get_plan",history_date:day,include_history:true});
+      if(view.generation!==generation)return;
+      if(response.configuration_revision!==this._data?.configuration_revision)throw Error("Configuration changed; refresh and retry");
+      view.history=response;
+    }catch(error){
+      if(view.generation===generation)view.error=String(error?.message||"History unavailable");
+    }finally{
+      if(view.generation===generation){view.loading=false;this.passiveRender();}
+    }
+  }
+  financeSessions(container,view,kind,id,period){
+    const d=this._data;
+    const range=d.period_costs?.[kind]?.[id]?.[period]||d.period_costs?.controller?.site?.[period];
+    if(!range)return;
+    const min=this.financeDate(range.start),max=this.financeDate(d.period_costs?.controller?.site?.today?.start||range.end);
+    const day=view.day&&view.day>=min&&view.day<=max?view.day:max;
+    const controls=mcEl("div","row finance-session-controls");
+    const date=this.field(controls,"Session date",day,"date");
+    date.setAttribute("min",min);date.setAttribute("max",max);
+    const load=mcButton(view.loading?"Loading":"Show sessions",()=>{
+      if(date.value>=min&&date.value<=max){view.day=date.value;void this.loadFinanceDay(view,date.value);}
+    });
+    load.disabled=!!view.loading;controls.append(load);container.append(controls);
+    if(view.error)container.append(mcEl("p","plan-caution",view.error));
+    if(!view.history||view.day!==day)return;
+    const history=view.history;
+    if(history.configuration_revision!==d.configuration_revision){
+      container.append(mcEl("p","plan-caution","Configuration changed; reload session details"));return;
+    }
+    const first=Date.parse(history.start),last=Date.parse(history.end);
+    const group=view.group||"asset",owner=view.owner||"";
+    const attributedAsset=(row,observed)=>row.financial?row.financial.asset_id:observed||row.ended_at&&row.physical_stop_confirmed!==true?null:row.asset_id;
+    const matches=(row,observed)=>Date.parse(row.started_at)<last&&Date.parse(row.ended_at||history.snapshot_at)>first&&
+      (kind==="controller"||kind==="asset"&&attributedAsset(row,observed)===id||kind==="charger"&&row.charger_id===id)&&
+      (!view.unattributed||!attributedAsset(row,observed))&&
+      (!owner||(group==="asset"?attributedAsset(row,observed)===owner:row.charger_id===owner));
+    const rows=[...(history.completed_sessions||[]).filter(row=>matches(row,false)).map(row=>({row,observed:false})),
+      ...(history.observed_sessions||[]).filter(row=>matches(row,true)).map(row=>({row,observed:true})),
+      ...Object.entries(history.active_sessions||{}).map(([uid,row])=>({...row,charger_id:uid})).filter(row=>matches(row,false)).map(row=>({row,observed:false}))];
+    rows.sort((a,b)=>String(b.row.started_at).localeCompare(String(a.row.started_at)));
+    container.append(mcEl("p","muted small",mcTr("Sessions overlapping the selected date. Full session amounts may include other dates; do not sum as a period total.")));
+    const dayFinance=history.day_finance;
+    if(dayFinance&&!view.unattributed){
+      const dimension=kind==="controller"&&owner?group:kind;
+      const ownerId=kind==="controller"&&owner?owner:id;
+      const total=dayFinance.groups?.[dimension]?.[ownerId]?.today;
+      if(total)this.financePeriodRow(container,"Selected date · observed total",total);
+      const remaining=dayFinance.session_reconciliation?.[dimension]?.[ownerId];
+      if(remaining){
+        const residual=mcEl("div","finance-group-row");
+        residual.append(mcEl("span","",mcTr("Not allocated to a unique session")),mcEl("span","",Number.isFinite(remaining.energy_kwh)?remaining.energy_kwh.toFixed(3)+" kWh":"—"),mcEl("strong","",this.financeAmount(remaining)));
+        container.append(residual);
+      }
+    }
+    const raw=history.actual_history_quality;
+    if(!["SESSION_HISTORY","QUARTERS_NOT_REQUESTED","MEASURED"].includes(raw))container.append(mcEl("p","plan-caution",mcTr("Raw session history coverage")+" · "+mcReason(raw)+" · "+mcTr("Period totals may remain available from retained statistics.")));
+    if(!rows.length){container.append(mcEl("p","muted small","No retained session evidence for selected day"));return;}
+    const name=(kind,uid)=>uid?(d.configuration[kind==="asset"?"assets":"chargers"]||[]).find(row=>row.id===uid)?.name||uid:mcTr("Vehicle unknown");
+    for(const {row,observed} of rows){
+      const detail=mcEl("div");
+      mcPair(detail,"Charger",name("charger",row.charger_id));mcPair(detail,"Vehicle",name("asset",attributedAsset(row,observed)));
+      if(row.asset_id&&attributedAsset(row,observed)!==row.asset_id)mcPair(detail,"Original recorded vehicle (unconfirmed)",name("asset",row.asset_id));
+      mcPair(detail,"Start",mcTime(row.started_at,d.timezone));mcPair(detail,"End",row.ended_at?mcTime(row.ended_at,d.timezone):mcTr("Active"));
+      this.sessionMetrics(detail,row,observed);
+      const valuation=row.financial;
+      if(valuation){
+        mcPair(detail,"Charging cost",this.formatCost(valuation));
+        mcPair(detail,"Priced energy",Number.isFinite(valuation.energy_kwh)&&valuation.covered_cost!=null?valuation.energy_kwh.toFixed(3)+" kWh":mcTr("Unknown"));
+        mcPair(detail,"Average charging price",Number.isFinite(valuation.average_price_per_kwh)&&valuation.currency?valuation.average_price_per_kwh.toFixed(4)+" "+valuation.currency+"/kWh":mcTr("Unknown"));
+        mcPair(detail,"Valuation quality",mcReason(valuation.quality));
+      }
+      const contribution=kind==="asset"||kind==="controller"&&owner&&group==="asset"?row.asset_day_contribution:row.day_contribution;
+      if(contribution)this.financePeriodRow(detail,"Contribution on selected date",contribution);
+      else if(dayFinance)detail.append(mcEl("p","muted small",mcTr("No uniquely qualified contribution on selected date")));
+      if(row.physical_stop_decision)mcPair(detail,"STOP decision",mcReason(row.physical_stop_decision));
+      if(row.stop_reason)mcPair(detail,"STOP confirmation",mcReason(row.stop_reason));
+      const key="finance:session:"+kind+":"+id+":"+row.charger_id+":"+row.started_at+":"+(row.ended_at||"active");
+      this.disclosure(container,key,mcTime(row.started_at,d.timezone)+" · "+name("charger",row.charger_id)+" · "+name("asset",attributedAsset(row,observed)),detail);
+    }
+  }
+  financeDrilldown(container,kind,id,periods){
+    const key=kind+":"+id;
+    const view=this._financeViews[key]||(this._financeViews[key]={period:"today",group:"asset",owner:""});
+    const rangeButtons=mcEl("div","chips");
+    for(const [period,label] of [["today","Today"],["month","This month"],["year","This year"]]){
+      const button=mcButton(label,()=>{view.period=period;view.owner="";view.unattributed=false;view.day="";view.history=null;view.generation=(view.generation||0)+1;view.loading=false;this.render();});
+      if(view.period===period)button.className="active";rangeButtons.append(button);
+    }
+    container.append(rangeButtons);
+    const total=periods[view.period];
+    if(!total)return;
+    if(kind==="controller"){
+      const groupButtons=mcEl("div","chips");
+      for(const [value,label] of [["asset","By vehicle"],["charger","By charger"]]){
+        const button=mcButton(label,()=>{view.group=value;view.owner="";view.unattributed=false;this.render();});
+        if(view.group===value)button.className="active";groupButtons.append(button);
+      }
+      container.append(groupButtons);
+      const owners=this._data.period_costs?.[view.group]||{};
+      const configured=this._data.configuration?.[view.group==="asset"?"assets":"chargers"]||[];
+      for(const [uid,rows] of Object.entries(owners)){
+        const row=rows[view.period];
+        if(!row||!(row.observed_seconds>0)||row.observed_energy_kwh===0&&row.covered_cost==null)continue;
+        const label=configured.find(x=>x.id===uid)?.name||uid;
+        this.financePeriodRow(container,label,row,()=>{view.owner=view.owner===uid?"":uid;view.unattributed=false;this.render();},view.owner===uid);
+      }
+      const remaining=this._data.period_reconciliation?.[view.period]?.[view.group];
+      if(remaining&&(remaining.energy_kwh!==0||remaining.covered_cost!==0)){
+        const line=mcEl("div","finance-group-row");
+        const label=remaining.quality==="unattributed_energy"?"Vehicle unknown / unreconciled":"Unreconciled";
+        const heading=view.group==="asset"&&remaining.energy_kwh>0?mcButton(mcTr(label),()=>{view.unattributed=!view.unattributed;view.owner="";this.render();},view.unattributed?"active":""):mcEl("span","",mcTr(label));
+        line.append(heading,mcEl("span","",Number.isFinite(remaining.energy_kwh)?remaining.energy_kwh.toFixed(3)+" kWh":"—"),mcEl("strong","",this.financeAmount(remaining)));
+        container.append(line);
+      }
+      this.financePeriodRow(container,"Site total",total);
+      if(view.owner||view.unattributed)container.append(mcEl("p","small",mcTr("Selected group")+" · "+(view.unattributed?mcTr("Vehicle unknown"):configured.find(x=>x.id===view.owner)?.name||view.owner)));
+    }
+    this.financeSessions(container,view,kind,id,view.period);
+  }
   financialSummary(container,kind,id,detailsTarget=container){
     const periods=this._data.period_costs?.[kind]?.[id]||{};
     const sessions=this._data.session_costs?.[kind]?.[id]||{};
@@ -3570,18 +3826,9 @@ class RobotixMultiChargeCard extends HTMLElement {
     for(const [period,label] of [["today","Charging cost today"],["month","Charging cost this month"],["year","Charging cost this year"]]){
       const row=periods[period];
       if(!row)continue;
-      const partial=row.cost==null&&row.covered_cost!=null;
-      mcPair(details,mcTr(label),this.formatCost(row));
-      if(Number.isFinite(row.observed_energy_kwh)&&row.observed_seconds>0)
-        mcPair(details,mcTr("Observed charging energy"),row.observed_energy_kwh.toFixed(2)+" kWh");
-      if(row.average_price_per_kwh!=null&&row.currency)
-        details.append(mcEl("p","muted small",mcTr("Average charging price")+" · "+
-          row.average_price_per_kwh.toFixed(4)+" "+row.currency+"/kWh · "+
-          Number(row.covered_energy_kwh).toFixed(2)+" kWh"+(partial?" · "+mcTr("Partial coverage"):"")));
-      if(row.cost==null&&row.days_expected>0)
-        details.append(mcEl("p","muted small",String(row.days_available)+"/"+
-          String(row.days_expected)+" "+mcTr("Days checked")));
+      this.financePeriodRow(details,label,row);
     }
+    if(Object.keys(periods).length)this.financeDrilldown(details,kind,id,periods);
     for(const [phase,label] of [["active","Active session cost"],["last","Last session cost"]]){
       const session=sessions[phase];
       if(!session)continue;
@@ -3706,6 +3953,7 @@ class RobotixMultiChargeCard extends HTMLElement {
       return;
     }
     const panel=mcEl("div","dashboard-field-edit");
+    const revision=this._data.configuration_revision;
     panel.append(mcEl("h4","","Charger setup"));
     panel.append(mcEl("p","muted small",setup.device_matched?
       "Native device matched. Review proposed sources and limits before Save.":
@@ -3740,7 +3988,7 @@ class RobotixMultiChargeCard extends HTMLElement {
           if((charger[field]??null)!==value)changes[field]=value;
         }
         if(!Object.keys(changes).length){this._editingField="";this.render();return;}
-        await this.saveSettings("charger",charger.id,changes,"save",true);
+        await this.saveSettings("charger",charger.id,changes,"save",true,revision,panel);
       }catch(error){
         this._settingsFeedback={status:"rejected",message:String(error.message)};
         this.showEditError(panel);
@@ -3885,8 +4133,11 @@ class RobotixMultiChargeCard extends HTMLElement {
         for(const [field,label] of [["min_charging_power_kw","Minimum charging power"],["max_charging_power_kw","Maximum charging power"],["set_charging_power_kw","Set charging power"]]){
           const session=d.active_sessions?.[c.id];
           const kw=field==="set_charging_power_kw"?(session?.target_current_a!=null&&c.voltage_v&&c.phase_count?session.target_current_a*c.voltage_v*c.phase_count/1000:null):c[field];
-          this.nativeNumberEditor(powerLimits,"charger",c.id,field,label,kw,"kW");
-          if(!this.canEditSettings()||!this.ownerEntity("charger",c.id,field))mcPair(powerLimits,mcTr(label),kw==null?mcTr("Not set"):Number(kw).toFixed(2)+" kW");
+          if(field==="set_charging_power_kw"){
+            // Live setpoint is a guarded native command, not persisted configuration.
+            this.nativeNumberEditor(powerLimits,"charger",c.id,field,label,kw,"kW");
+            if(!this.canEditSettings()||!this.ownerEntity("charger",c.id,field))mcPair(powerLimits,mcTr(label),kw==null?mcTr("Not set"):Number(kw).toFixed(2)+" kW");
+          }else this.contextualField(powerLimits,"charger",c,field,label,"kW");
         }
       }else mcPair(powerLimits,mcTr("Charging power control"),mcTr("On/off only"));
       detailedActions.append(powerLimits);
@@ -3894,9 +4145,9 @@ class RobotixMultiChargeCard extends HTMLElement {
       if(this._open==="charger:"+c.id){
         detail.append(detailedActions);
         detail.append(mcEl("h4","",mcTr("Physical Charger & verified sources")));
-        mcPair(detail,"Control type",c.kind==="on_off"?"On/off":"Variable current");
-        mcPair(detail,"Rated power",c.rated_power_kw+" kW");
-        mcPair(detail,"Phases",c.phase_count||"Unverified");
+        this.contextualField(detail,"charger",c,"kind","Control type");
+        this.contextualField(detail,"charger",c,"rated_power_kw","Rated power","kW");
+        this.contextualField(detail,"charger",c,"phase_count","Phases");
         const bounds=d.charger_setup?.[c.id]?.effective_current||c;
         mcPair(detail,"Current range",bounds.min_current_a!=null&&bounds.max_current_a!=null?
           bounds.min_current_a+"–"+bounds.max_current_a+" A":"Unknown");
@@ -3906,7 +4157,9 @@ class RobotixMultiChargeCard extends HTMLElement {
         if(actual.reason)mcPair(detail,"Reason",mcReason(actual.reason));
         if(actual.readback_at)mcPair(detail,"Measured confirmation",mcTime(actual.readback_at,d.timezone));
         if(this.canEditSettings())this.ownerColorControl(detail,"charger",c);
-        this.ownerFacts(detail,"charger",c,["control_owner","min_charging_power_kw","max_charging_power_kw","set_charging_power_kw"]);
+        this.ownerFacts(detail,"charger",c,["control_owner","kind","rated_power_kw","phase_count",
+          ...(c.kind==="variable_current"?["min_charging_power_kw","max_charging_power_kw","set_charging_power_kw"]:[]),
+          ...["plan_color"].filter(field=>this.ownerEntity("charger",c.id,field))]);
       }
 
       const block=mcEl("div","topic-quick");
@@ -4046,12 +4299,7 @@ class RobotixMultiChargeCard extends HTMLElement {
             detail.append(rename);
             if(this._editingField==="controller:"+ctl.id+":name")this.dashboardEditField(detail,"controller",ctl,"name");
           }else mcPair(detail,"Site name",ctl.name);
-          this.nativeNumberEditor(detail,"controller",ctl.id,"max_parallel",
-            "Parallel chargers",ctl.max_parallel);
-          this.nativeNumberEditor(detail,"controller",ctl.id,"max_power_kw",
-            "Maximum group power",ctl.max_power_kw,"kW");
-          this.nativeNumberEditor(detail,"controller",ctl.id,"power_adjustment_interval_minutes",
-            "Power adjustment interval",ctl.power_adjustment_interval_minutes,"min");
+          this.siteLimitRows(detail,ctl);
 
         }else if(title==="Charging strategy"){
           const options=mcEl("div","chips");
@@ -4096,7 +4344,7 @@ class RobotixMultiChargeCard extends HTMLElement {
                 ctl.grid_power_direction||"import_positive";
               const select=this.field(detail,mcTr(caption),value,null,choices);
               select.disabled=this._settingsBusy;
-              select.addEventListener("change",()=>{
+              this.stageNativeEdit(detail,[select],()=>{
                 if(field==="solar_source_kind"&&
                   (select.value==="intervals"&&!ctl.solar_entity||
                    select.value==="grid_export"&&!ctl.grid_power_entity||
@@ -4105,8 +4353,8 @@ class RobotixMultiChargeCard extends HTMLElement {
                     message:mcTr("Select the required native meter before enabling this Solar mode")};
                   this.render();return;
                 }
-                void this.nativeSelect("controller",ctl.id,field,select.value);
-              });
+                return this.nativeSelect("controller",ctl.id,field,select.value);
+              },!select.disabled);
             }
           }
           const advancedSources=mcEl("div","owner-fields");
@@ -4141,8 +4389,7 @@ class RobotixMultiChargeCard extends HTMLElement {
             this._folds[advancedKey]=true;
           this.disclosure(detail,advancedKey,"Advanced source bindings",advancedSources);
         }else if(title==="Safety & limits"){
-          mcPair(detail,"Maximum group kW",
-            ctl.max_power_kw===undefined?"Unknown":ctl.max_power_kw+" kW");
+          this.contextualField(detail,"controller",ctl,"max_power_kw","Maximum group kW","kW");
           const phaseValues=Object.entries(ctl.phase_limits_a||{});
           mcPair(detail,"Electrical limits",phaseValues.length?
             phaseValues.map(([id,amps])=>id+": "+amps+" A").join(" · "):
@@ -4185,7 +4432,8 @@ class RobotixMultiChargeCard extends HTMLElement {
     this.ownerFacts(expert,"controller",ctl,[
             "solar_power_entity","home_power_entity","grid_power_entity","solar_surplus_entity",
             "current_price_entity","price_entity","export_price_entity","solar_entity",
-            "site_power_entity","binding_entity","phase_limits_a"
+            "site_power_entity","binding_entity","phase_limits_a",
+            "max_power_kw","max_parallel","power_adjustment_interval_minutes"
           ],false);
     if(this._editingField.startsWith("controller:"+ctl.id+":")&&this._settingsOpen!=="Sources & bindings"&&this._settingsOpen!=="Safety & limits"&&!this._editingField.endsWith(":name"))this._folds["controller:expert"]=true;
     this.disclosure(container,"controller:expert","Complete object settings & sources",expert);

@@ -2006,11 +2006,13 @@ async def test_installed_automatic_soc_recovers_external_stop_and_source_return(
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 
+@pytest.mark.parametrize("source_first", [False, True])
 @pytest.mark.asyncio
 async def test_installed_adjustable_consecutive_quarters_keep_one_physical_session(
-    hass: HomeAssistant, freezer,
+    hass: HomeAssistant, freezer, monkeypatch, source_first,
 ):
     """Native time callback admits the next grant without repeated START/STOP."""
+    import asyncio
     from datetime import datetime, timezone
     from pytest_homeassistant.common import async_fire_time_changed
 
@@ -2067,6 +2069,18 @@ async def test_installed_adjustable_consecutive_quarters_keep_one_physical_sessi
         hass.states.async_set("switch.cont_drive", "off")
         draw(0)
 
+    quarter_callbacks = []
+    if source_first:
+        # Capture only this module's native registration; deliberately deliver
+        # the already-registered callback after the source task has been queued.
+        # Never synthesize a second execution path in production.
+        import custom_components.robotix_multicharge as integration
+        def capture_quarter(_hass, callback, **kwargs):
+            assert kwargs["minute"] == [0, 15, 30, 45]
+            quarter_callbacks.append(callback)
+            return lambda: None
+        monkeypatch.setattr(integration, "async_track_time_change", capture_quarter)
+
     entry = MockConfigEntry(domain=DOMAIN, title="Quarter continuity",
                             data={"source": "ui", "configuration": cfg}, unique_id=DOMAIN)
     entry.add_to_hass(hass)
@@ -2085,7 +2099,10 @@ async def test_installed_adjustable_consecutive_quarters_keep_one_physical_sessi
     hass.states.async_set("binary_sensor.cont_cable", "on")
     hass.states.async_set("sensor.cont_soc", "50", {"unit_of_measurement": "%"})
     draw(0)
-    async_fire_time_changed(hass, first)
+    if source_first:
+        quarter_callbacks[0](first)
+    else:
+        async_fire_time_changed(hass, first)
     await hass.async_block_till_done()
     assert hass.states.get("switch.cont_drive").state == "on", commands
     session = runtime.executor.session_snapshot()["drive"]
@@ -2100,7 +2117,11 @@ async def test_installed_adjustable_consecutive_quarters_keep_one_physical_sessi
     hass.states.async_set("sensor.cont_soc", "51", {"unit_of_measurement": "%"})
     hass.states.async_set("sensor.cont_meter", "5.3", {"unit_of_measurement": "kWh"})
     draw(float(hass.states.get("number.cont_limit").state))
-    async_fire_time_changed(hass, second)
+    if source_first:
+        await asyncio.sleep(0)
+        quarter_callbacks[0](second)
+    else:
+        async_fire_time_changed(hass, second)
     await hass.async_block_till_done()
     assert hass.states.get("switch.cont_drive").state == "on", commands
     assert runtime.executor.session_snapshot()["drive"]["started_at"] == session["started_at"]
@@ -2115,7 +2136,10 @@ async def test_installed_adjustable_consecutive_quarters_keep_one_physical_sessi
     third = initial.replace(minute=45)
     freezer.move_to(third)
     hass.states.async_set("sensor.cont_soc", "90", {"unit_of_measurement": "%"})
-    async_fire_time_changed(hass, third)
+    if source_first:
+        quarter_callbacks[0](third)
+    else:
+        async_fire_time_changed(hass, third)
     await hass.async_block_till_done()
     assert hass.states.get("switch.cont_drive").state == "off", (
         commands, runtime.executor._accepted, runtime.executor.session_snapshot()
@@ -3509,8 +3533,10 @@ async def test_native_finance_archive_survives_raw_history_absence(hass: HomeAss
 
 
 @pytest.mark.asyncio
-async def test_observed_external_session_from_actual_ha_recorder(hass: HomeAssistant):
-    """Real HA Recorder database/state events, not a replacement history API."""
+async def test_observed_external_session_from_actual_ha_recorder(
+    hass: HomeAssistant, hass_ws_client,
+):
+    """Real Recorder plus selected-day WebSocket after restoring retired owners."""
     import asyncio
     from datetime import datetime, timedelta, timezone
     from homeassistant.components.recorder import get_instance
@@ -3573,3 +3599,97 @@ async def test_observed_external_session_from_actual_ha_recorder(hass: HomeAssis
     assert run["estimated_cost_currency"] == "EUR"
     assert run["estimated_cost"] > 0
     assert 0.19 <= run["estimated_cost"]/run["observed_energy_kwh"] <= 0.33
+
+    # UC15/16/17: the same physical run is now covered by a preserved
+    # historical receipt in the native control Store, as after owner removal.
+    # The fixture seeds receipt provenance only; power and price are still
+    # read from the real Recorder database, never from a fake history API.
+    from zoneinfo import ZoneInfo
+    from homeassistant.helpers.storage import Store
+    from custom_components.robotix_multicharge.runtime import MultiChargeRuntime
+
+    source = Path(__file__).resolve().parents[2] / "custom_components" / DOMAIN
+    installed = Path(hass.config.config_dir) / "custom_components" / DOMAIN
+    if not installed.exists():
+        shutil.copytree(source, installed)
+    cfg = validate_configuration({
+        "controller": {"id": "site", "name": "Historical finance", "mode": "Off",
+                       "price_entity": "sensor.reference"},
+        "assets": [{"id": "current_vehicle", "name": "Current vehicle",
+                    "kind": "car", "target_soc": 80}],
+        "chargers": [],
+    })
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="MultiCharge",
+        data={"source": "ui", "configuration": cfg}, unique_id=DOMAIN,
+    )
+    entry.add_to_hass(hass)
+    begun = datetime.fromisoformat(run["started_at"])
+    finished = datetime.fromisoformat(run["ended_at"])
+    receipt = {
+        "charger_id": "outside", "asset_id": "retired_vehicle",
+        "started_at": run["started_at"], "ended_at": run["ended_at"],
+        "duration_minutes": (finished - begun).total_seconds() / 60,
+        "actual_energy_kwh": run["observed_energy_kwh"],
+        "energy_quality": "measured", "physical_stop_confirmed": True,
+        "cost": None, "currency": None, "cost_quality": "unknown",
+    }
+    prior = MultiChargeRuntime(hass, cfg).executor.export_state()
+    prior["sessions"] = [receipt]
+    prior["power_bindings"] = {
+        "outside": [{"start": None, "entity": "sensor.external_power"}],
+    }
+    prior["tariff_bindings"] = {
+        "site": [{"start": None, "entity": "sensor.reference"}],
+    }
+    store = Store(hass, 1, f"{DOMAIN}_{entry.entry_id}_control")
+    await store.async_save(prior)
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    assert runtime.executor.completed_sessions() == [receipt]
+    assert runtime.power_bindings["outside"][-1]["entity"] is None
+    client = await hass_ws_client(hass)
+    day = finished.astimezone(ZoneInfo(hass.config.time_zone)).date()
+    await client.send_json({
+        "id": 401, "type": "robotix_multicharge/get_plan",
+        "history_date": day.isoformat(), "include_history": True,
+    })
+    response = await client.receive_json()
+    assert response["id"] == 401 and response["success"], response
+    result = response["result"]
+    assert result["actual_history_quality"] == "SESSION_HISTORY", result
+    assert result["actual_slots"] == []
+    assert result["observed_sessions"] == [], "Owned receipt must not be duplicated"
+    assert len(result["completed_sessions"]) == 1
+    row = result["completed_sessions"][0]
+    assert row["asset_id"] == row["financial"]["asset_id"] == "retired_vehicle"
+    assert row["charger_id"] == "outside"
+    assert row["started_at"] == receipt["started_at"]
+    assert row["ended_at"] == receipt["ended_at"]
+    finance = result["day_finance"]
+    assert "session_portions" not in finance, "Internal tuple keys must not cross JSON"
+    groups = finance["groups"]
+    site = groups["controller"]["site"]["today"]
+    charger = groups["charger"]["outside"]["today"]
+    asset = groups["asset"]["retired_vehicle"]["today"]
+    assert groups["asset"]["current_vehicle"]["today"]["observed_energy_kwh"] == 0
+    assert site["observed_energy_kwh"] > 0
+    assert site["covered_cost"] > 0
+    assert site["currency"] == "EUR" and site["basis"] == "effective"
+    for part in (charger, asset, row["day_contribution"], row["asset_day_contribution"]):
+        assert part["observed_energy_kwh"] == pytest.approx(site["observed_energy_kwh"], abs=1e-6)
+        assert part["covered_cost"] == pytest.approx(site["covered_cost"], abs=1e-6)
+    for kind, uid in (("controller", "site"), ("charger", "outside"), ("asset", "retired_vehicle")):
+        remainder = finance["session_reconciliation"][kind][uid]
+        assert remainder["energy_kwh"] == 0
+        assert remainder["covered_cost"] == 0
+    assert runtime.executor.completed_sessions() == [receipt]
+    assert (await store.async_load())["sessions"] == [receipt]
+    await client.send_json({
+        "id": 402, "type": "robotix_multicharge/get_plan",
+        "history_date": day.isoformat(), "day": "today",
+    })
+    rejected = await client.receive_json()
+    assert rejected["id"] == 402 and not rejected["success"]
+    assert await hass.config_entries.async_unload(entry.entry_id)

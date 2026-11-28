@@ -1318,6 +1318,106 @@ class PhysicalNativeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rt.executor.session_snapshot()[remaining]["target_current_a"], 16)
         self.assertEqual(sum(call[1] == "turn_on" for call in services.calls), 2)
 
+    async def test_continuing_peer_keeps_session_when_other_evse_stops_at_boundary(self):
+        from unittest.mock import patch
+        from multicharge_physical_execution_test import execution, runtime
+        real_datetime = datetime
+        quarter = real_datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+
+        class Clock(real_datetime):
+            current = quarter + timedelta(seconds=2)
+
+            @classmethod
+            def now(cls, tz=None):
+                return cls.fromtimestamp(cls.current.timestamp(), tz)
+
+        with patch.object(execution, "datetime", Clock), patch.object(runtime, "datetime", Clock), \
+                patch.dict(globals(), {"datetime": Clock}):
+            rt, states, _ = rig(group_kw=4.6, mode="Automatic")
+            cfg = rt.configuration
+            cfg["controller"]["max_parallel"] = 2
+            cfg["assets"][0]["requested_kwh"] = 2
+            cfg["assets"].append({"id": "car_b", "name": "Car B", "kind": "car",
+                                  "requested_kwh": 2})
+            a = cfg["chargers"][0]
+            a.update(kind="variable_current", rated_power_kw=3.68, voltage_v=230,
+                     min_current_a=6, max_current_a=16, current_step_a=1,
+                     dedicated_asset_id="car", current_control_entity="number.limit_a",
+                     current_readback_entity="sensor.current_a")
+            cfg["chargers"].append({
+                **a, "id": "evse_b", "name": "EVSE B", "asset": "car_b",
+                "dedicated_asset_id": "car_b", "control_entity": "switch.evse_b",
+                "connected_entity": "binary_sensor.cable_b", "power_entity": "sensor.power_b",
+                "energy_entity": "sensor.meter_b", "current_control_entity": "number.limit_b",
+                "current_readback_entity": "sensor.current_b",
+            })
+            for name in ("a", "b"):
+                states["number.limit_"+name] = state(6, "A")
+                states["number.limit_"+name].attributes.update(min=6, max=16, step=1)
+                states["sensor.current_"+name] = state(0, "A")
+            states.update({"switch.evse_b": state("off"),
+                           "binary_sensor.cable_b": state("on"),
+                           "sensor.power_b": state(0, "W"),
+                           "sensor.meter_b": state(5, "kWh")})
+            rt.configuration = validate_configuration(cfg)
+            rt.executor._plug_confirmations.clear()
+
+            class TwoNativeServices(NativeServices):
+                async def async_call(self, domain, service, data, *, blocking, context):
+                    entity = data["entity_id"]
+                    self.calls.append((domain, service, dict(data), blocking, context))
+                    suffix = "b" if entity.endswith("_b") else "a"
+                    switch = "switch.evse_b" if suffix == "b" else "switch.evse_control"
+                    power = "sensor.power_b" if suffix == "b" else "sensor.actual_power"
+                    current = "sensor.current_"+suffix
+                    limit = "number.limit_"+suffix
+                    now = datetime.now(timezone.utc)
+                    if domain == "number":
+                        states[limit].state = str(data["value"])
+                        states[limit].last_updated = now
+                    else:
+                        states[switch].state = "on" if service == "turn_on" else "off"
+                        states[switch].last_updated = now
+                    amps = float(states[limit].state) if states[switch].state == "on" else 0
+                    states[current].state, states[current].last_updated = str(amps), now
+                    states[power].state, states[power].last_updated = str(amps*230), now
+                    if service == "turn_off":
+                        rt.executor.schedule_pending_protection(asyncio.create_task)
+                        await asyncio.sleep(0)
+
+            services = TwoNativeServices(states)
+            rt.hass.services = services
+            at = datetime.now(timezone.utc)
+            quarter = at.replace(minute=at.minute//15*15, second=0, microsecond=0)
+            for source in states.values():
+                source.last_updated = quarter+timedelta(seconds=1)
+            for cable in ("binary_sensor.cable", "binary_sensor.cable_b"):
+                states[cable].last_changed = quarter
+            rt.refresh(quarter)
+            selected = {s.charger_uid: s for s in rt.assessment.plan.slots if s.start == quarter}
+            self.assertEqual(set(selected), {"evse", "evse_b"})
+            self.assertLessEqual(sum(s.power_kw for s in selected.values()), 4.6)
+            await rt.executor.advance_plan(quarter)
+            self.assertEqual(set(rt.executor.session_snapshot()), {"evse", "evse_b"})
+            self.assertEqual(sum(call[1] == "turn_on" for call in services.calls), 2)
+            self.assertEqual(len(rt.executor.accepted_slots()), 2)
+            self.assertLessEqual(sum(float(states[k].state) for k in (
+                "sensor.actual_power", "sensor.power_b")), 4600)
+            next_quarter = quarter + timedelta(minutes=15)
+            Clock.current = next_quarter + timedelta(seconds=2)
+            for source in states.values():
+                source.last_updated = Clock.current
+            states["sensor.meter"].state = "7.1"
+            original = rt.executor.session_snapshot()["evse_b"]["started_at"]
+            rt.refresh(next_quarter)
+            await rt.executor.advance_plan(next_quarter)
+            await asyncio.sleep(0)
+            await asyncio.gather(*rt.executor._source_stop_tasks.values())
+            self.assertEqual(set(rt.executor.session_snapshot()), {"evse_b"})
+            self.assertEqual(rt.executor.session_snapshot()["evse_b"]["started_at"], original)
+            self.assertEqual(sum(call[1] == "turn_on" for call in services.calls), 2)
+            self.assertEqual(sum(call[1] == "turn_off" for call in services.calls), 1)
+
     async def test_quarter_order_releases_previous_boost_before_new_start(self):
         rt, states, _ = rig(mode="Automatic")
         executor = rt.executor

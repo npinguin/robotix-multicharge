@@ -118,13 +118,32 @@ if(new URLSearchParams(location.search).has("upgrade_tag")){
   card.setConfig({});
   const requests=[];
   if(view==="overview"&&count){
-    const period={cost:2.4,currency:"EUR",basis:"spot",average_price_per_kwh:0.24,covered_energy_kwh:10,days_available:1,days_expected:1};
-    const periods={today:period,month:{...period,cost:12},year:{...period,cost:null,covered_cost:80,days_available:10,days_expected:300}};
-    data.period_costs={controller:{site:periods},asset:Object.fromEntries(assets.map(a=>[a.id,periods]))};
+    const period={start:"2026-11-23T00:00:00+01:00",end:"2026-11-23T14:00:00+01:00",cost:2.4,currency:"EUR",basis:"spot",average_price_per_kwh:0.24,covered_energy_kwh:10,observed_energy_kwh:10,expected_seconds:3600,observed_seconds:3600,days_available:1,days_expected:1};
+    const periods={today:period,month:{...period,start:"2026-11-01T00:00:00+01:00",cost:12},year:{...period,start:"2026-01-01T00:00:00+01:00",cost:null,covered_cost:80,days_available:10,days_expected:300}};
+    data.period_costs={controller:{site:periods},asset:{[assets[0].id]:periods},charger:{[devices[0].id]:periods}};
+    data.period_reconciliation={today:{asset:{energy_kwh:0,covered_cost:0},charger:{energy_kwh:0,covered_cost:0}}};
   }
+  const metricsMode=args.get("metrics")==="1", initialStarted=performance.now();
+  let firstLiveMs=null;
   card.hass={user:{is_admin:role==="admin"},language:"en",states:{},
-    callWS:async request=>{requests.push(request);return data;},callService:async()=>{}};
-  await new Promise(resolve=>setTimeout(resolve,400));
+    callWS:async request=>{
+      requests.push(request);
+      if(request.history_date){
+        return {...data,start:request.history_date+"T00:00:00+01:00",end:request.history_date+"T23:59:59+01:00",snapshot_at:request.history_date+"T14:00:00+01:00",actual_history_quality:"SESSION_HISTORY",active_sessions:{},observed_sessions:[],completed_sessions:[{
+          charger_id:devices[0].id,asset_id:"retired_guest",started_at:request.history_date+"T09:00:00+01:00",ended_at:request.history_date+"T10:00:00+01:00",duration_minutes:60,actual_energy_kwh:3,physical_stop_confirmed:true,physical_stop_decision:"RESIDENT_STOP",
+          financial:{asset_id:"retired_guest",cost:null,covered_cost:0.6,currency:"EUR",basis:"spot",quality:"partial_observation",energy_kwh:2,average_price_per_kwh:0.3}
+        }]};
+      }
+      if(metricsMode&&request.type==="robotix_multicharge/get_plan"){
+        if(request.include_history)await new Promise(resolve=>setTimeout(resolve,250));
+        else return {...data,actual_slots:[],observed_sessions:[],actual_history_quality:"NOT_REQUESTED"};
+      }
+      return data;
+    },callService:async()=>{}};
+  for(let elapsed=0;elapsed<400;elapsed+=10){
+    if(firstLiveMs===null&&card._data)firstLiveMs=performance.now()-initialStarted;
+    await new Promise(resolve=>setTimeout(resolve,10));
+  }
   if(!card._data)throw Error("real browser failed to receive backend sample");
   card._tab=view==="asset"?"Chargeable Assets":
             view==="charger"?"Chargers":
@@ -139,7 +158,7 @@ if(new URLSearchParams(location.search).has("upgrade_tag")){
       render:!!root.querySelector(".root"),viewport:innerWidth,documentWidth:document.documentElement.scrollWidth,
       tabs:[...root.querySelectorAll(".tabs button")].map(b=>b.textContent),
       apexHosts:hosts.length,apexLive:hosts.filter(h=>h.querySelector(".apexcharts-svg")).length,
-      domElements:root.querySelectorAll("*").length,renderMs,
+      domElements:root.querySelectorAll("*").length,renderMs,firstLiveMs,
       planRequests:requests.filter(r=>r.type==="robotix_multicharge/get_plan").length,
       historyRequests:requests.filter(r=>r.type==="robotix_multicharge/get_plan"&&r.include_history).length
     });return;
@@ -159,7 +178,18 @@ if(new URLSearchParams(location.search).has("upgrade_tag")){
     financeCompact=financeCompact&&first.open&&
       first.querySelector(".financial-details").textContent.includes("Charging cost this year")&&
       first.querySelector(".financial-details").getBoundingClientRect().height>0;
-    first.querySelector("summary").click();
+    // Real resident drilldown: period and group selection, then one bounded
+    // date read. Retired identity and qualified weighted rate remain visible.
+    await new Promise(resolve=>setTimeout(resolve,20));
+    const siteFinance=()=>root.querySelector('details[data-disclosure="controller:site:finance"]');
+    const financeButton=name=>[...siteFinance().querySelectorAll("button")].find(b=>b.textContent===name);
+    financeButton("By charger").click();
+    financeButton("This month").click();
+    financeButton("Show sessions").click();
+    await new Promise(resolve=>setTimeout(resolve,60));
+    const session=siteFinance().querySelector('details[data-disclosure^="finance:session:"]');
+    financeCompact=financeCompact&&!!session&&session.textContent.includes("retired_guest")&&session.textContent.includes("0.3000 EUR/kWh")&&session.textContent.includes("Partial coverage")&&requests.some(r=>r.history_date==="2026-11-23")&&siteFinance().open;
+    siteFinance().querySelector("summary").click();
     const action=[...root.querySelectorAll(".object-grid button")].find(b=>b.textContent==="Charging plan");
     action.click();
     await new Promise(resolve=>setTimeout(resolve,80));
@@ -224,9 +254,15 @@ if(new URLSearchParams(location.search).has("upgrade_tag")){
     const prefilled=editor.getBoundingClientRect().height>0&&[...editor.querySelectorAll("input")].some(x=>x.value==="sensor.native_power");
     const progressive=editor.querySelector("details")?.open===false;
     const noWrite=writes===0;
+    const originalRevision=card._data.configuration_revision;
+    card._data.configuration_revision="concurrent-setup";
+    btn("Save charger setup",editor).click();
+    await new Promise(resolve=>setTimeout(resolve,20));
+    const staleSetup=writes===0&&root.querySelector(".dashboard-field-edit")===editor&&editor.textContent.includes("Settings changed; refresh and retry")&&[...editor.querySelectorAll("input")].some(x=>x.value==="sensor.native_power");
+    card._data.configuration_revision=originalRevision;
     btn("Save charger setup",editor).click();
     await new Promise(resolve=>setTimeout(resolve,150));
-    const reviewed=writes===1&&c.power_entity==="sensor.native_power"&&c.max_current_a===16&&
+    const reviewed=staleSetup&&writes===1&&c.power_entity==="sensor.native_power"&&c.max_current_a===16&&
       !root.querySelector(".dashboard-field-edit");
     btn("Change activation").click();
     const activation=root.querySelector(".dashboard-field-edit");
@@ -293,8 +329,12 @@ if(new URLSearchParams(location.search).has("upgrade_tag")){
     button("Start charging").click();
     const picker=field("Charging goal");picker.value="budget";picker.dispatchEvent(new Event("change",{bubbles:true}));
     const denied=button("Start manual charging").disabled;
-    button("Cancel").click();
-    const cancelled=commands.length===3&&!root.querySelector(".manual-editor");
+    // Native assignment has its own staged Save/Cancel before the manual form.
+    // Exercise the visible, enabled Cancel belonging to the actual manual intent.
+    const manualCancel=[...root.querySelectorAll(".manual-editor button")].find(x=>x.textContent==="Cancel");
+    const cancelAvailable=!!manualCancel&&!manualCancel.disabled&&manualCancel.getBoundingClientRect().height>0;
+    if(cancelAvailable)manualCancel.click();
+    const cancelled=cancelAvailable&&commands.length===3&&!root.querySelector(".manual-editor")&&!card._manualDrafts[c.id];
     document.getElementById("smoke-result").textContent=JSON.stringify({view,count,role,viewport:innerWidth,render:!!root.querySelector(".root"),documentWidth:document.documentElement.scrollWidth,tabs:[...root.querySelectorAll(".tabs button")].map(x=>x.textContent),opensWithoutWrite,bounded,active,sameControl,stopped,automatic,denied,cancelled,upgradeVersion});
     return;
   }
@@ -526,10 +566,14 @@ if(new URLSearchParams(location.search).has("upgrade_tag")){
     const summary=c.querySelector(":scope > .financial-headline");
     return !action||(!fold||action.getBoundingClientRect().bottom<=fold.getBoundingClientRect().top+2)&&(!summary||summary.getBoundingClientRect().bottom<=action.getBoundingClientRect().top+2);
   });
+  let stableFoldWidth=true;
   if(view==="asset"||view==="charger"){
+    const before=[...card.shadowRoot.querySelectorAll(".object-grid > .topic-card")].map(el=>({id:el.getAttribute("data-mc-object"),width:el.getBoundingClientRect().width,left:el.getBoundingClientRect().left}));
     const details=[...card.shadowRoot.querySelectorAll("details > summary")].find(
       b=>b.textContent===(view==="asset"?"Asset settings":"Charger settings"));
     if(details)details.click();
+    const after=[...card.shadowRoot.querySelectorAll(".object-grid > .topic-card")];
+    stableFoldWidth=before.every(b=>{const el=after.find(x=>x.getAttribute("data-mc-object")===b.id);return el&&Math.abs(el.getBoundingClientRect().width-b.width)<2&&Math.abs(el.getBoundingClientRect().left-b.left)<2;});
   }
   let defaultChartHosts=0,foldedChartHosts=0,chartLifecycle=true;
   if(view==="plan"){
@@ -594,7 +638,7 @@ if(new URLSearchParams(location.search).has("upgrade_tag")){
     render:!!frame,frameWidth:Math.round(rect?.width||0),
     documentWidth:document.documentElement.scrollWidth,
     tabs:[...root.querySelectorAll(".tabs button")].map(b=>b.textContent),
-    cards:cards.length,folds:folds.length,equalCardRows,balancedActions,orderedActions,
+    cards:cards.length,folds:folds.length,equalCardRows,balancedActions,orderedActions,stableFoldWidth,
     apexHosts:apexHosts.length,apexLive,defaultChartHosts,foldedChartHosts,chartLifecycle,sameRange,colorAndQuarter,pixelAligned,geometry:geometry.map(r=>r?[r.left,r.right]:null),
     legendContained:!!chartLegend&&chartLegend.getBoundingClientRect().top>=chartHost.getBoundingClientRect().bottom-1,
     legendToggle:toggle?.getAttribute("aria-pressed")==="false",

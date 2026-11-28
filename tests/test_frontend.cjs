@@ -115,6 +115,19 @@ assert.ok(nativePanel.shadowRoot.children.includes(nativePanel._content),
   "sidebar has standalone rendered content");
 
 assert.equal(window.customCards.filter(c=>c.type==="robotix-multicharge-card").length,1);
+function saveNativeDraft(card,input,calls){
+  const before=calls.length;
+  input.events.change();
+  assert.equal(calls.length,before,"Changing configuration choice must not write before Save");
+  let actions;
+  visit(card.shadowRoot,node=>{
+    if((node.attributes["data-native-edit-for"]||"").split(" ").includes(input.attributes.id))actions=node;
+  });
+  assert.ok(actions,"Native owner has contextual Save/Cancel");
+  const save=find(actions,"button","Save");
+  assert.ok(save&&!save.disabled);
+  save.click();
+}
 const fixture={
   controller_id:"site",timezone:"Europe/Brussels",start:"2026-11-22T00:00:00+01:00",
   end:"2026-11-23T00:00:00+01:00",status:"proposed",
@@ -163,6 +176,35 @@ function content(node){
   let text="";visit(node,x=>{if(x.textContent)text+=x.textContent+"\n";});return text;
 }
 async function main(){
+  // A slow Recorder request must not hold live controls, command readback
+  // or configuration refresh behind history. Reject obsolete enrichments.
+  const slowHistoryCard=new Card();
+  let liveRevision=1, historyResolve, historyCalls=0;
+  const snapshot=()=>({...JSON.parse(JSON.stringify(fixture)),
+    configuration_revision:"history-scope",history_revision:liveRevision,
+    actual_history_quality:"NOT_REQUESTED",actual_slots:[],observed_sessions:[],
+    snapshot_at:new Date().toISOString()});
+  slowHistoryCard._hass={user:{is_admin:true},states:{},callWS:async message=>{
+    if(message.include_history){
+      historyCalls++;
+      const old=snapshot();
+      return new Promise(resolve=>{historyResolve=()=>resolve({...old,
+        actual_history_quality:"MEASURED",actual_slots:[{marker:"old"}]});});
+    }
+    return snapshot();
+  }};
+  await slowHistoryCard.load();
+  assert.equal(historyCalls,1);
+  assert.equal(slowHistoryCard._loading,false,"Live request completed independently of Recorder");
+  assert.equal(slowHistoryCard._data.actual_history_quality,"HISTORY_LOADING");
+  liveRevision=2;
+  await slowHistoryCard.load();
+  assert.equal(slowHistoryCard._data.history_revision,2,"New receipt revision delivered while old history is pending");
+  historyResolve();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(slowHistoryCard._data.history_revision,2);
+  assert.ok(!slowHistoryCard._data.actual_slots.some(x=>x.marker==="old"),"Obsolete history cannot overwrite current snapshot");
+  slowHistoryCard.disconnectedCallback();
   // UX-OWNER-01 one canonical object, complete settings and no second store.
   const owners=JSON.parse(JSON.stringify(fixture));
   Object.assign(owners.configuration.controller,{
@@ -256,7 +298,7 @@ async function main(){
   }
   const sourceType=ownerField(site.shadowRoot,"Solar source type (native)");
   assert.ok(sourceType,"native solar source model editable on Site");
-  sourceType.value="direct_surplus";sourceType.events.change();
+  sourceType.value="direct_surplus";saveNativeDraft(site,sourceType,siteCommands);
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(siteCommands.some(x=>x.domain==="select"&&
     x.args.entity_id==="select.site_solar_kind"&&
@@ -264,7 +306,7 @@ async function main(){
     "Controller-native source mode uses owning HA service");
   const meterSign=ownerField(site.shadowRoot,"Grid meter direction (native)");
   assert.ok(meterSign);
-  meterSign.value="export_positive";meterSign.events.change();
+  meterSign.value="export_positive";saveNativeDraft(site,meterSign,siteCommands);
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(siteCommands.some(x=>x.domain==="select"&&
     x.args.entity_id==="select.site_meter_sign"&&
@@ -419,6 +461,14 @@ async function main(){
     const amount=cardField(novice.shadowRoot,"Amount");
     assert.ok(amount);
     amount.value=String(value);amount.events.input();
+    const goalRevision=novice._data.configuration_revision;
+    novice._data.configuration_revision="concurrent-goal";
+    find(novice.shadowRoot,"button","Save charging goal").click();
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(writes.filter(x=>x.type==="robotix_multicharge/update_settings").length,0);
+    assert.equal(novice._settingsFeedback.status,"rejected");
+    assert.equal(cardField(novice.shadowRoot,"Amount").value,String(value));
+    novice._data.configuration_revision=goalRevision;
     find(novice.shadowRoot,"button","Save charging goal").click();
     await new Promise(resolve=>setImmediate(resolve));
     const saves=writes.filter(x=>x.type==="robotix_multicharge/update_settings");
@@ -510,7 +560,7 @@ async function main(){
   });
   assert.ok(pattern,"continuity is editable on the normal Asset card");
   assert.deepEqual(pattern.children.map(x=>x.value),["flexible","continuous"]);
-  pattern.value="continuous";pattern.events.change();
+  pattern.value="continuous";saveNativeDraft(scheduleCard,pattern,scheduleCalls);
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(scheduleCalls.some(x=>x.domain==="select"&&
     x.args.entity_id==="select.car_continuity"&&x.args.option==="continuous"),
@@ -530,7 +580,7 @@ async function main(){
       opportunity=node.children[1];
   });
   assert.ok(opportunity);
-  opportunity.value="type1";opportunity.events.change();
+  opportunity.value="type1";saveNativeDraft(scheduleCard,opportunity,scheduleCalls);
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(scheduleCalls.some(call=>call.domain==="select"&&
     call.args.entity_id==="select.car_opportunity"&&
@@ -555,6 +605,13 @@ async function main(){
   monday.value="07:00";monday.events.change();
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(!scheduleCalls.some(x=>x.type==="robotix_multicharge/update_settings"),"weekday remains a draft before Save");
+  const scheduleRevision=scheduleCard._data.configuration_revision;
+  scheduleCard._data.configuration_revision="concurrent-schedule";
+  find(scheduleCard.shadowRoot,"button","Save schedule").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(scheduleCalls.filter(x=>x.type==="robotix_multicharge/update_settings").length,0);
+  assert.equal(scheduleCard._settingsFeedback.status,"rejected");
+  scheduleCard._data.configuration_revision=scheduleRevision;
   find(scheduleCard.shadowRoot,"button","Save schedule").click();
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(scheduleCalls.some(x=>x.type==="robotix_multicharge/update_settings"&&x.changes.ready_by_weekdays.mon==="07:00"&&x.changes.ready_by_weekdays.wed==="08:30"),"one atomic schedule Save preserves other weekdays");
@@ -568,7 +625,7 @@ async function main(){
       String(node.attributes.id||"").startsWith("multicharge-monday-start-hour-"))startHour=node;
   });
   assert.ok(startHour,"native time input exists for Monday");
-  startHour.value="23:00";startHour.events.change();
+  startHour.value="23:00";saveNativeDraft(scheduleCard,startHour,scheduleCalls);
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(scheduleCalls.some(x=>x.domain==="text"&&
     x.args.entity_id==="text.car_window_mon"&&x.args.value==="23:00-06:00"),
@@ -653,6 +710,14 @@ async function main(){
   choice.events.change();
   const assignButton=find(assignCard.shadowRoot,"button","Assign selected charger");
   assert.equal(assignButton.disabled,false);
+  const assignmentRevision=assignCard._data.configuration_revision;
+  assignCard._data.configuration_revision="concurrent-assignment";
+  assignButton.click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(assignmentWS.filter(x=>x.type==="robotix_multicharge/update_settings").length,0);
+  assert.equal(assignCard._settingsFeedback.status,"rejected");
+  assert.equal(choice.value,"patio");
+  assignCard._data.configuration_revision=assignmentRevision;
   assignButton.click();
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(assignmentWS.some(x=>
@@ -843,6 +908,14 @@ async function main(){
   formField(guestCard,"Temporary guest").value="yes";
   guestGoal.value="budget";guestAmount.value="10";
   guestFreeCharger.value="guest_charger";
+  const guestRevision=guestCard._data.configuration_revision;
+  guestCard._data.configuration_revision="concurrent-create";
+  find(guestCard.shadowRoot,"button","Create asset").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(guestWS.filter(x=>x.type==="robotix_multicharge/update_settings").length,0);
+  assert.equal(guestCard._settingsFeedback.status,"rejected");
+  assert.equal(guestName.value,"Visitor");
+  guestCard._data.configuration_revision=guestRevision;
   find(guestCard.shadowRoot,"button","Create asset").click();
   await new Promise(resolve=>setImmediate(resolve));
   const create=guestWS.find(x=>
@@ -881,6 +954,14 @@ async function main(){
   const eff=cardField(batteryCard.shadowRoot,"Charging efficiency (%)");
   assert.ok(cap&&eff);
   cap.value="20";eff.value="90";cap.events.input();eff.events.input();
+  const batteryRevision=batteryCard._data.configuration_revision;
+  batteryCard._data.configuration_revision="concurrent-battery";
+  find(batteryCard.shadowRoot,"button","Save battery data").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(batteryWrites.length,0);
+  assert.equal(batteryCard._settingsFeedback.status,"rejected");
+  assert.equal(cap.value,"20");assert.equal(eff.value,"90");
+  batteryCard._data.configuration_revision=batteryRevision;
   find(batteryCard.shadowRoot,"button","Save battery data").click();
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(batteryWrites.length,1);
@@ -1031,17 +1112,35 @@ async function main(){
   adjustableCard._hass.callService=async(domain,service,payload)=>{
     chargeNative.push({domain,service,payload});
   };
-  let powerInput, powerApply;
-  visit(adjustableCard.shadowRoot,node=>{
-    if(node.tag==="div"&&node.children?.some(child=>
-      child.tag==="input"&&child.attributes["aria-label"]==="Set charging power")){
-      powerInput=node.children.find(child=>child.tag==="input");
-      powerApply=node.children.find(child=>child.tag==="button");
-    }
-  });
-  assert.ok(powerInput&&powerApply,"Set power is directly editable in Charger dashboard");
-  powerInput.value="2.30";
-  powerApply.click();
+  function powerEditor(){
+    let input,actions;
+    visit(adjustableCard.shadowRoot,node=>{
+      if(node.tag==="input"&&node.attributes["aria-label"]==="Set charging power")input=node;
+    });
+    assert.ok(input,"Set power is directly editable in Charger dashboard");
+    visit(adjustableCard.shadowRoot,node=>{
+      if((node.attributes["data-native-edit-for"]||"").split(" ").includes(input.attributes.id))actions=node;
+    });
+    assert.ok(actions,"Setpoint uses existing staged native editor");
+    return {input,save:find(actions,"button","Save"),cancel:find(actions,"button","Cancel")};
+  }
+  let power=powerEditor();
+  assert.ok(power.save.disabled&&power.cancel.disabled);
+  power.input.value="2.30";power.input.events.change();
+  assert.equal(chargeNative.length,0,"Draft must not send a physical command");
+  power.cancel.click();
+  assert.equal(chargeNative.length,0,"Cancel must not send a physical command");
+  power=powerEditor();power.input.value="2.30";
+  power.input.events.change();
+  const priorSessions=adjustableCard._data.active_sessions;
+  adjustableCard._data.active_sessions={drive:{started_at:"new-session"}};
+  power.save.click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(chargeNative.length,0,"Stale physical-session draft must not reach native Number");
+  assert.equal(adjustableCard._settingsFeedback.status,"rejected");
+  assert.equal(power.input.value,"2.30");
+  adjustableCard._data.active_sessions=priorSessions;
+  power.save.click();
   await new Promise(resolve=>setImmediate(resolve));
   assert.deepEqual(chargeNative[0],{
     domain:"number",service:"set_value",
@@ -1303,13 +1402,14 @@ async function main(){
   // Every form family uses the same source-safe repaint path, including
   // always-visible native Number fields and new Guest/Charger forms.
   typingCard._settingsOpen="Charging site";
+  typingCard._editingField="controller:site:max_parallel";
   typingCard.render();
   let nativeNumberInput;
   visit(typingCard.shadowRoot,node=>{
-    if(node.tag==="input"&&node.attributes["aria-label"]==="Parallel chargers")
+    if(node.tag==="input"&&node.attributes.type==="number"&&node.value===String(typingCard._data.configuration.controller.max_parallel))
       nativeNumberInput=node;
   });
-  assert.ok(nativeNumberInput,"Native site number exists without a popup");
+  assert.ok(nativeNumberInput,"Contextual site number editor exists in owning view");
   nativeNumberInput.value="9";
   typingCard.shadowRoot.activeElement=nativeNumberInput;
   const numberNodes=typingCard.shadowRoot.children;
@@ -1545,14 +1645,16 @@ async function main(){
   assert.ok(content(card.shadowRoot).includes("Measured power unavailable"));
   assert.ok(!content(card.shadowRoot).includes("3.6 kW actually charged"),
             "future proposal must never be presented as real charging");
-  const selects=[];
-  visit(card.shadowRoot,x=>{
-    if(x.tag==="select")selects.push(x.attributes["aria-label"]);
-  });
-  assert.ok(selects.includes("Show labels"),"Label choice must be configurable");
-  assert.ok(selects.includes("Color by"),"Color dimension must be configurable");
-  assert.ok(selects.includes("Indicative forecasting"),
-            "Forecast visibility is explicitly configurable");
+  for(const [label,field] of [["Show labels","plan_label_mode"],["Color by","plan_color_by"],["Indicative forecasting","show_indicative_forecast"]]){
+    let edit;
+    visit(card.shadowRoot,x=>{if(x.tag==="button"&&x.attributes["aria-label"]==="Edit "+label)edit=x;});
+    assert.ok(edit,label+" has contextual edit");
+    edit.click();
+    let panel;
+    visit(card.shadowRoot,x=>{if(x.attributes["data-edit-field"]==="controller:site:"+field)panel=x;});
+    assert.ok(panel&&find(panel,"select")&&find(panel,"button","Save")&&find(panel,"button","Cancel"),label+" uses typed Save/Cancel");
+    find(panel,"button","Cancel").click();
+  }
   fixture.forecast_assumptions={
     drive:{asset_id:"car",charger_id:"drive",
            assumption:"IF_CONNECTED_NOW",assumed_connection_at:fixture.start}
@@ -1713,8 +1815,8 @@ async function main(){
   card._settingsOpen="Safety & limits";card.render();
   assert.ok(content(card.shadowRoot).includes("Electrical limits"),
     "Safety Settings show the configured electrical limits");
-  assert.ok(find(card.shadowRoot,"button","Apply"),
-    "Site power limits are directly editable through Controller native Numbers");
+  assert.ok(find(card.shadowRoot,"button","Edit"),
+    "Site power limits are directly editable through the shared contextual editor");
   card._settingsOpen="Sources & bindings";card.render();
   assert.ok(content(card.shadowRoot).includes("Future tariff intervals"),
     "Source bindings disclose actual future tariff source selection");
@@ -1749,8 +1851,33 @@ async function main(){
   card._tab="Chargeable Assets";card._open="";card.render();
   (find(card.shadowRoot,"summary","Asset settings")||find(card.shadowRoot,"summary","Charger settings")||find(card.shadowRoot,"button","Details")).click();
   assert.ok(find(card.shadowRoot,"select"),"vehicle offers a native color choice");
-  assert.ok(find(card.shadowRoot,"button","Apply"),
-    "Vehicle target and energy settings are controlled inline by native HA Numbers");
+  let priorityEdit;
+  visit(card.shadowRoot,node=>{
+    if(node.tag==="button"&&node.attributes["aria-label"]==="Edit Charging priority")priorityEdit=node;
+  });
+  assert.ok(priorityEdit,"Vehicle preferences expose an immediately contextual edit");
+  priorityEdit.click();
+  const priorityEditors=[];
+  visit(card.shadowRoot,node=>{
+    if(node.attributes["data-edit-field"]==="asset:car:priority")priorityEditors.push(node);
+  });
+  assert.equal(priorityEditors.length,1,"Primary preference must not mount a duplicate expert editor");
+  const typedPriority=priorityEditors[0];
+  assert.ok(typedPriority&&find(typedPriority,"button","Save")&&find(typedPriority,"button","Cancel"),
+    "Vehicle preference shares revision-checked Save/Cancel");
+  const priorRevision=card._data.configuration_revision;
+  const priorWS=card._hass.callWS;
+  let staleWrites=0;
+  card._hass.callWS=async request=>{if(request.type==="robotix_multicharge/update_settings")staleWrites++;return priorWS(request);};
+  card._data.configuration_revision="concurrent-edit";
+  find(typedPriority,"button","Save").click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(staleWrites,0,"An open typed form must not silently overwrite a newer configuration");
+  assert.equal(card._settingsFeedback.status,"rejected");
+  assert.ok(content(typedPriority).includes("Settings changed; refresh and retry"));
+  card._data.configuration_revision=priorRevision;
+  card._hass.callWS=priorWS;
+  find(typedPriority,"button","Cancel").click();
   assert.ok(find(card.shadowRoot,"button","Set charging deadline"),
     "Vehicle Ready By opens its native HA DateTime entity from the dashboard");
   let colorSelect;
@@ -1759,7 +1886,7 @@ async function main(){
   });
   assert.ok(colorSelect,"vehicle plan color shown on Vehicle");
   colorSelect.value="blue";
-  colorSelect.events.change();
+  saveNativeDraft(card,colorSelect,nativeCalls);
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(nativeCalls.some(c=>c.args.entity_id==="select.car_color"&&
     c.args.option==="blue"),"vehicle palette is changed through its own HA entity");
@@ -1772,7 +1899,7 @@ async function main(){
   assert.equal(quicks.length,1,
     "Charger chosen vehicle must be editable without opening Details");
   assert.equal(quicks[0].value,"Family car");
-  quicks[0].value="none";quicks[0].events.change();
+  quicks[0].value="none";saveNativeDraft(card,quicks[0],nativeCalls);
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(nativeCalls.some(x=>x.args.entity_id==="select.drive_vehicle"&&
     x.args.option==="none"),
@@ -1793,7 +1920,7 @@ async function main(){
   visit(card.shadowRoot,node=>{
     if(node.tag==="select"&&node.attributes?.["data-quick-assignment"]==="drive")nativeQuick.push(node);
   });
-  nativeQuick[0].value="Family car";nativeQuick[0].events.change();
+  nativeQuick[0].value="Family car";saveNativeDraft(card,nativeQuick[0],nativeCalls);
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(fixture.configuration.chargers[0].asset,"car",
     "Native Charger selection persists in the canonical object");
@@ -1809,7 +1936,7 @@ async function main(){
   assert.ok(content(card.shadowRoot).includes("Selected vehicle"),
     "Charger shows its selected vehicle on its own detail view");
   chargerColor.value="pink";
-  chargerColor.events.change();
+  saveNativeDraft(card,chargerColor,nativeCalls);
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(nativeCalls.some(c=>c.args.entity_id==="select.drive_color"&&
     c.args.option==="pink"),"charger color is a native owner setting");
