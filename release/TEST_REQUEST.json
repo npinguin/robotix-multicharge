@@ -1,10 +1,10 @@
 {
-  "status": "PENDING_AUTHORIZATION",
+  "status": "AUTHORIZED_FOR_TEST",
   "distribution": "open_source_community",
   "expected_tag": "v0.1.29",
   "precompile": false,
   "qualification_scope": "Full approved 28 November field batch: async multi-EVSE continuity, STOP decision traceability, history performance, reconciled period/group/session finance, stable layout, contextual editing and remaining resident UX. Complete exact candidate qualification required.",
-  "limitations": "HACS TEST only after explicit version authorization. Physical field acceptance, Safari/iPad, performance and unattended operation remain separate; not STABLE. Retain native HA backup/database and matching v0.1.28 code; confirm STOP before rollback and restore matching checkpoint; no code-only downgrade or live-state merge.",
+  "limitations": "HACS TEST only. Physical field acceptance, Safari/iPad, performance and unattended operation remain separate; not STABLE. Retain native HA backup/database and matching v0.1.28 code; confirm STOP before rollback and restore matching checkpoint; no code-only downgrade or live-state merge.",
   "rollback_evidence": {
     "tag": "v0.1.28",
     "source_sha": "7a0fe5dd8dfa1d55e01e80ea4435252266671f43",
