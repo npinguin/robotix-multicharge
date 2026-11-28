@@ -1302,6 +1302,51 @@ def civil_period_costs(days, available):
     return result
 
 
+def period_cost_reconciliation(period_costs):
+    """Same-snapshot site reconciliation, never a second financial ledger.
+
+    Grouping dimensions are alternatives. Only compatible covered valuations
+    may be subtracted; negative tariffs remain signed and gaps remain gaps.
+    The remainder is not assigned to a current vehicle or charging session.
+    """
+    result = {}
+    for period, site in period_costs.get("controller", {}).get("site", {}).items():
+        result[period] = {}
+        for kind in ("asset", "charger"):
+            rows = [periods[period] for periods in period_costs.get(kind, {}).values()
+                    if period in periods]
+            known = [row for row in rows if row.get("observed_seconds", 0) > 0]
+            if site.get("observed_seconds", 0) <= 0:
+                result[period][kind] = {"energy_kwh": None, "covered_cost": None,
+                                        "quality": "history_pending"}
+                continue
+            energy = site["observed_energy_kwh"]-sum(r["observed_energy_kwh"] for r in known)
+            if abs(energy) < 0.00001:
+                energy = 0.0
+            signature = (site.get("currency"), site.get("basis"))
+            valued = [r for r in known if r.get("covered_cost") is not None]
+            compatible = (site.get("covered_cost") is not None and signature[0]
+                          and all((r.get("currency"), r.get("basis")) == signature
+                                  or r.get("covered_energy_kwh") == 0
+                                  for r in valued)
+                          and all(r.get("covered_cost") is not None
+                                  or abs(r["observed_energy_kwh"]-r["unpriced_energy_kwh"]) < 0.00001
+                                  for r in known))
+            remainder = site["covered_cost"]-sum(r["covered_cost"] for r in valued) if compatible else None
+            if remainder is not None and abs(remainder) < 0.00001:
+                remainder = 0.0
+            result[period][kind] = {
+                "energy_kwh": round(energy, 6),
+                "covered_cost": round(remainder, 6) if remainder is not None else None,
+                "currency": signature[0] if compatible else None,
+                "basis": signature[1] if compatible else None,
+                "quality": ("reconciled_observed_energy" if energy == 0 else
+                            "unattributed_energy" if kind == "asset" and energy > 0 else
+                            "unreconciled_observed_energy"),
+            }
+    return result
+
+
 async def read_recorder_samples(hass, first, end, entities):
     """Exact native Recorder range, without a second history authority."""
     from homeassistant.components.recorder import get_instance, history
