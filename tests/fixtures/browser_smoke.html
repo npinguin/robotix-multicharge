@@ -323,8 +323,12 @@ if(new URLSearchParams(location.search).has("upgrade_tag")){
     button("Start charging").click();
     const picker=field("Charging goal");picker.value="budget";picker.dispatchEvent(new Event("change",{bubbles:true}));
     const denied=button("Start manual charging").disabled;
-    button("Cancel").click();
-    const cancelled=commands.length===3&&!root.querySelector(".manual-editor");
+    // Native assignment has its own staged Save/Cancel before the manual form.
+    // Exercise the visible, enabled Cancel belonging to the actual manual intent.
+    const manualCancel=[...root.querySelectorAll(".manual-editor button")].find(x=>x.textContent==="Cancel");
+    const cancelAvailable=!!manualCancel&&!manualCancel.disabled&&manualCancel.getBoundingClientRect().height>0;
+    if(cancelAvailable)manualCancel.click();
+    const cancelled=cancelAvailable&&commands.length===3&&!root.querySelector(".manual-editor")&&!card._manualDrafts[c.id];
     document.getElementById("smoke-result").textContent=JSON.stringify({view,count,role,viewport:innerWidth,render:!!root.querySelector(".root"),documentWidth:document.documentElement.scrollWidth,tabs:[...root.querySelectorAll(".tabs button")].map(x=>x.textContent),opensWithoutWrite,bounded,active,sameControl,stopped,automatic,denied,cancelled,upgradeVersion});
     return;
   }
