@@ -11,6 +11,7 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN, NOMINAL_PHASE_COUNT, NOMINAL_PHASE_VOLTAGE_V
+from .history import session_financial_evidence
 from .configuration import WEEKDAYS, forecast_tariff_source, charger_operating_grid, effective_configuration
 
 
@@ -290,7 +291,8 @@ async def websocket_get_plan(
                 tariff_bindings=deepcopy(runtime.tariff_bindings),
                 include_observed_sessions=True, active_sessions=result["active_sessions"],
                 tariff_entity=forecast_tariff_source(result["configuration"]["controller"]),
-                as_of=snapshot_at,
+                as_of=snapshot_at, include_retired_chargers="history_date" in msg,
+                include_quarters="history_date" not in msg,
             )
         else:
             actual, quality, estimates, observed_sessions, session_metrics = [], "NOT_REQUESTED", {}, [], {}
@@ -319,6 +321,18 @@ async def websocket_get_plan(
              **estimates.get((receipt["charger_id"], receipt["started_at"], receipt["ended_at"]), {})}
             for receipt in recent
         ]
+        if "history_date" in msg:
+            # Full native receipt interval and qualified pricing denominator;
+            # date selects overlap, never prorates a crossing session.
+            for receipt in result["completed_sessions"]:
+                receipt["financial"] = session_financial_evidence(receipt, "last")
+            for uid, receipt in result["active_sessions"].items():
+                receipt["charger_id"] = uid
+                receipt["financial"] = session_financial_evidence(receipt, "active")
+            for receipt in observed_sessions:
+                receipt["financial"] = session_financial_evidence(
+                    receipt, "active" if receipt.get("ongoing") else "last", True,
+                )
         result["actual_slots"] = actual
         result["actual_history_quality"] = quality
 
