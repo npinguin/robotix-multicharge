@@ -526,10 +526,14 @@ if(new URLSearchParams(location.search).has("upgrade_tag")){
     const summary=c.querySelector(":scope > .financial-headline");
     return !action||(!fold||action.getBoundingClientRect().bottom<=fold.getBoundingClientRect().top+2)&&(!summary||summary.getBoundingClientRect().bottom<=action.getBoundingClientRect().top+2);
   });
+  let stableFoldWidth=true;
   if(view==="asset"||view==="charger"){
+    const before=[...card.shadowRoot.querySelectorAll(".object-grid > .topic-card")].map(el=>({id:el.getAttribute("data-mc-object"),width:el.getBoundingClientRect().width,left:el.getBoundingClientRect().left}));
     const details=[...card.shadowRoot.querySelectorAll("details > summary")].find(
       b=>b.textContent===(view==="asset"?"Asset settings":"Charger settings"));
     if(details)details.click();
+    const after=[...card.shadowRoot.querySelectorAll(".object-grid > .topic-card")];
+    stableFoldWidth=before.every(b=>{const el=after.find(x=>x.getAttribute("data-mc-object")===b.id);return el&&Math.abs(el.getBoundingClientRect().width-b.width)<2&&Math.abs(el.getBoundingClientRect().left-b.left)<2;});
   }
   let defaultChartHosts=0,foldedChartHosts=0,chartLifecycle=true;
   if(view==="plan"){
@@ -594,7 +598,7 @@ if(new URLSearchParams(location.search).has("upgrade_tag")){
     render:!!frame,frameWidth:Math.round(rect?.width||0),
     documentWidth:document.documentElement.scrollWidth,
     tabs:[...root.querySelectorAll(".tabs button")].map(b=>b.textContent),
-    cards:cards.length,folds:folds.length,equalCardRows,balancedActions,orderedActions,
+    cards:cards.length,folds:folds.length,equalCardRows,balancedActions,orderedActions,stableFoldWidth,
     apexHosts:apexHosts.length,apexLive,defaultChartHosts,foldedChartHosts,chartLifecycle,sameRange,colorAndQuarter,pixelAligned,geometry:geometry.map(r=>r?[r.left,r.right]:null),
     legendContained:!!chartLegend&&chartLegend.getBoundingClientRect().top>=chartHost.getBoundingClientRect().bottom-1,
     legendToggle:toggle?.getAttribute("aria-pressed")==="false",
