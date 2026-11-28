@@ -1140,8 +1140,9 @@ def daily_costs(historical, bindings, configuration, first, last, quotes,
         session_bucket = None
         if session_partition is not None:
             matches = [row for row in session_partition.get(uid, ())
-                       if row["first"] <= a and b <= row["last"]]
-            if len(matches) == 1:
+                       if row["first"] < b and row["last"] > a]
+            if (len(matches) == 1 and matches[0]["first"] <= a
+                    and b <= matches[0]["last"]):
                 session_bucket = matches[0]["bucket"]
                 session_bucket["observed_seconds"] += (b-a).total_seconds()
         if energy == 0:
@@ -1227,6 +1228,8 @@ def daily_costs(historical, bindings, configuration, first, last, quotes,
                     if block_index >= 0 and blocks[block_index][1] >= y:
                         continue  # this exact native meter increment was already counted
                     bucket["observed_seconds"] += (y-x).total_seconds()
+                    if power == 0 and session_partition is None:
+                        continue  # proven idle does not require a tariff
                     energy = power*(y-x).total_seconds()/3600
                     matching = [asset for since, until, asset in attribution
                                 if since <= x and until >= y]
@@ -1266,6 +1269,8 @@ def session_day_partition(historical, bindings, configuration, first, last, quot
     """
     partition = {}
     for row in [*receipts, *active_sessions.values(), *observed]:
+        if row.get("physical_stop_confirmed") is False:
+            continue  # recovery interval is not a confirmed physical session
         uid = row.get("charger_id")
         try:
             a = max(first, datetime.fromisoformat(row["started_at"]))
